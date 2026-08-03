@@ -1,4 +1,4 @@
-"""Normalization rules required by the official Diffusion Planner checkpoint."""
+"""Normalization rules"""
 
 from __future__ import annotations
 
@@ -31,10 +31,12 @@ class ObservationNormalizer:
     def __init__(self, normalization: Mapping[str, Mapping[str, object]]) -> None:
         parsed: dict[str, dict[str, torch.Tensor]] = {}
         for name, values in normalization.items():
-            if set(values) != {"mean", "std"}:
+            if not isinstance(values, Mapping) or set(values) != {"mean", "std"}:
                 raise ValueError(f"normalization for {name!r} must contain exactly mean and std")
             mean = torch.as_tensor(values["mean"], dtype=torch.float32)
             std = torch.as_tensor(values["std"], dtype=torch.float32)
+            if mean.ndim != 1 or mean.numel() == 0:
+                raise ValueError(f"normalization values for {name!r} must be non-empty vectors")
             if mean.shape != std.shape:
                 raise ValueError(f"normalization mean/std shape mismatch for {name!r}")
             if not torch.isfinite(mean).all() or not torch.isfinite(std).all():

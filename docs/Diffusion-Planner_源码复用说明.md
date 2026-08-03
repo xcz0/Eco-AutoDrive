@@ -156,9 +156,12 @@ nuPlan history/map
 
 | Eco-AutoDrive 目标位置 | 来源或处理方式 |
 | --- | --- |
-| `src/eco_planner/models/diffusion_planner.py` | 保持原模型模块命名的兼容实现或薄包装 |
+| `src/eco_planner/models/diffusion_planner.py` | 保持原模型参数层级的顶层兼容包装和权重初始化 |
+| `src/eco_planner/models/encoder.py` | 动态体、静态体、车道编码及场景 token 融合 |
+| `src/eco_planner/models/decoder.py` / `dit.py` | 路线编码、DiT 去噪网络和输出层 |
 | `src/eco_planner/models/normalization.py` | 等价实现 `normalizer.py`，加载明确的归一化配置 |
 | `src/eco_planner/models/baseline_sampler.py` | 封装原 DPM-Solver++，只用于 baseline/eval |
+| `src/eco_planner/models/checkpoint.py` / `contracts.py` | 官方资产完整性校验和推理张量契约 |
 | `src/eco_planner/models/dppo_sampler.py` | 独立新增随机 sampler，不修改 baseline sampler |
 | `src/eco_planner/envs/observation_adapter.py` | 参考 `data_process`，基于 MetaDrive API 重写 |
 | `src/eco_planner/envs/trajectory_executor.py` | 替代 nuPlan `planner.py` 的输出转换与执行 |

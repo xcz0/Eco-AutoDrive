@@ -71,6 +71,16 @@ _OBSERVATION_KEYS = {
     "route_lanes_speed_limit",
 }
 
+_OBSERVATION_DIMENSIONS = {
+    "ego_current_state": 10,
+    "neighbor_agents_past": 11,
+    "static_objects": 10,
+    "lanes": 12,
+    "lanes_speed_limit": 1,
+    "route_lanes": 12,
+    "route_lanes_speed_limit": 1,
+}
+
 
 @dataclass(frozen=True)
 class OfficialDiffusionPlannerConfig:
@@ -118,6 +128,8 @@ class OfficialDiffusionPlannerConfig:
             message += f"missing={missing}, unexpected={unexpected}"
             raise ValueError(message)
         for name, expected in _EXPECTED_DIMENSIONS.items():
+            if type(raw[name]) is not int:
+                raise ValueError(f"official args field {name!r} must be an integer")
             if raw[name] != expected:
                 message = f"official args field {name!r} must be {expected}"
                 message += f", got {raw[name]!r}"
@@ -128,9 +140,9 @@ class OfficialDiffusionPlannerConfig:
             raise ValueError("only the official x_start diffusion model is supported")
         if raw["device"] not in {"cpu", "cuda"}:
             raise ValueError("checkpoint device must be either 'cpu' or 'cuda'")
-        if not isinstance(raw["encoder_drop_path_rate"], (int, float)) or not isinstance(
-            raw["decoder_drop_path_rate"], (int, float)
-        ):
+        if type(raw["encoder_drop_path_rate"]) not in {int, float} or type(
+            raw["decoder_drop_path_rate"]
+        ) not in {int, float}:
             raise ValueError("drop path rates must be numeric")
         encoder_drop_path_rate = raw["encoder_drop_path_rate"]
         decoder_drop_path_rate = raw["decoder_drop_path_rate"]
@@ -141,11 +153,27 @@ class OfficialDiffusionPlannerConfig:
             raise ValueError(
                 "official observation normalizer keys do not match the checkpoint contract"
             )
+        for name, expected_dimension in _OBSERVATION_DIMENSIONS.items():
+            values = observation[name]
+            if not isinstance(values, dict) or set(values) != {"mean", "std"}:
+                raise ValueError(
+                    f"official observation normalizer {name!r} must contain mean and std"
+                )
+            for statistic in ("mean", "std"):
+                vector = values[statistic]
+                if not isinstance(vector, list) or len(vector) != expected_dimension:
+                    raise ValueError(
+                        f"official observation normalizer {name!r} {statistic} must have "
+                        f"length {expected_dimension}"
+                    )
+        state_normalizer = raw["state_normalizer"]
+        if not isinstance(state_normalizer, dict) or set(state_normalizer) != {"mean", "std"}:
+            raise ValueError("official state normalizer must contain exactly mean and std")
         omitted_keys = {"device", "state_normalizer", "observation_normalizer"}
         model_fields = {name: raw[name] for name in _EXPECTED_KEYS - omitted_keys}
         return cls(
             **model_fields,
             checkpoint_device=raw["device"],
-            state_normalizer=StateNormalizer(**raw["state_normalizer"]),
+            state_normalizer=StateNormalizer(**state_normalizer),
             observation_normalizer=ObservationNormalizer(observation),
         )
