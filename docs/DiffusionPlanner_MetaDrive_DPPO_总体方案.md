@@ -355,10 +355,10 @@ eco-diffusion-planner/
 │   ├── train.py
 │   └── evaluate.py
 ├── tests/
-│   ├── test_coordinates.py
-│   ├── test_observation_shapes.py
-│   ├── test_sampler_logprob.py
-│   └── test_fastsim_meter.py
+│   ├── conftest.py
+│   ├── unit/
+│   ├── integration/
+│   └── smoke/
 ├── scripts/
 └── third_party/
     └── Diffusion-Planner/   # 固定 commit，只读或 submodule

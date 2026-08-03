@@ -34,7 +34,7 @@ packages = ["src/eco_planner"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra --import-mode=importlib"
 markers = [
     "gpu: requires a CUDA GPU",
     "simulator: requires MetaDrive and its simulator runtime",
