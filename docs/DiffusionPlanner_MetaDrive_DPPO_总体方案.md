@@ -269,10 +269,10 @@ MetaDrive 支持按 block 数随机生成地图，也支持用 `S/C/r/R/O/X/y/Y/
 ### 阶段 0：可复现基线
 
 - 下载并正确加载官方 `args.json`、`model.pth` 的 EMA 权重；
-- 在原 nuPlan 接口或仓库 demo 上确认输出正常；
+- 使用固定合成观测和显式初始噪声，在独立 checkpoint-compatible 推理实现上确认输出正常；
 - 记录 checkpoint 哈希和上游 commit。
 
-验收：官方基线能推理，轨迹数值无 NaN。
+验收：EMA 权重严格加载，10 步 DPM-Solver++ 输出 `[B, 11, 80, 4]` 且无 NaN；相同输入和噪声重复推理一致。本阶段不安装 nuPlan、不复现官方闭环分数。
 
 ### 阶段 1：MetaDrive 闭环适配
 
@@ -408,4 +408,3 @@ Windows 主机只负责编辑、配置和小型静态测试；所有依赖解析
 - [MetaDrive 官方代码](https://github.com/metadriverse/metadrive)、[动作与 Policy 接口](https://metadrive-simulator.readthedocs.io/en/latest/action.html)、[环境与地图配置](https://metadrive-simulator.readthedocs.io/en/latest/rl_environments.html)
 - [FASTSim 官方代码](https://github.com/NatLabRockies/fastsim)、[入门流程](https://natlabrockies.github.io/fastsim/getting-started/)、[自定义 Drive Cycle](https://natlabrockies.github.io/fastsim/drive-cycle/)与 [SimDrive](https://natlabrockies.github.io/fastsim/simdrive/)
 - [Lightning Fabric 官方文档](https://lightning.ai/docs/fabric/stable/api/generated/lightning.fabric.fabric.Fabric.html)与 [Lightning 手动优化](https://lightning.ai/docs/pytorch/stable/common/optimization.html)
-
