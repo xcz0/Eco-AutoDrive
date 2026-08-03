@@ -15,7 +15,7 @@
 关键技术判断如下：
 
 - Diffusion Planner 当前推理使用 `no_grad` 的 10 步 DPM-Solver++。它不产生 DPPO 所需的逐步随机转移概率，因此必须新增一个 **DPPO-compatible stochastic sampler**；预训练的连续时间 `x_start` 预测器可以继续使用。
-- Diffusion Planner 固定输出 80 个未来点（8 s、10 Hz），与 MetaDrive 默认约 0.1 s 的决策间隔天然匹配。第一阶段直接使用 MetaDrive 的 `WaypointPolicy` 执行局部轨迹，不单独建立动力学模型。
+- Diffusion Planner 固定输出 80 个未来点（8 s、10 Hz），与 MetaDrive 默认约 0.1 s 的决策间隔天然匹配。第一阶段使用项目内的 `KinematicTrajectoryPolicy` 执行局部后轴轨迹，不单独建立动力学模型。
 - 不把超过原训练分布的远期路线直接塞进现有 `route_lanes`。应新增零初始化的 `RoadPreviewEncoder`，以残差方式注入 200–500 m 的道路预瞄信息，最大程度保留开源权重的初始行为。
 - RL 主循环使用 **Lightning Fabric**。Fabric 保留自定义 PPO 循环，同时提供设备、混合精度、DDP、日志和 checkpoint 封装；若进行离线行为克隆预热，可单独使用标准 Lightning Trainer。
 - FASTSim 是后向整车能耗模型，输入至少需要时间—速度序列，不加入坡度。第一阶段的能耗改进主要来自速度规划、减少无效加减速和交通交互，而不是坡度预瞄。
@@ -102,7 +102,7 @@ flowchart TD
 
 ### 4.3 轨迹执行
 
-第一阶段使用 MetaDrive 自带 `WaypointPolicy`：模型输出局部 `(x, y)` 轨迹，转成世界坐标，环境按 0.1 s 更新位置、速度、heading 和角速度。每次只执行前 5 点，其余点作为规划上下文但不执行。
+第一阶段使用项目内的 `KinematicTrajectoryPolicy`：模型输出 ego 后轴局部 `[x, y, cos(h), sin(h)]` 轨迹，Policy 转成 MetaDrive 世界坐标和车辆中心轨迹，环境按 0.1 s 更新位置、速度、heading 和角速度。`TrajectoryMetaDriveEnv.step()` 每次只执行前 5 点并汇总子步奖励，其余点作为规划上下文但不执行。
 
 这一路线不额外引入车辆动力学模型，开发量最小。但它属于轨迹级/运动学闭环，并不等价于低层转向、油门、制动闭环。后续如需研究可执行性，只替换 `TrajectoryExecutor` 为 PID / Stanley / MPC 跟踪器，不改模型和 RL 接口。
 
@@ -277,7 +277,7 @@ MetaDrive 支持按 block 数随机生成地图，也支持用 `S/C/r/R/O/X/y/Y/
 ### 阶段 1：MetaDrive 闭环适配
 
 - 完成 observation、route、agent-history adapter；
-- 接入原 DPM-Solver++ 和 `WaypointPolicy`；
+- 接入原 DPM-Solver++ 和 `KinematicTrajectoryPolicy`；
 - 输出视频和向量地图叠加图；
 - 运行短回合并记录实际速度轨迹。
 
@@ -388,7 +388,7 @@ Windows 主机只负责编辑、配置和小型静态测试；所有依赖解析
 | DPM-Solver → 随机 sampler 分布偏移 | 未训练策略先退化 | 少步、低方差、只微调后段去噪；保留原 sampler 对照 |
 | 高维轨迹 PPO ratio 不稳 | clip 率高、梯度消失 | 只聚合已执行的 ego 前缀，按维均值，采用 DPPO 的小 clip 和 KL 早停 |
 | 能耗奖励诱导慢行/停车 | 虚假节能 | 进度、时间、到达约束；成功回合内比较能耗 |
-| waypoint 执行绕开动力学 | 结果不可直接部署 | 明确研究边界；后续只替换 executor 做可执行性扩展 |
+| 运动学轨迹 Policy 绕开动力学 | 结果不可直接部署 | 明确研究边界；后续只替换 executor 做可执行性扩展 |
 | FASTSim 在线重复计算慢 | rollout 吞吐下降 | 先 profile 前缀法；必要时使用 FASTSim 蒸馏查表，最终评测保持精确 |
 | 程序化超长地图生成不稳 | 长距离评测不足 | 固定长序列、自定义长走廊；不要用不连续回合替代主结果 |
 | MetaDrive 平面道路 | 缺少坡度节能结论 | 第一阶段聚焦曲率/限速/交通预瞄；保留 grade 接口供后续扩展 |
