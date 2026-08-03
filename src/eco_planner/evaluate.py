@@ -1,1 +1,475 @@
-"""Evaluation entry point for fixed-seed MetaDrive experiments."""
+"""Fixed-seed official Diffusion Planner evaluation in no-traffic MetaDrive."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+import hydra
+import numpy as np
+import torch
+from hydra.core.hydra_config import HydraConfig
+from hydra.utils import to_absolute_path
+from metadrive.utils.doc_utils import generate_gif
+from omegaconf import DictConfig, OmegaConf
+
+from eco_planner.envs import (
+    NoTrafficMetaDriveObservationAdapter,
+    TrajectoryMetaDriveEnv,
+)
+from eco_planner.models.pretrained import (
+    CheckpointLoadReport,
+    PretrainedDiffusionPlanner,
+    load_official_diffusion_planner,
+)
+
+
+@dataclass(frozen=True)
+class ScenarioSpec:
+    name: str
+    map_sequence: str
+    seed: int
+
+
+@dataclass
+class EpisodeTrace:
+    initial_state: np.ndarray
+    planning_anchors: list[np.ndarray]
+    noises: list[np.ndarray]
+    predictions_local: list[np.ndarray]
+    ego_world: list[np.ndarray]
+    substep_states: list[np.ndarray]
+    substep_rewards: list[np.ndarray]
+    substep_terminated: list[np.ndarray]
+    substep_truncated: list[np.ndarray]
+    substep_plan_indices: list[np.ndarray]
+
+
+def _parse_scenarios(config: DictConfig) -> list[ScenarioSpec]:
+    scenarios: list[ScenarioSpec] = []
+    names: set[str] = set()
+    for raw in config.scenarios:
+        name = raw.name
+        map_sequence = raw.map
+        seed = raw.seed
+        if not isinstance(name, str) or not name:
+            raise ValueError("every evaluation scenario must have a non-empty name")
+        if name in names:
+            raise ValueError(f"duplicate evaluation scenario name: {name!r}")
+        if not isinstance(map_sequence, str) or not map_sequence:
+            raise ValueError(f"scenario {name!r} must have a non-empty map sequence")
+        if type(seed) is not int or seed < 0:
+            raise ValueError(f"scenario {name!r} seed must be a non-negative integer")
+        scenarios.append(ScenarioSpec(name, map_sequence, seed))
+        names.add(name)
+    if not scenarios:
+        raise ValueError("at least one evaluation scenario is required")
+    return scenarios
+
+
+def _validate_evaluation_config(config: DictConfig) -> None:
+    if type(config.model.seed) is not int or config.model.seed < 0:
+        raise ValueError("model.seed must be a non-negative integer")
+    if type(config.map_query_radius_m) not in {int, float} or config.map_query_radius_m <= 0:
+        raise ValueError("map_query_radius_m must be positive")
+    if type(config.video.enabled) is not bool:
+        raise TypeError("video.enabled must be a boolean")
+    for name in ("screen_width", "screen_height", "film_width", "film_height"):
+        value = config.video[name]
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"video.{name} must be a positive integer")
+    if type(config.video.scaling) not in {int, float} or config.video.scaling <= 0:
+        raise ValueError("video.scaling must be positive")
+    if type(config.video.fps) is not int or config.video.fps <= 0:
+        raise ValueError("video.fps must be a positive integer")
+
+
+def _initial_vehicle_state(env: TrajectoryMetaDriveEnv) -> np.ndarray:
+    velocity = np.asarray(env.agent.velocity, dtype=np.float64)
+    return np.array(
+        [
+            *np.asarray(env.agent.position, dtype=np.float64),
+            float(env.agent.heading_theta),
+            *velocity,
+            float(env.agent.speed),
+            0.0,
+        ],
+        dtype=np.float64,
+    )
+
+
+def _new_episode_trace(env: TrajectoryMetaDriveEnv) -> EpisodeTrace:
+    return EpisodeTrace(
+        initial_state=_initial_vehicle_state(env),
+        planning_anchors=[],
+        noises=[],
+        predictions_local=[],
+        ego_world=[],
+        substep_states=[],
+        substep_rewards=[],
+        substep_terminated=[],
+        substep_truncated=[],
+        substep_plan_indices=[],
+    )
+
+
+def _noise_for_planner(
+    planner: PretrainedDiffusionPlanner,
+    generator: torch.Generator,
+    device: torch.device,
+) -> torch.Tensor:
+    config = planner.config
+    return torch.randn(
+        (
+            1,
+            1 + config.predicted_neighbor_num,
+            config.future_len,
+            4,
+        ),
+        dtype=torch.float32,
+        device=device,
+        generator=generator,
+    )
+
+
+def _world_prediction(info: dict[str, Any]) -> np.ndarray:
+    centers = np.asarray(info["trajectory_world_centers"], dtype=np.float64)
+    headings = np.asarray(info["trajectory_world_headings"], dtype=np.float64)
+    if centers.shape != (80, 2) or headings.shape != (80,):
+        raise RuntimeError("environment returned an invalid world trajectory")
+    return np.column_stack((centers, np.cos(headings), np.sin(headings)))
+
+
+def _append_cycle(
+    trace: EpisodeTrace,
+    anchor: np.ndarray,
+    noise: torch.Tensor,
+    prediction: torch.Tensor,
+    info: dict[str, Any],
+    plan_index: int,
+) -> None:
+    substep_states = np.asarray(info["trajectory_substep_states"], dtype=np.float64)
+    substep_count = substep_states.shape[0]
+    if substep_states.ndim != 2 or substep_states.shape[1] != 7:
+        raise RuntimeError("environment returned invalid trajectory substep states")
+    trace.planning_anchors.append(anchor)
+    trace.noises.append(noise.detach().cpu().numpy())
+    trace.predictions_local.append(prediction.detach().cpu().numpy())
+    trace.ego_world.append(_world_prediction(info))
+    trace.substep_states.append(substep_states)
+    trace.substep_rewards.append(np.asarray(info["trajectory_substep_rewards"], dtype=np.float64))
+    trace.substep_terminated.append(
+        np.asarray(info["trajectory_substep_terminated"], dtype=np.bool_)
+    )
+    trace.substep_truncated.append(np.asarray(info["trajectory_substep_truncated"], dtype=np.bool_))
+    trace.substep_plan_indices.append(np.full(substep_count, plan_index, dtype=np.int64))
+
+
+def _draw_segment(
+    frame: np.ndarray,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    color: tuple[int, int, int],
+    width: int,
+) -> None:
+    delta_x = end[0] - start[0]
+    delta_y = end[1] - start[1]
+    samples = max(abs(delta_x), abs(delta_y)) + 1
+    xs = np.rint(np.linspace(start[0], end[0], samples)).astype(np.int64)
+    ys = np.rint(np.linspace(start[1], end[1], samples)).astype(np.int64)
+    height, frame_width = frame.shape[:2]
+    for offset_x in range(-width, width + 1):
+        for offset_y in range(-width, width + 1):
+            draw_x = xs + offset_x
+            draw_y = ys + offset_y
+            valid = (draw_x >= 0) & (draw_x < frame_width) & (draw_y >= 0) & (draw_y < height)
+            frame[draw_y[valid], draw_x[valid], :3] = color
+
+
+def _draw_world_polyline(
+    frame: np.ndarray,
+    points: np.ndarray,
+    camera_position: np.ndarray,
+    scaling: float,
+    color: tuple[int, int, int],
+    width: int,
+) -> None:
+    if points.ndim != 2 or points.shape[1] != 2:
+        raise ValueError("polyline points must have shape [N, 2]")
+    if points.shape[0] < 2:
+        return
+    height, frame_width = frame.shape[:2]
+    pixels = np.empty((points.shape[0], 2), dtype=np.int64)
+    pixels[:, 0] = np.rint(frame_width / 2 + (points[:, 0] - camera_position[0]) * scaling)
+    pixels[:, 1] = np.rint(height / 2 - (points[:, 1] - camera_position[1]) * scaling)
+    for start, end in zip(pixels[:-1], pixels[1:]):
+        _draw_segment(frame, tuple(start), tuple(end), color, width)
+
+
+def _render_cycle_frame(
+    env: TrajectoryMetaDriveEnv,
+    info: dict[str, Any],
+    anchor_position: np.ndarray,
+    video_config: DictConfig,
+    plan_index: int,
+) -> np.ndarray:
+    frame = env.render(
+        text={"plan_cycle": plan_index, "route_completion": info["route_completion"]},
+        mode="top_down",
+        screen_size=(video_config.screen_width, video_config.screen_height),
+        film_size=(video_config.film_width, video_config.film_height),
+        scaling=float(video_config.scaling),
+        num_stack=20,
+        history_smooth=0,
+        window=False,
+        center_on_map=False,
+    )
+    if not isinstance(frame, np.ndarray) or frame.ndim != 3 or frame.shape[2] < 3:
+        raise RuntimeError("MetaDrive top-down renderer did not return an RGB frame")
+    rendered = frame.copy()
+    camera_position = np.asarray(env.agent.position, dtype=np.float64)
+    planned = np.vstack(
+        (anchor_position, np.asarray(info["trajectory_world_centers"], dtype=np.float64))
+    )
+    executed = np.vstack(
+        (
+            anchor_position,
+            np.asarray(info["trajectory_substep_states"], dtype=np.float64)[:, :2],
+        )
+    )
+    _draw_world_polyline(
+        rendered,
+        planned,
+        camera_position,
+        float(video_config.scaling),
+        (40, 90, 240),
+        1,
+    )
+    _draw_world_polyline(
+        rendered,
+        executed,
+        camera_position,
+        float(video_config.scaling),
+        (30, 210, 80),
+        2,
+    )
+    return rendered
+
+
+def _terminal_reason(info: dict[str, Any], terminated: bool, truncated: bool) -> str:
+    ordered_flags = (
+        ("arrive_dest", "arrive_dest"),
+        ("out_of_road", "out_of_road"),
+        ("crash_vehicle", "crash_vehicle"),
+        ("crash_object", "crash_object"),
+        ("crash_building", "crash_building"),
+        ("crash_human", "crash_human"),
+        ("max_step", "max_step"),
+    )
+    for key, reason in ordered_flags:
+        if bool(info[key]):
+            return reason
+    if truncated:
+        return "truncated"
+    if terminated:
+        return "terminated"
+    raise RuntimeError("episode ended without a terminal reason")
+
+
+def _stack_trace(trace: EpisodeTrace) -> dict[str, np.ndarray]:
+    if not trace.noises or not trace.substep_states:
+        raise RuntimeError("cannot save an empty closed-loop trace")
+    return {
+        "initial_state": trace.initial_state,
+        "planning_anchors": np.stack(trace.planning_anchors),
+        "initial_noise": np.concatenate(trace.noises, axis=0),
+        "predictions_local": np.concatenate(trace.predictions_local, axis=0),
+        "ego_predictions_world": np.stack(trace.ego_world),
+        "executed_states": np.concatenate(trace.substep_states, axis=0),
+        "executed_rewards": np.concatenate(trace.substep_rewards, axis=0),
+        "executed_terminated": np.concatenate(trace.substep_terminated, axis=0),
+        "executed_truncated": np.concatenate(trace.substep_truncated, axis=0),
+        "executed_plan_indices": np.concatenate(trace.substep_plan_indices, axis=0),
+    }
+
+
+def _episode_summary(
+    spec: ScenarioSpec,
+    report: CheckpointLoadReport,
+    trace_arrays: dict[str, np.ndarray],
+    final_info: dict[str, Any],
+    terminated: bool,
+    truncated: bool,
+    total_reward: float,
+    noise_seed: int,
+) -> dict[str, Any]:
+    positions = np.vstack(
+        (
+            trace_arrays["initial_state"][None, :2],
+            trace_arrays["executed_states"][:, :2],
+        )
+    )
+    distance_m = float(np.linalg.norm(np.diff(positions, axis=0), axis=1).sum())
+    speeds = trace_arrays["executed_states"][:, 5]
+    return {
+        "scenario": asdict(spec),
+        "noise_seed": noise_seed,
+        "checkpoint": asdict(report),
+        "plan_cycles": int(trace_arrays["initial_noise"].shape[0]),
+        "simulator_steps": int(trace_arrays["executed_states"].shape[0]),
+        "simulated_seconds": float(trace_arrays["executed_states"].shape[0] * 0.1),
+        "total_reward": total_reward,
+        "distance_m": distance_m,
+        "speed_mps": {
+            "minimum": float(speeds.min()),
+            "mean": float(speeds.mean()),
+            "maximum": float(speeds.max()),
+        },
+        "route_completion": float(final_info["route_completion"]),
+        "arrive_dest": bool(final_info["arrive_dest"]),
+        "out_of_road": bool(final_info["out_of_road"]),
+        "crash_vehicle": bool(final_info["crash_vehicle"]),
+        "crash_object": bool(final_info["crash_object"]),
+        "terminated": terminated,
+        "truncated": truncated,
+        "terminal_reason": _terminal_reason(final_info, terminated, truncated),
+    }
+
+
+def _write_episode_artifacts(
+    output_dir: Path,
+    trace: EpisodeTrace,
+    frames: list[np.ndarray],
+    summary: dict[str, Any],
+    video_config: DictConfig,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=False)
+    np.savez_compressed(output_dir / "trace.npz", **_stack_trace(trace))
+    (output_dir / "summary.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    if video_config.enabled:
+        if not frames:
+            raise RuntimeError("video output was enabled but no frames were rendered")
+        duration_ms = round(1000 / video_config.fps)
+        generate_gif(frames, str(output_dir / "closed_loop.gif"), duration=duration_ms)
+
+
+def _run_scenario(
+    spec: ScenarioSpec,
+    planner: PretrainedDiffusionPlanner,
+    report: CheckpointLoadReport,
+    config: DictConfig,
+    output_root: Path,
+    device: torch.device,
+) -> dict[str, Any]:
+    raw_env_config = OmegaConf.to_container(config.env, resolve=True)
+    if not isinstance(raw_env_config, dict):
+        raise TypeError("env configuration must resolve to a dictionary")
+    env_config = dict(raw_env_config)
+    env_config["map"] = spec.map_sequence
+    env = TrajectoryMetaDriveEnv(env_config)
+    adapter = NoTrafficMetaDriveObservationAdapter(planner.config, float(config.map_query_radius_m))
+    generator = torch.Generator(device=device).manual_seed(config.model.seed)
+    frames: list[np.ndarray] = []
+    try:
+        env.reset(seed=spec.seed)
+        trace = _new_episode_trace(env)
+        terminated = False
+        truncated = False
+        total_reward = 0.0
+        final_info: dict[str, Any] | None = None
+        plan_index = 0
+        while not terminated and not truncated:
+            observation = adapter.build(env, device)
+            noise = _noise_for_planner(planner, generator, device)
+            prediction = planner.predict(observation, noise)
+            ego_trajectory = prediction[0, 0].detach().cpu().numpy().astype(np.float32)
+            anchor = _initial_vehicle_state(env)
+            _, reward, terminated, truncated, info = env.step(ego_trajectory)
+            total_reward += float(reward)
+            _append_cycle(trace, anchor, noise, prediction, info, plan_index)
+            if config.video.enabled:
+                frames.append(
+                    _render_cycle_frame(
+                        env,
+                        info,
+                        anchor[:2],
+                        config.video,
+                        plan_index,
+                    )
+                )
+            final_info = info
+            plan_index += 1
+        if final_info is None:
+            raise RuntimeError("closed-loop episode ended without a simulator result")
+        trace_arrays = _stack_trace(trace)
+        summary = _episode_summary(
+            spec,
+            report,
+            trace_arrays,
+            final_info,
+            terminated,
+            truncated,
+            total_reward,
+            config.model.seed,
+        )
+        _write_episode_artifacts(
+            output_root / spec.name,
+            trace,
+            frames,
+            summary,
+            config.video,
+        )
+        return summary
+    finally:
+        env.close()
+
+
+def run_evaluation(config: DictConfig, output_dir: Path) -> list[dict[str, Any]]:
+    """Run all configured no-traffic scenarios and write reproducible artifacts."""
+
+    _validate_evaluation_config(config)
+    scenarios = _parse_scenarios(config)
+    device = torch.device(config.model.device)
+    args_path = Path(to_absolute_path(config.model.args_path))
+    checkpoint_path = Path(to_absolute_path(config.model.checkpoint_path))
+    planner, report = load_official_diffusion_planner(
+        args_path,
+        checkpoint_path,
+        config.model.expected_args_sha256,
+        config.model.expected_checkpoint_sha256,
+        device,
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    OmegaConf.save(config, output_dir / "resolved_config.yaml", resolve=True)
+    summaries = [
+        _run_scenario(spec, planner, report, config, output_dir, device) for spec in scenarios
+    ]
+    summary_payload = {
+        "config": OmegaConf.to_container(config, resolve=True),
+        "episodes": summaries,
+    }
+    (output_dir / "summary.json").write_text(
+        json.dumps(summary_payload, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    return summaries
+
+
+@hydra.main(
+    version_base="1.3",
+    config_path="../../configs",
+    config_name="evaluation/no_traffic",
+)
+def main(config: DictConfig) -> None:
+    output_dir = Path(HydraConfig.get().runtime.output_dir)
+    summaries = run_evaluation(config, output_dir)
+    print(json.dumps(summaries, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

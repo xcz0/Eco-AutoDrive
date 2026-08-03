@@ -276,6 +276,10 @@ MetaDrive 支持按 block 数随机生成地图，也支持用 `S/C/r/R/O/X/y/Y/
 
 ### 阶段 1：MetaDrive 闭环适配
 
+当前已完成无交通子集：官方 EMA 权重可在程序化直道和缓弯中以 2 Hz 重规划、10 Hz 运动学执行，
+并输出结构化轨迹与可视化。低密度交通、邻车真实历史和静态物体适配尚未完成，因此阶段 1 整体
+仍未验收。
+
 - 完成 observation、route、agent-history adapter；
 - 接入原 DPM-Solver++ 和 `KinematicTrajectoryPolicy`；
 - 输出视频和向量地图叠加图；

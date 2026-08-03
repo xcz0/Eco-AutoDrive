@@ -206,14 +206,46 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
 
     def step(self, trajectory: np.ndarray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
         validated = _validate_trajectory(trajectory, TRAJECTORY_HORIZON)
+        rear_wheelbase = self.agent.REAR_WHEELBASE
+        if rear_wheelbase is None:
+            raise RuntimeError("controlled vehicle does not define REAR_WHEELBASE")
+        world_trajectory = _to_world_trajectory(
+            validated,
+            center_position=np.asarray(self.agent.position, dtype=np.float64),
+            center_heading=float(self.agent.heading_theta),
+            rear_wheelbase=float(rear_wheelbase),
+            timestep_s=TRAJECTORY_TIMESTEP_S,
+        )
         total_reward = 0.0
         final_result: tuple[Any, float, bool, bool, dict[str, Any]] | None = None
         executed_steps = 0
+        substep_states: list[np.ndarray] = []
+        substep_rewards: list[float] = []
+        substep_terminated: list[bool] = []
+        substep_truncated: list[bool] = []
         for index in range(TRAJECTORY_EXECUTION_STEPS):
             action = validated if index == 0 else None
             observation, reward, terminated, truncated, info = super().step(action)
             total_reward += float(reward)
             executed_steps += 1
+            velocity = np.asarray(self.agent.velocity, dtype=np.float64)
+            if velocity.shape != (2,) or not np.isfinite(velocity).all():
+                raise RuntimeError("controlled vehicle returned an invalid velocity")
+            substep_states.append(
+                np.array(
+                    [
+                        *np.asarray(self.agent.position, dtype=np.float64),
+                        float(self.agent.heading_theta),
+                        *velocity,
+                        float(self.agent.speed),
+                        float(world_trajectory.angular_velocities[index]),
+                    ],
+                    dtype=np.float64,
+                )
+            )
+            substep_rewards.append(float(reward))
+            substep_terminated.append(bool(terminated))
+            substep_truncated.append(bool(truncated))
             final_result = (observation, total_reward, terminated, truncated, info)
             if terminated or truncated:
                 break
@@ -223,6 +255,14 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         result_info = dict(final_info)
         result_info["trajectory_execution_steps"] = executed_steps
         result_info["trajectory_reward_sum"] = total_reward
+        result_info["trajectory_world_centers"] = world_trajectory.centers[1:].copy()
+        result_info["trajectory_world_headings"] = world_trajectory.headings[1:].copy()
+        result_info["trajectory_substep_states"] = np.stack(substep_states)
+        result_info["trajectory_substep_rewards"] = np.asarray(substep_rewards, dtype=np.float64)
+        result_info["trajectory_substep_terminated"] = np.asarray(
+            substep_terminated, dtype=np.bool_
+        )
+        result_info["trajectory_substep_truncated"] = np.asarray(substep_truncated, dtype=np.bool_)
         return observation, total_reward, terminated, truncated, result_info
 
 

@@ -675,8 +675,10 @@ map_input = adapter.build(env, device)
 obs, reward, terminated, truncated, info = env.step(trajectory)
 ```
 
-本阶段尚未实现完整 `MetaDriveObservationAdapter`。自车状态、邻车 21 帧历史和静态物体将在
-后续模型短闭环阶段补齐，不能用零值占位假装完整模型输入已经可用。
+当前另有严格限定为无交通场景的 `NoTrafficMetaDriveObservationAdapter`。它组合地图输入、官方
+推理 ego 当前状态和真实的无对象 padding，并会拒绝非零交通配置以及 reset 后出现的背景车辆或
+静态交通物体。该接口已用于官方权重的直道/缓弯闭环，但不代表完整
+`MetaDriveObservationAdapter` 已完成；邻车 21 帧历史和低密度交通仍将在后续阶段补齐。
 
 ---
 

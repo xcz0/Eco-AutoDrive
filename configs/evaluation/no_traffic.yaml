@@ -1,0 +1,52 @@
+# @package _global_
+
+defaults:
+  - /env: metadrive
+  - /model: diffusion_planner
+  - _self_
+
+name: official_no_traffic_closed_loop
+map_query_radius_m: 100.0
+
+env:
+  num_scenarios: 1
+  use_render: false
+  image_observation: false
+  traffic_density: 0.0
+  random_traffic: false
+  random_spawn_lane_index: false
+  accident_prob: 0.0
+  physics_world_step_size: 0.02
+  decision_repeat: 5
+  trajectory_horizon: 80
+  trajectory_execution_steps: 5
+  horizon: 200
+
+model:
+  args_path: checkpoints/DP-Origin/args.json
+  checkpoint_path: checkpoints/DP-Origin/model.pth
+  device: cuda
+  seed: 0
+
+scenarios:
+  - name: straight
+    map: S
+    seed: 0
+  - name: gentle_curve
+    map: SC
+    seed: 0
+
+video:
+  enabled: true
+  fps: 2
+  screen_width: 800
+  screen_height: 800
+  film_width: 2000
+  film_height: 2000
+  scaling: 5.0
+
+hydra:
+  run:
+    dir: outputs/no_traffic/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: false

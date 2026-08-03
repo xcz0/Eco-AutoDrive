@@ -4,8 +4,13 @@ import numpy as np
 import pytest
 import torch
 
-from eco_planner.envs import MetaDriveMapAdapter, TrajectoryMetaDriveEnv
+from eco_planner.envs import (
+    MetaDriveMapAdapter,
+    NoTrafficMetaDriveObservationAdapter,
+    TrajectoryMetaDriveEnv,
+)
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.pretrained import CheckpointLoadReport, PretrainedDiffusionPlanner
 
 
 def _environment_config(map_sequence: str) -> dict[str, object]:
@@ -48,6 +53,16 @@ def test_trajectory_environment_executes_five_simulator_steps() -> None:
         assert env.engine.episode_step == 5
         assert info["trajectory_execution_steps"] == 5
         assert info["trajectory_reward_sum"] == pytest.approx(reward)
+        assert info["trajectory_world_centers"].shape == (80, 2)
+        assert info["trajectory_world_headings"].shape == (80,)
+        assert info["trajectory_substep_states"].shape == (5, 7)
+        assert info["trajectory_substep_rewards"].shape == (5,)
+        assert info["trajectory_substep_terminated"].shape == (5,)
+        assert info["trajectory_substep_truncated"].shape == (5,)
+        np.testing.assert_allclose(
+            info["trajectory_substep_states"][-1, :2],
+            np.asarray(env.agent.position),
+        )
         assert forward_progress == pytest.approx(2.5, abs=0.35)
         assert float(env.agent.heading_theta) == pytest.approx(start_heading, abs=1e-3)
         assert float(env.agent.speed) == pytest.approx(5.0, abs=0.1)
@@ -79,5 +94,39 @@ def test_map_adapter_is_deterministic_on_programmatic_maps(
             if first[name].dtype == torch.float32:
                 assert torch.isfinite(first[name]).all()
             torch.testing.assert_close(first[name], second[name], rtol=0.0, atol=0.0)
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
+@pytest.mark.slow
+@pytest.mark.parametrize("map_sequence", ["S", "SC"])
+def test_official_planner_executes_no_traffic_closed_loop_cycle(
+    map_sequence: str,
+    stage0_planner: tuple[PretrainedDiffusionPlanner, CheckpointLoadReport],
+) -> None:
+    planner, _ = stage0_planner
+    env = TrajectoryMetaDriveEnv(_environment_config(map_sequence))
+    adapter = NoTrafficMetaDriveObservationAdapter(planner.config, 100.0)
+    generator = torch.Generator(device="cpu").manual_seed(0)
+    try:
+        env.reset(seed=0)
+        observation = adapter.build(env, torch.device("cpu"))
+        noise = torch.randn(
+            (1, 11, 80, 4),
+            dtype=torch.float32,
+            generator=generator,
+        )
+
+        prediction = planner.predict(observation, noise)
+        ego_trajectory = prediction[0, 0].detach().cpu().numpy().astype(np.float32)
+        _, _, terminated, truncated, info = env.step(ego_trajectory)
+
+        assert prediction.shape == (1, 11, 80, 4)
+        assert torch.isfinite(prediction).all()
+        assert info["trajectory_execution_steps"] >= 1
+        assert info["trajectory_substep_states"].shape[1] == 7
+        assert isinstance(terminated, bool)
+        assert isinstance(truncated, bool)
     finally:
         env.close()
