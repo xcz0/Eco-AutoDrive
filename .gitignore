@@ -151,6 +151,13 @@ activemq-data/
 .env
 .envrc
 .venv
+outputs/
+checkpoints/
+datasets/
+wandb/
+third_party/metadrive/
+ref/Diffusion-Planner/
+ref/dppo/
 env/
 venv/
 ENV/

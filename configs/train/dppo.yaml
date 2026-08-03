@@ -1,0 +1,6 @@
+seed: 0
+devices: 1
+precision: 32-true
+gamma_env: 0.99
+gae_lambda: 0.95
+ppo_clip: 0.01

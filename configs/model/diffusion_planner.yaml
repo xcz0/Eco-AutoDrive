@@ -1,0 +1,4 @@
+prediction_horizon_s: 8.0
+prediction_frequency_hz: 10
+execution_horizon_s: 0.5
+denoising_steps: 10
