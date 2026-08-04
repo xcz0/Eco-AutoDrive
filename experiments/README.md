@@ -129,8 +129,8 @@ Python 静默默认值；正式实验必须由配置指定真实的 km/h 条件�
 **目的**：验证显式 PGMap 限速和修正后的 waypoint 生命周期能共同满足短程无交通接口契约。
 
 **代码与环境**：2026-08-04，Windows CPU。运行发生在最终提交前，运行时未提交 diff 未单独
-保存；对应实现随后提交为 `f578833060f0a715c4864064e4739f4f25773bf8`。这不是
-Linux/Docker/CUDA 正式验收。
+保存；对应实现随后提交为 `f578833060f0a715c4864064e4739f4f25773bf8`。这是本机接口证据；
+当前基础代码构建阶段不要求追加 Docker/服务器验收。
 
 **Hydra overrides**：
 
@@ -170,16 +170,16 @@ uv run python -m eco_planner.evaluate model.device=cpu env.horizon=20 `
 两者包含 resolved config、summary 和完整 trace；后一目录另含 `closed_loop.gif`。
 
 **结论边界**：支持限速接口和运动学执行器在单一直道、单一噪声 seed、2 s Windows CPU 条件下
-已修正。不能支持 `SC` 驾驶表现、20 s 稳定性、多 seed 稳健性、能耗改进或正式 CUDA 基线。
+已修正。不能支持 `SC` 驾驶表现、20 s 稳定性、多 seed 稳健性、能耗改进或服务器训练性能。
 
-## 正式实验登记模板
+## 服务器训练与正式实验登记模板
 
 ```markdown
 ## E-NNN 标题
 
 **日期 / 类型 / 目的**：
 **代码**：Git commit；`git status --short`；上游 commit
-**环境**：OS；容器/镜像；Python；CUDA/GPU；关键依赖
+**环境**：OS；Python；CUDA/GPU；关键依赖；容器/镜像（如使用）
 **数据**：数据版本或地图配置；场景 seed；交通条件
 **模型**：checkpoint 路径、SHA-256、参数量；sampler
 **配置**：resolved config 路径；Hydra overrides；随机种子

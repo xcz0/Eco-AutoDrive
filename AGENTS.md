@@ -35,7 +35,7 @@
 - `src/eco_planner/train.py`、`evaluate.py`：Hydra 驱动的训练和评测入口；
 - `configs/`：环境、模型、奖励、训练和实验配置；实验参数不得硬编码进 Python；
 - `tests/`：快速单元测试和带 marker 的 GPU、仿真器、慢速测试；
-- `docker/`：Ubuntu 22.04 / CUDA 12.4 基准环境；
+- `docker/`：预留给后续服务器训练阶段评估的 Ubuntu 22.04 / CUDA 12.4 环境；
 - `scripts/`：构建、部署和诊断脚本；禁止在其他目录散落临时入口；
 - `third_party/metadrive/`：运行时本地 editable 源码；固定版本和重建方法应有记录；
 - `ref/`：只读上游快照，不是运行时依赖，业务代码不得导入；
@@ -54,7 +54,7 @@
 - 在系统边界验证维度、dtype、设备、单位、范围和有限性；
 - 固定随机种子，并记录配置覆盖、checkpoint/hash、上游 commit 和数据来源。
 
-依赖变更先编辑 `pyproject.toml`，再在 Ubuntu/Docker 基准环境中更新并验证 `uv.lock`；二者必须同时提交。
+依赖变更先编辑 `pyproject.toml`，再更新并验证 `uv.lock`；二者必须同时提交。当前基础代码构建阶段先完成本机锁文件和快速测试验证，进入服务器训练阶段后再补充 Linux/CUDA 环境复验。
 
 ## 验证要求
 
@@ -69,7 +69,9 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-需要修改格式时运行 `uv run ruff format .`。涉及 MetaDrive 的改动还要运行显式 simulator 测试；涉及模型、FASTSim、CUDA、锁文件或正式实验时，必须在 Docker 基准环境运行对应集成测试：
+需要修改格式时运行 `uv run ruff format .`。涉及 MetaDrive 的改动还要运行本机可用的显式simulator 测试。当前目标是补齐代码逻辑并用小规模配置跑通最小强化学习流程；Docker/服务器环境验证暂不作为代码变更的验收条件。
+
+强化学习流程跑通并准备服务器训练时，再根据当时确认的运行方案执行 Linux/CUDA 集成测试。若决定沿用现有 Docker 配置，可使用：
 
 ```bash
 export CUDA_VISIBLE_DEVICES=0
@@ -77,7 +79,7 @@ docker compose -f docker/compose.yaml build
 docker compose -f docker/compose.yaml run --rm trainer
 ```
 
-容器内完整验证先执行 `uv sync --frozen --all-groups`，再执行 `uv run pytest`。Windows 上偶然可运行不能替代 Linux/Docker/CUDA 验收。
+容器内完整验证先执行 `uv sync --frozen --all-groups`，再执行 `uv run pytest`。本机结果只支持当前逻辑与接口结论；在服务器实验完成前，不得把它表述为服务器训练性能或跨平台结论。
 
 ## Git 与实验记录
 

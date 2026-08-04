@@ -1,15 +1,14 @@
 # Eco-AutoDrive
 
-Eco-AutoDrive 是一个个人科研项目：保留预训练 Diffusion Planner 的驾驶能力，在 MetaDrive
-长程闭环中通过 DPPO 优化能耗，并用 FASTSim 做精细能耗复核。
+Eco-AutoDrive 是一个个人科研项目：保留预训练 Diffusion Planner 的驾驶能力，在 MetaDrive 长程闭环中通过 DPPO 优化能耗，并用 FASTSim 做精细能耗复核。
 
-当前可运行成果是官方 EMA 权重的无交通、轨迹级运动学闭环；DPPO 训练、有交通观测、
-FASTSim 计量和低层控制尚未完成。准确进度与已验证结论见 [STATUS.md](docs/STATUS.md)。
+当前可运行成果是官方 EMA 权重的无交通、轨迹级运动学闭环；DPPO 训练、有交通观测、FASTSim 计量和低层控制尚未完成。准确进度与已验证结论见 [STATUS.md](docs/STATUS.md)。
+
+项目当前处于基础代码构建阶段：优先补齐代码逻辑并在本机跑通最小强化学习流程。服务器训练、长时性能评测和 Docker 环境验证均后置，不作为当前阶段的完成条件。
 
 ## 当前成果
 
-- checkpoint-compatible Diffusion Planner、严格 EMA 权重加载、官方归一化和 10 步
-  DPM-Solver++ baseline sampler；
+- checkpoint-compatible Diffusion Planner、严格 EMA 权重加载、官方归一化和 10 步 DPM-Solver++ baseline sampler；
 - MetaDrive 程序化地图到官方固定形状张量的地图适配；
 - 无交通 `S`/`SC` 场景的 2 Hz 滚动规划与 10 Hz 运动学轨迹执行；
 - 可复现评测产物：resolved config、`summary.json`、`trace.npz` 和闭环 GIF；
@@ -35,26 +34,18 @@ uv run ruff format --check .
 
 ## 运行无交通闭环
 
-正式 CUDA 评测读取 `configs/evaluation/no_traffic.yaml`：
-
-```bash
-uv run python -m eco_planner.evaluate
-```
-
-CPU 只用于单周期或短程链路检查，例如：
+`configs/evaluation/no_traffic.yaml` 默认仍使用 CUDA。本机接口和短程闭环检查必须显式覆盖设备、时长和场景，例如：
 
 ```powershell
 uv run python -m eco_planner.evaluate model.device=cpu env.horizon=5 `
-  'scenarios=[{name:straight,map:S,seed:0}]'
+  video.enabled=false 'scenarios=[{name:straight,map:S,seed:0}]'
 ```
 
-每次运行在 `outputs/no_traffic/` 下创建独立目录。该入口会拒绝背景车辆和静态交通物体，
-不能用于有交通评测。
+每次运行在 `outputs/no_traffic/` 下创建独立目录。该入口会拒绝背景车辆和静态交通物体，不能用于有交通评测。
 
-## Docker 基准环境
+## 预留的服务器环境
 
-正式依赖、MetaDrive/FASTSim、CUDA 和完整仿真以 Ubuntu 22.04 / CUDA 12.4 Docker 环境为准。
-服务器需预装 NVIDIA 驱动、Docker Engine 和 NVIDIA Container Toolkit：
+仓库已保留 Ubuntu 22.04 / CUDA 12.4 Docker 配置，供最小强化学习流程跑通后的服务器训练阶段评估使用。它当前不是代码构建或本机验证的门槛。若后续决定沿用该方案，服务器需预装NVIDIA 驱动、Docker Engine 和 NVIDIA Container Toolkit：
 
 ```bash
 export CUDA_VISIBLE_DEVICES=0
@@ -69,7 +60,7 @@ uv sync --frozen --all-groups
 uv run pytest
 ```
 
-## 离线部署
+## 未来的离线部署
 
 在能够构建 Linux/amd64 镜像的联网机器上生成离线包：
 

@@ -16,7 +16,6 @@
 | D-008 | 长程道路预瞄以零初始化残差注入 | 计划采用 |
 | D-009 | 先用 MetaDrive 代理能耗，再用 FASTSim 精细复核 | 计划采用 |
 | D-010 | RL 主循环使用 Lightning Fabric | 计划采用 |
-| D-011 | Linux/Docker/CUDA 是正式验收环境 | 已实施 |
 
 ## D-001 保持官方 checkpoint 兼容
 
@@ -117,13 +116,3 @@
 **未选方案**：把 PPO 强行改写为标准 Trainer step，或自行实现设备/分布式抽象。
 
 **后果**：这是未实现方向，不得从 `lightning` 依赖推断训练入口已经可用。
-
-## D-011 以 Linux/Docker/CUDA 作为正式验收
-
-**选择**：Windows 只做编辑、格式化、CPU 快速测试和可用的 simulator 回归；依赖锁定、完整MetaDrive/FASTSim、CUDA 和正式实验以 Ubuntu 22.04 / CUDA 12.4 Docker 环境为准。
-
-**理由**：训练与部署目标在 Linux/CUDA，上游仿真和数值库可能存在平台差异。单一固定容器比开发机偶然可运行更可复现。
-
-**未选方案**：把 Windows 本机完整运行视为正式性能验收。
-
-**后果**：任何只在 Windows 得到的性能结果都必须标为本机诊断；在 Docker 复验前不能升级为正式基线。
