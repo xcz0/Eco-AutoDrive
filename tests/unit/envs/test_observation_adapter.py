@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
 from metadrive.component.static_object.traffic_object import TrafficCone
 
-from eco_planner.envs.observation_adapter import NoTrafficMetaDriveObservationAdapter
+from eco_planner.envs.observation_adapter import (
+    MetaDriveObservationAdapter,
+    NoTrafficMetaDriveObservationAdapter,
+)
+from eco_planner.envs.traffic_state import (
+    StaticTrafficObjectState,
+    TrafficFrame,
+    TrafficParticipantState,
+)
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 
@@ -95,3 +104,114 @@ def test_no_traffic_adapter_rejects_runtime_static_object(
 
     with pytest.raises(RuntimeError, match="static=.*cone"):
         adapter.build(env, torch.device("cpu"))
+
+
+def _traffic_frame(
+    step: int,
+    participants: tuple[TrafficParticipantState, ...],
+    static_objects: tuple[StaticTrafficObjectState, ...] = (),
+) -> TrafficFrame:
+    return TrafficFrame(
+        simulator_step=step,
+        ego_center_xy_m=(10.0, 10.0),
+        ego_heading_rad=np.pi / 2,
+        ego_rear_wheelbase_m=1.0,
+        participants=participants,
+        static_objects=static_objects,
+    )
+
+
+def _participant(
+    object_id: str,
+    *,
+    y: float,
+    kind: str = "vehicle",
+) -> TrafficParticipantState:
+    return TrafficParticipantState(
+        object_id=object_id,
+        kind=kind,
+        position_xy_m=(10.0, y),
+        heading_rad=np.pi / 2,
+        velocity_xy_mps=(0.0, 2.0),
+        width_m=2.0,
+        length_m=4.0,
+    )
+
+
+def test_traffic_adapter_builds_rotated_history_and_reverse_padding(
+    official_model_config: OfficialDiffusionPlannerConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
+    monkeypatch.setattr(
+        adapter._map_adapter,
+        "build",
+        lambda env, device: _map_observation(official_model_config),
+    )
+    frames = []
+    for step in range(21):
+        participants = (_participant("vehicle-a", y=11.0 + 0.1 * step),) if step >= 10 else ()
+        static = (
+            StaticTrafficObjectState(
+                object_id="cone",
+                kind="traffic_cone",
+                position_xy_m=(9.0, 11.0),
+                heading_rad=np.pi / 2,
+                width_m=0.2,
+                length_m=0.2,
+            ),
+        )
+        frames.append(_traffic_frame(step, participants, static))
+    env = SimpleNamespace(engine=SimpleNamespace(episode_step=20))
+    adapter.reset(frames[0])
+    adapter.append_frames(tuple(frames[1:]))
+
+    result = adapter.build(env, torch.device("cpu"))
+
+    history = result["neighbor_agents_past"][0, 0]
+    np.testing.assert_allclose(history[:11, 0].numpy(), 3.0, atol=1e-6)
+    assert history[-1, 0].item() == pytest.approx(4.0)
+    assert history[-1, 1].item() == pytest.approx(0.0, abs=1e-6)
+    assert history[-1, 4].item() == pytest.approx(2.0)
+    torch.testing.assert_close(history[-1, 8:], torch.tensor([1.0, 0.0, 0.0]))
+    static = result["static_objects"][0, 0]
+    assert static[0].item() == pytest.approx(2.0)
+    assert static[1].item() == pytest.approx(1.0)
+    torch.testing.assert_close(static[6:], torch.tensor([0.0, 0.0, 1.0, 0.0]))
+    assert adapter.last_audit.selected_participant_ids == ("vehicle-a",)
+
+
+def test_traffic_adapter_sorts_and_truncates_current_participants(
+    official_model_config: OfficialDiffusionPlannerConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
+    monkeypatch.setattr(
+        adapter._map_adapter,
+        "build",
+        lambda env, device: _map_observation(official_model_config),
+    )
+    participants = tuple(
+        _participant(f"vehicle-{index:02d}", y=11.0 + index) for index in range(33)
+    )
+    frames = tuple(_traffic_frame(step, participants) for step in range(21))
+    adapter.reset(frames[0])
+    adapter.append_frames(frames[1:])
+
+    adapter.build(SimpleNamespace(engine=SimpleNamespace(episode_step=20)), torch.device("cpu"))
+
+    assert len(adapter.last_audit.selected_participant_ids) == 32
+    assert adapter.last_audit.selected_participant_ids[0] == "vehicle-00"
+    assert adapter.last_audit.selected_participant_ids[-1] == "vehicle-31"
+    assert adapter.last_audit.participant_count_in_radius == 33
+
+
+def test_traffic_adapter_requires_consecutive_complete_history(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
+    adapter.reset(_traffic_frame(0, ()))
+    with pytest.raises(ValueError, match="consecutive"):
+        adapter.append_frames((_traffic_frame(2, ()),))
+    with pytest.raises(RuntimeError, match="exactly 21"):
+        adapter.build(SimpleNamespace(engine=SimpleNamespace(episode_step=0)), torch.device("cpu"))

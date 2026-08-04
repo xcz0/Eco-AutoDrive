@@ -2,11 +2,12 @@
 
 Eco-AutoDrive 是一个个人科研项目：保留预训练 Diffusion Planner 的驾驶能力，在 MetaDrive 长程闭环中通过 DPPO 优化能耗，并用 FASTSim 做精细能耗复核。
 
-当前可运行成果是官方 EMA 权重的无交通、轨迹级运动学闭环；DPPO 训练、有交通观测、FASTSim 计量和低层控制尚未完成。准确进度与已验证结论见 [STATUS.md](docs/STATUS.md)。
+当前可运行成果是官方 EMA 权重的无交通和 `Trigger` IDM 车辆交通、轨迹级运动学闭环；DPPO
+训练、FASTSim 计量和低层控制尚未完成。准确进度与已验证结论见 [STATUS.md](docs/STATUS.md)。
 
 项目当前处于基础代码构建阶段：已完成无交通 `S`/`SC`、噪声 seeds `0..4` 的 20 s 上限本机
-闭环矩阵，接下来优先补齐代码逻辑并跑通最小强化学习流程。服务器训练、更长路线性能评测和
-Docker 环境验证仍后置，不作为当前阶段的完成条件。
+闭环矩阵，并完成长时交通矩阵中的 12/20 回合；后者按用户要求停止，只是部分失败基线。
+接下来优先分析交通失败并跑通最小强化学习流程。服务器训练和 Docker 环境验证仍后置。
 
 ## 当前成果
 
@@ -14,6 +15,8 @@ Docker 环境验证仍后置，不作为当前阶段的完成条件。
 - MetaDrive 程序化地图到官方固定形状张量的地图适配；
 - 无交通 `S`/`SC` 场景的 2 Hz 滚动规划与 10 Hz 运动学轨迹执行；
 - 无交通 `S`/`SC`、噪声 seeds `0..4` 的 20 s 上限 Windows CPU 闭环验证；
+- 10 Hz 交通快照、21 帧邻车历史、2 s 真实预热和 2–5 km 长路线评测配置；
+- paired seeds `0..2`、密度 `0.05/0.10` 的 12 回合交通部分矩阵及严格部分报告；
 - 可复现评测产物：resolved config、`summary.json`、`trace.npz` 和闭环 GIF；
 - 对 PGMap 未设置限速哨兵和轨迹执行时序错误的回归修正。
 
@@ -45,6 +48,17 @@ uv run python -m eco_planner.evaluate model.device=cpu env.horizon=5 `
 ```
 
 每次运行在 `outputs/no_traffic/` 下创建独立目录。该入口会拒绝背景车辆和静态交通物体，不能用于有交通评测。
+
+## 运行交通闭环
+
+交通配置默认使用 Windows CPU、20 步历史预热和 3000 步正式上限。单回合诊断应显式缩短
+`evaluation.evaluated_horizon_steps` 并同步调整 `env.horizon`；正式多 seed 结果及其不完整边界见
+`experiments/README.md`。
+
+```powershell
+uv run python -m eco_planner.evaluate --config-name evaluation/traffic `
+  evaluation.evaluated_horizon_steps=10 env.horizon=30 video.enabled=false
+```
 
 ## 预留的服务器环境
 

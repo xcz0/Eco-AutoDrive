@@ -1,9 +1,13 @@
-"""Fixed-seed official Diffusion Planner evaluation in no-traffic MetaDrive."""
+"""Fixed-seed official Diffusion Planner evaluation in MetaDrive."""
 
 from __future__ import annotations
 
 import json
+import platform
+import subprocess
+import sys
 from dataclasses import asdict, dataclass
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +20,10 @@ from metadrive.utils.doc_utils import generate_gif
 from omegaconf import DictConfig, OmegaConf
 
 from eco_planner.envs import (
+    MetaDriveObservationAdapter,
     NoTrafficMetaDriveObservationAdapter,
+    TrafficFrame,
+    TrafficObservationAudit,
     TrajectoryMetaDriveEnv,
 )
 from eco_planner.models.pretrained import (
@@ -35,6 +42,13 @@ class ScenarioSpec:
 
 @dataclass
 class EpisodeTrace:
+    warmup_initial_state: np.ndarray
+    warmup_states: list[np.ndarray]
+    warmup_rewards: list[np.ndarray]
+    warmup_terminated: list[np.ndarray]
+    warmup_truncated: list[np.ndarray]
+    warmup_participant_counts: list[np.ndarray]
+    warmup_static_object_counts: list[np.ndarray]
     initial_state: np.ndarray
     planning_anchors: list[np.ndarray]
     noises: list[np.ndarray]
@@ -56,6 +70,11 @@ class EpisodeTrace:
     target_headings: list[np.ndarray]
     position_errors_m: list[np.ndarray]
     heading_errors_rad: list[np.ndarray]
+    traffic_selected_ids: list[np.ndarray]
+    traffic_participant_counts: list[int]
+    traffic_static_object_counts: list[int]
+    traffic_nearest_distance_m: list[float]
+    traffic_has_nearest: list[bool]
 
 
 def _parse_scenarios(config: DictConfig) -> list[ScenarioSpec]:
@@ -81,6 +100,32 @@ def _parse_scenarios(config: DictConfig) -> list[ScenarioSpec]:
 
 
 def _validate_evaluation_config(config: DictConfig) -> None:
+    mode = config.evaluation.mode
+    if mode not in {"no_traffic", "traffic"}:
+        raise ValueError("evaluation.mode must be 'no_traffic' or 'traffic'")
+    warmup_steps = config.evaluation.history_warmup_steps
+    evaluated_steps = config.evaluation.evaluated_horizon_steps
+    if type(warmup_steps) is not int or warmup_steps < 0:
+        raise ValueError("evaluation.history_warmup_steps must be a non-negative integer")
+    if type(evaluated_steps) is not int or evaluated_steps <= 0:
+        raise ValueError("evaluation.evaluated_horizon_steps must be a positive integer")
+    if config.env.horizon != warmup_steps + evaluated_steps:
+        raise ValueError("env.horizon must equal history_warmup_steps + evaluated_horizon_steps")
+    if mode == "no_traffic" and warmup_steps != 0:
+        raise ValueError("no-traffic evaluation requires zero history warmup steps")
+    if mode == "traffic":
+        if warmup_steps != 20:
+            raise ValueError("traffic evaluation requires exactly 20 history warmup steps")
+        if config.env.traffic_mode != "trigger":
+            raise ValueError("traffic evaluation requires traffic_mode='trigger'")
+        if type(config.env.traffic_density) not in {int, float}:
+            raise TypeError("traffic_density must be numeric")
+        if not 0.0 < float(config.env.traffic_density) <= 1.0:
+            raise ValueError("traffic evaluation requires traffic_density in (0, 1]")
+        if config.env.random_traffic is not False:
+            raise ValueError("traffic evaluation requires random_traffic=false")
+        if config.env.accident_prob != 0.0:
+            raise ValueError("traffic evaluation requires accident_prob=0")
     if type(config.model.seed) is not int or config.model.seed < 0:
         raise ValueError("model.seed must be a non-negative integer")
     if type(config.map_query_radius_m) not in {int, float} or config.map_query_radius_m <= 0:
@@ -97,6 +142,61 @@ def _validate_evaluation_config(config: DictConfig) -> None:
         raise ValueError("video.fps must be a positive integer")
 
 
+def _stationary_trajectory() -> np.ndarray:
+    trajectory = np.zeros((80, 4), dtype=np.float32)
+    trajectory[:, 2] = 1.0
+    return trajectory
+
+
+def _traffic_frames(info: dict[str, Any]) -> tuple[TrafficFrame, ...]:
+    frames = info.get("traffic_substep_frames")
+    if not isinstance(frames, tuple) or not frames:
+        raise RuntimeError("environment did not return traffic substep frames")
+    if not all(isinstance(frame, TrafficFrame) for frame in frames):
+        raise RuntimeError("environment returned invalid traffic substep frame values")
+    return frames
+
+
+def _run_traffic_warmup(
+    env: TrajectoryMetaDriveEnv,
+    adapter: MetaDriveObservationAdapter,
+    trace: EpisodeTrace,
+    warmup_steps: int,
+) -> None:
+    if warmup_steps % 5 != 0:
+        raise ValueError("history warmup steps must be divisible by five")
+    initial_position = trace.warmup_initial_state[:2].copy()
+    for _ in range(warmup_steps // 5):
+        _, _, terminated, truncated, info = env.step(_stationary_trajectory())
+        frames = _traffic_frames(info)
+        adapter.append_frames(frames)
+        trace.warmup_states.append(np.asarray(info["trajectory_substep_states"], dtype=np.float64))
+        trace.warmup_rewards.append(
+            np.asarray(info["trajectory_substep_rewards"], dtype=np.float64)
+        )
+        trace.warmup_terminated.append(
+            np.asarray(info["trajectory_substep_terminated"], dtype=np.bool_)
+        )
+        trace.warmup_truncated.append(
+            np.asarray(info["trajectory_substep_truncated"], dtype=np.bool_)
+        )
+        trace.warmup_participant_counts.append(
+            np.asarray([len(frame.participants) for frame in frames], dtype=np.int64)
+        )
+        trace.warmup_static_object_counts.append(
+            np.asarray([len(frame.static_objects) for frame in frames], dtype=np.int64)
+        )
+        if terminated or truncated:
+            raise RuntimeError("traffic history warmup terminated before 20 simulator steps")
+    states = np.concatenate(trace.warmup_states, axis=0)
+    if states.shape != (warmup_steps, 7):
+        raise RuntimeError("traffic warmup did not produce the required number of states")
+    displacements = np.linalg.norm(states[:, :2] - initial_position, axis=1)
+    if float(displacements.max()) >= 1e-3:
+        raise RuntimeError("ego moved during stationary traffic history warmup")
+    trace.initial_state = _initial_vehicle_state(env)
+
+
 def _initial_vehicle_state(env: TrajectoryMetaDriveEnv) -> np.ndarray:
     velocity = np.asarray(env.agent.velocity, dtype=np.float64)
     return np.array(
@@ -111,9 +211,46 @@ def _initial_vehicle_state(env: TrajectoryMetaDriveEnv) -> np.ndarray:
     )
 
 
-def _new_episode_trace(env: TrajectoryMetaDriveEnv) -> EpisodeTrace:
+def _route_length_m(env: TrajectoryMetaDriveEnv) -> float:
+    checkpoints = list(env.agent.navigation.checkpoints)
+    if len(checkpoints) < 2:
+        raise RuntimeError("MetaDrive navigation did not expose a complete route")
+    graph = env.current_map.road_network.graph
+    edge_lengths: list[float] = []
+    for start, end in zip(checkpoints[:-1], checkpoints[1:]):
+        lanes = graph.get(start, {}).get(end, [])
+        if not lanes:
+            raise RuntimeError(f"route edge {(start, end)!r} has no lane")
+        lane_length = getattr(lanes[0], "length", None)
+        if isinstance(lane_length, (bool, np.bool_)) or not isinstance(
+            lane_length, (int, float, np.integer, np.floating)
+        ):
+            raise RuntimeError(f"route edge {(start, end)!r} has an invalid length")
+        if not np.isfinite(lane_length):
+            raise RuntimeError(f"route edge {(start, end)!r} has an invalid length")
+        if float(lane_length) <= 0.0:
+            raise RuntimeError(f"route edge {(start, end)!r} has a non-positive length")
+        edge_lengths.append(float(lane_length))
+    return float(sum(edge_lengths))
+
+
+def _new_episode_trace(
+    env: TrajectoryMetaDriveEnv,
+    *,
+    warmup_initial_state: np.ndarray | None = None,
+) -> EpisodeTrace:
+    initial = _initial_vehicle_state(env)
     return EpisodeTrace(
-        initial_state=_initial_vehicle_state(env),
+        warmup_initial_state=initial.copy()
+        if warmup_initial_state is None
+        else warmup_initial_state.copy(),
+        warmup_states=[],
+        warmup_rewards=[],
+        warmup_terminated=[],
+        warmup_truncated=[],
+        warmup_participant_counts=[],
+        warmup_static_object_counts=[],
+        initial_state=initial,
         planning_anchors=[],
         noises=[],
         predictions_local=[],
@@ -134,6 +271,11 @@ def _new_episode_trace(env: TrajectoryMetaDriveEnv) -> EpisodeTrace:
         target_headings=[],
         position_errors_m=[],
         heading_errors_rad=[],
+        traffic_selected_ids=[],
+        traffic_participant_counts=[],
+        traffic_static_object_counts=[],
+        traffic_nearest_distance_m=[],
+        traffic_has_nearest=[],
     )
 
 
@@ -172,6 +314,7 @@ def _append_cycle(
     prediction: torch.Tensor,
     info: dict[str, Any],
     plan_index: int,
+    traffic_audit: TrafficObservationAudit | None,
 ) -> None:
     substep_states = np.asarray(info["trajectory_substep_states"], dtype=np.float64)
     substep_count = substep_states.shape[0]
@@ -211,6 +354,27 @@ def _append_cycle(
     trace.target_headings.append(target_headings)
     trace.position_errors_m.append(position_errors_m)
     trace.heading_errors_rad.append(heading_errors_rad)
+    selected_ids = np.full(32, "", dtype="<U64")
+    if traffic_audit is None:
+        participant_count = 0
+        static_count = 0
+        nearest_distance = 0.0
+        has_nearest = False
+    else:
+        ids = traffic_audit.selected_participant_ids
+        if len(ids) > selected_ids.size:
+            raise RuntimeError("traffic observation selected more than 32 participants")
+        selected_ids[: len(ids)] = ids
+        participant_count = traffic_audit.participant_count_in_radius
+        static_count = traffic_audit.static_object_count_in_radius
+        nearest = traffic_audit.nearest_participant_distance_m
+        nearest_distance = 0.0 if nearest is None else nearest
+        has_nearest = nearest is not None
+    trace.traffic_selected_ids.append(selected_ids)
+    trace.traffic_participant_counts.append(participant_count)
+    trace.traffic_static_object_counts.append(static_count)
+    trace.traffic_nearest_distance_m.append(nearest_distance)
+    trace.traffic_has_nearest.append(has_nearest)
 
 
 def _raw_observation_for_trace(observation: dict[str, torch.Tensor]) -> dict[str, np.ndarray]:
@@ -346,7 +510,44 @@ def _terminal_reason(info: dict[str, Any], terminated: bool, truncated: bool) ->
 def _stack_trace(trace: EpisodeTrace) -> dict[str, np.ndarray]:
     if not trace.noises or not trace.substep_states:
         raise RuntimeError("cannot save an empty closed-loop trace")
+    warmup_states = (
+        np.concatenate(trace.warmup_states, axis=0)
+        if trace.warmup_states
+        else np.empty((0, 7), dtype=np.float64)
+    )
+    warmup_rewards = (
+        np.concatenate(trace.warmup_rewards)
+        if trace.warmup_rewards
+        else np.empty(0, dtype=np.float64)
+    )
+    warmup_terminated = (
+        np.concatenate(trace.warmup_terminated)
+        if trace.warmup_terminated
+        else np.empty(0, dtype=np.bool_)
+    )
+    warmup_truncated = (
+        np.concatenate(trace.warmup_truncated)
+        if trace.warmup_truncated
+        else np.empty(0, dtype=np.bool_)
+    )
+    warmup_participant_counts = (
+        np.concatenate(trace.warmup_participant_counts)
+        if trace.warmup_participant_counts
+        else np.empty(0, dtype=np.int64)
+    )
+    warmup_static_counts = (
+        np.concatenate(trace.warmup_static_object_counts)
+        if trace.warmup_static_object_counts
+        else np.empty(0, dtype=np.int64)
+    )
     return {
+        "warmup_initial_state": trace.warmup_initial_state,
+        "warmup_states": warmup_states,
+        "warmup_rewards": warmup_rewards,
+        "warmup_terminated": warmup_terminated,
+        "warmup_truncated": warmup_truncated,
+        "warmup_participant_counts": warmup_participant_counts,
+        "warmup_static_object_counts": warmup_static_counts,
         "initial_state": trace.initial_state,
         "planning_anchors": np.stack(trace.planning_anchors),
         "initial_noise": np.concatenate(trace.noises, axis=0),
@@ -368,6 +569,15 @@ def _stack_trace(trace: EpisodeTrace) -> dict[str, np.ndarray]:
         "trajectory_target_headings": np.concatenate(trace.target_headings, axis=0),
         "trajectory_position_errors_m": np.concatenate(trace.position_errors_m, axis=0),
         "trajectory_heading_errors_rad": np.concatenate(trace.heading_errors_rad, axis=0),
+        "traffic_selected_ids": np.stack(trace.traffic_selected_ids),
+        "traffic_participant_counts": np.asarray(trace.traffic_participant_counts, dtype=np.int64),
+        "traffic_static_object_counts": np.asarray(
+            trace.traffic_static_object_counts, dtype=np.int64
+        ),
+        "traffic_nearest_distance_m": np.asarray(
+            trace.traffic_nearest_distance_m, dtype=np.float64
+        ),
+        "traffic_has_nearest": np.asarray(trace.traffic_has_nearest, dtype=np.bool_),
     }
 
 
@@ -381,6 +591,9 @@ def _episode_summary(
     total_reward: float,
     noise_seed: int,
     environment_map_audit: dict[str, object],
+    evaluation_mode: str,
+    traffic_density: float,
+    route_length_m: float,
 ) -> dict[str, Any]:
     positions = np.vstack(
         (
@@ -392,13 +605,30 @@ def _episode_summary(
     speeds = trace_arrays["executed_states"][:, 5]
     position_errors = trace_arrays["trajectory_position_errors_m"]
     heading_errors = trace_arrays["trajectory_heading_errors_rad"]
+    warmup_states = trace_arrays["warmup_states"]
+    warmup_displacement = (
+        np.linalg.norm(
+            warmup_states[:, :2] - trace_arrays["warmup_initial_state"][None, :2], axis=1
+        )
+        if warmup_states.size
+        else np.empty(0, dtype=np.float64)
+    )
+    traffic_counts = trace_arrays["traffic_participant_counts"]
+    traffic_has_nearest = trace_arrays["traffic_has_nearest"]
+    nearest_distances = trace_arrays["traffic_nearest_distance_m"][traffic_has_nearest]
     return {
         "scenario": asdict(spec),
+        "evaluation_mode": evaluation_mode,
+        "traffic_density": traffic_density,
+        "route_length_m": route_length_m,
         "noise_seed": noise_seed,
         "checkpoint": asdict(report),
         "plan_cycles": int(trace_arrays["initial_noise"].shape[0]),
         "simulator_steps": int(trace_arrays["executed_states"].shape[0]),
         "simulated_seconds": float(trace_arrays["executed_states"].shape[0] * 0.1),
+        "environment_steps_including_warmup": int(
+            warmup_states.shape[0] + trace_arrays["executed_states"].shape[0]
+        ),
         "total_reward": total_reward,
         "distance_m": distance_m,
         "speed_mps": {
@@ -411,10 +641,35 @@ def _episode_summary(
         "out_of_road": bool(final_info["out_of_road"]),
         "crash_vehicle": bool(final_info["crash_vehicle"]),
         "crash_object": bool(final_info["crash_object"]),
+        "crash_building": bool(final_info["crash_building"]),
+        "crash_human": bool(final_info["crash_human"]),
         "terminated": terminated,
         "truncated": truncated,
         "terminal_reason": _terminal_reason(final_info, terminated, truncated),
         "map_input_audit": _map_input_audit(trace_arrays, environment_map_audit),
+        "history_warmup": {
+            "simulator_steps": int(warmup_states.shape[0]),
+            "simulated_seconds": float(warmup_states.shape[0] * 0.1),
+            "ego_displacement_m_maximum": float(warmup_displacement.max())
+            if warmup_displacement.size
+            else 0.0,
+            "participant_count_minimum": int(trace_arrays["warmup_participant_counts"].min())
+            if trace_arrays["warmup_participant_counts"].size
+            else 0,
+            "participant_count_maximum": int(trace_arrays["warmup_participant_counts"].max())
+            if trace_arrays["warmup_participant_counts"].size
+            else 0,
+        },
+        "traffic_observation": {
+            "planning_frames": int(traffic_counts.size),
+            "frames_with_participants": int(np.count_nonzero(traffic_counts)),
+            "frames_with_participants_fraction": float(np.mean(traffic_counts > 0)),
+            "participant_count_minimum": int(traffic_counts.min()),
+            "participant_count_maximum": int(traffic_counts.max()),
+            "nearest_participant_distance_m_minimum": float(nearest_distances.min())
+            if nearest_distances.size
+            else None,
+        },
         "trajectory_execution_error": {
             "position_m": _error_summary(position_errors),
             "heading_rad": _error_summary(heading_errors),
@@ -484,6 +739,44 @@ def _write_episode_artifacts(
         generate_gif(frames, str(output_dir / "closed_loop.gif"), duration=duration_ms)
 
 
+def _git_output(repository_root: Path, *arguments: str) -> str:
+    result = subprocess.run(
+        ["git", *arguments],
+        cwd=repository_root,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return result.stdout
+
+
+def _write_runtime_metadata(output_dir: Path) -> None:
+    repository_root = Path(to_absolute_path("."))
+    uv_lock = repository_root / "uv.lock"
+    if not uv_lock.is_file():
+        raise FileNotFoundError(f"required lock file does not exist: {uv_lock}")
+    import hashlib
+
+    metadata = {
+        "git_head": _git_output(repository_root, "rev-parse", "HEAD").strip(),
+        "git_status_short": _git_output(repository_root, "status", "--short").splitlines(),
+        "platform": platform.platform(),
+        "python": sys.version,
+        "torch": torch.__version__,
+        "metadrive": version("metadrive-simulator"),
+        "uv_lock_sha256": hashlib.sha256(uv_lock.read_bytes()).hexdigest(),
+    }
+    (output_dir / "runtime_metadata.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    (output_dir / "tracked_diff.patch").write_text(
+        _git_output(repository_root, "diff", "--binary", "--no-ext-diff"),
+        encoding="utf-8",
+    )
+
+
 def _run_scenario(
     spec: ScenarioSpec,
     planner: PretrainedDiffusionPlanner,
@@ -498,12 +791,32 @@ def _run_scenario(
     env_config = dict(raw_env_config)
     env_config["map"] = spec.map_sequence
     env = TrajectoryMetaDriveEnv(env_config)
-    adapter = NoTrafficMetaDriveObservationAdapter(planner.config, float(config.map_query_radius_m))
+    mode = str(config.evaluation.mode)
+    if mode == "traffic":
+        adapter: MetaDriveObservationAdapter | NoTrafficMetaDriveObservationAdapter
+        adapter = MetaDriveObservationAdapter(planner.config, float(config.map_query_radius_m))
+    else:
+        adapter = NoTrafficMetaDriveObservationAdapter(
+            planner.config, float(config.map_query_radius_m)
+        )
     generator = torch.Generator(device=device).manual_seed(config.model.seed)
     frames: list[np.ndarray] = []
     try:
         env.reset(seed=spec.seed)
+        route_length_m = _route_length_m(env)
+        if mode == "traffic" and not 2_000.0 <= route_length_m <= 5_000.0:
+            raise RuntimeError(
+                f"traffic evaluation route length {route_length_m} m is outside [2000, 5000]"
+            )
         trace = _new_episode_trace(env)
+        if isinstance(adapter, MetaDriveObservationAdapter):
+            adapter.reset(env.initial_traffic_frame)
+            _run_traffic_warmup(
+                env,
+                adapter,
+                trace,
+                int(config.evaluation.history_warmup_steps),
+            )
         terminated = False
         truncated = False
         total_reward = 0.0
@@ -511,13 +824,27 @@ def _run_scenario(
         plan_index = 0
         while not terminated and not truncated:
             observation = adapter.build(env, device)
+            traffic_audit = (
+                adapter.last_audit if isinstance(adapter, MetaDriveObservationAdapter) else None
+            )
             noise = _noise_for_planner(planner, generator, device)
             prediction = planner.predict(observation, noise)
             ego_trajectory = prediction[0, 0].detach().cpu().numpy().astype(np.float32)
             anchor = _initial_vehicle_state(env)
             _, reward, terminated, truncated, info = env.step(ego_trajectory)
+            if isinstance(adapter, MetaDriveObservationAdapter):
+                adapter.append_frames(_traffic_frames(info))
             total_reward += float(reward)
-            _append_cycle(trace, anchor, observation, noise, prediction, info, plan_index)
+            _append_cycle(
+                trace,
+                anchor,
+                observation,
+                noise,
+                prediction,
+                info,
+                plan_index,
+                traffic_audit,
+            )
             if config.video.enabled:
                 frames.append(
                     _render_cycle_frame(
@@ -533,6 +860,8 @@ def _run_scenario(
         if final_info is None:
             raise RuntimeError("closed-loop episode ended without a simulator result")
         trace_arrays = _stack_trace(trace)
+        if mode == "traffic" and not np.any(trace_arrays["traffic_participant_counts"] > 0):
+            raise RuntimeError("traffic evaluation never observed a participant within radius")
         summary = _episode_summary(
             spec,
             report,
@@ -543,6 +872,9 @@ def _run_scenario(
             total_reward,
             config.model.seed,
             env.programmatic_lane_speed_limit_audit,
+            mode,
+            float(config.env.traffic_density),
+            route_length_m,
         )
         _write_episode_artifacts(
             output_root / spec.name,
@@ -573,6 +905,7 @@ def run_evaluation(config: DictConfig, output_dir: Path) -> list[dict[str, Any]]
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(config, output_dir / "resolved_config.yaml", resolve=True)
+    _write_runtime_metadata(output_dir)
     summaries = [
         _run_scenario(spec, planner, report, config, output_dir, device) for spec in scenarios
     ]

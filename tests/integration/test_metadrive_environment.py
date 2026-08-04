@@ -6,6 +6,7 @@ import torch
 
 from eco_planner.envs import (
     MetaDriveMapAdapter,
+    MetaDriveObservationAdapter,
     NoTrafficMetaDriveObservationAdapter,
     TrajectoryMetaDriveEnv,
 )
@@ -42,6 +43,12 @@ def _turning_trajectory() -> np.ndarray:
     trajectory[:, 1] = np.linspace(0.01, 3.0, 80, dtype=np.float32)
     trajectory[:, 2] = np.cos(headings)
     trajectory[:, 3] = np.sin(headings)
+    return trajectory
+
+
+def _stationary_trajectory() -> np.ndarray:
+    trajectory = np.zeros((80, 4), dtype=np.float32)
+    trajectory[:, 2] = 1.0
     return trajectory
 
 
@@ -114,6 +121,58 @@ def test_trajectory_environment_matches_variable_heading_waypoints() -> None:
             info["trajectory_target_headings"],
             atol=1e-4,
         )
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
+def test_trajectory_environment_returns_consecutive_traffic_frames() -> None:
+    config = _environment_config("SC")
+    config["traffic_density"] = 0.1
+    env = TrajectoryMetaDriveEnv(config)
+    try:
+        env.reset(seed=0)
+        initial = env.initial_traffic_frame
+        start_position = np.asarray(env.agent.position, dtype=np.float64).copy()
+
+        _, _, terminated, truncated, info = env.step(_stationary_trajectory())
+
+        frames = info["traffic_substep_frames"]
+        assert initial.simulator_step == 0
+        assert tuple(frame.simulator_step for frame in frames) == (1, 2, 3, 4, 5)
+        assert any(frame.participants for frame in frames)
+        assert not terminated
+        assert not truncated
+        np.testing.assert_allclose(env.agent.position, start_position, atol=1e-3)
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
+def test_traffic_adapter_builds_after_real_two_second_warmup(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    config = _environment_config("SC")
+    config["traffic_density"] = 0.1
+    config["horizon"] = 30
+    env = TrajectoryMetaDriveEnv(config)
+    adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
+    try:
+        env.reset(seed=0)
+        start_position = np.asarray(env.agent.position, dtype=np.float64).copy()
+        adapter.reset(env.initial_traffic_frame)
+        for _ in range(4):
+            _, _, terminated, truncated, info = env.step(_stationary_trajectory())
+            assert not terminated
+            assert not truncated
+            adapter.append_frames(info["traffic_substep_frames"])
+
+        observation = adapter.build(env, torch.device("cpu"))
+
+        assert observation["neighbor_agents_past"].shape == (1, 32, 21, 11)
+        assert torch.count_nonzero(observation["neighbor_agents_past"]).item() > 0
+        assert adapter.last_audit.participant_count_in_radius > 0
+        np.testing.assert_allclose(env.agent.position, start_position, atol=1e-3)
     finally:
         env.close()
 

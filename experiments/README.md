@@ -43,6 +43,8 @@
 | E-002 | 2026-08-04 | 诊断 | 固定输入只改变 lane 限速 | 证明限速输入具有首要因果影响 |
 | E-003 | 2026-08-04 | 本机验证 | 修正限速、修正执行器后的 `S` 2 s 闭环 | 有效短程接口证据，不是正式基线 |
 | E-004 | 2026-08-04 | 本机长时验证 | `S`/`SC`、噪声 seeds `0..4`、20 s 上限矩阵 | 10 个回合无驾驶或接口失败 |
+| E-005 | 2026-08-04 | 错误接口对照 | 首次长时交通矩阵的曲线 lane 长度审计失败 | 已由 C-004 修正，不是性能结果 |
+| E-006 | 2026-08-04 | 本机部分长时验证 | 2–5 km、两密度、paired seeds `0..2` 的 12 回合交通闭环 | 接口有效；矩阵按用户要求停止，不完整 |
 
 ## E-000 阶段 0 上游数值对齐
 
@@ -247,6 +249,76 @@ uv run python -m eco_planner.evaluate --multirun model.device=cpu `
 **结论边界**：支持固定 `S`/`SC` 地图 seed 0、噪声 seeds `0..4`、Windows CPU 条件下，`S`
 均能正常到达且 `SC` 均能稳定运行完整 20 s，无驾驶失败或接口失败。不能推出有交通、低层
 steering/throttle、2–5 km 长路线、能耗改进、噪声 seeds `5..15`、CUDA 或服务器性能结论。
+
+## E-005 首次长时交通矩阵路线审计失败
+
+**日期 / 类型 / 目的**：2026-08-04，错误接口对照。计划运行两条 2–5 km 路线、交通密度
+`0.05/0.10`、paired seeds `0..4`，验证通用交通观测和长时闭环。
+
+**结果与根因**：纯直道 episode 可以运行，但每个作业进入混合路线时，评测边界把 MetaDrive
+曲线 lane 的有限 `numpy.float32 length` 错误拒绝为非法类型。该问题在 C-004 中修正并由
+NumPy 标量回归及 `SC×20` 短闭环验证。矩阵在确认系统性失败后停止；已生成的直道结果属于诊断
+产物，不并入 E-006 统计。
+
+**产物**：`outputs/traffic/2026-08-04/formal-long-traffic-seeds-0-4/`。目录保留且不覆盖。
+
+**结论边界**：只证明旧路线审计不兼容 MetaDrive 曲线数值类型，不能用于评价 planner 驾驶性能。
+
+## E-006 seeds 0..2 长时交通部分矩阵
+
+**日期 / 类型 / 目的**：2026-08-04，本机部分长时验证。验证官方 EMA 在 2–5 km 程序化长路线、
+`Trigger` IDM 车辆交通、密度 `0.05/0.10` 下的观测接口、长时执行和驾驶结果。原计划 20 回合，
+用户在 12 个完整回合后要求停止，因此本条不是 seeds `0..4` 正式基线。
+
+**代码与环境**：运行 HEAD `5d6ff646f8c70198092c01369eba79763034010e`；运行时 tracked diff、
+untracked 状态和完整 patch 保存在每个作业的 `runtime_metadata.json` / `tracked_diff.patch`。
+Windows 10、Python `3.10.20`、PyTorch `2.13.0+cpu`、MetaDrive/assets `0.4.3`；`uv.lock`
+SHA-256 为 `4bb855d50a11468141d079c1f350b11bd86ea80904f021e186fc4c574507dd77`。
+模型和上游版本使用共同资产。
+
+**配置**：`S×40` 路线实际约 `2.44–2.48 km`，`SC×20` 约 `3.38–3.90 km`；每回合先固定 ego
+预热 20 个 0.1 s 子步，再最多正式评测 3000 子步；查询半径 100 m，2 Hz 重规划、10 Hz 执行，
+地图 seed 与噪声 seed 配对。已完成 grid 为 seeds `0..2` × densities `0.05/0.10` × 两路线。
+
+**运行命令**：
+
+```powershell
+uv run python -m eco_planner.evaluate --config-name evaluation/traffic --multirun `
+  'seed=0,1,2,3,4' 'env.traffic_density=0.05,0.10' `
+  'hydra.sweep.dir=outputs/traffic/2026-08-04/formal-long-traffic-seeds-0-4-v2'
+```
+
+运行在处理 seed 3 前后按用户要求终止；只有带 episode 和作业级 summary 的前 6 个作业纳入统计。
+
+**逐组结果**：
+
+| 路线 | 密度 | seeds | 终止 | 平均时间 (s) | 平均距离 (m) | 平均 route completion | 平均速度 (m/s) |
+| --- | ---: | --- | --- | ---: | ---: | ---: | ---: |
+| `long_straight` | 0.05 | 0,1,2 | 3/3 `crash_vehicle` | 145.567 | 1369.299 | 0.556628 | 9.5260 |
+| `long_straight` | 0.10 | 0,1,2 | 3/3 `crash_vehicle` | 170.633 | 1104.461 | 0.451855 | 6.9745 |
+| `long_mixed` | 0.05 | 0,1,2 | 3/3 `crash_vehicle` | 167.167 | 1349.870 | 0.374790 | 8.1238 |
+| `long_mixed` | 0.10 | 0,1,2 | 3/3 `out_of_road` | 25.500 | 220.336 | 0.062003 | 8.6787 |
+
+12 回合到达率为 0。所有回合都实际观察到 100 m 内交通，含交通规划帧比例为
+`0.9420–1.0`；碰撞回合终止前最近车辆约 `5.62–7.18 m`，但该状态是 MetaDrive 在碰撞后采样的
+对象中心距离，不能当成碰撞几何间隙。高密度混合路线的 3 个回合均在 `16.1–30.9 s` 出界，
+表现与低密度组明显不同，但 `n=3` 且没有同长路线无交通对照，不能作因果归因。
+
+**接口与产物验证**：12 份 episode summary、trace 和 GIF 均存在且非空；6 份作业级 summary、
+resolved config、Hydra overrides、运行元数据和 diff 齐全。所有数值数组有限，预热均为 20 帧，
+邻车观测固定 `[32,21,11]`，时间轴一致。全体最大位置/heading 执行误差约为
+`6.10e-5 m` / `2.59e-6 rad`，低于 `1e-3 m` / `1e-4 rad` 门槛。部分统计使用固定 seed 0、
+10,000 次 bootstrap，详见 `partial_matrix_report.json`；由于每组只有 3 回合，区间只作描述。
+
+**验证命令**：56 个非 GPU/simulator/slow 测试、11 个显式 simulator 测试、`ruff check .` 和
+`ruff format --check .` 通过。当前安装为 CPU-only，因此没有运行 GPU marker。
+
+**产物**：`outputs/traffic/2026-08-04/formal-long-traffic-seeds-0-4-v2/`。job `6` 是被终止的
+不完整作业，没有 episode summary，已由部分汇总器排除。
+
+**结论边界**：支持通用交通观测、真实 2 s 历史、长路线运动学接口和失败产物记录在已完成
+12 回合中成立；也表明未经交通适配训练的官方 EMA 在该部分矩阵中没有完成路线。不能推出
+seeds `3..4`、完整 20 回合、真实 nuPlan 交通、低层控制、CUDA 或服务器性能结论。
 
 ## 服务器训练与正式实验登记模板
 

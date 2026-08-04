@@ -113,7 +113,12 @@ class _FakePlanner:
 def _config() -> object:
     return OmegaConf.create(
         {
-            "env": {"traffic_density": 0.0},
+            "evaluation": {
+                "mode": "no_traffic",
+                "history_warmup_steps": 0,
+                "evaluated_horizon_steps": 10,
+            },
+            "env": {"traffic_density": 0.0, "horizon": 10},
             "map_query_radius_m": 100.0,
             "model": {"seed": 7},
             "video": {
@@ -132,6 +137,7 @@ def _config() -> object:
 def test_run_scenario_replans_and_writes_trace(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(evaluate, "TrajectoryMetaDriveEnv", _FakeEnv)
     monkeypatch.setattr(evaluate, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
+    monkeypatch.setattr(evaluate, "_route_length_m", lambda env: 100.0)
     report = CheckpointLoadReport("a" * 64, "b" * 64, 276, 6_042_628, "cpu")
 
     summary = evaluate._run_scenario(
@@ -156,6 +162,8 @@ def test_run_scenario_replans_and_writes_trace(tmp_path, monkeypatch) -> None:
         assert trace["observation_lanes_has_speed_limit"].dtype == np.bool_
         assert trace["executed_states"].shape == (10, 7)
         assert trace["trajectory_target_centers"].shape == (10, 2)
+        assert trace["warmup_states"].shape == (0, 7)
+        assert trace["traffic_selected_ids"].shape == (2, 32)
     payload = json.loads((tmp_path / "fake" / "summary.json").read_text())
     assert payload["noise_seed"] == 7
     assert payload["map_input_audit"]["speed_limit_mps_min"] == pytest.approx(50.0 / 3.6)
@@ -172,3 +180,14 @@ def test_world_polyline_draws_on_frame() -> None:
         0,
     )
     assert np.count_nonzero(frame) > 0
+
+
+def test_route_length_accepts_finite_numpy_lane_scalars() -> None:
+    lane = SimpleNamespace(length=np.float32(123.5))
+    navigation = SimpleNamespace(checkpoints=["start", "end"])
+    agent = SimpleNamespace(navigation=navigation)
+    road_network = SimpleNamespace(graph={"start": {"end": [lane]}})
+    current_map = SimpleNamespace(road_network=road_network)
+    env = SimpleNamespace(agent=agent, current_map=current_map)
+
+    assert evaluate._route_length_m(env) == pytest.approx(123.5)

@@ -16,7 +16,7 @@
 
 `sim_state`、`model_obs`、`diffusion_chain` 和 `energy_state` 必须分开保存。模型预测不能覆盖仿真真实状态；MetaDrive 代理能耗和 FASTSim 能耗不能静默互换或混合累计。
 
-当前实现只覆盖第一条链的无交通运动学子集。未实现部分仍须遵守本文契约。
+当前实现覆盖第一条链的无交通和 `Trigger` IDM 车辆交通运动学闭环；强化学习与能耗链仍未完成。
 
 ## checkpoint 与上游契约
 
@@ -97,7 +97,14 @@ MetaDrive 0.4.3 的 PGMap 用精确 `1000 km/h` 表示“未设置程序化 lane
 
 ## 观测适配逻辑
 
-通用 `MetaDriveObservationAdapter` 应直接从仿真对象和地图 API 构造官方字典，负责 ego、动态体 21 帧历史、静态物体、普通 lane 和 route lane。
+通用 `MetaDriveObservationAdapter` 直接从仿真对象和地图 API 构造官方字典，负责 ego、动态体
+21 帧历史、静态物体、普通 lane 和 route lane。环境在 reset 后和每个 0.1 s 子步结束时保存
+不可变交通快照；对象 ID、类型、位置、heading、速度和尺寸必须通过边界校验。当前帧 100 m
+范围内对象按距离和 ID 确定性排序，暂缺的历史状态按官方从当前向过去填充语义处理。
+
+有交通评测首次推理前必须用四段零位移、有效 heading 的运动学轨迹固定 ego 并推进背景交通，
+由 reset 帧加 20 个真实子步组成完整 2 s 历史。预热不得使用另一控制器，不计入评测距离、奖励
+或旅行时间；预热期间终止、时间轴不连续、ego 位移达到 `1e-3 m` 或历史不足 21 帧均立即失败。
 
 `NoTrafficMetaDriveObservationAdapter` 是更窄的已实现接口：
 
@@ -165,12 +172,16 @@ DPPO actor 由冻结的预训练主体和显式可训练的 preview/adapter 组�
 
 每次评测必须固定并记录：代码 commit、未提交 diff、上游 commit、checkpoint/hash、resolved config、Hydra overrides、地图/场景 seed、噪声 seed、设备和依赖环境。
 
-无交通闭环的每个场景至少产生：
+无交通和有交通闭环的每个场景至少产生：
 
 - `summary.json`：终止状态、距离、速度、路线完成率、限速审计、checkpoint 信息和执行误差；
 - `trace.npz`：完整 raw observation、初始噪声、`[11, 80, 4]` 预测、规划锚点、目标与实际状态、逐点误差、奖励和终止标志；
 - `closed_loop.gif`：原始 8 s 规划与实际执行前缀的可视化；
 - resolved config 和 Hydra overrides。
+
+有交通 trace 还必须保存预热状态、选中对象 ID、每规划帧交通数量、最近交通距离和历史有效性；
+summary 必须明确交通密度、路线长度、含交通帧比例和预热审计。未完成的矩阵只能生成明确标记
+`matrix_complete=false` 的部分报告，不能沿用正式矩阵名称或结论。
 
 模型驾驶表现与接口测试分开判定。接口硬门槛包括：权重和张量契约正确、输出有限、时间轴一致、终止状态明确、目标/实际轨迹误差在回归阈值内。当前基础代码构建阶段只要求本机逻辑测试和最小强化学习流程验证，不产出服务器训练性能结论。强化学习流程跑通并进入服务器训练阶段后，性能结论必须来自预先定义并完整记录运行环境的实验矩阵，不能只报告成功 seed；是否使用 Docker 在该阶段另行确认。
 

@@ -5,19 +5,22 @@ defaults:
   - /model: diffusion_planner
   - _self_
 
-name: official_no_traffic_closed_loop
+name: official_traffic_long_closed_loop
+seed: 0
 map_query_radius_m: 100.0
 
 evaluation:
-  mode: no_traffic
-  history_warmup_steps: 0
-  evaluated_horizon_steps: 200
+  mode: traffic
+  history_warmup_steps: 20
+  evaluated_horizon_steps: 3000
 
 env:
-  num_scenarios: 1
+  start_seed: 0
+  num_scenarios: 5
   use_render: false
   image_observation: false
-  traffic_density: 0.0
+  traffic_density: 0.05
+  traffic_mode: trigger
   random_traffic: false
   random_spawn_lane_index: false
   accident_prob: 0.0
@@ -26,21 +29,21 @@ env:
   trajectory_horizon: 80
   trajectory_execution_steps: 5
   programmatic_lane_speed_limit_kmh: 50.0
-  horizon: 200
+  horizon: 3020
 
 model:
   args_path: checkpoints/DP-Origin/args.json
   checkpoint_path: checkpoints/DP-Origin/model.pth
-  device: cuda
-  seed: 0
+  device: cpu
+  seed: ${seed}
 
 scenarios:
-  - name: straight
-    map: S
-    seed: 0
-  - name: gentle_curve
-    map: SC
-    seed: 0
+  - name: long_straight
+    map: SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+    seed: ${seed}
+  - name: long_mixed
+    map: SCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSC
+    seed: ${seed}
 
 video:
   enabled: true
@@ -53,6 +56,9 @@ video:
 
 hydra:
   run:
-    dir: outputs/no_traffic/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: outputs/traffic/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: outputs/traffic/${now:%Y-%m-%d}/${now:%H-%M-%S}-long-seeds-0-4
+    subdir: ${hydra.job.num}
   job:
     chdir: false

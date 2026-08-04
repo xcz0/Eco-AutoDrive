@@ -13,6 +13,8 @@ from metadrive.policy.base_policy import BasePolicy
 from metadrive.policy.replay_policy import ReplayTrafficParticipantPolicy
 from metadrive.utils import Config
 
+from eco_planner.envs.traffic_state import TrafficFrame, capture_traffic_frame
+
 TRAJECTORY_HORIZON = 80
 TRAJECTORY_EXECUTION_STEPS = 5
 TRAJECTORY_TIMESTEP_S = 0.1
@@ -225,6 +227,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         )
         self._programmatic_lane_speed_limit_audit: dict[str, object] | None = None
         self._programmatic_sentinel_lane_ids: frozenset[str] | None = None
+        self._initial_traffic_frame: TrafficFrame | None = None
 
     @property
     def programmatic_lane_speed_limit_audit(self) -> dict[str, object]:
@@ -234,9 +237,19 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             raise RuntimeError("programmatic lane speed limits are unavailable before reset")
         return dict(self._programmatic_lane_speed_limit_audit)
 
+    @property
+    def initial_traffic_frame(self) -> TrafficFrame:
+        """Return the traffic snapshot captured immediately after the latest reset."""
+
+        if self._initial_traffic_frame is None:
+            raise RuntimeError("initial traffic frame is unavailable before reset")
+        return self._initial_traffic_frame
+
     def reset(self, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
+        self._initial_traffic_frame = None
         result = super().reset(*args, **kwargs)
         self._configure_programmatic_lane_speed_limits()
+        self._initial_traffic_frame = capture_traffic_frame(self)
         return result
 
     def _configure_programmatic_lane_speed_limits(self) -> None:
@@ -342,6 +355,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         substep_rewards: list[float] = []
         substep_terminated: list[bool] = []
         substep_truncated: list[bool] = []
+        traffic_substep_frames: list[TrafficFrame] = []
         for index in range(TRAJECTORY_EXECUTION_STEPS):
             action = validated if index == 0 else None
             # KinematicTrajectoryPolicy applies the exact waypoint in MetaDrive's after_step
@@ -370,6 +384,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             substep_rewards.append(float(reward))
             substep_terminated.append(bool(terminated))
             substep_truncated.append(bool(truncated))
+            traffic_substep_frames.append(capture_traffic_frame(self))
             final_result = (observation, total_reward, terminated, truncated, info)
             if terminated or truncated:
                 break
@@ -398,6 +413,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             substep_terminated, dtype=np.bool_
         )
         result_info["trajectory_substep_truncated"] = np.asarray(substep_truncated, dtype=np.bool_)
+        result_info["traffic_substep_frames"] = tuple(traffic_substep_frames)
         return observation, total_reward, terminated, truncated, result_info
 
 
