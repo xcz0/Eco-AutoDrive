@@ -4,13 +4,16 @@ Eco-AutoDrive 是一个个人科研项目：保留预训练 Diffusion Planner �
 
 当前可运行成果是官方 EMA 权重的无交通、轨迹级运动学闭环；DPPO 训练、有交通观测、FASTSim 计量和低层控制尚未完成。准确进度与已验证结论见 [STATUS.md](docs/STATUS.md)。
 
-项目当前处于基础代码构建阶段：优先补齐代码逻辑并在本机跑通最小强化学习流程。服务器训练、长时性能评测和 Docker 环境验证均后置，不作为当前阶段的完成条件。
+项目当前处于基础代码构建阶段：已完成无交通 `S`/`SC`、噪声 seeds `0..4` 的 20 s 上限本机
+闭环矩阵，接下来优先补齐代码逻辑并跑通最小强化学习流程。服务器训练、更长路线性能评测和
+Docker 环境验证仍后置，不作为当前阶段的完成条件。
 
 ## 当前成果
 
 - checkpoint-compatible Diffusion Planner、严格 EMA 权重加载、官方归一化和 10 步 DPM-Solver++ baseline sampler；
 - MetaDrive 程序化地图到官方固定形状张量的地图适配；
 - 无交通 `S`/`SC` 场景的 2 Hz 滚动规划与 10 Hz 运动学轨迹执行；
+- 无交通 `S`/`SC`、噪声 seeds `0..4` 的 20 s 上限 Windows CPU 闭环验证；
 - 可复现评测产物：resolved config、`summary.json`、`trace.npz` 和闭环 GIF；
 - 对 PGMap 未设置限速哨兵和轨迹执行时序错误的回归修正。
 
