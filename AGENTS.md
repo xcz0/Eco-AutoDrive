@@ -6,9 +6,9 @@
 
 逻辑和实验正确性优先于“跑起来”。所有输入、配置、依赖和张量契约都应显式定义：不要添加静默默认值、模糊兜底、自动降级或吞掉异常；缺少配置、权重、上游源码或运行时依赖时应立即失败，并给出可定位的错误。实现应保持简洁，优先使用成熟第三方库，避免为个人科研引入不必要的抽象层和兼容层。
 
-仓库目前已完成阶段 0、MetaDrive 环境适配，以及官方 EMA 权重的**无交通短程闭环评测**。阶段 0 已具备 checkpoint-compatible Diffusion Planner 主体、严格的官方 EMA 权重加载、观测/噪声张量契约、归一化和 10 步 DPM-Solver++ baseline sampler；初始权重位于 `checkpoints/DP-Origin/`，对应单元与集成测试已经存在。环境侧已实现 `KinematicTrajectoryPolicy`、`TrajectoryMetaDriveEnv` 和 `MetaDriveMapAdapter`：环境接收 `[80, 4]` 后轴局部轨迹，每次执行前 5 点，并能从程序化地图构造固定形状的 lane、route lane 和限速张量。`NoTrafficMetaDriveObservationAdapter` 会严格拒绝动态或静态交通参与者，并为已明确限定的空场景构造官方输入；`evaluate.py` 使用官方权重、固定噪声种子和滚动重规划运行该闭环，并落盘配置、噪声、预测、执行状态和评测摘要。无渲染直道/弯道 simulator 测试已在当前 Windows 环境通过，但 Linux/Docker 基准环境仍是正式验收依据。
+仓库目前已完成阶段 0、MetaDrive 环境适配，以及官方 EMA 权重的**无交通短程闭环接口修正与评测**。阶段 0 已具备 checkpoint-compatible Diffusion Planner 主体、严格的官方 EMA 权重加载、观测/噪声张量契约、归一化和 10 步 DPM-Solver++ baseline sampler；初始权重位于 `checkpoints/DP-Origin/`，对应单元与集成测试已经存在。环境侧已实现 `KinematicTrajectoryPolicy`、`TrajectoryMetaDriveEnv` 和 `MetaDriveMapAdapter`：环境接收 `[80, 4]` 后轴局部轨迹，每次执行前 5 点，并能从程序化地图构造固定形状的 lane、route lane 和限速张量。无交通配置必须显式提供 `programmatic_lane_speed_limit_kmh`；环境 reset 后仅将 PGMap 的精确 `1000 km/h` 未设置哨兵替换为该值，保留已有真实限速，adapter 也会拒绝任何残留哨兵进入模型。`KinematicTrajectoryPolicy` 在 MetaDrive `after_step` 生命周期写入目标 waypoint，环境在物理阶段前清除残留速度，因此实际每个子步可严格匹配目标 world center 和 heading。`NoTrafficMetaDriveObservationAdapter` 会严格拒绝动态或静态交通参与者，并为已明确限定的空场景构造官方输入；`evaluate.py` 使用官方权重、固定噪声种子和滚动重规划运行该闭环，并落盘 resolved config、完整 raw observation、噪声、预测、目标/执行状态、逐点误差和限速审计。Windows 的直道/弯道 simulator 回归及 2 秒直道 checkpoint 评测已通过，但 Linux/Docker 基准环境仍是正式验收依据。
 
-当前官方权重在 MetaDrive 无交通闭环中的表现不佳。这一结论只说明“权重可被接入并驱动闭环”，**不**说明模型已在 MetaDrive 中得到有效性能基线，也不能在尚未完成对照实验前归因。优先查验：后轴/车辆中心坐标与朝向约定、地图特征和归一化分布、轨迹执行的运动学误差、采样噪声与随机种子，以及同一场景下上游 nuPlan/合成输入的预测对照；应保留每轮的 trace、视频、配置覆盖、checkpoint/hash 和上游 commit。不要通过平滑、裁剪、回退控制器或吞掉异常来掩盖失效轨迹。
+原始评测在约 1.7 s 出界的首要原因已确认：PGMap 的 `1000 km/h` 未设置哨兵曾被错误编码为有效的 `277.78 m/s` 限速输入，而非普通域偏移。修正后的 seed 0 直道短闭环以 18 条 `50 km/h` lane 输入运行 2 秒、不出界，位置最大执行误差为约 `4.6e-4 m`；这只验证了接口与执行器，不构成最终驾驶性能基线。剩余表现仍须通过 `S`/`SC`、多噪声 seed、20 秒闭环和上游逐元素数值对照评估，且 Linux/Docker/CUDA 是正式验收依据。优先查验：后轴/车辆中心坐标与朝向约定、地图特征和归一化分布、静止初始化与模型速度先验、采样噪声与随机种子，以及同一场景下上游 nuPlan/合成输入的预测对照；应保留每轮的 trace、视频、配置覆盖、checkpoint/hash 和上游 commit。不要通过平滑、裁剪、回退控制器或吞掉异常来掩盖失效轨迹。
 
 项目尚未完成完整阶段 1：有交通场景所需的 ego/邻车 21 帧历史、静态物体和通用 `MetaDriveObservationAdapter` 尚未实现；当前 `NoTrafficMetaDriveObservationAdapter` 不能用于交通场景。低层 steering/throttle 轨迹跟踪、DPPO sampler、critic、rollout/PPO 更新和长程道路预瞄也仍待落地。`src/eco_planner/train.py` 继续保持占位入口；`evaluate.py` 仅是上述无交通官方权重闭环评测入口。不要把这些规划中的模块描述为已经可用，也不要为了让占位入口表面可运行而加入假实现。
 
@@ -36,6 +36,7 @@
 - `ref/`：仅供阅读的 Diffusion Planner、DPPO 等上游快照，不是运行时依赖，不得从业务代码导入。
 - `checkpoints/`：存放阶段性模型权重。
 - `.env`：存放与设备相关的环境配置。
+- `output/`：即时运行输入。
 
 不要提交 `.venv/`、`.env`、`outputs/`、`checkpoints/`、`datasets/`、`wandb/`、`ref/` 或忽略的上游源码目录。新增脚本统一放在根目录 `scripts/`，不要散落临时入口。
 

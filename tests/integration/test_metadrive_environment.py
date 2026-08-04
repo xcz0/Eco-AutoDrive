@@ -25,6 +25,7 @@ def _environment_config(map_sequence: str) -> dict[str, object]:
         "decision_repeat": 5,
         "trajectory_horizon": 80,
         "trajectory_execution_steps": 5,
+        "programmatic_lane_speed_limit_kmh": 50.0,
     }
 
 
@@ -32,6 +33,15 @@ def _straight_trajectory(speed_mps: float) -> np.ndarray:
     trajectory = np.zeros((80, 4), dtype=np.float32)
     trajectory[:, 0] = np.arange(1, 81, dtype=np.float32) * speed_mps * 0.1
     trajectory[:, 2] = 1.0
+    return trajectory
+
+
+def _turning_trajectory() -> np.ndarray:
+    trajectory = _straight_trajectory(5.0)
+    headings = np.linspace(0.02, 1.6, 80, dtype=np.float32)
+    trajectory[:, 1] = np.linspace(0.01, 3.0, 80, dtype=np.float32)
+    trajectory[:, 2] = np.cos(headings)
+    trajectory[:, 3] = np.sin(headings)
     return trajectory
 
 
@@ -59,16 +69,88 @@ def test_trajectory_environment_executes_five_simulator_steps() -> None:
         assert info["trajectory_substep_rewards"].shape == (5,)
         assert info["trajectory_substep_terminated"].shape == (5,)
         assert info["trajectory_substep_truncated"].shape == (5,)
+        assert info["trajectory_target_centers"].shape == (5, 2)
+        assert info["trajectory_target_headings"].shape == (5,)
+        assert info["trajectory_position_errors_m"].shape == (5,)
+        assert info["trajectory_heading_errors_rad"].shape == (5,)
         np.testing.assert_allclose(
             info["trajectory_substep_states"][-1, :2],
             np.asarray(env.agent.position),
         )
-        assert forward_progress == pytest.approx(2.5, abs=0.35)
-        assert float(env.agent.heading_theta) == pytest.approx(start_heading, abs=1e-3)
+        np.testing.assert_allclose(
+            info["trajectory_substep_states"][:, :2],
+            info["trajectory_target_centers"],
+            atol=1e-3,
+        )
+        np.testing.assert_allclose(
+            info["trajectory_substep_states"][:, 2],
+            info["trajectory_target_headings"],
+            atol=1e-4,
+        )
+        assert forward_progress == pytest.approx(2.5, abs=1e-3)
+        assert float(env.agent.heading_theta) == pytest.approx(start_heading, abs=1e-4)
         assert float(env.agent.speed) == pytest.approx(5.0, abs=0.1)
         assert np.isfinite(reward)
         assert not terminated
         assert not truncated
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
+def test_trajectory_environment_matches_variable_heading_waypoints() -> None:
+    env = TrajectoryMetaDriveEnv(_environment_config("S"))
+    try:
+        env.reset(seed=0)
+        _, _, _, _, info = env.step(_turning_trajectory())
+
+        np.testing.assert_allclose(
+            info["trajectory_substep_states"][:, :2],
+            info["trajectory_target_centers"],
+            atol=1e-3,
+        )
+        np.testing.assert_allclose(
+            info["trajectory_substep_states"][:, 2],
+            info["trajectory_target_headings"],
+            atol=1e-4,
+        )
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
+@pytest.mark.parametrize(
+    ("map_sequence", "expected_speed_limit_counts"),
+    [("S", {50.0: 18}), ("SC", {20.0: 12, 50.0: 18})],
+)
+def test_programmatic_lane_speed_limits_replace_only_unset_sentinel(
+    map_sequence: str,
+    expected_speed_limit_counts: dict[float, int],
+) -> None:
+    env = TrajectoryMetaDriveEnv(_environment_config(map_sequence))
+    try:
+        env.reset(seed=0)
+        first_audit = env.programmatic_lane_speed_limit_audit
+        lanes = env.current_map.road_network.get_all_lanes()
+        first_limits = [float(lane.speed_limit) for lane in lanes]
+        env.reset(seed=0)
+        second_audit = env.programmatic_lane_speed_limit_audit
+        lanes = env.current_map.road_network.get_all_lanes()
+        second_limits = [float(lane.speed_limit) for lane in lanes]
+
+        assert 1000.0 not in first_limits
+        assert first_limits == second_limits
+        assert first_audit == second_audit
+        assert first_audit["speed_limit_sentinel_replaced_count"] == 18
+        assert first_audit["speed_limit_existing_preserved_count"] == sum(
+            count
+            for speed_limit, count in expected_speed_limit_counts.items()
+            if speed_limit != 50.0
+        )
+        observed_counts = {
+            speed_limit: first_limits.count(speed_limit) for speed_limit in set(first_limits)
+        }
+        assert observed_counts == expected_speed_limit_counts
     finally:
         env.close()
 
@@ -94,6 +176,25 @@ def test_map_adapter_is_deterministic_on_programmatic_maps(
             if first[name].dtype == torch.float32:
                 assert torch.isfinite(first[name]).all()
             torch.testing.assert_close(first[name], second[name], rtol=0.0, atol=0.0)
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
+def test_programmatic_map_adapter_encodes_configured_speed_limit_semantics(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    env = TrajectoryMetaDriveEnv(_environment_config("S"))
+    adapter = MetaDriveMapAdapter(official_model_config, query_radius_m=100.0)
+    try:
+        env.reset(seed=0)
+        observation = adapter.build(env, torch.device("cpu"))
+        valid = observation["lanes_has_speed_limit"]
+        observed_speed_limits = observation["lanes_speed_limit"][valid].detach().cpu().numpy()
+
+        assert observed_speed_limits.size > 0
+        assert not np.isclose(observed_speed_limits, 1000.0 / 3.6).any()
+        np.testing.assert_allclose(observed_speed_limits, 50.0 / 3.6, atol=1e-6)
     finally:
         env.close()
 

@@ -20,6 +20,7 @@ env:
   decision_repeat: 5
   trajectory_horizon: 80
   trajectory_execution_steps: 5
+  programmatic_lane_speed_limit_kmh: 50.0
   horizon: 200
 
 model:

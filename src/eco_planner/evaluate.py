@@ -39,12 +39,23 @@ class EpisodeTrace:
     planning_anchors: list[np.ndarray]
     noises: list[np.ndarray]
     predictions_local: list[np.ndarray]
+    observation_ego_current_state: list[np.ndarray]
+    observation_neighbor_agents_past: list[np.ndarray]
+    observation_static_objects: list[np.ndarray]
+    observation_lanes: list[np.ndarray]
+    observation_lanes_speed_limit: list[np.ndarray]
+    observation_lanes_has_speed_limit: list[np.ndarray]
+    observation_route_lanes: list[np.ndarray]
     ego_world: list[np.ndarray]
     substep_states: list[np.ndarray]
     substep_rewards: list[np.ndarray]
     substep_terminated: list[np.ndarray]
     substep_truncated: list[np.ndarray]
     substep_plan_indices: list[np.ndarray]
+    target_centers: list[np.ndarray]
+    target_headings: list[np.ndarray]
+    position_errors_m: list[np.ndarray]
+    heading_errors_rad: list[np.ndarray]
 
 
 def _parse_scenarios(config: DictConfig) -> list[ScenarioSpec]:
@@ -106,12 +117,23 @@ def _new_episode_trace(env: TrajectoryMetaDriveEnv) -> EpisodeTrace:
         planning_anchors=[],
         noises=[],
         predictions_local=[],
+        observation_ego_current_state=[],
+        observation_neighbor_agents_past=[],
+        observation_static_objects=[],
+        observation_lanes=[],
+        observation_lanes_speed_limit=[],
+        observation_lanes_has_speed_limit=[],
+        observation_route_lanes=[],
         ego_world=[],
         substep_states=[],
         substep_rewards=[],
         substep_terminated=[],
         substep_truncated=[],
         substep_plan_indices=[],
+        target_centers=[],
+        target_headings=[],
+        position_errors_m=[],
+        heading_errors_rad=[],
     )
 
 
@@ -145,6 +167,7 @@ def _world_prediction(info: dict[str, Any]) -> np.ndarray:
 def _append_cycle(
     trace: EpisodeTrace,
     anchor: np.ndarray,
+    observation: dict[str, torch.Tensor],
     noise: torch.Tensor,
     prediction: torch.Tensor,
     info: dict[str, Any],
@@ -154,9 +177,28 @@ def _append_cycle(
     substep_count = substep_states.shape[0]
     if substep_states.ndim != 2 or substep_states.shape[1] != 7:
         raise RuntimeError("environment returned invalid trajectory substep states")
+    raw_observation = _raw_observation_for_trace(observation)
+    target_centers = np.asarray(info["trajectory_target_centers"], dtype=np.float64)
+    target_headings = np.asarray(info["trajectory_target_headings"], dtype=np.float64)
+    position_errors_m = np.asarray(info["trajectory_position_errors_m"], dtype=np.float64)
+    heading_errors_rad = np.asarray(info["trajectory_heading_errors_rad"], dtype=np.float64)
+    expected_shape = (substep_count,)
+    if target_centers.shape != (substep_count, 2):
+        raise RuntimeError("environment returned invalid trajectory target centers")
+    if target_headings.shape != expected_shape:
+        raise RuntimeError("environment returned invalid trajectory target headings")
+    if position_errors_m.shape != expected_shape or heading_errors_rad.shape != expected_shape:
+        raise RuntimeError("environment returned invalid trajectory execution errors")
     trace.planning_anchors.append(anchor)
     trace.noises.append(noise.detach().cpu().numpy())
     trace.predictions_local.append(prediction.detach().cpu().numpy())
+    trace.observation_ego_current_state.append(raw_observation["ego_current_state"])
+    trace.observation_neighbor_agents_past.append(raw_observation["neighbor_agents_past"])
+    trace.observation_static_objects.append(raw_observation["static_objects"])
+    trace.observation_lanes.append(raw_observation["lanes"])
+    trace.observation_lanes_speed_limit.append(raw_observation["lanes_speed_limit"])
+    trace.observation_lanes_has_speed_limit.append(raw_observation["lanes_has_speed_limit"])
+    trace.observation_route_lanes.append(raw_observation["route_lanes"])
     trace.ego_world.append(_world_prediction(info))
     trace.substep_states.append(substep_states)
     trace.substep_rewards.append(np.asarray(info["trajectory_substep_rewards"], dtype=np.float64))
@@ -165,6 +207,29 @@ def _append_cycle(
     )
     trace.substep_truncated.append(np.asarray(info["trajectory_substep_truncated"], dtype=np.bool_))
     trace.substep_plan_indices.append(np.full(substep_count, plan_index, dtype=np.int64))
+    trace.target_centers.append(target_centers)
+    trace.target_headings.append(target_headings)
+    trace.position_errors_m.append(position_errors_m)
+    trace.heading_errors_rad.append(heading_errors_rad)
+
+
+def _raw_observation_for_trace(observation: dict[str, torch.Tensor]) -> dict[str, np.ndarray]:
+    names = (
+        "ego_current_state",
+        "neighbor_agents_past",
+        "static_objects",
+        "lanes",
+        "lanes_speed_limit",
+        "lanes_has_speed_limit",
+        "route_lanes",
+    )
+    raw: dict[str, np.ndarray] = {}
+    for name in names:
+        value = observation.get(name)
+        if not isinstance(value, torch.Tensor) or value.ndim < 1 or value.shape[0] != 1:
+            raise ValueError(f"raw observation {name} must be a batch-one torch tensor")
+        raw[name] = value.detach().cpu().numpy()[0].copy()
+    return raw
 
 
 def _draw_segment(
@@ -286,12 +351,23 @@ def _stack_trace(trace: EpisodeTrace) -> dict[str, np.ndarray]:
         "planning_anchors": np.stack(trace.planning_anchors),
         "initial_noise": np.concatenate(trace.noises, axis=0),
         "predictions_local": np.concatenate(trace.predictions_local, axis=0),
+        "observation_ego_current_state": np.stack(trace.observation_ego_current_state),
+        "observation_neighbor_agents_past": np.stack(trace.observation_neighbor_agents_past),
+        "observation_static_objects": np.stack(trace.observation_static_objects),
+        "observation_lanes": np.stack(trace.observation_lanes),
+        "observation_lanes_speed_limit": np.stack(trace.observation_lanes_speed_limit),
+        "observation_lanes_has_speed_limit": np.stack(trace.observation_lanes_has_speed_limit),
+        "observation_route_lanes": np.stack(trace.observation_route_lanes),
         "ego_predictions_world": np.stack(trace.ego_world),
         "executed_states": np.concatenate(trace.substep_states, axis=0),
         "executed_rewards": np.concatenate(trace.substep_rewards, axis=0),
         "executed_terminated": np.concatenate(trace.substep_terminated, axis=0),
         "executed_truncated": np.concatenate(trace.substep_truncated, axis=0),
         "executed_plan_indices": np.concatenate(trace.substep_plan_indices, axis=0),
+        "trajectory_target_centers": np.concatenate(trace.target_centers, axis=0),
+        "trajectory_target_headings": np.concatenate(trace.target_headings, axis=0),
+        "trajectory_position_errors_m": np.concatenate(trace.position_errors_m, axis=0),
+        "trajectory_heading_errors_rad": np.concatenate(trace.heading_errors_rad, axis=0),
     }
 
 
@@ -304,6 +380,7 @@ def _episode_summary(
     truncated: bool,
     total_reward: float,
     noise_seed: int,
+    environment_map_audit: dict[str, object],
 ) -> dict[str, Any]:
     positions = np.vstack(
         (
@@ -313,6 +390,8 @@ def _episode_summary(
     )
     distance_m = float(np.linalg.norm(np.diff(positions, axis=0), axis=1).sum())
     speeds = trace_arrays["executed_states"][:, 5]
+    position_errors = trace_arrays["trajectory_position_errors_m"]
+    heading_errors = trace_arrays["trajectory_heading_errors_rad"]
     return {
         "scenario": asdict(spec),
         "noise_seed": noise_seed,
@@ -335,6 +414,53 @@ def _episode_summary(
         "terminated": terminated,
         "truncated": truncated,
         "terminal_reason": _terminal_reason(final_info, terminated, truncated),
+        "map_input_audit": _map_input_audit(trace_arrays, environment_map_audit),
+        "trajectory_execution_error": {
+            "position_m": _error_summary(position_errors),
+            "heading_rad": _error_summary(heading_errors),
+        },
+    }
+
+
+def _map_input_audit(
+    trace_arrays: dict[str, np.ndarray], environment_map_audit: dict[str, object]
+) -> dict[str, object]:
+    speed_limits = trace_arrays["observation_lanes_speed_limit"]
+    has_speed_limit = trace_arrays["observation_lanes_has_speed_limit"]
+    if speed_limits.shape != has_speed_limit.shape:
+        raise RuntimeError("trace lane speed limits and validity mask have incompatible shapes")
+    valid_counts = has_speed_limit.sum(axis=(1, 2), dtype=np.int64)
+    valid_speed_limits = speed_limits[has_speed_limit]
+    result = dict(environment_map_audit)
+    result.update(
+        {
+            "valid_lane_count_min": int(valid_counts.min()),
+            "valid_lane_count_max": int(valid_counts.max()),
+            "speed_limit_valid_count_min": int(valid_counts.min()),
+            "speed_limit_valid_count_max": int(valid_counts.max()),
+            "speed_limit_mps_min": None,
+            "speed_limit_mps_max": None,
+            "speed_limit_mps_unique_values": [],
+        }
+    )
+    if valid_speed_limits.size:
+        result["speed_limit_mps_min"] = float(valid_speed_limits.min())
+        result["speed_limit_mps_max"] = float(valid_speed_limits.max())
+        result["speed_limit_mps_unique_values"] = [
+            float(value) for value in np.unique(valid_speed_limits)
+        ]
+    return result
+
+
+def _error_summary(errors: np.ndarray) -> dict[str, float]:
+    if errors.ndim != 1 or not errors.size or not np.isfinite(errors).all():
+        raise RuntimeError(
+            "trajectory execution errors must be a non-empty finite one-dimensional array"
+        )
+    return {
+        "maximum": float(errors.max()),
+        "mean": float(errors.mean()),
+        "final": float(errors[-1]),
     }
 
 
@@ -391,7 +517,7 @@ def _run_scenario(
             anchor = _initial_vehicle_state(env)
             _, reward, terminated, truncated, info = env.step(ego_trajectory)
             total_reward += float(reward)
-            _append_cycle(trace, anchor, noise, prediction, info, plan_index)
+            _append_cycle(trace, anchor, observation, noise, prediction, info, plan_index)
             if config.video.enabled:
                 frames.append(
                     _render_cycle_frame(
@@ -416,6 +542,7 @@ def _run_scenario(
             truncated,
             total_reward,
             config.model.seed,
+            env.programmatic_lane_speed_limit_audit,
         )
         _write_episode_artifacts(
             output_root / spec.name,

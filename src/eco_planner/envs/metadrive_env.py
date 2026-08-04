@@ -10,12 +10,15 @@ import numpy as np
 from metadrive.engine.engine_utils import get_global_config
 from metadrive.envs.metadrive_env import MetaDriveEnv
 from metadrive.policy.base_policy import BasePolicy
+from metadrive.policy.replay_policy import ReplayTrafficParticipantPolicy
 from metadrive.utils import Config
 
 TRAJECTORY_HORIZON = 80
 TRAJECTORY_EXECUTION_STEPS = 5
 TRAJECTORY_TIMESTEP_S = 0.1
 _MIN_HEADING_NORM = 1e-6
+_PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH = 1000.0
+_MAX_LANE_SPEED_LIMIT_KMH = 130.0
 
 
 @dataclass(frozen=True)
@@ -86,11 +89,14 @@ def _to_world_trajectory(
     return _WorldTrajectory(centers, headings, velocities, angular_velocities)
 
 
-class KinematicTrajectoryPolicy(BasePolicy):
+class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
     """Execute an ego-local rear-axle trajectory by directly updating vehicle state."""
 
     def __init__(self, obj: Any, seed: int) -> None:
-        super().__init__(control_object=obj, random_seed=seed)
+        # ReplayTrafficParticipantPolicy marks this policy for MetaDrive's after_step phase.  That
+        # phase runs after physics integration but before BaseEnv samples observation, reward, and
+        # termination, so the externally recorded state is the requested trajectory waypoint.
+        BasePolicy.__init__(self, control_object=obj, random_seed=seed)
         config = self.engine.global_config
         self._horizon = _require_positive_int(config, "trajectory_horizon")
         self._execution_steps = _require_positive_int(config, "trajectory_execution_steps")
@@ -114,7 +120,16 @@ class KinematicTrajectoryPolicy(BasePolicy):
         super().reset()
 
     def act(self, agent_id: str) -> None:
-        external_action = self.engine.external_actions[agent_id]
+        external_actions = self.engine.external_actions
+        if external_actions is None:
+            if self._trajectory is None:
+                return None
+            raise RuntimeError(
+                "trajectory cache survived MetaDrive reset without an external action"
+            )
+        if agent_id not in external_actions:
+            raise RuntimeError(f"MetaDrive did not provide an external action for {agent_id!r}")
+        external_action = external_actions[agent_id]
         if external_action is not None:
             if self._trajectory is not None:
                 raise RuntimeError(
@@ -145,8 +160,8 @@ class KinematicTrajectoryPolicy(BasePolicy):
             )
 
         trajectory = self._trajectory
-        self.control_object.set_position(trajectory.centers[index])
-        self.control_object.set_heading_theta(float(trajectory.headings[index]))
+        self.control_object.set_position(trajectory.centers[index + 1])
+        self.control_object.set_heading_theta(float(trajectory.headings[index + 1]))
         self.control_object.set_velocity(trajectory.velocities[index])
         self.control_object.set_angular_velocity(float(trajectory.angular_velocities[index]))
         self.action_info["trajectory_index"] = index
@@ -169,6 +184,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             {
                 "trajectory_horizon": None,
                 "trajectory_execution_steps": None,
+                "programmatic_lane_speed_limit_kmh": None,
             },
             allow_add_new_key=True,
         )
@@ -182,6 +198,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             "decision_repeat",
             "trajectory_horizon",
             "trajectory_execution_steps",
+            "programmatic_lane_speed_limit_kmh",
         }
         missing = sorted(required - set(config))
         if missing:
@@ -203,6 +220,108 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         if execution_steps != TRAJECTORY_EXECUTION_STEPS:
             raise ValueError(f"trajectory_execution_steps must be {TRAJECTORY_EXECUTION_STEPS}")
         _validated_timestep(self.config)
+        self._programmatic_lane_speed_limit_kmh = _validated_programmatic_lane_speed_limit_kmh(
+            self.config
+        )
+        self._programmatic_lane_speed_limit_audit: dict[str, object] | None = None
+        self._programmatic_sentinel_lane_ids: frozenset[str] | None = None
+
+    @property
+    def programmatic_lane_speed_limit_audit(self) -> dict[str, object]:
+        """Return the verified lane-speed metadata written during the latest reset."""
+
+        if self._programmatic_lane_speed_limit_audit is None:
+            raise RuntimeError("programmatic lane speed limits are unavailable before reset")
+        return dict(self._programmatic_lane_speed_limit_audit)
+
+    def reset(self, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
+        result = super().reset(*args, **kwargs)
+        self._configure_programmatic_lane_speed_limits()
+        return result
+
+    def _configure_programmatic_lane_speed_limits(self) -> None:
+        """Replace only PGMap's explicit 1000 km/h unset-speed sentinel after map creation."""
+
+        current_map = self.current_map
+        if current_map is None:
+            raise RuntimeError("MetaDrive did not create a current map during reset")
+        road_network = getattr(current_map, "road_network", None)
+        if road_network is None or not hasattr(road_network, "get_all_lanes"):
+            raise RuntimeError("current map does not expose a lane road network")
+        lanes = road_network.get_all_lanes()
+        if not isinstance(lanes, list) or not lanes:
+            raise RuntimeError("current map road network has no lanes")
+
+        configured_kmh = self._programmatic_lane_speed_limit_kmh
+        lane_ids = frozenset(repr(getattr(lane, "index", None)) for lane in lanes)
+        if (
+            self._programmatic_sentinel_lane_ids is None
+            or not self._programmatic_sentinel_lane_ids.issubset(lane_ids)
+        ):
+            self._programmatic_sentinel_lane_ids = frozenset(
+                repr(getattr(lane, "index", None))
+                for lane in lanes
+                if getattr(lane, "speed_limit", None) == _PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH
+            )
+        replaced_lane_ids: list[str] = []
+        preserved_lane_ids: list[str] = []
+        preserved_speed_limits_kmh: list[float] = []
+        for lane in lanes:
+            lane_id = repr(getattr(lane, "index", None))
+            speed_limit = getattr(lane, "speed_limit", None)
+            if type(speed_limit) not in {int, float} or not np.isfinite(speed_limit):
+                raise ValueError(f"lane {lane_id} speed limit must be a finite numeric km/h value")
+            original_kmh = float(speed_limit)
+            if lane_id in self._programmatic_sentinel_lane_ids:
+                if original_kmh not in {configured_kmh, _PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH}:
+                    raise RuntimeError(
+                        f"lane {lane_id} no longer has the configured programmatic speed limit"
+                    )
+                setter = getattr(lane, "set_speed_limit", None)
+                if not callable(setter):
+                    raise RuntimeError(f"lane {lane_id} cannot set its programmatic speed limit")
+                setter(configured_kmh)
+                replaced_lane_ids.append(lane_id)
+            elif 0.0 < original_kmh <= _MAX_LANE_SPEED_LIMIT_KMH:
+                preserved_lane_ids.append(lane_id)
+                preserved_speed_limits_kmh.append(original_kmh)
+            else:
+                raise ValueError(
+                    f"lane {lane_id} speed limit {original_kmh} km/h is neither the "
+                    "programmatic unset sentinel nor a legal explicit speed limit"
+                )
+
+        final_speed_limits_kmh: list[float] = []
+        for lane in lanes:
+            lane_id = repr(getattr(lane, "index", None))
+            speed_limit = getattr(lane, "speed_limit", None)
+            if type(speed_limit) not in {int, float} or not np.isfinite(speed_limit):
+                raise RuntimeError(f"lane {lane_id} returned an invalid configured speed limit")
+            final_kmh = float(speed_limit)
+            if final_kmh == _PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH:
+                raise RuntimeError(f"lane {lane_id} retained the programmatic speed-limit sentinel")
+            if lane_id in replaced_lane_ids and final_kmh != configured_kmh:
+                raise RuntimeError(f"lane {lane_id} did not retain the configured speed limit")
+            if lane_id in preserved_lane_ids:
+                preserved_index = preserved_lane_ids.index(lane_id)
+                if final_kmh != preserved_speed_limits_kmh[preserved_index]:
+                    raise RuntimeError(
+                        f"lane {lane_id} explicit speed limit was unexpectedly modified"
+                    )
+            final_speed_limits_kmh.append(final_kmh)
+
+        counts: dict[str, int] = {}
+        for speed_limit_kmh in final_speed_limits_kmh:
+            label = f"{speed_limit_kmh:g}"
+            counts[label] = counts.get(label, 0) + 1
+        self._programmatic_lane_speed_limit_audit = {
+            "speed_limit_sentinel_replaced_count": len(replaced_lane_ids),
+            "speed_limit_existing_preserved_count": len(preserved_lane_ids),
+            "configured_programmatic_lane_speed_limit_kmh": configured_kmh,
+            "lane_speed_limit_kmh_counts": dict(
+                sorted(counts.items(), key=lambda item: float(item[0]))
+            ),
+        }
 
     def step(self, trajectory: np.ndarray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
         validated = _validate_trajectory(trajectory, TRAJECTORY_HORIZON)
@@ -225,6 +344,11 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         substep_truncated: list[bool] = []
         for index in range(TRAJECTORY_EXECUTION_STEPS):
             action = validated if index == 0 else None
+            # KinematicTrajectoryPolicy applies the exact waypoint in MetaDrive's after_step
+            # phase. Prevent the previous waypoint's velocity from moving the vehicle during
+            # this intervening physics phase, including when a new trajectory is supplied.
+            self.agent.set_velocity(np.zeros(2, dtype=np.float64))
+            self.agent.set_angular_velocity(0.0)
             observation, reward, terminated, truncated, info = super().step(action)
             total_reward += float(reward)
             executed_steps += 1
@@ -258,6 +382,17 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         result_info["trajectory_world_centers"] = world_trajectory.centers[1:].copy()
         result_info["trajectory_world_headings"] = world_trajectory.headings[1:].copy()
         result_info["trajectory_substep_states"] = np.stack(substep_states)
+        target_centers = world_trajectory.centers[1 : executed_steps + 1]
+        target_headings = world_trajectory.headings[1 : executed_steps + 1]
+        state_array = result_info["trajectory_substep_states"]
+        position_errors_m = np.linalg.norm(state_array[:, :2] - target_centers, axis=1)
+        heading_errors_rad = np.abs(
+            (state_array[:, 2] - target_headings + np.pi) % (2.0 * np.pi) - np.pi
+        )
+        result_info["trajectory_target_centers"] = target_centers.copy()
+        result_info["trajectory_target_headings"] = target_headings.copy()
+        result_info["trajectory_position_errors_m"] = position_errors_m
+        result_info["trajectory_heading_errors_rad"] = heading_errors_rad
         result_info["trajectory_substep_rewards"] = np.asarray(substep_rewards, dtype=np.float64)
         result_info["trajectory_substep_terminated"] = np.asarray(
             substep_terminated, dtype=np.bool_
@@ -286,3 +421,15 @@ def _validated_timestep(config: Any) -> float:
             f"physics_world_step_size * decision_repeat must equal {TRAJECTORY_TIMESTEP_S} seconds"
         )
     return timestep
+
+
+def _validated_programmatic_lane_speed_limit_kmh(config: Any) -> float:
+    value = config["programmatic_lane_speed_limit_kmh"]
+    if type(value) not in {int, float}:
+        raise TypeError("programmatic_lane_speed_limit_kmh must be a numeric km/h value")
+    if not np.isfinite(value) or value <= 0.0 or value > _MAX_LANE_SPEED_LIMIT_KMH:
+        raise ValueError(
+            "programmatic_lane_speed_limit_kmh must be finite, positive, and no greater than "
+            "130 km/h"
+        )
+    return float(value)

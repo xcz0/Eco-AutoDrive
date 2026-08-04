@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from eco_planner.envs.map_adapter import MetaDriveMapAdapter
+from eco_planner.envs.map_adapter import MetaDriveMapAdapter, _speed_limit_mps
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 
@@ -133,6 +133,40 @@ def test_map_adapter_marks_missing_speed_limit_explicitly(
 
     assert result["lanes_speed_limit"][0, 0, 0].item() == 0.0
     assert result["lanes_has_speed_limit"][0, 0, 0].item() is False
+
+
+@pytest.mark.parametrize(
+    ("speed_limit_kmh", "expected_mps", "has_speed_limit"),
+    [(None, 0.0, False), (0.0, 0.0, False), (36.0, 10.0, True)],
+)
+def test_speed_limit_conversion_contract(
+    speed_limit_kmh: float | None, expected_mps: float, has_speed_limit: bool
+) -> None:
+    value, valid = _speed_limit_mps(_lane(0, speed_limit=speed_limit_kmh))
+
+    assert value == pytest.approx(expected_mps)
+    assert valid is has_speed_limit
+
+
+def test_speed_limit_conversion_rejects_unconfigured_programmatic_sentinel() -> None:
+    with pytest.raises(RuntimeError, match="programmatic lane speed limit was not configured"):
+        _speed_limit_mps(_lane(0, speed_limit=1000.0))
+
+
+def test_map_adapter_preserves_mixed_explicit_speed_limit_encoding(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    env = _StubEnv(
+        [_lane(0, speed_limit=50.0), _lane(1, speed_limit=20.0)],
+        ["A", "B"],
+    )
+
+    result = MetaDriveMapAdapter(official_model_config, 100.0).build(env, torch.device("cpu"))
+
+    np.testing.assert_allclose(
+        result["lanes_speed_limit"][0, :2, 0].numpy(), [50.0 / 3.6, 20.0 / 3.6], atol=1e-6
+    )
+    assert result["lanes_has_speed_limit"][0, :2, 0].tolist() == [True, True]
 
 
 def test_map_adapter_filters_radius_and_keeps_connected_route(

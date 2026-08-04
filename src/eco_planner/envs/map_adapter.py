@@ -12,6 +12,8 @@ from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 _LANE_FEATURE_DIM = 12
 _TRAFFIC_LIGHT_UNKNOWN = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+_PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH = 1000.0
+_MAX_LANE_SPEED_LIMIT_KMH = 130.0
 
 
 @dataclass(frozen=True)
@@ -219,4 +221,14 @@ def _speed_limit_mps(lane: Any) -> tuple[float, bool]:
         raise ValueError(f"lane {lane.index!r} speed limit must be finite and non-negative")
     if speed_limit == 0.0:
         return 0.0, False
+    if float(speed_limit) == _PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH:
+        raise RuntimeError(
+            f"lane {lane.index!r} has raw speed limit {speed_limit!r} km/h: "
+            "programmatic lane speed limit was not configured"
+        )
+    if speed_limit > _MAX_LANE_SPEED_LIMIT_KMH:
+        raise ValueError(
+            f"lane {lane.index!r} speed limit {speed_limit!r} km/h exceeds "
+            "the 130 km/h domain bound"
+        )
     return float(speed_limit) / 3.6, True

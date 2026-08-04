@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 from omegaconf import OmegaConf
 
@@ -24,6 +25,15 @@ class _FakeEnv:
         self.config = config
         self.agent = _FakeAgent()
         self._step = 0
+
+    @property
+    def programmatic_lane_speed_limit_audit(self) -> dict[str, object]:
+        return {
+            "speed_limit_sentinel_replaced_count": 18,
+            "speed_limit_existing_preserved_count": 0,
+            "configured_programmatic_lane_speed_limit_kmh": 50.0,
+            "lane_speed_limit_kmh_counts": {"50": 18},
+        }
 
     def reset(self, seed: int) -> tuple[None, dict[str, object]]:
         assert seed == 3
@@ -55,6 +65,10 @@ class _FakeEnv:
             "trajectory_substep_rewards": np.ones(5),
             "trajectory_substep_terminated": np.array([False, False, False, False, terminated]),
             "trajectory_substep_truncated": np.zeros(5, dtype=np.bool_),
+            "trajectory_target_centers": positions,
+            "trajectory_target_headings": np.zeros(5),
+            "trajectory_position_errors_m": np.zeros(5),
+            "trajectory_heading_errors_rad": np.zeros(5),
             "route_completion": self._step / 2,
             "arrive_dest": terminated,
             "out_of_road": False,
@@ -75,7 +89,15 @@ class _FakeAdapter:
         assert radius == 100.0
 
     def build(self, env: _FakeEnv, device: torch.device) -> dict[str, torch.Tensor]:
-        return {}
+        return {
+            "ego_current_state": torch.zeros((1, 10)),
+            "neighbor_agents_past": torch.zeros((1, 20, 21, 11)),
+            "static_objects": torch.zeros((1, 20, 10)),
+            "lanes": torch.zeros((1, 70, 20, 12)),
+            "lanes_speed_limit": torch.full((1, 70, 1), 50.0 / 3.6),
+            "lanes_has_speed_limit": torch.ones((1, 70, 1), dtype=torch.bool),
+            "route_lanes": torch.zeros((1, 25, 20, 12)),
+        }
 
 
 class _FakePlanner:
@@ -128,9 +150,15 @@ def test_run_scenario_replans_and_writes_trace(tmp_path, monkeypatch) -> None:
     with np.load(tmp_path / "fake" / "trace.npz") as trace:
         assert trace["initial_noise"].shape == (2, 11, 80, 4)
         assert trace["predictions_local"].shape == (2, 11, 80, 4)
+        assert trace["observation_ego_current_state"].shape == (2, 10)
+        assert trace["observation_lanes"].shape == (2, 70, 20, 12)
+        assert trace["observation_lanes_speed_limit"].shape == (2, 70, 1)
+        assert trace["observation_lanes_has_speed_limit"].dtype == np.bool_
         assert trace["executed_states"].shape == (10, 7)
+        assert trace["trajectory_target_centers"].shape == (10, 2)
     payload = json.loads((tmp_path / "fake" / "summary.json").read_text())
     assert payload["noise_seed"] == 7
+    assert payload["map_input_audit"]["speed_limit_mps_min"] == pytest.approx(50.0 / 3.6)
 
 
 def test_world_polyline_draws_on_frame() -> None:
