@@ -22,6 +22,8 @@ from metadrive.component.traffic_participants.pedestrian import (
 )
 from metadrive.component.vehicle.base_vehicle import BaseVehicle
 
+from eco_planner.envs.lane_speed import is_real_scalar
+
 ParticipantKind = Literal["vehicle", "pedestrian", "bicycle"]
 StaticObjectKind = Literal["barrier", "traffic_cone", "generic"]
 
@@ -75,7 +77,7 @@ def capture_traffic_frame(env: Any) -> TrafficFrame:
         raise RuntimeError("MetaDrive engine objects must be exposed as a dictionary")
 
     rear_wheelbase = getattr(ego, "REAR_WHEELBASE", None)
-    if type(rear_wheelbase) not in {int, float} or not np.isfinite(rear_wheelbase):
+    if not is_real_scalar(rear_wheelbase) or not np.isfinite(rear_wheelbase):
         raise RuntimeError("controlled vehicle must expose a finite rear wheelbase")
     if float(rear_wheelbase) <= 0.0:
         raise RuntimeError("controlled vehicle rear wheelbase must be positive")
@@ -179,7 +181,7 @@ def _finite_vector(value: object, field: str, object_id: str) -> tuple[float, fl
 
 
 def _finite_scalar(value: object, field: str, object_id: str) -> float:
-    if type(value) not in {int, float} or not np.isfinite(value):
+    if not is_real_scalar(value) or not np.isfinite(value):
         raise ValueError(f"traffic object {object_id!r} {field} must be finite and numeric")
     return float(value)
 

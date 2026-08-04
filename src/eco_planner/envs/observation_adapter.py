@@ -14,6 +14,7 @@ from metadrive.component.traffic_participants.base_traffic_participant import (
 )
 from metadrive.component.vehicle.base_vehicle import BaseVehicle
 
+from eco_planner.envs.geometry import rear_axle_position, world_vectors_to_local
 from eco_planner.envs.map_adapter import MetaDriveMapAdapter
 from eco_planner.envs.traffic_state import (
     StaticTrafficObjectState,
@@ -79,6 +80,7 @@ class MetaDriveObservationAdapter:
         if not isinstance(frames, tuple) or not frames:
             raise TypeError("frames must be a non-empty tuple of TrafficFrame values")
         previous_step = self._history[-1].simulator_step if self._history else None
+        validated: list[TrafficFrame] = []
         for frame in frames:
             if not isinstance(frame, TrafficFrame):
                 raise TypeError("frames must contain only TrafficFrame values")
@@ -87,8 +89,9 @@ class MetaDriveObservationAdapter:
                     "traffic history simulator steps must be consecutive: "
                     f"expected {previous_step + 1}, got {frame.simulator_step}"
                 )
-            self._history.append(frame)
+            validated.append(frame)
             previous_step = frame.simulator_step
+        self._history.extend(validated)
         self._last_audit = None
 
     def build(self, env: Any, device: torch.device) -> dict[str, torch.Tensor]:
@@ -213,18 +216,15 @@ def _unique_participants(frame: TrafficFrame) -> dict[str, TrafficParticipantSta
 
 def _rear_axle_anchor(frame: TrafficFrame) -> tuple[np.ndarray, float]:
     heading = frame.ego_heading_rad
-    direction = np.array([np.cos(heading), np.sin(heading)], dtype=np.float64)
     center = np.asarray(frame.ego_center_xy_m, dtype=np.float64)
-    return center - frame.ego_rear_wheelbase_m * direction, heading
+    return rear_axle_position(center, heading, frame.ego_rear_wheelbase_m), heading
 
 
 def _to_local_vector(vector: np.ndarray, anchor_heading: float) -> np.ndarray:
-    cosine = np.cos(anchor_heading)
-    sine = np.sin(anchor_heading)
-    return np.array(
-        [cosine * vector[0] + sine * vector[1], -sine * vector[0] + cosine * vector[1]],
-        dtype=np.float64,
-    )
+    array = np.asarray(vector, dtype=np.float64)
+    if array.shape != (2,):
+        raise ValueError("vector must be two-dimensional")
+    return world_vectors_to_local(array[None], anchor_heading)[0]
 
 
 def _participant_features(

@@ -215,3 +215,15 @@ def test_traffic_adapter_requires_consecutive_complete_history(
         adapter.append_frames((_traffic_frame(2, ()),))
     with pytest.raises(RuntimeError, match="exactly 21"):
         adapter.build(SimpleNamespace(engine=SimpleNamespace(episode_step=0)), torch.device("cpu"))
+
+
+def test_traffic_adapter_rejects_frame_batch_atomically(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
+    adapter.reset(_traffic_frame(0, ()))
+
+    with pytest.raises(TypeError, match="TrafficFrame"):
+        adapter.append_frames((_traffic_frame(1, ()), object()))  # type: ignore[arg-type]
+
+    assert tuple(frame.simulator_step for frame in adapter._history) == (0,)

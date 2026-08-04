@@ -8,12 +8,12 @@ from typing import Any
 import numpy as np
 import torch
 
+from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
+from eco_planner.envs.lane_speed import model_lane_speed_limit_mps
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 _LANE_FEATURE_DIM = 12
 _TRAFFIC_LIGHT_UNKNOWN = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
-_PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH = 1000.0
-_MAX_LANE_SPEED_LIMIT_KMH = 130.0
 
 
 @dataclass(frozen=True)
@@ -72,7 +72,7 @@ class MetaDriveMapAdapter:
         rear_wheelbase = getattr(ego, "REAR_WHEELBASE", None)
         if rear_wheelbase is None or not np.isfinite(rear_wheelbase) or rear_wheelbase <= 0.0:
             raise ValueError("ego vehicle must define a finite positive REAR_WHEELBASE")
-        rear_axle = _rear_axle_position(center_position, center_heading, float(rear_wheelbase))
+        rear_axle = rear_axle_position(center_position, center_heading, float(rear_wheelbase))
 
         lane_records = self._select_lanes(road_network.get_all_lanes(), rear_axle)
         route_records = self._select_route_lanes(lane_records, navigation)
@@ -177,9 +177,11 @@ class MetaDriveMapAdapter:
             # MetaDrive's positive lateral coordinate points right; the model expects left first.
             left_boundary.append(lane.position(float(value), -width / 2.0))
             right_boundary.append(lane.position(float(value), width / 2.0))
-        centers_local = _world_points_to_ego_local(centers, rear_axle, ego_heading)
-        left_local = _world_points_to_ego_local(left_boundary, rear_axle, ego_heading)
-        right_local = _world_points_to_ego_local(right_boundary, rear_axle, ego_heading)
+        centers_local = world_points_to_local(centers, rear_axle, ego_heading).astype(np.float32)
+        left_local = world_points_to_local(left_boundary, rear_axle, ego_heading).astype(np.float32)
+        right_local = world_points_to_local(right_boundary, rear_axle, ego_heading).astype(
+            np.float32
+        )
 
         features = np.zeros((self._config.lane_len, _LANE_FEATURE_DIM), dtype=np.float32)
         features[:, :2] = centers_local
@@ -187,48 +189,5 @@ class MetaDriveMapAdapter:
         features[:, 4:6] = left_local - centers_local
         features[:, 6:8] = right_local - centers_local
         features[:, 8:12] = _TRAFFIC_LIGHT_UNKNOWN
-        speed_limit, has_speed_limit = _speed_limit_mps(lane)
+        speed_limit, has_speed_limit = model_lane_speed_limit_mps(lane)
         return features, speed_limit, has_speed_limit
-
-
-def _rear_axle_position(
-    center_position: np.ndarray, heading: float, rear_wheelbase: float
-) -> np.ndarray:
-    direction = np.array([np.cos(heading), np.sin(heading)], dtype=np.float64)
-    return center_position - rear_wheelbase * direction
-
-
-def _world_points_to_ego_local(
-    points: Any, rear_axle: np.ndarray, ego_heading: float
-) -> np.ndarray:
-    array = np.asarray(points, dtype=np.float64)
-    if array.ndim != 2 or array.shape[1] != 2 or not np.isfinite(array).all():
-        raise ValueError("lane points must form a finite [N, 2] array")
-    translated = array - rear_axle
-    cosine = np.cos(ego_heading)
-    sine = np.sin(ego_heading)
-    rotation = np.array([[cosine, sine], [-sine, cosine]], dtype=np.float64)
-    return (translated @ rotation.T).astype(np.float32)
-
-
-def _speed_limit_mps(lane: Any) -> tuple[float, bool]:
-    speed_limit = getattr(lane, "speed_limit", None)
-    if speed_limit is None:
-        return 0.0, False
-    if type(speed_limit) not in {int, float}:
-        raise TypeError(f"lane {lane.index!r} speed limit must be numeric or None")
-    if not np.isfinite(speed_limit) or speed_limit < 0.0:
-        raise ValueError(f"lane {lane.index!r} speed limit must be finite and non-negative")
-    if speed_limit == 0.0:
-        return 0.0, False
-    if float(speed_limit) == _PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH:
-        raise RuntimeError(
-            f"lane {lane.index!r} has raw speed limit {speed_limit!r} km/h: "
-            "programmatic lane speed limit was not configured"
-        )
-    if speed_limit > _MAX_LANE_SPEED_LIMIT_KMH:
-        raise ValueError(
-            f"lane {lane.index!r} speed limit {speed_limit!r} km/h exceeds "
-            "the 130 km/h domain bound"
-        )
-    return float(speed_limit) / 3.6, True

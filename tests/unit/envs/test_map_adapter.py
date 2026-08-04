@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 import torch
 
-from eco_planner.envs.map_adapter import MetaDriveMapAdapter, _speed_limit_mps
+from eco_planner.envs.lane_speed import model_lane_speed_limit_mps
+from eco_planner.envs.map_adapter import MetaDriveMapAdapter
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 
@@ -142,15 +143,22 @@ def test_map_adapter_marks_missing_speed_limit_explicitly(
 def test_speed_limit_conversion_contract(
     speed_limit_kmh: float | None, expected_mps: float, has_speed_limit: bool
 ) -> None:
-    value, valid = _speed_limit_mps(_lane(0, speed_limit=speed_limit_kmh))
+    value, valid = model_lane_speed_limit_mps(_lane(0, speed_limit=speed_limit_kmh))
 
     assert value == pytest.approx(expected_mps)
     assert valid is has_speed_limit
 
 
+def test_speed_limit_conversion_accepts_finite_numpy_scalar() -> None:
+    value, valid = model_lane_speed_limit_mps(_lane(0, speed_limit=np.float32(36.0)))
+
+    assert value == pytest.approx(10.0)
+    assert valid is True
+
+
 def test_speed_limit_conversion_rejects_unconfigured_programmatic_sentinel() -> None:
     with pytest.raises(RuntimeError, match="programmatic lane speed limit was not configured"):
-        _speed_limit_mps(_lane(0, speed_limit=1000.0))
+        model_lane_speed_limit_mps(_lane(0, speed_limit=1000.0))
 
 
 def test_map_adapter_preserves_mixed_explicit_speed_limit_encoding(
