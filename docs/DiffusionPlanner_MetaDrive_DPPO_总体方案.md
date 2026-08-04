@@ -1,16 +1,16 @@
 # Diffusion Planner 能耗强化学习微调总体方案
 
-> 状态：总体设计 v0.1（用于后续逐步实现）  
-> 日期：2026-08-02
+> 状态：总体设计 v0.2（用于后续逐步实现）
+> 日期：2026-08-03
 
 ## 1. 总体路线
 
-本项目采用“**保留 Diffusion Planner 预训练主体 + 新增 MetaDrive 适配层 + 新增 DPPO 随机采样器 + FASTSim 能耗计量**”的路线。
+本项目采用“**保留 Diffusion Planner 预训练主体 + 新增 MetaDrive 适配层 + 新增 DPPO 随机采样器 + 分阶段能耗计量**”的路线。强化学习早期直接使用 MetaDrive 默认能耗指标验证奖励方向和策略是否出现节能趋势；只有在该代理指标上取得可复现的初步成效后，才接入 FASTSim 做更细致的能耗计算和最终结论验证。
 
 最小可行系统分为两条链：
 
 1. **闭环执行链**：MetaDrive 场景 → 向量化观测与道路预瞄 → Diffusion Planner 生成 8 s 轨迹 → 执行前 0.5 s → 再规划。
-2. **强化学习链**：记录扩散去噪链及逐步 log-prob → 收集 MetaDrive 奖励和 FASTSim 能耗 → GAE → PPO 更新可训练参数与 critic。
+2. **强化学习链**：记录扩散去噪链及逐步 log-prob → 收集 MetaDrive 奖励和默认能耗指标 → GAE → PPO 更新可训练参数与 critic；初步有效后引入 FASTSim 离线精细复核，并按复核结果决定是否切换训练奖励。
 
 关键技术判断如下：
 
@@ -18,13 +18,15 @@
 - Diffusion Planner 固定输出 80 个未来点（8 s、10 Hz），与 MetaDrive 默认约 0.1 s 的决策间隔天然匹配。第一阶段使用项目内的 `KinematicTrajectoryPolicy` 执行局部后轴轨迹，不单独建立动力学模型。
 - 不把超过原训练分布的远期路线直接塞进现有 `route_lanes`。应新增零初始化的 `RoadPreviewEncoder`，以残差方式注入 200–500 m 的道路预瞄信息，最大程度保留开源权重的初始行为。
 - RL 主循环使用 **Lightning Fabric**。Fabric 保留自定义 PPO 循环，同时提供设备、混合精度、DDP、日志和 checkpoint 封装；若进行离线行为克隆预热，可单独使用标准 Lightning Trainer。
-- FASTSim 是后向整车能耗模型，输入至少需要时间—速度序列，不加入坡度。第一阶段的能耗改进主要来自速度规划、减少无效加减速和交通交互，而不是坡度预瞄。
+- MetaDrive 的 `info["step_energy"]` 和 `info["episode_energy"]` 作为早期能耗代理量，仅用于同环境、同车辆配置下的相对比较。它不能支撑真实燃油消耗或车辆级能效结论。
+- FASTSim 是后向整车能耗模型，输入至少需要时间—速度序列，不加入坡度。它在 MetaDrive 代理指标证明 RL 初步有效后接入，用于更细致的奖励、评测和最终能耗结论。能耗改进主要来自速度规划、减少无效加减速和交通交互，而不是坡度预瞄。
 
 ## 2. 研究边界与默认值
 
 | 项目 | 推荐默认值 | 原因 |
 | --- | --- | --- |
-| 车辆 | FASTSim 自带 `2012_Ford_Fusion.yaml`，传统燃油乘用车 | 自带资源、普通家用车、累计燃油能量定义清楚 |
+| 早期能耗口径 | MetaDrive 默认 `step_energy` / `episode_energy` | 无额外车辆模型依赖，先验证 RL 奖励方向和相对节能趋势 |
+| 精细能耗车辆 | FASTSim 自带 `2012_Ford_Fusion.yaml`，传统燃油乘用车 | 初步有效后启用；自带资源、累计燃油能量定义清楚 |
 | 模拟地图 | MetaDrive 程序化单智能体环境，响应式交通 | 易生成大量训练场景，适合闭环 RL |
 | 规划频率 | 2 Hz，即每 0.5 s 重规划 | 计算量和闭环反馈之间较平衡 |
 | 仿真频率 | 10 Hz | 与 Diffusion Planner 80 点 / 8 s 对齐 |
@@ -49,9 +51,12 @@ flowchart TD
     F --> G["8 s 轨迹与去噪链"]
     G --> H["执行前 0.5 s Waypoints"]
     H --> A
-    A --> I["FASTSimTraceMeter"]
-    I --> J["奖励、GAE 与 PPO 更新"]
+    A --> I["MetaDrive 默认能耗指标"]
+    I --> J["早期奖励、GAE 与 PPO 更新"]
     G --> J
+    A --> K["实际速度轨迹"]
+    K --> L["FASTSim 精细计量（初步有效后）"]
+    L --> M["精细评测及后续奖励"]
 ```
 
 系统应明确分开四类状态：
@@ -59,7 +64,7 @@ flowchart TD
 - `sim_state`：MetaDrive 的真实闭环状态；
 - `model_obs`：严格匹配 Diffusion Planner 预训练输入的数据；
 - `diffusion_chain`：每次规划的去噪中间状态、时间步、均值、方差与 log-prob；
-- `energy_state`：本回合累计的时间、实际速度、坡度和 FASTSim 累计能耗。
+- `energy_state`：早期记录 MetaDrive `step_energy` / `episode_energy`；同时保存时间和实际速度轨迹，供初步有效后使用 FASTSim 重算。两种口径必须带明确的指标名称和单位，不得静默替换或混合累计。
 
 ## 4. MetaDrive 与 Diffusion Planner 的接口
 
@@ -149,7 +154,7 @@ Actor 为“冻结的基础 Diffusion Planner + 可训练 preview/adapter”。C
 - 冻结场景 encoder 的 pooled feature；
 - road-preview feature；
 - ego 当前速度、加速度、路线完成度；
-- 可选的累计时间和累计能耗归一化量。
+- 可选的累计时间和累计能耗归一化量；能耗来源必须由配置显式指定为 MetaDrive 代理量或 FASTSim 精细量。
 
 总损失：
 
@@ -176,11 +181,26 @@ DPPO 初始超参数不要直接照搬机器人任务，建议从以下量级起
 | target KL | 先监控后设阈值 |
 | min sampling std | 从 `0.05–0.1` 扫描 |
 
-## 6. FASTSim 能耗奖励
+## 6. 分阶段能耗奖励与计量
 
-### 6.1 统一能耗接口
+### 6.1 早期：MetaDrive 默认能耗指标
 
-`FastSimTraceMeter` 只接收 MetaDrive 实际执行结果，而不是模型计划值：
+DPPO 能耗优化的第一版直接读取 MetaDrive 每个环境子步返回的：
+
+```python
+info["step_energy"]
+info["episode_energy"]
+```
+
+训练奖励使用 `step_energy`，回合统计使用 `episode_energy`，并保留原始分量。该指标是由速度和行驶距离构成的燃油消耗代理量，适合在固定 MetaDrive 版本、车辆配置、仿真步长和场景配置下进行 paired-seed 相对比较，但没有显式建模加速度、车辆质量、阻力、传动效率或再生制动。
+
+因此早期结果只能表述为“MetaDrive 默认能耗代理指标下降”，不能换算或表述为真实 `MJ/100 km`、`L/100 km` 或车辆节能率。若 `info` 中缺少任一必需字段，环境应立即报错，不得返回零值或自动切换到其他指标。
+
+进入 FASTSim 阶段的门槛为：在独立测试 seeds 上，DPPO 相对未训练 sampler 基线的单位有效进度代理能耗稳定下降，同时成功率、碰撞率和旅行时间满足预设约束。未达到该门槛时，优先修正 RL、奖励尺度和闭环行为，不投入 FASTSim 在线奖励工程。
+
+### 6.2 后续：FASTSim 精细能耗
+
+达到上述门槛后，实现 `FastSimTraceMeter`。它只接收 MetaDrive 实际执行结果，而不是模型计划值：
 
 ```text
 append(time_s, achieved_speed_mps, grade)
@@ -188,13 +208,13 @@ energy_joules() -> cumulative energy
 distance_meters() -> cumulative distance
 ```
 
-在每个回合结束时，使用完整实际速度轨迹构造 FASTSim `Cycle`，再用固定的 `Vehicle` 和 `SimDrive` 计算累计燃油能量。这样评测口径与规划模型、控制器实现解耦。
+先在每个回合结束时使用完整实际速度轨迹构造 FASTSim `Cycle`，再用固定的 `Vehicle` 和 `SimDrive` 计算累计燃油能量。这样可以先离线复核 MetaDrive 代理指标上的策略排序，并使评测口径与规划模型、控制器实现解耦。
 
-训练阶段先采用最简单且一致的精确方案：每隔 2–5 s 用“从回合起点到当前时刻的完整前缀”运行一次 FASTSim，以本次与上次累计能耗之差作为区间能耗。该方法会重复计算，但避免短片段重置发动机/功率系统状态造成的偏差。只有实测确认 FASTSim 成为吞吐瓶颈后，再增加由 FASTSim 样本蒸馏得到的 `(v, a, grade) → energy_rate` 查表近似；最终评价始终使用完整 FASTSim。
+只有当离线 FASTSim 复核表明代理指标与精细能耗的策略排序基本一致，或明确发现需要用精细模型继续优化时，才把 FASTSim 接入训练奖励。在线训练采用每隔 2–5 s 用“从回合起点到当前时刻的完整前缀”运行一次 FASTSim，并以本次与上次累计能耗之差作为区间能耗。该方法会重复计算，但避免短片段重置发动机/功率系统状态造成的偏差。只有实测确认 FASTSim 成为吞吐瓶颈后，才考虑由 FASTSim 样本蒸馏得到的 `(v, a, grade) → energy_rate` 查表近似；最终评价始终使用完整 FASTSim。
 
-若以后改为 HEV/BEV，需要固定初始 SOC，并谨慎使用 `walk()` 的 SOC 校正行为；训练增量口径更适合固定状态的 `walk_once()`。第一阶段选择传统燃油车可以避免这一复杂性。
+若以后改为 HEV/BEV，需要固定初始 SOC，并谨慎使用 `walk()` 的 SOC 校正行为；训练增量口径更适合固定状态的 `walk_once()`。精细化阶段先选择传统燃油车以避免这一复杂性。
 
-### 6.2 奖励设计
+### 6.3 奖励设计
 
 不能只奖励低能耗，否则停车是最优策略。建议将研究目标表述为：
 
@@ -210,14 +230,14 @@ r_t = w_p\Delta s_t - w_E\frac{\Delta E_t}{E_{ref}}
 其中：
 
 - `Δs`：沿路线进度；
-- `ΔE`：FASTSim 区间能耗；
+- `ΔE`：当前阶段显式配置的区间能耗；早期为 MetaDrive `step_energy` 的子步累计，精细化阶段为 FASTSim 区间能耗；
 - `Δt`：时间成本，防止极慢行驶；
 - `C`：碰撞；
 - `O`：驶出道路、逆行或严重偏离路线；
 - `J`：加速度/jerk 舒适性小惩罚；
 - `r_terminal`：到达奖励或失败惩罚。
 
-推荐分两步调权重：先在 `w_E=0` 时确保 RL 不降低安全和完成率，再逐步提高 `w_E`。奖励原始分量必须分别记录，不能只记录总 reward。
+推荐分三步调权重：先在 `w_E=0` 时确保 RL 不降低安全和完成率；再使用 MetaDrive 默认能耗指标逐步提高 `w_E`，验证能耗优化是否初见成效；最后在通过阶段门槛后用 FASTSim 离线复核，并按需要接入精细奖励。奖励原始分量和 `energy_metric` 名称必须分别记录，不能只记录总 reward，也不能跨口径直接比较绝对值。
 
 ## 7. 训练与评测场景
 
@@ -240,8 +260,9 @@ MetaDrive 支持按 block 数随机生成地图，也支持用 `S/C/r/R/O/X/y/Y/
 2. 开源权重 + DPPO sampler，但未训练；
 3. 可选 MetaDrive 行为克隆/domain alignment 后、未做能耗 RL；
 4. DPPO，`w_E=0`；
-5. DPPO，启用能耗奖励；
-6. IDM 或 MetaDrive 默认策略，作为环境参考而非同类模型主基线。
+5. DPPO，启用 MetaDrive 默认能耗奖励；
+6. 达到初步成效门槛后，对上述策略使用 FASTSim 离线精细评测；若继续训练，再增加 FASTSim 奖励版本；
+7. IDM 或 MetaDrive 默认策略，作为环境参考而非同类模型主基线。
 
 建议消融：无远期预瞄 / 100 m / 300 m；微调 1/2/5 个去噪步；adapter / 最后一块 / 全 decoder；不同交通密度。
 
@@ -256,13 +277,14 @@ MetaDrive 支持按 block 数随机生成地图，也支持用 `S/C/r/R/O/X/y/Y/
 
 能耗指标：
 
-- 总能耗和 `MJ/100 km`；
-- 若为燃油车，`L/100 km` 或 MPGe；
-- 单位有效进度能耗；
+- 早期：MetaDrive `episode_energy`、单位有效进度代理能耗，以及相对基线的下降比例；
+- 精细化阶段：FASTSim 总能耗和 `MJ/100 km`；
+- 精细化阶段若为燃油车：`L/100 km` 或 MPGe；
+- 精细化阶段：单位有效进度能耗；
 - 正牵引、制动和怠速能耗分解（FASTSim 能提供时）；
 - 与原始策略在同 seed、同交通配置下的相对节能率。
 
-统计时采用 paired seeds；报告均值、中位数和 bootstrap 置信区间。主要能耗结论只在“成功且旅行时间不超过基线容许范围”的回合上比较，同时另报全体回合的失败率，防止用牺牲任务完成来换节能。
+统计时采用 paired seeds；报告均值、中位数和 bootstrap 置信区间。MetaDrive 与 FASTSim 指标分别成表，不直接比较绝对值。主要能耗结论只在“成功且旅行时间不超过基线容许范围”的回合上比较，同时另报全体回合的失败率，防止用牺牲任务完成来换节能。最终车辆能耗结论以完整 FASTSim 评测为准；FASTSim 接入前只报告代理指标上的初步趋势。
 
 ## 8. 实施阶段与验收门槛
 
@@ -287,15 +309,7 @@ MetaDrive 支持按 block 数随机生成地图，也支持用 `S/C/r/R/O/X/y/Y/
 
 验收：无交通简单路线高完成率；坐标和地图单元测试通过。
 
-### 阶段 2：FASTSim 评测闭环
-
-- 完成完整轨迹到 FASTSim Cycle 的转换；
-- 实现基准策略能耗、距离和时间统计；
-- 对相同 trace 重复运行，结果完全一致。
-
-验收：能耗随速度/加速度的基本趋势合理；基准结果可复现。
-
-### 阶段 3：DPPO sampler 单元验证
+### 阶段 2：DPPO sampler 单元验证
 
 - 实现随机去噪链、transition mean/std、log-prob；
 - 固定噪声时可复现；
@@ -304,7 +318,7 @@ MetaDrive 支持按 block 数随机生成地图，也支持用 `S/C/r/R/O/X/y/Y/
 
 验收：不训练时 sampler 不导致大幅安全退化，PPO 数值测试通过。
 
-### 阶段 4：安全保持的 RL
+### 阶段 3：安全保持的 RL
 
 - 先令 `w_E=0`；
 - 训练 critic 和少量 adapter；
@@ -313,13 +327,23 @@ MetaDrive 支持按 block 数随机生成地图，也支持用 `S/C/r/R/O/X/y/Y/
 
 验收：完成率和碰撞率不差于 DPPO-sampler 未训练基线的预设容差。
 
-### 阶段 5：能耗优化与预瞄
+### 阶段 4：MetaDrive 代理能耗优化与预瞄
 
-- 启用能耗权重；
+- 使用 MetaDrive `step_energy` 启用能耗权重；
 - 逐步增加 preview 距离和场景长度；
 - 完成 paired-seed 消融。
 
-验收：在成功率、旅行时间和安全约束内，单位距离能耗出现稳定、统计显著的下降。
+验收：在独立测试 seeds 上，成功率、旅行时间和安全指标满足约束，单位有效进度的 MetaDrive 能耗代理量相对未训练 sampler 基线稳定下降。该结果只代表 RL 初见成效，不作为真实车辆能耗结论。
+
+### 阶段 5：FASTSim 精细计量与复核
+
+- 完成实际速度轨迹到 FASTSim `Cycle` 的转换；
+- 对阶段 4 的基线与优化策略进行 paired-seed 离线重算；
+- 验证相同 trace 重复运行结果一致，并检查能耗随速度、加速度变化的基本趋势；
+- 对比 MetaDrive 代理指标与 FASTSim 指标的策略排序和相关性；
+- 若精细指标仍有优化空间，再将 FASTSim 区间能耗接入训练奖励并完成消融。
+
+验收：FASTSim 基准结果可复现；在成功率、旅行时间和安全约束内，完整 FASTSim 的单位距离能耗出现稳定下降。只有满足本阶段验收后，才报告真实车辆能耗改善结论。
 
 ## 9. 推荐项目结构
 
@@ -349,6 +373,7 @@ eco-diffusion-planner/
 │   │   ├── route_preview.py
 │   │   └── trajectory_executor.py
 │   ├── energy/
+│   │   ├── metadrive_metric.py
 │   │   ├── fastsim_meter.py
 │   │   └── cycle.py
 │   ├── rl/
@@ -372,7 +397,7 @@ eco-diffusion-planner/
 
 ## 10. 工具链与运行方式
 
-- Python 3.10：兼容当前 FASTSim 支持范围，同时比继续绑定原仓库 Python 3.9 更合适；新项目尽量不依赖完整 nuPlan devkit。
+- Python 3.10：与项目固定运行环境一致，并兼容后续 FASTSim 精细化阶段；新项目尽量不依赖完整 nuPlan devkit。
 - `uv + pyproject.toml`：依赖和锁文件；避免 Conda、pip、多套 requirements 并存。
 - Hydra/OmegaConf：实验配置与命令行覆盖。
 - Lightning Fabric：GPU、AMP、DDP、checkpoint、seed 和 logger。
@@ -393,13 +418,15 @@ Windows 主机只负责编辑、配置和小型静态测试；所有依赖解析
 | 高维轨迹 PPO ratio 不稳 | clip 率高、梯度消失 | 只聚合已执行的 ego 前缀，按维均值，采用 DPPO 的小 clip 和 KL 早停 |
 | 能耗奖励诱导慢行/停车 | 虚假节能 | 进度、时间、到达约束；成功回合内比较能耗 |
 | 运动学轨迹 Policy 绕开动力学 | 结果不可直接部署 | 明确研究边界；后续只替换 executor 做可执行性扩展 |
-| FASTSim 在线重复计算慢 | rollout 吞吐下降 | 先 profile 前缀法；必要时使用 FASTSim 蒸馏查表，最终评测保持精确 |
+| MetaDrive 默认能耗指标过于简化 | 代理指标下降但真实能耗未改善 | 仅作为早期门槛；保存实际 trace，并在初见成效后用 FASTSim paired-seed 复核 |
+| MetaDrive 与 FASTSim 奖励尺度不同 | 切换后 PPO 更新不稳或结果不可比 | 显式配置指标来源、分别归一化和调权；禁止静默切换与跨口径比较绝对值 |
+| FASTSim 在线重复计算慢 | 精细化训练的 rollout 吞吐下降 | 先做离线回合级复核；确需在线训练时 profile 前缀法，必要时使用 FASTSim 蒸馏查表，最终评测保持精确 |
 | 程序化超长地图生成不稳 | 长距离评测不足 | 固定长序列、自定义长走廊；不要用不连续回合替代主结果 |
 | MetaDrive 平面道路 | 缺少坡度节能结论 | 第一阶段聚焦曲率/限速/交通预瞄；保留 grade 接口供后续扩展 |
 
 ## 12. 后续需要用户确认的三项决策
 
-这些决策不阻塞阶段 0–2，但应在第一次能耗基线后确定：
+这些决策不阻塞阶段 0–4；在 MetaDrive 代理指标证明 RL 初见成效、准备进入 FASTSim 精细化阶段前确定：
 
 1. **动力类型**：传统燃油、HEV 还是 BEV；当前默认传统燃油 Ford Fusion。
 2. **长距离定义**：2–5 km、10 km，还是按 10–30 min 连续驾驶定义；当前建议先 2–5 km。
