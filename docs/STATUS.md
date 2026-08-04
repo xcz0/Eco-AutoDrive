@@ -19,7 +19,7 @@
 - 已实现 `MetaDriveMapAdapter`、`TrajectoryMetaDriveEnv` 和 `KinematicTrajectoryPolicy`；
 - 地图适配器可构造固定形状的普通 lane、route lane 和限速张量；
 - 已实现严格限定为空场景的 `NoTrafficMetaDriveObservationAdapter`；
-- `evaluate.py` 可用官方 EMA、固定噪声生成器和滚动重规划运行 `S`/`SC` 无交通闭环；
+- `scripts/evaluate.py` 可用官方 EMA、固定噪声生成器和滚动重规划运行 `S`/`SC` 无交通闭环；
 - 每次评测保存 resolved config、raw observation、噪声、完整预测、目标/实际状态、执行误差、限速审计、summary 和可选 GIF；
 - 已修正 PGMap `1000 km/h` 未设置限速哨兵和运动学 waypoint 执行时序，详见 `CORRECTIONS.md`。
 - Windows CPU 的 `S`/`SC`、噪声 seeds `0..4`、20 s 上限矩阵已完成且无驾驶失败；

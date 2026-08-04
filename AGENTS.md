@@ -32,7 +32,7 @@
 - `src/eco_planner/envs/`：MetaDrive 环境封装、观测适配、坐标变换、路线预瞄和轨迹执行；
 - `src/eco_planner/energy/`：FASTSim 行程构造、能耗计量和单位转换；
 - `src/eco_planner/rl/`：rollout、buffer、GAE 和 PPO/DPPO 更新；
-- `src/eco_planner/train.py`、`evaluate.py`：Hydra 驱动的训练和评测入口；
+- `src/eco_planner/train.py`、`scripts/evaluate.py`：Hydra 驱动的训练和评测入口；
 - `configs/`：环境、模型、奖励、训练和实验配置；实验参数不得硬编码进 Python；
 - `tests/`：快速单元测试和带 marker 的 GPU、仿真器、慢速测试；
 - `docker/`：预留给后续服务器训练阶段评估的 Ubuntu 22.04 / CUDA 12.4 环境；

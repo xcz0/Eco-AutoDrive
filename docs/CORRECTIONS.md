@@ -66,7 +66,7 @@ MetaDrive 0.4.3 的程序化 lane 使用精确 `1000 km/h` 表示“限速尚未
 
 ## C-002 运动学执行状态落后一个物理 tick
 
-**发现日期**：2026-08-04  
+**发现日期**：2026-08-04
 **影响范围**：轨迹目标/实际误差、速度与加速度 trace，以及后续能耗计量。
 
 ### 错误表现
@@ -137,3 +137,32 @@ tick 的误差被容差隐藏。
 非正长度；新增回归测试直接使用 `numpy.float32` lane 长度。修正后 `SC×20` seed 0 的短交通
 闭环通过，审计路线长度为 `3616.510 m`。首次失败目录保留在
 `outputs/traffic/2026-08-04/formal-long-traffic-seeds-0-4/`，不得视为完整矩阵。
+
+## C-005 交通历史批量追加失败时会留下部分状态
+
+**发现日期**：2026-08-04
+**影响范围**：`MetaDriveObservationAdapter.append_frames()` 的异常路径；已完成正式回合使用环境
+生成的连续 `TrafficFrame`，没有证据表明其产物受到影响。
+
+旧实现逐帧校验并立即写入长度 21 的 deque。如果同一批次的后续帧类型错误或时间轴不连续，
+函数虽然抛出异常，前面已经通过的帧仍会留在历史中；调用方若捕获异常后继续使用适配器，就会
+基于非事务性的半批状态构造观测。
+
+修正后先验证整批帧的类型和连续 simulator step，再一次性扩展历史；任何失败都保持原历史和
+audit 状态不变。回归测试直接构造“首帧合法、后续值非法”的批次并确认 deque 仍只含 reset 帧。
+
+## C-006 矩阵汇总把合法空 diff 当作缺失产物
+
+**发现日期**：2026-08-04
+**影响范围**：`scripts/summarize_traffic_matrix.py` 对干净 Git 工作区评测的产物校验，以及部分
+矩阵输入网格的严格性；既有 E-006 报告经重构后只读重放保持语义完全一致。
+
+`tracked_diff.patch` 在无 tracked 修改时合法地是零字节文件，旧汇总器却要求它非空，因此会拒绝
+从干净 commit 运行得到的可复现实验。旧 `--partial` 路径还没有确认已完成 job 属于预定义的
+seed/density 网格。
+
+修正后 `tracked_diff.patch` 必须存在但允许为空；resolved config、overrides、运行元数据、episode
+summary、trace 和 GIF 仍必须存在且满足各自非空或 schema 契约。部分矩阵必须是固定完整网格的
+非空子集，并校验 job/episode summary 副本和完整 trace 时间轴。合成完整/部分矩阵回归覆盖空
+diff、越界 seed、重复 job、summary 不一致及 trace 缺项、错形、非有限值和误差门槛；现有
+12 回合 `partial_matrix_report.json` 与新内存报告逐字段相等。

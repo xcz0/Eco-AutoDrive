@@ -43,7 +43,7 @@ uv run ruff format --check .
 `configs/evaluation/no_traffic.yaml` 默认仍使用 CUDA。本机接口和短程闭环检查必须显式覆盖设备、时长和场景，例如：
 
 ```powershell
-uv run python -m eco_planner.evaluate model.device=cpu env.horizon=5 `
+uv run python scripts/evaluate.py model.device=cpu env.horizon=5 `
   video.enabled=false 'scenarios=[{name:straight,map:S,seed:0}]'
 ```
 
@@ -56,7 +56,7 @@ uv run python -m eco_planner.evaluate model.device=cpu env.horizon=5 `
 `experiments/README.md`。
 
 ```powershell
-uv run python -m eco_planner.evaluate --config-name evaluation/traffic `
+uv run python scripts/evaluate.py --config-name evaluation/traffic `
   evaluation.evaluated_horizon_steps=10 env.horizon=30 video.enabled=false
 ```
 
