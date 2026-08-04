@@ -7,24 +7,19 @@
 
 ### Diffusion Planner 基线
 
-- 已实现与官方 checkpoint 参数层级兼容的模型主体、Encoder、DiT、归一化和 10 步
-  DPM-Solver++ baseline sampler；
+- 已实现与官方 checkpoint 参数层级兼容的模型主体、Encoder、DiT、归一化和 10 步 DPM-Solver++ baseline sampler；
 - 已实现严格 EMA 权重加载、文件哈希、key、形状和参数量校验；
 - 已有合成 observation、噪声和输出契约的单元/集成测试；
-- 同一 CPU 输入和噪声下，本实现与 `ref/Diffusion-Planner` 最终输出最大绝对误差为
-  `3.1e-5`，既定容差为 `atol=5e-5, rtol=0`。
+- 同一 CPU 输入和噪声下，本实现与 `ref/Diffusion-Planner` 最终输出最大绝对误差为 `3.1e-5`，既定容差为 `atol=5e-5, rtol=0`。
 
 ### MetaDrive 无交通闭环
 
-- 已实现 `MetaDriveMapAdapter`、`TrajectoryMetaDriveEnv` 和
-  `KinematicTrajectoryPolicy`；
+- 已实现 `MetaDriveMapAdapter`、`TrajectoryMetaDriveEnv` 和 `KinematicTrajectoryPolicy`；
 - 地图适配器可构造固定形状的普通 lane、route lane 和限速张量；
 - 已实现严格限定为空场景的 `NoTrafficMetaDriveObservationAdapter`；
 - `evaluate.py` 可用官方 EMA、固定噪声生成器和滚动重规划运行 `S`/`SC` 无交通闭环；
-- 每次评测保存 resolved config、raw observation、噪声、完整预测、目标/实际状态、执行误差、
-  限速审计、summary 和可选 GIF；
-- 已修正 PGMap `1000 km/h` 未设置限速哨兵和运动学 waypoint 执行时序，详见
-  `CORRECTIONS.md`。
+- 每次评测保存 resolved config、raw observation、噪声、完整预测、目标/实际状态、执行误差、限速审计、summary 和可选 GIF；
+- 已修正 PGMap `1000 km/h` 未设置限速哨兵和运动学 waypoint 执行时序，详见 `CORRECTIONS.md`。
 
 ### 环境与工程
 
@@ -42,8 +37,7 @@
 | 运动学执行器可逐点匹配 waypoint | Windows 直线/变 heading 回归，最大位置误差约 `4.6e-4 m` | 不证明低层车辆动力学可跟踪 |
 | 修正后 `S` seed 0 可运行 2 s 不出界 | Windows CPU、噪声 seed 0、4 个规划周期 | 不构成 20 s、多 seed、弯道或 CUDA 性能基线 |
 
-修正后的 2 s 直道运行使用 18 条 `50 km/h` lane，速度约 `10.45–10.87 m/s`，行驶
-`21.21 m`，以 `max_step` 截断。完整参数和产物索引见 `experiments/README.md`。
+修正后的 2 s 直道运行使用 18 条 `50 km/h` lane，速度约 `10.45–10.87 m/s`，行驶`21.21 m`，以 `max_step` 截断。完整参数和产物索引见 `experiments/README.md`。
 
 ## 尚未完成
 
@@ -63,8 +57,7 @@
 - `S` 与 `SC`、噪声 seeds `0..4`（资源允许时 `0..15`）的 20 s 无交通矩阵；
 - `SC` 中 18 条补充 `50 km/h` 与 12 条保留 `20 km/h` 的完整闭环表现；
 - 上游与本实现对相同 raw observation、相同噪声的 encoder/solver 逐层数值对照；
-- 真实 nuPlan 输入与 MetaDrive 输入的字段分布对照；这需要 nuPlan 场景和地图数据，只有 devkit
-  源码不能替代。
+- 真实 nuPlan 输入与 MetaDrive 输入的字段分布对照；这需要 nuPlan 场景和地图数据，只有 devkit 源码不能替代。
 
 ## 下一步
 
@@ -75,5 +68,4 @@
 5. 随后实现并单测 DPPO stochastic sampler，再接 critic、rollout/GAE/PPO；
 6. 代理能耗出现可复现优化趋势后，接入 FASTSim 做精细复核。
 
-任何一步失败都应保留 trace、配置和失败状态；不得通过后处理、回退控制器或挑选成功 seed 推进
-里程碑。
+任何一步失败都应保留 trace、配置和失败状态；不得通过后处理、回退控制器或挑选成功 seed 推进里程碑。
