@@ -8,7 +8,9 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from eco_planner import evaluate
+from eco_planner.envs import TrafficFrame
+from eco_planner.evaluation import rendering, run_evaluation, runner
+from eco_planner.evaluation.trace import EpisodeTraceRecorder
 from eco_planner.models.checkpoint import CheckpointLoadReport
 
 
@@ -91,8 +93,8 @@ class _FakeAdapter:
     def build(self, env: _FakeEnv, device: torch.device) -> dict[str, torch.Tensor]:
         return {
             "ego_current_state": torch.zeros((1, 10)),
-            "neighbor_agents_past": torch.zeros((1, 20, 21, 11)),
-            "static_objects": torch.zeros((1, 20, 10)),
+            "neighbor_agents_past": torch.zeros((1, 32, 21, 11)),
+            "static_objects": torch.zeros((1, 5, 10)),
             "lanes": torch.zeros((1, 70, 20, 12)),
             "lanes_speed_limit": torch.full((1, 70, 1), 50.0 / 3.6),
             "lanes_has_speed_limit": torch.ones((1, 70, 1), dtype=torch.bool),
@@ -134,14 +136,18 @@ def _config() -> object:
     )
 
 
+def test_evaluation_package_preserves_public_runner() -> None:
+    assert run_evaluation is runner.run_evaluation
+
+
 def test_run_scenario_replans_and_writes_trace(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(evaluate, "TrajectoryMetaDriveEnv", _FakeEnv)
-    monkeypatch.setattr(evaluate, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
-    monkeypatch.setattr(evaluate, "_route_length_m", lambda env: 100.0)
+    monkeypatch.setattr(runner, "TrajectoryMetaDriveEnv", _FakeEnv)
+    monkeypatch.setattr(runner, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
+    monkeypatch.setattr(runner, "_route_length_m", lambda env: 100.0)
     report = CheckpointLoadReport("a" * 64, "b" * 64, 276, 6_042_628, "cpu")
 
-    summary = evaluate._run_scenario(
-        evaluate.ScenarioSpec("fake", "S", 3),
+    summary = runner._run_scenario(
+        runner.ScenarioSpec("fake", "S", 3),
         _FakePlanner(),
         report,
         _config(),
@@ -171,7 +177,7 @@ def test_run_scenario_replans_and_writes_trace(tmp_path, monkeypatch) -> None:
 
 def test_world_polyline_draws_on_frame() -> None:
     frame = np.zeros((20, 20, 3), dtype=np.uint8)
-    evaluate._draw_world_polyline(
+    rendering.draw_world_polyline(
         frame,
         np.array([[0.0, 0.0], [5.0, 0.0]]),
         np.array([0.0, 0.0]),
@@ -190,4 +196,59 @@ def test_route_length_accepts_finite_numpy_lane_scalars() -> None:
     current_map = SimpleNamespace(road_network=road_network)
     env = SimpleNamespace(agent=agent, current_map=current_map)
 
-    assert evaluate._route_length_m(env) == pytest.approx(123.5)
+    assert runner._route_length_m(env) == pytest.approx(123.5)
+
+
+def test_evaluation_config_rejects_horizon_mismatch() -> None:
+    config = _config()
+    config.env.horizon = 9
+
+    with pytest.raises(ValueError, match="env.horizon"):
+        runner._validate_evaluation_config(config)
+
+
+def test_traffic_warmup_records_exact_stationary_history() -> None:
+    class WarmupEnv:
+        def __init__(self) -> None:
+            self.agent = _FakeAgent()
+            self.simulator_step = 0
+
+        def step(self, trajectory: np.ndarray) -> tuple[None, float, bool, bool, dict]:
+            frames = []
+            for _ in range(5):
+                self.simulator_step += 1
+                frames.append(
+                    TrafficFrame(
+                        simulator_step=self.simulator_step,
+                        ego_center_xy_m=(0.0, 0.0),
+                        ego_heading_rad=0.0,
+                        ego_rear_wheelbase_m=1.0,
+                        participants=(),
+                        static_objects=(),
+                    )
+                )
+            info = {
+                "trajectory_substep_states": np.zeros((5, 7)),
+                "trajectory_substep_rewards": np.zeros(5),
+                "trajectory_substep_terminated": np.zeros(5, dtype=np.bool_),
+                "trajectory_substep_truncated": np.zeros(5, dtype=np.bool_),
+                "traffic_substep_frames": tuple(frames),
+            }
+            return None, 0.0, False, False, info
+
+    class WarmupAdapter:
+        def __init__(self) -> None:
+            self.frames: list[TrafficFrame] = []
+
+        def append_frames(self, frames: tuple[TrafficFrame, ...]) -> None:
+            self.frames.extend(frames)
+
+    env = WarmupEnv()
+    adapter = WarmupAdapter()
+    trace = EpisodeTraceRecorder.from_initial_state(np.zeros(7))
+
+    runner._run_traffic_warmup(env, adapter, trace, 20)  # type: ignore[arg-type]
+
+    assert len(adapter.frames) == 20
+    assert np.concatenate(trace.warmup_states).shape == (20, 7)
+    np.testing.assert_array_equal(trace.initial_state, np.zeros(7))

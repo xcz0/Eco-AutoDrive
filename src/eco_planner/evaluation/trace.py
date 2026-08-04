@@ -1,0 +1,422 @@
+"""Closed-loop trace recording and validation."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any
+
+import numpy as np
+import torch
+
+from eco_planner.envs import TrafficObservationAudit
+
+PLANNER_ACTOR_COUNT = 11
+PLANNER_FUTURE_STEPS = 80
+PLANNER_STATE_DIM = 4
+EXECUTION_PREFIX_STEPS = 5
+
+
+@dataclass
+class EpisodeTraceRecorder:
+    """Accumulate one episode and finalize its stable NPZ schema exactly once."""
+
+    warmup_initial_state: np.ndarray
+    initial_state: np.ndarray
+    warmup_states: list[np.ndarray] = field(default_factory=list)
+    warmup_rewards: list[np.ndarray] = field(default_factory=list)
+    warmup_terminated: list[np.ndarray] = field(default_factory=list)
+    warmup_truncated: list[np.ndarray] = field(default_factory=list)
+    warmup_participant_counts: list[np.ndarray] = field(default_factory=list)
+    warmup_static_object_counts: list[np.ndarray] = field(default_factory=list)
+    planning_anchors: list[np.ndarray] = field(default_factory=list)
+    noises: list[np.ndarray] = field(default_factory=list)
+    predictions_local: list[np.ndarray] = field(default_factory=list)
+    observation_ego_current_state: list[np.ndarray] = field(default_factory=list)
+    observation_neighbor_agents_past: list[np.ndarray] = field(default_factory=list)
+    observation_static_objects: list[np.ndarray] = field(default_factory=list)
+    observation_lanes: list[np.ndarray] = field(default_factory=list)
+    observation_lanes_speed_limit: list[np.ndarray] = field(default_factory=list)
+    observation_lanes_has_speed_limit: list[np.ndarray] = field(default_factory=list)
+    observation_route_lanes: list[np.ndarray] = field(default_factory=list)
+    ego_world: list[np.ndarray] = field(default_factory=list)
+    substep_states: list[np.ndarray] = field(default_factory=list)
+    substep_rewards: list[np.ndarray] = field(default_factory=list)
+    substep_terminated: list[np.ndarray] = field(default_factory=list)
+    substep_truncated: list[np.ndarray] = field(default_factory=list)
+    substep_plan_indices: list[np.ndarray] = field(default_factory=list)
+    target_centers: list[np.ndarray] = field(default_factory=list)
+    target_headings: list[np.ndarray] = field(default_factory=list)
+    position_errors_m: list[np.ndarray] = field(default_factory=list)
+    heading_errors_rad: list[np.ndarray] = field(default_factory=list)
+    traffic_selected_ids: list[np.ndarray] = field(default_factory=list)
+    traffic_participant_counts: list[int] = field(default_factory=list)
+    traffic_static_object_counts: list[int] = field(default_factory=list)
+    traffic_nearest_distance_m: list[float] = field(default_factory=list)
+    traffic_has_nearest: list[bool] = field(default_factory=list)
+    _finalized: bool = field(default=False, init=False, repr=False)
+
+    @classmethod
+    def from_initial_state(cls, initial_state: np.ndarray) -> EpisodeTraceRecorder:
+        initial = np.asarray(initial_state, dtype=np.float64)
+        if initial.shape != (7,) or not np.isfinite(initial).all():
+            raise ValueError("initial episode state must be a finite [7] array")
+        return cls(warmup_initial_state=initial.copy(), initial_state=initial.copy())
+
+    def append_warmup(
+        self,
+        info: Mapping[str, Any],
+        participant_counts: np.ndarray,
+        static_object_counts: np.ndarray,
+    ) -> None:
+        """Append one stationary warmup trajectory action."""
+
+        self._require_open()
+        self.warmup_states.append(np.asarray(info["trajectory_substep_states"], dtype=np.float64))
+        self.warmup_rewards.append(np.asarray(info["trajectory_substep_rewards"], dtype=np.float64))
+        self.warmup_terminated.append(
+            np.asarray(info["trajectory_substep_terminated"], dtype=np.bool_)
+        )
+        self.warmup_truncated.append(
+            np.asarray(info["trajectory_substep_truncated"], dtype=np.bool_)
+        )
+        self.warmup_participant_counts.append(np.asarray(participant_counts, dtype=np.int64))
+        self.warmup_static_object_counts.append(np.asarray(static_object_counts, dtype=np.int64))
+
+    def append_cycle(
+        self,
+        anchor: np.ndarray,
+        observation: dict[str, torch.Tensor],
+        noise: torch.Tensor,
+        prediction: torch.Tensor,
+        info: Mapping[str, Any],
+        plan_index: int,
+        traffic_audit: TrafficObservationAudit | None,
+    ) -> None:
+        """Append one planning cycle and its executed simulator prefix."""
+
+        self._require_open()
+        substep_states = np.asarray(info["trajectory_substep_states"], dtype=np.float64)
+        if substep_states.ndim != 2 or substep_states.shape[1] != 7:
+            raise RuntimeError("environment returned invalid trajectory substep states")
+        substep_count = substep_states.shape[0]
+        target_centers = np.asarray(info["trajectory_target_centers"], dtype=np.float64)
+        target_headings = np.asarray(info["trajectory_target_headings"], dtype=np.float64)
+        position_errors_m = np.asarray(info["trajectory_position_errors_m"], dtype=np.float64)
+        heading_errors_rad = np.asarray(info["trajectory_heading_errors_rad"], dtype=np.float64)
+        if target_centers.shape != (substep_count, 2):
+            raise RuntimeError("environment returned invalid trajectory target centers")
+        expected_shape = (substep_count,)
+        if target_headings.shape != expected_shape:
+            raise RuntimeError("environment returned invalid trajectory target headings")
+        if position_errors_m.shape != expected_shape or heading_errors_rad.shape != expected_shape:
+            raise RuntimeError("environment returned invalid trajectory execution errors")
+
+        raw_observation = _raw_observation_for_trace(observation)
+        self.planning_anchors.append(np.asarray(anchor, dtype=np.float64).copy())
+        self.noises.append(noise.detach().cpu().numpy())
+        self.predictions_local.append(prediction.detach().cpu().numpy())
+        self.observation_ego_current_state.append(raw_observation["ego_current_state"])
+        self.observation_neighbor_agents_past.append(raw_observation["neighbor_agents_past"])
+        self.observation_static_objects.append(raw_observation["static_objects"])
+        self.observation_lanes.append(raw_observation["lanes"])
+        self.observation_lanes_speed_limit.append(raw_observation["lanes_speed_limit"])
+        self.observation_lanes_has_speed_limit.append(raw_observation["lanes_has_speed_limit"])
+        self.observation_route_lanes.append(raw_observation["route_lanes"])
+        self.ego_world.append(_world_prediction(info))
+        self.substep_states.append(substep_states)
+        self.substep_rewards.append(
+            np.asarray(info["trajectory_substep_rewards"], dtype=np.float64)
+        )
+        self.substep_terminated.append(
+            np.asarray(info["trajectory_substep_terminated"], dtype=np.bool_)
+        )
+        self.substep_truncated.append(
+            np.asarray(info["trajectory_substep_truncated"], dtype=np.bool_)
+        )
+        self.substep_plan_indices.append(np.full(substep_count, plan_index, dtype=np.int64))
+        self.target_centers.append(target_centers)
+        self.target_headings.append(target_headings)
+        self.position_errors_m.append(position_errors_m)
+        self.heading_errors_rad.append(heading_errors_rad)
+        self._append_traffic_audit(traffic_audit)
+
+    def finalize(self) -> dict[str, np.ndarray]:
+        """Return validated arrays and reject repeated finalization."""
+
+        self._require_open()
+        if not self.noises or not self.substep_states:
+            raise RuntimeError("cannot save an empty closed-loop trace")
+        self._finalized = True
+        arrays = {
+            "warmup_initial_state": self.warmup_initial_state,
+            "warmup_states": _concatenate_or_empty(self.warmup_states, (0, 7), np.float64),
+            "warmup_rewards": _concatenate_or_empty(self.warmup_rewards, (0,), np.float64),
+            "warmup_terminated": _concatenate_or_empty(self.warmup_terminated, (0,), np.bool_),
+            "warmup_truncated": _concatenate_or_empty(self.warmup_truncated, (0,), np.bool_),
+            "warmup_participant_counts": _concatenate_or_empty(
+                self.warmup_participant_counts, (0,), np.int64
+            ),
+            "warmup_static_object_counts": _concatenate_or_empty(
+                self.warmup_static_object_counts, (0,), np.int64
+            ),
+            "initial_state": self.initial_state,
+            "planning_anchors": np.stack(self.planning_anchors),
+            "initial_noise": np.concatenate(self.noises, axis=0),
+            "predictions_local": np.concatenate(self.predictions_local, axis=0),
+            "observation_ego_current_state": np.stack(self.observation_ego_current_state),
+            "observation_neighbor_agents_past": np.stack(self.observation_neighbor_agents_past),
+            "observation_static_objects": np.stack(self.observation_static_objects),
+            "observation_lanes": np.stack(self.observation_lanes),
+            "observation_lanes_speed_limit": np.stack(self.observation_lanes_speed_limit),
+            "observation_lanes_has_speed_limit": np.stack(self.observation_lanes_has_speed_limit),
+            "observation_route_lanes": np.stack(self.observation_route_lanes),
+            "ego_predictions_world": np.stack(self.ego_world),
+            "executed_states": np.concatenate(self.substep_states, axis=0),
+            "executed_rewards": np.concatenate(self.substep_rewards, axis=0),
+            "executed_terminated": np.concatenate(self.substep_terminated, axis=0),
+            "executed_truncated": np.concatenate(self.substep_truncated, axis=0),
+            "executed_plan_indices": np.concatenate(self.substep_plan_indices, axis=0),
+            "trajectory_target_centers": np.concatenate(self.target_centers, axis=0),
+            "trajectory_target_headings": np.concatenate(self.target_headings, axis=0),
+            "trajectory_position_errors_m": np.concatenate(self.position_errors_m, axis=0),
+            "trajectory_heading_errors_rad": np.concatenate(self.heading_errors_rad, axis=0),
+            "traffic_selected_ids": np.stack(self.traffic_selected_ids),
+            "traffic_participant_counts": np.asarray(
+                self.traffic_participant_counts, dtype=np.int64
+            ),
+            "traffic_static_object_counts": np.asarray(
+                self.traffic_static_object_counts, dtype=np.int64
+            ),
+            "traffic_nearest_distance_m": np.asarray(
+                self.traffic_nearest_distance_m, dtype=np.float64
+            ),
+            "traffic_has_nearest": np.asarray(self.traffic_has_nearest, dtype=np.bool_),
+        }
+        validate_trace_arrays(arrays)
+        return arrays
+
+    def _append_traffic_audit(self, audit: TrafficObservationAudit | None) -> None:
+        selected_ids = np.full(32, "", dtype="<U64")
+        if audit is None:
+            participant_count = 0
+            static_count = 0
+            nearest_distance = 0.0
+            has_nearest = False
+        else:
+            ids = audit.selected_participant_ids
+            if len(ids) > selected_ids.size:
+                raise RuntimeError("traffic observation selected more than 32 participants")
+            selected_ids[: len(ids)] = ids
+            participant_count = audit.participant_count_in_radius
+            static_count = audit.static_object_count_in_radius
+            nearest = audit.nearest_participant_distance_m
+            nearest_distance = 0.0 if nearest is None else nearest
+            has_nearest = nearest is not None
+        self.traffic_selected_ids.append(selected_ids)
+        self.traffic_participant_counts.append(participant_count)
+        self.traffic_static_object_counts.append(static_count)
+        self.traffic_nearest_distance_m.append(nearest_distance)
+        self.traffic_has_nearest.append(has_nearest)
+
+    def _require_open(self) -> None:
+        if self._finalized:
+            raise RuntimeError("episode trace was already finalized")
+
+
+def validate_trace_arrays(
+    arrays: Mapping[str, np.ndarray],
+    *,
+    expected_plan_cycles: int | None = None,
+    expected_simulator_steps: int | None = None,
+    expected_warmup_steps: int | None = None,
+    require_traffic: bool = False,
+) -> None:
+    """Validate the producer/consumer trace contract."""
+
+    required_shapes: dict[str, tuple[int | None, ...]] = {
+        "warmup_initial_state": (7,),
+        "warmup_states": (None, 7),
+        "warmup_rewards": (None,),
+        "warmup_terminated": (None,),
+        "warmup_truncated": (None,),
+        "warmup_participant_counts": (None,),
+        "warmup_static_object_counts": (None,),
+        "initial_state": (7,),
+        "planning_anchors": (None, 7),
+        "initial_noise": (None, PLANNER_ACTOR_COUNT, PLANNER_FUTURE_STEPS, PLANNER_STATE_DIM),
+        "predictions_local": (
+            None,
+            PLANNER_ACTOR_COUNT,
+            PLANNER_FUTURE_STEPS,
+            PLANNER_STATE_DIM,
+        ),
+        "observation_ego_current_state": (None, 10),
+        "observation_neighbor_agents_past": (None, 32, 21, 11),
+        "observation_static_objects": (None, 5, 10),
+        "observation_lanes": (None, 70, 20, 12),
+        "observation_lanes_speed_limit": (None, 70, 1),
+        "observation_lanes_has_speed_limit": (None, 70, 1),
+        "observation_route_lanes": (None, 25, 20, 12),
+        "ego_predictions_world": (None, PLANNER_FUTURE_STEPS, PLANNER_STATE_DIM),
+        "executed_states": (None, 7),
+        "executed_rewards": (None,),
+        "executed_terminated": (None,),
+        "executed_truncated": (None,),
+        "executed_plan_indices": (None,),
+        "trajectory_target_centers": (None, 2),
+        "trajectory_target_headings": (None,),
+        "trajectory_position_errors_m": (None,),
+        "trajectory_heading_errors_rad": (None,),
+        "traffic_selected_ids": (None, 32),
+        "traffic_participant_counts": (None,),
+        "traffic_static_object_counts": (None,),
+        "traffic_nearest_distance_m": (None,),
+        "traffic_has_nearest": (None,),
+    }
+    missing = sorted(set(required_shapes) - set(arrays))
+    if missing:
+        raise ValueError(f"trace is missing arrays: {missing}")
+    for name, expected_shape in required_shapes.items():
+        value = arrays[name]
+        if not isinstance(value, np.ndarray):
+            raise TypeError(f"trace array {name!r} must be a numpy.ndarray")
+        if len(value.shape) != len(expected_shape) or any(
+            expected is not None and actual != expected
+            for actual, expected in zip(value.shape, expected_shape)
+        ):
+            raise ValueError(
+                f"trace array {name!r} has shape {value.shape}, expected {expected_shape}"
+            )
+        if value.dtype.kind in "fc" and not np.isfinite(value).all():
+            raise ValueError(f"trace array {name!r} contains non-finite values")
+
+    for name in (
+        "warmup_terminated",
+        "warmup_truncated",
+        "observation_lanes_has_speed_limit",
+        "executed_terminated",
+        "executed_truncated",
+        "traffic_has_nearest",
+    ):
+        if arrays[name].dtype != np.bool_:
+            raise TypeError(f"trace array {name!r} must use bool dtype")
+    for name in (
+        "warmup_participant_counts",
+        "warmup_static_object_counts",
+        "executed_plan_indices",
+        "traffic_participant_counts",
+        "traffic_static_object_counts",
+    ):
+        if arrays[name].dtype.kind not in "iu":
+            raise TypeError(f"trace array {name!r} must use an integer dtype")
+        if np.any(arrays[name] < 0):
+            raise ValueError(f"trace array {name!r} must be non-negative")
+    if arrays["traffic_selected_ids"].dtype.kind not in "US":
+        raise TypeError("trace array 'traffic_selected_ids' must use a string dtype")
+
+    plan_cycles = arrays["initial_noise"].shape[0]
+    simulator_steps = arrays["executed_states"].shape[0]
+    warmup_steps = arrays["warmup_states"].shape[0]
+    if plan_cycles <= 0 or simulator_steps <= 0:
+        raise ValueError("trace must contain at least one plan cycle and simulator step")
+    if expected_plan_cycles is not None and plan_cycles != expected_plan_cycles:
+        raise ValueError("trace planning cycle count disagrees with summary")
+    if expected_simulator_steps is not None and simulator_steps != expected_simulator_steps:
+        raise ValueError("trace simulator step count disagrees with summary")
+    if expected_warmup_steps is not None and warmup_steps != expected_warmup_steps:
+        raise ValueError(f"trace must contain exactly {expected_warmup_steps} warmup states")
+
+    for name in (
+        "planning_anchors",
+        "predictions_local",
+        "observation_ego_current_state",
+        "observation_neighbor_agents_past",
+        "observation_static_objects",
+        "observation_lanes",
+        "observation_lanes_speed_limit",
+        "observation_lanes_has_speed_limit",
+        "observation_route_lanes",
+        "ego_predictions_world",
+        "traffic_selected_ids",
+        "traffic_participant_counts",
+        "traffic_static_object_counts",
+        "traffic_nearest_distance_m",
+        "traffic_has_nearest",
+    ):
+        if arrays[name].shape[0] != plan_cycles:
+            raise ValueError(f"trace array {name!r} is not planning-cycle aligned")
+    for name in (
+        "executed_rewards",
+        "executed_terminated",
+        "executed_truncated",
+        "executed_plan_indices",
+        "trajectory_target_centers",
+        "trajectory_target_headings",
+        "trajectory_position_errors_m",
+        "trajectory_heading_errors_rad",
+    ):
+        if arrays[name].shape[0] != simulator_steps:
+            raise ValueError(f"trace array {name!r} is not simulator-step aligned")
+    for name in (
+        "warmup_rewards",
+        "warmup_terminated",
+        "warmup_truncated",
+        "warmup_participant_counts",
+        "warmup_static_object_counts",
+    ):
+        if arrays[name].shape[0] != warmup_steps:
+            raise ValueError(f"trace array {name!r} is not warmup-step aligned")
+
+    plan_indices = arrays["executed_plan_indices"]
+    if not np.array_equal(np.unique(plan_indices), np.arange(plan_cycles)):
+        raise ValueError("trace plan indices are not contiguous")
+    counts = np.bincount(plan_indices, minlength=plan_cycles)
+    if np.any(counts[:-1] != EXECUTION_PREFIX_STEPS) or not 1 <= counts[-1] <= 5:
+        raise ValueError("trace plan indices do not encode five-step prefixes")
+    expected_indices = np.repeat(np.arange(plan_cycles), counts)
+    if not np.array_equal(plan_indices, expected_indices):
+        raise ValueError("trace plan indices are not ordered by planning cycle")
+    terminal = arrays["executed_terminated"] | arrays["executed_truncated"]
+    if terminal[:-1].any():
+        raise ValueError("trace contains a terminal flag before its final simulator step")
+    if require_traffic and not np.any(arrays["traffic_participant_counts"] > 0):
+        raise ValueError("trace never observed traffic within the query radius")
+    nearest = arrays["traffic_nearest_distance_m"][arrays["traffic_has_nearest"]]
+    if np.any(nearest < 0.0):
+        raise ValueError("trace nearest traffic distances must be non-negative")
+
+
+def _raw_observation_for_trace(
+    observation: dict[str, torch.Tensor],
+) -> dict[str, np.ndarray]:
+    names = (
+        "ego_current_state",
+        "neighbor_agents_past",
+        "static_objects",
+        "lanes",
+        "lanes_speed_limit",
+        "lanes_has_speed_limit",
+        "route_lanes",
+    )
+    raw: dict[str, np.ndarray] = {}
+    for name in names:
+        value = observation.get(name)
+        if not isinstance(value, torch.Tensor) or value.ndim < 1 or value.shape[0] != 1:
+            raise ValueError(f"raw observation {name} must be a batch-one torch tensor")
+        raw[name] = value.detach().cpu().numpy()[0].copy()
+    return raw
+
+
+def _world_prediction(info: Mapping[str, Any]) -> np.ndarray:
+    centers = np.asarray(info["trajectory_world_centers"], dtype=np.float64)
+    headings = np.asarray(info["trajectory_world_headings"], dtype=np.float64)
+    if centers.shape != (80, 2) or headings.shape != (80,):
+        raise RuntimeError("environment returned an invalid world trajectory")
+    return np.column_stack((centers, np.cos(headings), np.sin(headings)))
+
+
+def _concatenate_or_empty(
+    values: list[np.ndarray], empty_shape: tuple[int, ...], dtype: np.dtype[Any]
+) -> np.ndarray:
+    return np.concatenate(values, axis=0) if values else np.empty(empty_shape, dtype=dtype)
