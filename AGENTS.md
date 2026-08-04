@@ -6,9 +6,11 @@
 
 逻辑和实验正确性优先于“跑起来”。所有输入、配置、依赖和张量契约都应显式定义：不要添加静默默认值、模糊兜底、自动降级或吞掉异常；缺少配置、权重、上游源码或运行时依赖时应立即失败，并给出可定位的错误。实现应保持简洁，优先使用成熟第三方库，避免为个人科研引入不必要的抽象层和兼容层。
 
-仓库目前已完成阶段 0 和 MetaDrive 环境适配里程碑。阶段 0 已具备 checkpoint-compatible Diffusion Planner 主体、严格的官方 EMA 权重加载、观测/噪声张量契约、归一化和 10 步 DPM-Solver++ baseline sampler；初始权重位于 `checkpoints/DP-Origin/`，对应单元与集成测试已经存在。环境侧已实现 `KinematicTrajectoryPolicy`、`TrajectoryMetaDriveEnv` 和 `MetaDriveMapAdapter`：环境接收 `[80, 4]` 后轴局部轨迹，每次执行前 5 点，并能从程序化地图构造固定形状的 lane、route lane 和限速张量。无渲染直道/弯道 simulator 测试已在当前 Windows 环境通过，但 Linux/Docker 基准环境仍是正式验收依据。
+仓库目前已完成阶段 0、MetaDrive 环境适配，以及官方 EMA 权重的**无交通短程闭环评测**。阶段 0 已具备 checkpoint-compatible Diffusion Planner 主体、严格的官方 EMA 权重加载、观测/噪声张量契约、归一化和 10 步 DPM-Solver++ baseline sampler；初始权重位于 `checkpoints/DP-Origin/`，对应单元与集成测试已经存在。环境侧已实现 `KinematicTrajectoryPolicy`、`TrajectoryMetaDriveEnv` 和 `MetaDriveMapAdapter`：环境接收 `[80, 4]` 后轴局部轨迹，每次执行前 5 点，并能从程序化地图构造固定形状的 lane、route lane 和限速张量。`NoTrafficMetaDriveObservationAdapter` 会严格拒绝动态或静态交通参与者，并为已明确限定的空场景构造官方输入；`evaluate.py` 使用官方权重、固定噪声种子和滚动重规划运行该闭环，并落盘配置、噪声、预测、执行状态和评测摘要。无渲染直道/弯道 simulator 测试已在当前 Windows 环境通过，但 Linux/Docker 基准环境仍是正式验收依据。
 
-项目尚未完成完整阶段 1：ego/邻车历史、静态物体和完整 `MetaDriveObservationAdapter` 尚未实现，官方权重还未接入 MetaDrive 模型闭环；低层 steering/throttle 轨迹跟踪、FASTSim 计量、DPPO sampler、critic、rollout/PPO 更新和长程道路预瞄也仍待落地。`src/eco_planner/train.py` 与 `evaluate.py` 继续保持占位入口。不要把这些规划中的模块描述为已经可用，也不要为了让占位入口表面可运行而加入假实现。
+当前官方权重在 MetaDrive 无交通闭环中的表现不佳。这一结论只说明“权重可被接入并驱动闭环”，**不**说明模型已在 MetaDrive 中得到有效性能基线，也不能在尚未完成对照实验前归因。优先查验：后轴/车辆中心坐标与朝向约定、地图特征和归一化分布、轨迹执行的运动学误差、采样噪声与随机种子，以及同一场景下上游 nuPlan/合成输入的预测对照；应保留每轮的 trace、视频、配置覆盖、checkpoint/hash 和上游 commit。不要通过平滑、裁剪、回退控制器或吞掉异常来掩盖失效轨迹。
+
+项目尚未完成完整阶段 1：有交通场景所需的 ego/邻车 21 帧历史、静态物体和通用 `MetaDriveObservationAdapter` 尚未实现；当前 `NoTrafficMetaDriveObservationAdapter` 不能用于交通场景。低层 steering/throttle 轨迹跟踪、DPPO sampler、critic、rollout/PPO 更新和长程道路预瞄也仍待落地。`src/eco_planner/train.py` 继续保持占位入口；`evaluate.py` 仅是上述无交通官方权重闭环评测入口。不要把这些规划中的模块描述为已经可用，也不要为了让占位入口表面可运行而加入假实现。
 
 ## 事实来源与决策优先级
 
