@@ -23,6 +23,7 @@
 - 不用平滑、裁剪、中心线投影、回退控制器或零轨迹掩盖模型失效；
 - 实现保持简洁，优先使用成熟第三方库；出现真实复用需求前不建立通用框架或兼容层；
 - 不得把 `docs/STATUS.md` 中“未完成”的模块描述为可用，也不得为占位入口加入假实现。
+- 禁止写哈希值与SHA256，禁止为基本不可能出现的case写防御；需要rubric的地方不要过度机械化。
 
 新增系统不变量写入 `docs/LOGIC.md`；新方案取舍写入 `docs/DECISIONS.md`；当前进度写入 `docs/STATUS.md`；错误认知、根因和修复证据写入 `docs/CORRECTIONS.md`；实际运行结果写入`experiments/README.md`。不要把普通代码改动逐条写入这些文档。
 
@@ -69,17 +70,9 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-需要修改格式时运行 `uv run ruff format .`。涉及 MetaDrive 的改动还要运行本机可用的显式simulator 测试。当前目标是补齐代码逻辑并用小规模配置跑通最小强化学习流程；Docker/服务器环境验证暂不作为代码变更的验收条件。
+需要修改格式时运行 `uv run ruff format .`。涉及 MetaDrive 的改动还要运行本机可用的显式simulator 测试。当前目标是补齐代码逻辑并用小规模配置跑通最小强化学习流程。
 
-强化学习流程跑通并准备服务器训练时，再根据当时确认的运行方案执行 Linux/CUDA 集成测试。若决定沿用现有 Docker 配置，可使用：
 
-```bash
-export CUDA_VISIBLE_DEVICES=0
-docker compose -f docker/compose.yaml build
-docker compose -f docker/compose.yaml run --rm trainer
-```
-
-容器内完整验证先执行 `uv sync --frozen --all-groups`，再执行 `uv run pytest`。本机结果只支持当前逻辑与接口结论；在服务器实验完成前，不得把它表述为服务器训练性能或跨平台结论。
 
 ## Git 与实验记录
 

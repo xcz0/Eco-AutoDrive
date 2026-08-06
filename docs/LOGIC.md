@@ -97,14 +97,9 @@ MetaDrive 0.4.3 的 PGMap 用精确 `1000 km/h` 表示“未设置程序化 lane
 
 ## 观测适配逻辑
 
-通用 `MetaDriveObservationAdapter` 直接从仿真对象和地图 API 构造官方字典，负责 ego、动态体
-21 帧历史、静态物体、普通 lane 和 route lane。环境在 reset 后和每个 0.1 s 子步结束时保存
-不可变交通快照；对象 ID、类型、位置、heading、速度和尺寸必须通过边界校验。当前帧 100 m
-范围内对象按距离和 ID 确定性排序，暂缺的历史状态按官方从当前向过去填充语义处理。
+通用 `MetaDriveObservationAdapter` 直接从仿真对象和地图 API 构造官方字典，负责 ego、动态体 21 帧历史、静态物体、普通 lane 和 route lane。环境在 reset 后和每个 0.1 s 子步结束时保存不可变交通快照；对象 ID、类型、位置、heading、速度和尺寸必须通过边界校验。当前帧 100 m 范围内对象按距离和 ID 确定性排序，暂缺的历史状态按官方从当前向过去填充语义处理。
 
-有交通评测首次推理前必须用四段零位移、有效 heading 的运动学轨迹固定 ego 并推进背景交通，
-由 reset 帧加 20 个真实子步组成完整 2 s 历史。预热不得使用另一控制器，不计入评测距离、奖励
-或旅行时间；预热期间终止、时间轴不连续、ego 位移达到 `1e-3 m` 或历史不足 21 帧均立即失败。
+有交通评测首次推理前必须用四段零位移、有效 heading 的运动学轨迹固定 ego 并推进背景交通，由 reset 帧加 20 个真实子步组成完整 2 s 历史。预热不得使用另一控制器，不计入评测距离、奖励或旅行时间；预热期间终止、时间轴不连续、ego 位移达到 `1e-3 m` 或历史不足 21 帧均立即失败。
 
 `NoTrafficMetaDriveObservationAdapter` 是更窄的已实现接口：
 
@@ -170,7 +165,7 @@ DPPO actor 由冻结的预训练主体和显式可训练的 preview/adapter 组�
 
 ## 评测与产物逻辑
 
-每次评测必须固定并记录：代码 commit、未提交 diff、上游 commit、checkpoint/hash、resolved config、Hydra overrides、地图/场景 seed、噪声 seed、设备和依赖环境。
+每次评测必须固定并记录：resolved config、Hydra overrides、地图/场景 seed、噪声 seed、设备和依赖环境。
 
 无交通和有交通闭环的每个场景至少产生：
 

@@ -60,44 +60,6 @@ uv run python scripts/evaluate.py --config-name evaluation/traffic `
   evaluation.evaluated_horizon_steps=10 env.horizon=30 video.enabled=false
 ```
 
-## 预留的服务器环境
-
-仓库已保留 Ubuntu 22.04 / CUDA 12.4 Docker 配置，供最小强化学习流程跑通后的服务器训练阶段评估使用。它当前不是代码构建或本机验证的门槛。若后续决定沿用该方案，服务器需预装NVIDIA 驱动、Docker Engine 和 NVIDIA Container Toolkit：
-
-```bash
-export CUDA_VISIBLE_DEVICES=0
-docker compose -f docker/compose.yaml build
-docker compose -f docker/compose.yaml run --rm trainer
-```
-
-进入容器后可执行：
-
-```bash
-uv sync --frozen --all-groups
-uv run pytest
-```
-
-## 未来的离线部署
-
-在能够构建 Linux/amd64 镜像的联网机器上生成离线包：
-
-```bash
-./scripts/build_offline_docker_bundle.sh /tmp/eco-planner-offline
-```
-
-将完整目录传到服务器后安装：
-
-```bash
-cd /path/to/eco-planner-offline
-./install.sh /opt/eco-planner
-cd /opt/eco-planner
-export CUDA_VISIBLE_DEVICES=0
-docker compose -f docker/compose.yaml run --rm trainer
-```
-
-离线包包含镜像、运行源码、本地固定的 MetaDrive 源码和 SHA-256 校验和；目标服务器必须是
-x86_64 Linux，安装脚本不会覆盖已有目录。
-
 ## 文档导航
 
 | 文件 | 内容 |
