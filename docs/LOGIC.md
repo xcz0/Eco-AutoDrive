@@ -1,32 +1,34 @@
 # 系统逻辑
 
-本文只定义 Eco-AutoDrive 在逻辑上必须怎样工作。实现进度见 `STATUS.md`，方案理由见`DECISIONS.md`，实验结果见 `../experiments/README.md`。
+本文只定义当前已实现系统必须遵守的逻辑与数据契约。实现进度见 `STATUS.md`，方案选择见 `DECISIONS.md`，尚未确定的研究设想见 `RESEARCH.md`。
 
 ## 系统边界
 
-目标系统由三条边界清晰的链组成：
+当前闭环链路为：
 
 ```text
-闭环执行：MetaDrive 状态 -> 官方格式观测 -> Diffusion Planner -> 8 s 轨迹 -> 执行前 0.5 s -> 更新 MetaDrive 状态 -> 重新规划
-
-强化学习：观测 -> DPPO 随机去噪链 -> 轨迹与逐步 log-prob -> 环境奖励 -> rollout / GAE -> PPO 更新 actor 与 critic
-
-能耗计量：实际执行状态 -> 时间/速度 trace -> 明确命名的能耗模型 -> 训练奖励或独立评测指标
+MetaDrive 状态
+  -> 官方格式观测
+  -> Diffusion Planner
+  -> 8 s 轨迹
+  -> 执行前 0.5 s
+  -> 更新 MetaDrive 状态
+  -> 重新规划
 ```
 
-`sim_state`、`model_obs`、`diffusion_chain` 和 `energy_state` 必须分开保存。模型预测不能覆盖仿真真实状态；MetaDrive 代理能耗和 FASTSim 能耗不能静默互换或混合累计。
+仿真真实状态、模型观测、模型预测和能耗记录必须分开保存。模型预测不得覆盖仿真状态；不同能耗指标不得静默互换或混合累计。
 
-当前实现覆盖第一条链的无交通和 `Trigger` IDM 车辆交通运动学闭环；强化学习与能耗链仍未完成。
+当前实现覆盖无交通和车辆交通下的轨迹级运动学闭环。强化学习、道路预瞄扩展和精细能耗模型尚未形成实现契约。
 
 ## checkpoint 与上游契约
 
-加载过程必须校验 missing/unexpected keys、张量形状和参数总数。不得采用会把非 DDP checkpoint 过滤为空字典的隐式前缀规则。`normalization.json` 属于 checkpoint 输入分布契约，不是可选预处理。
+加载过程必须校验 missing/unexpected keys、张量形状和参数总数。`normalization.json` 属于模型输入分布契约，不是可选预处理。
 
-业务代码不得从 `ref/` 导入。上游的 nuPlan 数据提取和 planner 生命周期只用于理解字段语义，MetaDrive 边界必须在本项目重写。
+业务代码不得从 `ref/` 导入。上游 nuPlan 数据提取和 planner 生命周期只用于理解字段语义，MetaDrive 边界由本项目实现。
 
 ## 模型张量契约
 
-官方配置固定以下形状；改变 `80`、`25`、`20` 等维度会改变 checkpoint 参数形状：
+官方配置固定以下形状：
 
 | 名称 | 形状 | 含义 |
 | --- | --- | --- |
@@ -34,11 +36,11 @@
 | `neighbor_agents_past` | `[B, 32, 21, 11]` | 2 s、10 Hz 历史和类型编码 |
 | `static_objects` | `[B, 5, 10]` | 位姿、尺寸和类型编码 |
 | `lanes` | `[B, 70, 20, 12]` | 中心、切向、左右边界相对向量、信号 one-hot |
-| `lanes_speed_limit` | `[B, 70, 1]` | m/s；进入模型前以 `std=20` 归一化 |
+| `lanes_speed_limit` | `[B, 70, 1]` | m/s |
 | `lanes_has_speed_limit` | `[B, 70, 1]` | 限速有效掩码 |
-| `route_lanes` | `[B, 25, 20, 12]` | 连续 route roadblock 上的局部车道 |
-| `route_lanes_speed_limit` | `[B, 25, 1]` | 生成但当前 decoder 不消费 |
-| `route_lanes_has_speed_limit` | `[B, 25, 1]` | 生成但当前 decoder 不消费 |
+| `route_lanes` | `[B, 25, 20, 12]` | 局部路线车道 |
+| `route_lanes_speed_limit` | `[B, 25, 1]` | 已生成，当前 decoder 不消费 |
+| `route_lanes_has_speed_limit` | `[B, 25, 1]` | 已生成，当前 decoder 不消费 |
 | `prediction` | `[B, 11, 80, 4]` | ego 与 10 个邻车的 `x, y, cos(h), sin(h)` |
 
 `lanes` 单点通道顺序固定为：
@@ -51,133 +53,118 @@
  traffic_green, traffic_yellow, traffic_red, traffic_unknown]
 ```
 
-所有输入在交给 `PretrainedDiffusionPlanner` 前是 raw、未归一化张量。padding 必须严格全零；归一化后 padding 仍须恢复为全零。真实对象位于局部原点时，朝向、尺寸或类型字段必须避免其被误判为 padding。
+所有输入在交给模型前是 raw、未归一化张量。padding 必须严格全零，归一化后仍须恢复为全零。真实对象位于局部原点时，朝向、尺寸或类型字段必须避免其被误判为 padding。
 
-动态体最多保留 32 个，按当前距离排序；历史为含当前帧的 21 帧。decoder 联合预测 ego 和前 10 个邻车。未来 80 帧不含当前帧、间隔 0.1 s。内部扩散状态含固定当前点，形状为`[B, 11, 81, 4]`；每个去噪步都必须保持第 0 点不变。
+动态体最多保留 32 个，按当前距离排序；历史为含当前帧的 21 帧。decoder 联合预测 ego 和前 10 个邻车。未来 80 帧不含当前帧，间隔 0.1 s。内部扩散状态含固定当前点，形状为 `[B, 11, 81, 4]`。
 
-`RouteEncoder` 当前只读取 `route_lanes[..., :4]`，即中心和切向。不得声称现有 checkpoint 已使用 route 边界、信号或 route 限速。
+`RouteEncoder` 当前只读取 `route_lanes[..., :4]`，即中心和切向。不得声称现有模型已使用 route 边界、信号或 route 限速。
 
 ## 坐标、时间与单位
 
-- 模型几何坐标以规划时刻 ego 后轴中心为原点，局部 x 向前、y 向左；
-- MetaDrive 车辆中心与后轴中心之间的偏移必须按车辆朝向显式转换；
-- heading 以 `[cos(h), sin(h)]` 进入轨迹，角差使用最短有向角；
-- 模型轨迹频率为 10 Hz，共 80 个未来点，即 8 s；
-- MetaDrive 物理步长为 0.02 s，`decision_repeat=5`，每个环境子步为 0.1 s；
-- 高层每次执行 5 个点，即 0.5 s 后重新规划，规划频率为 2 Hz；
-- 程序化地图配置限速使用 `km/h`，字段名带 `_kmh`；模型限速使用 `m/s`；
-- 限速单位转换只能在地图适配边界执行一次；
-- 能耗、距离、速度、加速度、角速度的字段名必须标出单位。
+- 模型局部坐标以规划时刻 ego 后轴中心为原点，x 向前、y 向左；
+- MetaDrive 车辆中心与后轴中心之间的偏移按车辆朝向显式转换；
+- heading 以 `[cos(h), sin(h)]` 表示，角差使用最短有向角；
+- 模型轨迹为 10 Hz、80 个未来点，共 8 s；
+- MetaDrive 物理步长为 0.02 s，`decision_repeat=5`，环境子步为 0.1 s；
+- 每次高层执行 5 个点，即 0.5 s 后重新规划，规划频率为 2 Hz；
+- 程序化地图限速配置使用 `km/h`，模型限速使用 `m/s`；
+- 限速单位转换只在地图适配边界执行一次；
+- 能耗、距离、速度、加速度和角速度字段名必须标出单位。
 
-同一物理场景全局平移或旋转后，局部模型输入应保持等价。地图、目标轨迹和实际车辆状态必须使用同一后轴/车辆中心转换约定。
+同一场景全局平移或旋转后，局部模型输入应保持等价。地图、目标轨迹和实际车辆状态必须使用同一车辆中心约定。
 
 ## MetaDrive 地图逻辑
 
-地图输入来自完整道路网络，而不是 MetaDrive 默认 lidar observation：
+地图输入来自完整道路网络，而不是默认 lidar observation：
 
 ```text
 NodeRoadNetwork
   -> 按 ego 距离筛选并排序
   -> 每条 lane 沿完整弧长重采样 20 点
   -> 转换到 ego 后轴局部坐标
-  -> 截断并严格零填充为 70 条普通 lane / 25 条 route lane
+  -> 截断并零填充为 70 条普通 lane / 25 条 route lane
 ```
 
-route lane 由 `navigation.checkpoints` 的连续 road edge 识别。程序化地图没有可靠交通灯状态，有效 lane 使用 unknown `[0, 0, 0, 1]`，padding lane 维持全零。
+route lane 由 `navigation.checkpoints` 的连续 road edge 识别。程序化地图没有可靠交通灯状态，有效 lane 使用 unknown `[0, 0, 0, 1]`，padding lane 保持全零。
 
-MetaDrive 0.4.3 的 PGMap 用精确 `1000 km/h` 表示“未设置程序化 lane 限速”。环境 reset 后必须：
+MetaDrive 0.4.3 的 PGMap 使用精确 `1000 km/h` 表示未设置限速。环境 reset 后必须：
 
 1. 读取所有 lane 原始限速；
-2. 只把精确 `1000 km/h` 的 lane 替换为必填配置 `programmatic_lane_speed_limit_kmh`；
-3. 保留已有有限、正值且在领域上界内的真实限速；
-4. 再次确认哨兵全部消失并记录替换/保留计数；
-5. 地图适配器若仍见到 `1000 km/h`，立即报错并带 lane id 和原始值。
+2. 只替换精确 `1000 km/h` 的 lane；
+3. 保留已有有限、正值且合法的真实限速；
+4. 确认哨兵全部消失并记录替换与保留数量；
+5. 地图适配器若仍发现哨兵，立即报错并指出 lane 和原始值。
 
-环境和模型必须看到相同的限速语义。不得只在模型适配器中静默把哨兵改成某个默认值，也不得统一覆盖已有真实限速。
+环境和模型必须看到相同的限速语义，不得统一覆盖已有真实限速。
 
 ## 观测适配逻辑
 
-通用 `MetaDriveObservationAdapter` 直接从仿真对象和地图 API 构造官方字典，负责 ego、动态体 21 帧历史、静态物体、普通 lane 和 route lane。环境在 reset 后和每个 0.1 s 子步结束时保存不可变交通快照；对象 ID、类型、位置、heading、速度和尺寸必须通过边界校验。当前帧 100 m 范围内对象按距离和 ID 确定性排序，暂缺的历史状态按官方从当前向过去填充语义处理。
+`MetaDriveObservationAdapter` 从仿真对象和地图 API 构造官方字典，负责 ego、动态体 21 帧历史、静态物体、普通 lane 和 route lane。环境在 reset 后和每个 0.1 s 子步结束时保存不可变交通快照。
 
-有交通评测首次推理前必须用四段零位移、有效 heading 的运动学轨迹固定 ego 并推进背景交通，由 reset 帧加 20 个真实子步组成完整 2 s 历史。预热不得使用另一控制器，不计入评测距离、奖励或旅行时间；预热期间终止、时间轴不连续、ego 位移达到 `1e-3 m` 或历史不足 21 帧均立即失败。
+对象 ID、类型、位置、heading、速度和尺寸必须通过边界校验。当前帧 100 m 范围内对象按距离和 ID 确定性排序；历史不足时按官方从当前向过去的填充语义处理。
 
-`NoTrafficMetaDriveObservationAdapter` 是更窄的已实现接口：
+当前有交通入口在首次推理前固定 ego 并推进背景交通 20 个 0.1 s 子步，由 reset 帧和 20 个真实子步组成 21 帧历史。预热不计入正式评测指标，并必须保存预热状态、终止标志和交通数量。该方式会使背景车辆对静止 ego 作出反应，因此只作为当前已实现条件，不代表理想初始交通分布。
 
-- 配置必须显式满足 `traffic_density=0`、`random_traffic=false`、`accident_prob=0`；
-- reset 后再次拒绝任何动态或静态交通参与者；
-- `neighbor_agents_past` 和 `static_objects` 使用官方全零 padding；
-- 与官方推理入口一致，`ego_current_state` 固定为 `[0, 0, 1, 0, 0, 0, 0, 0, 0, 0]`；
-- 该适配器不得用于有交通场景，也不能被描述为通用适配器。
+`NoTrafficMetaDriveObservationAdapter` 只用于明确无交通场景：
 
-官方推理不消费 ego 历史速度；从静止 MetaDrive 状态开始时模型仍可能直接产生其训练分布中的速度先验。这是要测量的接口/分布问题，不能通过伪造 ego 历史来隐藏。
+- 配置必须满足 `traffic_density=0`、`random_traffic=false`、`accident_prob=0`；
+- reset 后再次拒绝动态或静态交通参与者；
+- `neighbor_agents_past` 和 `static_objects` 使用全零 padding；
+- `ego_current_state` 与官方推理入口保持一致；
+- 该适配器不得用于有交通场景。
 
 ## 扩散与采样逻辑
 
-预训练模型使用连续时间线性 VP-SDE，`beta_min=0.1`、`beta_max=20`，预测干净状态`x_start`。官方 baseline 推理从 `0.5 * N(0, I)` 的未来噪声开始，运行 10 步、二阶、logSNR 跳步、multistep DPM-Solver++，最后 `denoise_to_zero=True`。
+预训练模型使用连续时间线性 VP-SDE，预测干净状态 `x_start`。官方 baseline 从 `0.5 * N(0, I)` 的未来噪声开始，运行 10 步 DPM-Solver++，最后执行 `denoise_to_zero=True`。
 
-给定观测和初始噪声，baseline solver 是确定性的；每个规划周期必须从持久化、固定种子的`torch.Generator` 取得新的标准正态噪声，并保存该噪声。
+给定观测和初始噪声，baseline solver 是确定性的。每个规划周期必须从持久化、固定种子的 `torch.Generator` 取得新的标准正态噪声，并保存该噪声。
 
-官方 DPM-Solver++ 只产生确定性更新和最终样本，没有 DPPO 所需的随机转移分布或逐步log-prob。因此 DPPO sampler 必须作为独立路径实现显式随机高斯反向转移，并能：
-
-- 返回完整去噪状态、时间、均值、方差和逐步 log-prob；
-- 用 rollout 时保存的状态重算相同 log-prob；
-- 只对明确选定的 actor 动作维度计算 PPO 概率；
-- 保持当前点约束和官方归一化；
-- 不修改 baseline sampler 来伪造概率。
+当前文档不规定强化学习所需的随机采样器或概率计算方式；相关方案在确定并实现后再加入系统契约。
 
 ## 轨迹执行逻辑
 
-当前运动学接口接收完整 `float32 [80, 4]` 后轴局部轨迹。每次高层 `env.step()` 只执行前 5 点。对第 `i` 个未来点，第 `i` 个 0.1 s 子步结束并采样 observation/reward/termination 前：
+运动学接口接收完整 `float32 [80, 4]` 后轴局部轨迹。每次高层 `env.step()` 只执行前 5 点。对每个 0.1 s 子步：
 
-- vehicle center 必须位于转换后的目标 world center；
-- heading 必须等于目标 world heading；
-- velocity 来自相邻 center 以 0.1 s 做有限差分；
-- angular velocity 来自相邻 heading 的最短角差；
-- 下一规划周期的锚点必须等于上一周期最终实际状态。
+- vehicle center 位于转换后的目标 world center；
+- heading 等于目标 world heading；
+- velocity 由相邻 center 的有限差分得到；
+- angular velocity 由相邻 heading 的最短角差得到；
+- 下一规划周期锚点等于上一周期最终实际状态。
 
-`KinematicTrajectoryPolicy` 属于轨迹级运动学闭环，不生成 steering/throttle，不能证明低层动力学可执行性。未来若换为 PID、Stanley 或 MPC，应保持规划器和 rollout 边界不变，并另立实验口径。
+该接口不生成 steering、throttle 或 brake，也不证明低层动力学可执行性。当前阶段仍允许用它研究轨迹规划和相对能耗，但结论必须明确限定为运动学执行条件。
 
-模型原始轨迹必须原样执行和保存。不得平滑、裁剪、旋转、投影到中心线、选择最佳噪声 seed、在失败前切换控制器或在异常时返回零轨迹。
+模型原始轨迹必须原样执行和保存，不得平滑、裁剪、旋转、中心线投影、选择最佳噪声 seed、切换回退控制器或在异常时返回零轨迹。
 
-## 能耗逻辑
+## 能耗记录逻辑
 
-研究目标不是单独最小化能耗，而是：在满足到达、安全和旅行时间约束的前提下，最小化单位有效进度能耗。训练奖励应由可审计分量组成：
+当前阶段只规定记录边界，不规定最终奖励或优化目标：
 
-```text
-r_t = w_p * route_progress
-    - w_E * normalized_interval_energy
-    - w_T * elapsed_time
-    - w_c * collision
-    - w_o * off_route_or_out_of_road
-    - w_j * comfort_penalty
-    + terminal_reward
-```
+- 每种能耗指标必须使用独立名称、单位和累计边界；
+- MetaDrive 代理能耗与 FASTSim 等精细模型不得混用；
+- 能耗结果必须关联实际执行 trace、采样间隔、车辆配置和场景特征；
+- MetaDrive 程序化地图没有原生坡度时，不得假设存在高程信息；
+- 运动学执行条件及其动力学局限必须随能耗结果一起说明。
 
-各分量、权重、`energy_metric` 名称和原始能耗值必须分别记录。缺少当前阶段必需的能耗字段时立即失败，不得返回零值或换用另一口径。只奖励低能耗会使停车成为伪最优，因此安全、进度、旅行时间和失败率必须与能耗共同报告。
-
-MetaDrive 的 `step_energy` / `episode_energy` 只是在同一环境和车辆配置下比较趋势的代理指标；它主要依赖速度和距离，不能支撑真实燃油或车辆级能效结论。
-
-FASTSim 接收实际执行得到的时间—速度行程，用于更精细的能耗计算。没有坡度数据时必须明确声明 grade 为 0 或不提供相应结论，不能假设 MetaDrive 程序化地图含高程。
-
-每个能耗结果必须记录：模型名称、车辆配置、输入 trace、采样间隔、单位和累计边界。只有当MetaDrive 代理指标出现可复现的优化趋势后，才用 FASTSim 做精细复核；两者结论分开报告。
-
-DPPO actor 由冻结的预训练主体和显式可训练的 preview/adapter 组成；初始策略只应对 ego、实际执行的前 5 个轨迹点聚合 log-prob，不能让未执行的远期点直接承担当步环境奖励。critic 使用与当前环境步对齐的场景特征、道路预瞄和 ego/路线状态。PPO loss、value loss、基线锚定约束和任何平滑正则必须分项记录；平滑正则只能约束训练，不得在评测时篡改原始输出。
+具体能耗模型、奖励形式和约束关系尚未确定，见 `RESEARCH.md`。
 
 ## 评测与产物逻辑
 
-每次评测必须固定并记录：resolved config、Hydra overrides、地图/场景 seed、噪声 seed、设备和依赖环境。
+每次评测必须记录 resolved config、Hydra overrides、地图或场景 seed、噪声 seed、设备、依赖环境和场景特征。
 
-无交通和有交通闭环的每个场景至少产生：
+每个场景至少产生：
 
-- `summary.json`：终止状态、距离、速度、路线完成率、限速审计、checkpoint 信息和执行误差；
-- `trace.npz`：完整 raw observation、初始噪声、`[11, 80, 4]` 预测、规划锚点、目标与实际状态、逐点误差、奖励和终止标志；
-- `closed_loop.gif`：原始 8 s 规划与实际执行前缀的可视化；
+- `summary.json`：终止状态、距离、速度、路线完成率、限速审计和执行误差；
+- `trace.npz`：raw observation、初始噪声、完整预测、规划锚点、目标与实际状态、逐点误差、奖励和终止标志；
+- 可选闭环 GIF；
 - resolved config 和 Hydra overrides。
 
-有交通 trace 还必须保存预热状态、选中对象 ID、每规划帧交通数量、最近交通距离和历史有效性；
-summary 必须明确交通密度、路线长度、含交通帧比例和预热审计。未完成的矩阵只能生成明确标记
-`matrix_complete=false` 的部分报告，不能沿用正式矩阵名称或结论。
+有交通场景还应保存预热状态、对象 ID、交通数量、最近交通距离和历史有效性。
 
-模型驾驶表现与接口测试分开判定。接口硬门槛包括：权重和张量契约正确、输出有限、时间轴一致、终止状态明确、目标/实际轨迹误差在回归阈值内。当前基础代码构建阶段只要求本机逻辑测试和最小强化学习流程验证，不产出服务器训练性能结论。强化学习流程跑通并进入服务器训练阶段后，性能结论必须来自预先定义并完整记录运行环境的实验矩阵，不能只报告成功 seed；是否使用 Docker 在该阶段另行确认。
+所有场景都必须进入分析，不限于成功到达回合。报告应按以下维度分类：
 
-策略比较必须使用相同地图、交通和噪声的 paired seeds，并同时报告均值、中位数、置信区间、到达率、route completion、碰撞/出界、旅行时间和速度。能耗主结论只能在成功且旅行时间满足预设约束的回合上比较，同时另报全体回合失败率，防止以停车或任务失败换取表面节能。
+- 场景特征：直道、曲线、变道、合流、限速变化和交通密度；
+- 运行阶段：预热、正常闭环、背景交通异常阶段；
+- 终止类型：到达、时间截断、碰撞、出界或运行错误；
+- 可比指标：能耗、速度、有效进度、舒适性和安全事件。
+
+失败场景不能删除，但不得与完成场景在缺少标注的情况下合并解释。策略比较应使用相同地图、交通配置和噪声种子；长时背景车辆异常结果必须单独标注，不用于否定中程基本驾驶能力。
