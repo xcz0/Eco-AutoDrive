@@ -73,3 +73,13 @@ uv run ruff format --check .
 提交信息使用简短、祈使式主题；一次提交只完成一个逻辑变更。涉及轨迹、地图、能耗或评测行为的实验，应在 `experiments/README.md` 记录代码状态、未提交差异、上游版本、数据或地图、resolved config、Hydra overrides、随机种子、验证命令、结果和产物路径。
 
 大型产物和原始日志保留在 `outputs/` 或外部存储，不写入 Markdown，不提交 Git。未记录的元数据应明确标记为“未记录”，不得补猜。
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+This repository uses a single-context domain documentation layout. See `docs/agents/domain.md`.
