@@ -1,6 +1,6 @@
 # 研究空间
 
-本文件只保存未成为系统事实、正式决定或 active task 的研究内容。当前契约见 `../agents/system-contract.md`，已采用的取舍见 `../adr/`，已承诺工作由 GitHub Issues 跟踪，实际证据见 `../../experiments/README.md`。
+本文件只保存未成为系统事实、正式决定或 active task 的研究内容。当前契约见 `../agents/system-contract.md`，已采用的取舍见 `../adr/`，已承诺工作由 GitHub Issues 跟踪，实际证据见 `../experiments/README.md`。
 
 ## 专题研究
 

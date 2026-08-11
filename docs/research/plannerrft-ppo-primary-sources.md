@@ -311,7 +311,7 @@ scale log-prob 数据流。
 10. 冻结参数清单与断言：每次更新后验证只有允许的 Exploration Policy 参数发生变化。
 
 上述决策一旦进入实现，不应继续留在研究文档中充当系统事实；应按仓库规则进入 ADR、系统
-契约或 GitHub Issues。实际数值证据只登记到 `experiments/README.md`。
+契约或 GitHub Issues。实际数值证据只登记到 `docs/experiments/`。
 
 ## 五、建议的论文级最小验证顺序
 

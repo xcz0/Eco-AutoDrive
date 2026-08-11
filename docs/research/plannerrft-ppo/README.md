@@ -106,5 +106,5 @@ baseline 可复现
 
 当且仅当某阶段的 design gate 已关闭，才为该阶段建立 GitHub Issue。Issue 至少应包含：目标、
 非目标、依赖的决定、受影响文件、显式配置字段、测试矩阵、实验产物和退出条件。实现结果写入
-`experiments/README.md`，成为当前不变量的内容写入 `system-contract.md`，需要长期保留理由的
+`docs/experiments/`，成为当前不变量的内容写入 `system-contract.md`，需要长期保留理由的
 选择写入 `docs/adr/`。

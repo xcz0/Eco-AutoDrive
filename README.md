@@ -76,7 +76,7 @@ uv run ruff format --check .
 | [GitHub Issues](https://github.com/xcz0/Eco-AutoDrive/issues) | active work |
 | [issue-tracker.md](docs/agents/issue-tracker.md) | GitHub Issue 工作流 |
 | [research/README.md](docs/research/README.md) | 未决假设、候选方法和开放问题 |
-| [experiments/README.md](experiments/README.md) | 实际评测配置、结果和产物索引 |
+| [docs/experiments/README.md](docs/experiments/README.md) | 实际评测配置、结果和产物索引 |
 | [AGENTS.md](AGENTS.md) | 工作规则和验证要求 |
 
 

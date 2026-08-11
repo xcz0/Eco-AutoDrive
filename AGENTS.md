@@ -11,7 +11,8 @@
 4. 计划或继续开发工作时使用 `docs/agents/issue-tracker.md` 配置的 issue tracker，不维护独立
    STATUS 文档；
 5. 讨论尚未确定的研究方向时读取 `docs/research/README.md`；
-6. 修改、运行或解释实验时读取 `experiments/README.md` 及其引用的实际 config/artifact；
+6. 修改、运行或解释实验时读取 `docs/experiments/README.md`、对应实验记录及其引用的实际
+   config/artifact；
 7. 核对 `README.md`、`pyproject.toml`、`uv.lock`、相关代码和测试以确认当前可执行方式。
 
 事实优先级为：已实现代码和测试 > 机器可读配置与依赖文件 > 当前 authoritative docs > 其他说明。
@@ -31,7 +32,7 @@
 文档职责：领域语言写入 `CONTEXT.md`；当前系统不变量写入
 `docs/agents/system-contract.md`；需要长期保留理由的决定写入 `docs/adr/`；active work 写入 issue
 tracker；未定研究设想写入 `docs/research/README.md`；实际运行结果写入
-`experiments/README.md`。不要在多个位置复制同一规则或结论。
+`docs/experiments/`。不要在多个位置复制同一规则或结论。
 
 ## 目录职责
 
@@ -76,7 +77,9 @@ uv run ruff format --check .
 
 ## Git 与实验记录
 
-提交信息使用简短、祈使式主题；一次提交只完成一个逻辑变更。涉及轨迹、地图、能耗或评测行为的实验，应在 `experiments/README.md` 记录代码状态、未提交差异、上游版本、数据或地图、resolved config、Hydra overrides、随机种子、验证命令、结果和产物路径。
+提交信息使用简短、祈使式主题；一次提交只完成一个逻辑变更。涉及轨迹、地图、能耗或评测行为
+的实验，应在 `docs/experiments/` 记录代码状态、未提交差异、上游版本、数据或地图、resolved
+config、Hydra overrides、随机种子、验证命令、结果和产物路径，并更新实验索引。
 
 大型产物和原始日志保留在 `outputs/` 或外部存储，不写入 Markdown，不提交 Git。未记录的元数据应明确标记为“未记录”，不得补猜。
 
