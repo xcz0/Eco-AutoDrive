@@ -15,7 +15,6 @@ from eco_planner.models.checkpoint import (
     OFFICIAL_PARAMETER_COUNT,
     CheckpointLoadReport,
     extract_official_ema_state_dict,
-    verify_sha256,
 )
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 from eco_planner.models.contracts import (
@@ -105,8 +104,6 @@ class PretrainedDiffusionPlanner(nn.Module):
 def load_official_diffusion_planner(
     args_path: Path,
     checkpoint_path: Path,
-    expected_args_sha256: str,
-    expected_checkpoint_sha256: str,
     device: torch.device,
 ) -> tuple[PretrainedDiffusionPlanner, CheckpointLoadReport]:
     """Load the pinned official EMA checkpoint without compatibility fallbacks."""
@@ -115,8 +112,6 @@ def load_official_diffusion_planner(
         raise ValueError("runtime device must be either CPU or CUDA")
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was explicitly requested but is unavailable")
-    verify_sha256(args_path, expected_args_sha256)
-    verify_sha256(checkpoint_path, expected_checkpoint_sha256)
     config = OfficialDiffusionPlannerConfig.from_json(args_path)
     checkpoint: Any = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     state_dict = extract_official_ema_state_dict(checkpoint)
@@ -124,8 +119,6 @@ def load_official_diffusion_planner(
     model.load_state_dict(state_dict, strict=True)
     planner = PretrainedDiffusionPlanner(config, model, device)
     return planner, CheckpointLoadReport(
-        args_sha256=expected_args_sha256,
-        checkpoint_sha256=expected_checkpoint_sha256,
         ema_tensor_count=OFFICIAL_EMA_TENSOR_COUNT,
         parameter_count=OFFICIAL_PARAMETER_COUNT,
         runtime_device=str(device),

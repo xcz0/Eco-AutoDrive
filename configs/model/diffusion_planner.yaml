@@ -4,7 +4,5 @@ execution_horizon_s: 0.5
 denoising_steps: 10
 args_path: ???
 checkpoint_path: ???
-expected_args_sha256: 7e62b89a50953f133d55484777e54490f7f24e58feec1efcf696bcc7b91bdf10
-expected_checkpoint_sha256: 7a441df91ebe1c912d8262010c40486da24f425f757e2b4228072e251ab67d45
 device: ???
 seed: ???

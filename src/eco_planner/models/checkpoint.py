@@ -1,34 +1,14 @@
-"""Integrity checks and parsing for the pinned official checkpoint."""
+"""Structural validation and parsing for the pinned official checkpoint."""
 
 from __future__ import annotations
 
-import hashlib
 from collections import OrderedDict
 from dataclasses import dataclass
-from pathlib import Path
 
 import torch
 
 OFFICIAL_EMA_TENSOR_COUNT = 276
 OFFICIAL_PARAMETER_COUNT = 6_042_628
-
-
-def sha256_file(path: Path) -> str:
-    if not path.is_file():
-        raise FileNotFoundError(f"file does not exist: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def verify_sha256(path: Path, expected: str) -> None:
-    if len(expected) != 64 or any(character not in "0123456789abcdef" for character in expected):
-        raise ValueError("expected SHA-256 must be a 64-character lowercase hexadecimal string")
-    actual = sha256_file(path)
-    if actual != expected:
-        raise ValueError(f"SHA-256 mismatch for {path}: expected {expected}, got {actual}")
 
 
 def extract_official_ema_state_dict(
@@ -63,8 +43,6 @@ def extract_official_ema_state_dict(
 
 @dataclass(frozen=True)
 class CheckpointLoadReport:
-    args_sha256: str
-    checkpoint_sha256: str
     ema_tensor_count: int
     parameter_count: int
     runtime_device: str

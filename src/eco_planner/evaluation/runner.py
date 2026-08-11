@@ -50,8 +50,6 @@ def run_evaluation(config: DictConfig, output_dir: Path) -> list[dict[str, Any]]
     planner, report = load_official_diffusion_planner(
         args_path,
         checkpoint_path,
-        config.model.expected_args_sha256,
-        config.model.expected_checkpoint_sha256,
         device,
     )
     output_dir.mkdir(parents=True, exist_ok=True)

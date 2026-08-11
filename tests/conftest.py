@@ -13,9 +13,6 @@ from eco_planner.models.pretrained import (
     load_official_diffusion_planner,
 )
 
-ARGS_SHA256 = "7e62b89a50953f133d55484777e54490f7f24e58feec1efcf696bcc7b91bdf10"
-CHECKPOINT_SHA256 = "7a441df91ebe1c912d8262010c40486da24f425f757e2b4228072e251ab67d45"
-
 
 @pytest.fixture
 def official_config_args() -> dict[str, object]:
@@ -126,7 +123,5 @@ def stage0_planner(
     return load_official_diffusion_planner(
         stage0_checkpoint_dir / "args.json",
         stage0_checkpoint_dir / "model.pth",
-        ARGS_SHA256,
-        CHECKPOINT_SHA256,
         torch.device("cpu"),
     )

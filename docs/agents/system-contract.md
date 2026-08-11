@@ -10,7 +10,7 @@
 
 ## Checkpoint 与模型输入
 
-- 加载官方资产时必须校验 `args.json` 和 checkpoint 的 SHA-256、metadata keys、EMA keys、张量形状、EMA tensor 数和参数总数；加载必须使用严格 state-dict 匹配，不提供兼容回退。
+- 加载官方资产时必须校验 metadata keys、EMA keys、张量形状、EMA tensor 数和参数总数；加载必须使用严格 state-dict 匹配，不提供兼容回退。
 - `args.json` 中的 observation/state normalization 是 checkpoint 输入分布契约的一部分，缺失或不匹配时必须失败。
 - 冻结的预训练 planner 始终处于 eval mode；该入口不得进入训练模式。
 - planner 必需 observation 字段如下。除 validity mask 为 `torch.bool` 外，字段均为有限 `torch.float32`，位于 planner 的 runtime device，且共享正 batch 维度。

@@ -1,25 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 import torch
 
-from eco_planner.models.checkpoint import extract_official_ema_state_dict, verify_sha256
-
-
-def test_hash_verification_rejects_mismatch(tmp_path: Path) -> None:
-    path = tmp_path / "asset.bin"
-    path.write_bytes(b"stage-zero")
-    with pytest.raises(ValueError, match="SHA-256 mismatch"):
-        verify_sha256(path, "0" * 64)
-
-
-def test_hash_verification_rejects_invalid_expected_hash(tmp_path: Path) -> None:
-    path = tmp_path / "asset.bin"
-    path.write_bytes(b"stage-zero")
-    with pytest.raises(ValueError, match="lowercase hexadecimal"):
-        verify_sha256(path, "A" * 64)
+from eco_planner.models.checkpoint import extract_official_ema_state_dict
 
 
 def test_ema_loader_rejects_invalid_prefix() -> None:

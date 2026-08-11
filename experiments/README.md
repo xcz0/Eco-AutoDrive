@@ -12,7 +12,7 @@
 - Git commit 和运行时未提交 diff；若当时未采集，明确写“未记录”；
 - 上游源码 commit、依赖环境、设备；
 - 数据集或程序化地图、场景 seed、噪声 seed；
-- checkpoint 路径、SHA-256 和参数量；
+- checkpoint 路径和参数量；
 - resolved config、全部 Hydra overrides 和运行命令；
 - 主要结果、失败状态、可支持的结论和不能支持的结论；
 - `summary.json`、`trace.npz`、视频和外部归档位置。
@@ -28,8 +28,6 @@
 | --- | --- |
 | 上游源码 | `a3a621f0b724c5fa6447f7a2fbaf9e0387bd35df` |
 | 模型 revision | `ae5baf1c57229c53f6309332df960ae27d35333f` |
-| `args.json` SHA-256 | `7e62b89a50953f133d55484777e54490f7f24e58feec1efcf696bcc7b91bdf10` |
-| `model.pth` SHA-256 | `7a441df91ebe1c912d8262010c40486da24f425f757e2b4228072e251ab67d45` |
 | EMA | 276 tensors；6,042,628 parameters |
 | 轨迹 | 80 点、10 Hz、8 s；每次执行前 5 点 |
 | baseline sampler | 10 步、二阶 multistep DPM-Solver++ |
@@ -335,7 +333,7 @@ seeds `3..4`、完整 20 回合、真实 nuPlan 交通、低层控制、CUDA 或
 **代码**：Git commit；`git status --short`；上游 commit
 **环境**：OS；Python；CUDA/GPU；关键依赖；容器/镜像（如使用）
 **数据**：数据版本或地图配置；场景 seed；交通条件
-**模型**：checkpoint 路径、SHA-256、参数量；sampler
+**模型**：checkpoint 路径、参数量；sampler
 **配置**：resolved config 路径；Hydra overrides；随机种子
 **命令**：
 **结果**：主要指标、失败状态和统计区间

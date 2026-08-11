@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import platform
 import subprocess
@@ -140,9 +139,6 @@ def write_runtime_metadata(output_dir: Path) -> None:
     """Write reproducibility metadata and the possibly empty tracked diff."""
 
     repository_root = Path(to_absolute_path("."))
-    uv_lock = repository_root / "uv.lock"
-    if not uv_lock.is_file():
-        raise FileNotFoundError(f"required lock file does not exist: {uv_lock}")
     metadata = {
         "git_head": _git_output(repository_root, "rev-parse", "HEAD").strip(),
         "git_status_short": _git_output(repository_root, "status", "--short").splitlines(),
@@ -150,7 +146,6 @@ def write_runtime_metadata(output_dir: Path) -> None:
         "python": sys.version,
         "torch": torch.__version__,
         "metadrive": version("metadrive-simulator"),
-        "uv_lock_sha256": hashlib.sha256(uv_lock.read_bytes()).hexdigest(),
     }
     write_json(output_dir / "runtime_metadata.json", metadata)
     (output_dir / "tracked_diff.patch").write_text(

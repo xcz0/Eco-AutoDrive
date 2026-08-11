@@ -144,7 +144,7 @@ def test_run_scenario_replans_and_writes_trace(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(runner, "TrajectoryMetaDriveEnv", _FakeEnv)
     monkeypatch.setattr(runner, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
     monkeypatch.setattr(runner, "_route_length_m", lambda env: 100.0)
-    report = CheckpointLoadReport("a" * 64, "b" * 64, 276, 6_042_628, "cpu")
+    report = CheckpointLoadReport(276, 6_042_628, "cpu")
 
     summary = runner._run_scenario(
         runner.ScenarioSpec("fake", "S", 3),
