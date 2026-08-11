@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Energy-aware diffusion planning in MetaDrive with DPPO fine-tuning."
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
+
 dependencies = [
     "fastsim",
     "gymnasium",
@@ -13,47 +14,40 @@ dependencies = [
     "numpy",
     "omegaconf",
     "timm",
-    "torch==2.6.0+cu124",
     "torchrl==0.12.0",
 ]
 
-[dependency-groups]
-dev = [
-    "pytest",
-    "ruff",
+[project.optional-dependencies]
+cpu = [
+    "torch==2.6.0",
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+cuda = [
+    "torch==2.6.0",
+]
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cpu" },
+        { extra = "cuda" },
+    ],
+]
 
 [tool.uv.sources]
 metadrive-simulator = { path = "third_party/metadrive", editable = true }
 
-# 正常联网机器：torch 从 PyTorch 官方 CUDA 12.4 源安装
-torch = { index = "pytorch-cu124" }
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu124", extra = "cuda" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
 url = "https://download.pytorch.org/whl/cu124"
 explicit = true
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/eco_planner"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-ra --import-mode=importlib"
-markers = [
-    "gpu: requires a CUDA GPU",
-    "simulator: requires MetaDrive and its simulator runtime",
-    "slow: long-running integration or evaluation test",
-]
-
-[tool.ruff]
-target-version = "py310"
-line-length = 100
-exclude = ["third_party/**", "ref/**"]
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
