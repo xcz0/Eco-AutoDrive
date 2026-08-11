@@ -4,15 +4,18 @@
 
 按任务需要阅读：
 
-1. `docs/STATUS.md`：当前完成度、已验证结论和下一步；
-2. `docs/LOGIC.md`：已实现系统必须遵守的数据与执行契约；
-3. `docs/DECISIONS.md`：已经确定的重要方案选择；
-4. `docs/CORRECTIONS.md`：与当前任务相关的历史错误和修正；
-5. `docs/RESEARCH.md`：尚未确定或尚未实现的研究设想；
-6. `experiments/README.md`：实际评测配置、种子、结果和产物来源；
-7. `README.md`、`pyproject.toml`、`uv.lock`、相关代码和测试：当前可执行方式。
+1. 理解项目领域概念时读取 `CONTEXT.md`，并使用其中的规范术语；
+2. 修改数据流、执行逻辑、训练/推理/评测语义或核心行为前读取
+   `docs/agents/system-contract.md`；
+3. 修改相关设计前检查 `docs/adr/` 中涉及该区域的 ADR；方案与 ADR 冲突时显式指出；
+4. 计划或继续开发工作时使用 `docs/agents/issue-tracker.md` 配置的 issue tracker，不维护独立
+   STATUS 文档；
+5. 讨论尚未确定的研究方向时读取 `docs/research/README.md`；
+6. 修改、运行或解释实验时读取 `experiments/README.md` 及其引用的实际 config/artifact；
+7. 核对 `README.md`、`pyproject.toml`、`uv.lock`、相关代码和测试以确认当前可执行方式。
 
-事实优先级为：已实现代码和测试 > 配置与依赖文件 > `docs/STATUS.md` > 其他文档。发现冲突时应明确指出，并同步修正文档或实现。
+事实优先级为：已实现代码和测试 > 机器可读配置与依赖文件 > 当前 authoritative docs > 其他说明。
+发现冲突时必须明确指出，并在同一任务中同步修正文档或实现。
 
 ## 工作原则
 
@@ -23,9 +26,12 @@
 - 不添加静默默认、自动降级、宽泛异常捕获或坏样本跳过；
 - 不用平滑、裁剪、中心线投影、回退控制器或零轨迹掩盖模型失效；
 - 优先使用成熟第三方库，出现明确复用需求前不建立通用框架；
-- `STATUS.md` 中未完成的模块不得描述为可用，也不得为占位入口加入假实现。
+- issue tracker 或 research 文档中的未完成模块不得描述为可用，也不得为占位入口加入假实现。
 
-文档职责：系统不变量写入 `LOGIC.md`；已确定的取舍写入 `DECISIONS.md`；当前进度写入 `STATUS.md`；历史错误写入 `CORRECTIONS.md`；未定研究设想写入 `RESEARCH.md`；实际运行结果写入 `experiments/README.md`。
+文档职责：领域语言写入 `CONTEXT.md`；当前系统不变量写入
+`docs/agents/system-contract.md`；需要长期保留理由的决定写入 `docs/adr/`；active work 写入 issue
+tracker；未定研究设想写入 `docs/research/README.md`；实际运行结果写入
+`experiments/README.md`。不要在多个位置复制同一规则或结论。
 
 ## 目录职责
 
@@ -73,3 +79,13 @@ uv run ruff format --check .
 提交信息使用简短、祈使式主题；一次提交只完成一个逻辑变更。涉及轨迹、地图、能耗或评测行为的实验，应在 `experiments/README.md` 记录代码状态、未提交差异、上游版本、数据或地图、resolved config、Hydra overrides、随机种子、验证命令、结果和产物路径。
 
 大型产物和原始日志保留在 `outputs/` 或外部存储，不写入 Markdown，不提交 Git。未记录的元数据应明确标记为“未记录”，不得补猜。
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+This repository uses a single-context domain documentation layout. See `docs/agents/domain.md`.
