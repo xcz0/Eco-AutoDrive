@@ -18,7 +18,7 @@ uv run ruff format --check .
 ## 运行无交通闭环
 
 ```powershell
-uv run python scripts/evaluate.py model.device=cpu env.horizon=5 `
+uv run scripts/evaluate.py model.device=cpu env.horizon=5 `
   video.enabled=false 'scenarios=[{name:straight,map:S,seed:0}]'
 ```
 
@@ -27,7 +27,7 @@ uv run python scripts/evaluate.py model.device=cpu env.horizon=5 `
 ## 运行交通闭环
 
 ```powershell
-uv run python scripts/evaluate.py --config-name evaluation/traffic `
+uv run scripts/evaluate.py --config-name evaluation/traffic `
   evaluation.evaluated_horizon_steps=100 env.horizon=120 video.enabled=false
 ```
 
@@ -43,3 +43,10 @@ uv run python scripts/evaluate.py --config-name evaluation/traffic `
 | [research/README.md](docs/research/README.md) | 未决假设、候选方法和开放问题 |
 | [experiments/README.md](experiments/README.md) | 实际评测配置、结果和产物索引 |
 | [AGENTS.md](AGENTS.md) | 工作规则和验证要求 |
+
+
+## 主要参考资源
+
+- [Diffusion Planner](https://github.com/ZhengYinan-AIR/Diffusion-Planner)：提供扩散模型的基础框架与初始权重
+- [metadrive](https://github.com/metadriverse/metadrive)：生成特定场景，远距离仿真环境
+-
