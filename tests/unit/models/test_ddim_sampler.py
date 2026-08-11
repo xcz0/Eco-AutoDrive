@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from eco_planner.models.ddim_sampler import DdimSampler
+from eco_planner.models.guidance import GuidanceGradientResult
 from eco_planner.models.vp_schedule import LinearVpSchedule
 
 
@@ -112,6 +113,51 @@ def test_five_step_ddim_calls_denoiser_five_times_and_constraint_six_times() -> 
 
     assert calls == {"model": 5, "constraint": 6}
     assert torch.equal(result[:, :, 0], torch.full((2, 3), 3.0))
+
+
+def test_guided_ddim_updates_noisy_sample_after_transition_and_reapplies_constraint() -> None:
+    initial = torch.ones((1, 2, 4))
+    timesteps = torch.tensor([1.0, 0.0])
+
+    def model(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
+        assert sample.requires_grad
+        return sample * 1.0
+
+    def guidance(sample: torch.Tensor, prediction: torch.Tensor) -> GuidanceGradientResult:
+        gradient = torch.zeros_like(sample)
+        gradient[:, 0, 1] = 0.25
+        zeros = torch.zeros((sample.shape[0],), device=sample.device)
+        return GuidanceGradientResult(
+            applied_gradient=gradient,
+            lateral_objective_delta=zeros,
+            longitudinal_objective_delta=zeros,
+            applied_gradient_l2=torch.full_like(zeros, 0.25),
+            applied_gradient_max_abs=torch.full_like(zeros, 0.25),
+            raw_neighbor_gradient_l2=zeros,
+            zero_speed_count=torch.zeros_like(zeros, dtype=torch.int64),
+        )
+
+    def constrain(sample: torch.Tensor) -> torch.Tensor:
+        result = sample.clone()
+        result[:, :, 0] = 3.0
+        return result
+
+    result = DdimSampler().sample_guided(
+        initial,
+        model,
+        constrain,
+        timesteps,
+        1,
+        0.0,
+        None,
+        guidance,
+        gradient_step_coefficient=1.0,
+    )
+
+    assert torch.equal(result.sample[:, :, 0], torch.full((1, 2), 3.0))
+    assert result.sample[0, 0, 1].item() == 0.75
+    assert result.sample[0, 1, 1].item() == 1.0
+    assert len(result.diagnostics) == 1
 
 
 @pytest.mark.parametrize(

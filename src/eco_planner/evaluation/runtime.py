@@ -13,8 +13,14 @@ from omegaconf import DictConfig
 from torch import nn
 
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.guidance import (
+    GuidanceConfig,
+    NoGuidanceConfig,
+    parse_guidance_config,
+)
 from eco_planner.models.pretrained import (
     CheckpointLoadReport,
+    PlannerInferenceResult,
     load_official_diffusion_planner,
 )
 from eco_planner.models.sampling_config import (
@@ -61,6 +67,7 @@ class FabricInferenceRuntime:
         checkpoint_report: CheckpointLoadReport,
         report: InferenceRuntimeReport,
         sampler_report: SamplerReport,
+        guidance_config: GuidanceConfig,
     ) -> None:
         self._fabric = fabric
         self._planner = planner
@@ -68,6 +75,7 @@ class FabricInferenceRuntime:
         self.checkpoint_report = checkpoint_report
         self.report = report
         self.sampler_report = sampler_report
+        self.guidance_config = guidance_config
 
     @property
     def device(self) -> torch.device:
@@ -82,7 +90,7 @@ class FabricInferenceRuntime:
         self,
         observation: Mapping[str, torch.Tensor],
         generator: torch.Generator,
-    ) -> tuple[dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
+    ) -> tuple[dict[str, torch.Tensor], torch.Tensor, PlannerInferenceResult]:
         """Move a raw observation, sample noise, and run one planner forward pass."""
 
         moved = self._fabric.to_device(dict(observation))
@@ -99,11 +107,15 @@ class FabricInferenceRuntime:
             device=self.device,
             generator=generator,
         )
-        with torch.inference_mode():
-            prediction = self._planner(device_observation, noise, generator)
-        if not isinstance(prediction, torch.Tensor):
-            raise TypeError("Diffusion Planner forward must return a torch.Tensor")
-        prediction = prediction.to(dtype=torch.float32)
+        if isinstance(self.guidance_config, NoGuidanceConfig):
+            with torch.inference_mode():
+                result = self._planner(device_observation, noise, generator)
+        else:
+            with torch.enable_grad():
+                result = self._planner(device_observation, noise, generator)
+        if not isinstance(result, PlannerInferenceResult):
+            raise TypeError("Diffusion Planner forward must return PlannerInferenceResult")
+        prediction = result.prediction.to(dtype=torch.float32).detach()
         expected_shape = (1, 1 + config.predicted_neighbor_num, config.future_len, 4)
         if tuple(prediction.shape) != expected_shape:
             raise RuntimeError(
@@ -112,12 +124,33 @@ class FabricInferenceRuntime:
             )
         if prediction.device != self.device or not torch.isfinite(prediction).all():
             raise RuntimeError("Diffusion Planner prediction must be finite on the runtime device")
-        return device_observation, noise, prediction
+        reference = (
+            None
+            if result.reference_prediction is None
+            else result.reference_prediction.to(dtype=torch.float32).detach()
+        )
+        normalized_result = PlannerInferenceResult(
+            prediction=prediction,
+            reference_prediction=reference,
+            guidance_action=(
+                None if result.guidance_action is None else result.guidance_action.detach()
+            ),
+            guidance_diagnostics=result.guidance_diagnostics,
+        )
+        _validate_optional_guidance_result(
+            normalized_result,
+            self.guidance_config,
+            expected_shape,
+            self.sampler_report.num_steps,
+            self.device,
+        )
+        return device_observation, noise, normalized_result
 
 
 def create_fabric_inference_runtime(
     runtime_config: DictConfig,
     sampler_config: DictConfig,
+    guidance_config: DictConfig,
     args_path: Path,
     checkpoint_path: Path,
 ) -> FabricInferenceRuntime:
@@ -131,10 +164,12 @@ def create_fabric_inference_runtime(
     )
     fabric.seed_everything(settings.seed, workers=True, verbose=False)
     parsed_sampler = parse_sampler_config(sampler_config)
+    parsed_guidance = parse_guidance_config(guidance_config)
     planner, checkpoint_report = load_official_diffusion_planner(
         args_path,
         checkpoint_path,
         parsed_sampler,
+        parsed_guidance,
     )
     planner_config = planner.config
     wrapped_planner = fabric.setup_module(planner)
@@ -156,7 +191,60 @@ def create_fabric_inference_runtime(
         checkpoint_report,
         report,
         sampler_report(parsed_sampler),
+        parsed_guidance,
     )
+
+
+def _validate_optional_guidance_result(
+    result: PlannerInferenceResult,
+    guidance_config: GuidanceConfig,
+    expected_prediction_shape: tuple[int, ...],
+    num_steps: int,
+    device: torch.device,
+) -> None:
+    if isinstance(guidance_config, NoGuidanceConfig):
+        if any(
+            value is not None
+            for value in (
+                result.reference_prediction,
+                result.guidance_action,
+                result.guidance_diagnostics,
+            )
+        ):
+            raise RuntimeError("unguided planner returned guidance audit values")
+        return
+    if result.reference_prediction is None or result.guidance_action is None:
+        raise RuntimeError("guided planner must return reference prediction and action")
+    if result.guidance_diagnostics is None:
+        raise RuntimeError("guided planner must return guidance diagnostics")
+    if tuple(result.reference_prediction.shape) != expected_prediction_shape:
+        raise RuntimeError("reference prediction shape disagrees with planner prediction")
+    if (
+        result.reference_prediction.device != device
+        or not torch.isfinite(result.reference_prediction).all()
+    ):
+        raise RuntimeError("reference prediction must be finite on the runtime device")
+    if tuple(result.guidance_action.shape) != (expected_prediction_shape[0], 2):
+        raise RuntimeError("guidance action must have shape [B, 2]")
+    diagnostics = result.guidance_diagnostics
+    batch = expected_prediction_shape[0]
+    if tuple(diagnostics.longitudinal_target_speed_delta_mps.shape) != (batch, 80):
+        raise RuntimeError("longitudinal guidance target must have shape [B, 80]")
+    if not torch.isfinite(diagnostics.longitudinal_target_speed_delta_mps).all():
+        raise RuntimeError("longitudinal guidance target must be finite")
+    for name in (
+        "lateral_objective_delta",
+        "longitudinal_objective_delta",
+        "applied_gradient_l2",
+        "applied_gradient_max_abs",
+        "raw_neighbor_gradient_l2",
+        "zero_speed_count",
+    ):
+        value = getattr(diagnostics, name)
+        if tuple(value.shape) != (batch, num_steps) or value.device != device:
+            raise RuntimeError(f"guidance diagnostic {name} has an invalid shape or device")
+        if value.dtype.is_floating_point and not torch.isfinite(value).all():
+            raise RuntimeError(f"guidance diagnostic {name} must be finite")
 
 
 def resolve_runtime_settings(runtime_config: DictConfig) -> _ResolvedRuntimeSettings:

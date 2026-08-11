@@ -29,6 +29,7 @@ from eco_planner.evaluation.runtime import (
     resolve_runtime_settings,
 )
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
+from eco_planner.models.guidance import parse_guidance_config, validate_guidance_sampler
 from eco_planner.models.sampling_config import parse_sampler_config
 
 
@@ -49,17 +50,24 @@ def run_evaluation(config: DictConfig, output_dir: Path) -> dict[str, Any]:
     runtime = create_fabric_inference_runtime(
         config.runtime,
         config.sampler,
+        config.guidance,
         args_path,
         checkpoint_path,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(config, output_dir / "resolved_config.yaml", resolve=True)
-    write_runtime_metadata(output_dir, runtime.report, runtime.sampler_report)
+    write_runtime_metadata(
+        output_dir,
+        runtime.report,
+        runtime.sampler_report,
+        runtime.guidance_config,
+    )
     summaries = [_run_scenario(spec, runtime, config, output_dir) for spec in scenarios]
     summary = {
         "runtime": asdict(runtime.report),
         "checkpoint": asdict(runtime.checkpoint_report),
         "sampler": asdict(runtime.sampler_report),
+        "guidance": asdict(runtime.guidance_config),
         "episodes": summaries,
     }
     write_json(output_dir / "summary.json", summary)
@@ -124,7 +132,8 @@ def _run_scenario(
                 traffic_audit = None
             else:
                 raise RuntimeError("evaluation mode did not create an observation adapter")
-            observation, noise, prediction = runtime.infer(raw_observation, generator)
+            observation, noise, planner_result = runtime.infer(raw_observation, generator)
+            prediction = planner_result.prediction
             ego_trajectory = prediction[0, 0].detach().cpu().numpy().astype(np.float32)
             anchor = _initial_vehicle_state(env)
             _, reward, terminated, truncated, info = env.step(ego_trajectory)
@@ -135,7 +144,7 @@ def _run_scenario(
                 anchor,
                 observation,
                 noise,
-                prediction,
+                planner_result,
                 info,
                 plan_index,
                 traffic_audit,
@@ -162,6 +171,7 @@ def _run_scenario(
             float(config.env.traffic_density),
             route_length_m,
             asdict(runtime.sampler_report),
+            asdict(runtime.guidance_config),
         )
         write_episode_artifacts(
             output_root / spec.name, trace_arrays, frames, summary, config.video
@@ -223,7 +233,11 @@ def _validate_evaluation_config(config: DictConfig) -> None:
     resolve_runtime_settings(config.runtime)
     if "sampler" not in config:
         raise ValueError("evaluation configuration must select a sampler")
-    parse_sampler_config(config.sampler)
+    if "guidance" not in config:
+        raise ValueError("evaluation configuration must select guidance")
+    sampler = parse_sampler_config(config.sampler)
+    guidance = parse_guidance_config(config.guidance)
+    validate_guidance_sampler(guidance, sampler)
     if type(config.map_query_radius_m) not in {int, float} or config.map_query_radius_m <= 0:
         raise ValueError("map_query_radius_m must be positive")
     if type(config.video.enabled) is not bool:

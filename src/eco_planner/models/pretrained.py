@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,15 @@ from eco_planner.models.contracts import (
 )
 from eco_planner.models.ddim_sampler import DdimSampler
 from eco_planner.models.diffusion_planner import DiffusionPlanner
+from eco_planner.models.guidance import (
+    GuidanceConfig,
+    GuidanceDiagnostics,
+    NoGuidanceConfig,
+    OrthogonalGuidance,
+    OrthogonalReferenceGuidanceConfig,
+    validate_guidance_action,
+    validate_guidance_sampler,
+)
 from eco_planner.models.sampling_config import (
     Ddim5SamplerConfig,
     SamplerConfig,
@@ -37,11 +47,14 @@ class PretrainedDiffusionPlanner(nn.Module):
         config: OfficialDiffusionPlannerConfig,
         model: DiffusionPlanner,
         sampler_config: SamplerConfig,
+        guidance_config: GuidanceConfig | None = None,
     ) -> None:
         super().__init__()
         self.config = config
         self.model = model
         self.sampler_config = sampler_config
+        self.guidance_config = guidance_config or NoGuidanceConfig()
+        validate_guidance_sampler(self.guidance_config, sampler_config)
         self._sampler = (
             DdimSampler()
             if isinstance(sampler_config, Ddim5SamplerConfig)
@@ -69,7 +82,8 @@ class PretrainedDiffusionPlanner(nn.Module):
         observation: Mapping[str, torch.Tensor],
         standard_normal_noise: torch.Tensor,
         transition_generator: torch.Generator | None = None,
-    ) -> torch.Tensor:
+        guidance_action: torch.Tensor | None = None,
+    ) -> PlannerInferenceResult:
         if self.training or self.model.training:
             raise RuntimeError("PretrainedDiffusionPlanner must remain in eval mode")
         device = self._runtime_device
@@ -113,6 +127,12 @@ class PretrainedDiffusionPlanner(nn.Module):
             constrained[:, :, 0] = current_states
             return constrained.reshape(batch, participants, -1)
 
+        shared_generator_state = (
+            transition_generator.get_state().clone()
+            if isinstance(self.guidance_config, OrthogonalReferenceGuidanceConfig)
+            and transition_generator is not None
+            else None
+        )
         if isinstance(self.sampler_config, Ddim5SamplerConfig):
             timesteps = torch.tensor(
                 self.sampler_config.timesteps,
@@ -131,13 +151,92 @@ class PretrainedDiffusionPlanner(nn.Module):
         else:
             normalized_sample = self._sampler.sample(initial, denoiser, constrain)
         normalized = normalized_sample.reshape(batch, participants, self.config.future_len + 1, 4)
-        return self.config.state_normalizer.inverse(normalized)[:, :, 1:]
+        prediction = self.config.state_normalizer.inverse(normalized)[:, :, 1:]
+        if isinstance(self.guidance_config, NoGuidanceConfig):
+            if guidance_action is not None:
+                raise ValueError("guidance_action requires active guidance configuration")
+            return PlannerInferenceResult(prediction=prediction)
+
+        action = (
+            torch.tensor(
+                self.guidance_config.fixed_action,
+                dtype=torch.float32,
+                device=device,
+            )
+            .expand(batch, -1)
+            .clone()
+            if guidance_action is None
+            else guidance_action
+        )
+        validate_guidance_action(action, batch=batch, device=device)
+        if torch.count_nonzero(action).item() == 0:
+            diagnostics = _zero_guidance_diagnostics(
+                self.guidance_config,
+                action,
+                batch,
+                self.sampler_config.num_steps,
+            )
+            return PlannerInferenceResult(
+                prediction=prediction,
+                reference_prediction=prediction,
+                guidance_action=action,
+                guidance_diagnostics=diagnostics,
+            )
+
+        guidance = OrthogonalGuidance(self.guidance_config, self.config.state_normalizer)
+
+        def guidance_callback(sample: torch.Tensor, predicted_x_start: torch.Tensor) -> Any:
+            return guidance.gradient(
+                sample,
+                predicted_x_start,
+                prediction,
+                current_states,
+                action,
+            )
+
+        guided_generator = _clone_generator(
+            transition_generator,
+            shared_generator_state,
+            device,
+        )
+        guided_result = self._sampler.sample_guided(
+            initial,
+            denoiser,
+            constrain,
+            timesteps,
+            self.sampler_config.num_steps,
+            self.sampler_config.ddim_stochasticity,
+            guided_generator,
+            guidance_callback,
+            gradient_step_coefficient=self.guidance_config.gradient_step_coefficient,
+        )
+        guided_normalized = guided_result.sample.reshape(
+            batch, participants, self.config.future_len + 1, 4
+        )
+        guided_prediction = self.config.state_normalizer.inverse(guided_normalized)[:, :, 1:]
+        diagnostics = _stack_guidance_diagnostics(
+            self.guidance_config,
+            action,
+            guided_result.diagnostics,
+            guidance.longitudinal_target_speed_delta_mps(
+                prediction,
+                current_states,
+                action,
+            ),
+        )
+        return PlannerInferenceResult(
+            prediction=guided_prediction,
+            reference_prediction=prediction,
+            guidance_action=action,
+            guidance_diagnostics=diagnostics,
+        )
 
 
 def load_official_diffusion_planner(
     args_path: Path,
     checkpoint_path: Path,
     sampler_config: SamplerConfig,
+    guidance_config: GuidanceConfig | None = None,
 ) -> tuple[PretrainedDiffusionPlanner, CheckpointLoadReport]:
     """Load the pinned official EMA checkpoint without compatibility fallbacks."""
 
@@ -146,8 +245,79 @@ def load_official_diffusion_planner(
     state_dict = extract_official_ema_state_dict(checkpoint)
     model = DiffusionPlanner(config)
     model.load_state_dict(state_dict, strict=True)
-    planner = PretrainedDiffusionPlanner(config, model, sampler_config)
+    planner = PretrainedDiffusionPlanner(config, model, sampler_config, guidance_config)
     return planner, CheckpointLoadReport(
         ema_tensor_count=OFFICIAL_EMA_TENSOR_COUNT,
         parameter_count=OFFICIAL_PARAMETER_COUNT,
     )
+
+
+@dataclass
+class PlannerInferenceResult:
+    """Validated planner prediction and optional reference-guidance audit values."""
+
+    prediction: torch.Tensor
+    reference_prediction: torch.Tensor | None = None
+    guidance_action: torch.Tensor | None = None
+    guidance_diagnostics: GuidanceDiagnostics | None = None
+
+
+def _zero_guidance_diagnostics(
+    config: OrthogonalReferenceGuidanceConfig,
+    action: torch.Tensor,
+    batch: int,
+    num_steps: int,
+) -> GuidanceDiagnostics:
+    zeros = torch.zeros((batch, num_steps), dtype=torch.float32, device=action.device)
+    return GuidanceDiagnostics(
+        lateral_target_offset_m=config.lateral_max_offset_m * action[:, 0],
+        longitudinal_target_speed_fraction=(config.longitudinal_max_speed_fraction * action[:, 1]),
+        longitudinal_target_speed_delta_mps=torch.zeros(
+            (batch, 80), dtype=torch.float32, device=action.device
+        ),
+        lateral_objective_delta=zeros,
+        longitudinal_objective_delta=zeros.clone(),
+        applied_gradient_l2=zeros.clone(),
+        applied_gradient_max_abs=zeros.clone(),
+        raw_neighbor_gradient_l2=zeros.clone(),
+        zero_speed_count=torch.zeros((batch, num_steps), dtype=torch.int64, device=action.device),
+    )
+
+
+def _stack_guidance_diagnostics(
+    config: OrthogonalReferenceGuidanceConfig,
+    action: torch.Tensor,
+    steps: tuple[Any, ...],
+    longitudinal_target_speed_delta_mps: torch.Tensor,
+) -> GuidanceDiagnostics:
+    if not steps:
+        raise RuntimeError("guided DDIM returned no step diagnostics")
+
+    def stack(name: str) -> torch.Tensor:
+        return torch.stack([getattr(step, name) for step in steps], dim=1)
+
+    return GuidanceDiagnostics(
+        lateral_target_offset_m=config.lateral_max_offset_m * action[:, 0],
+        longitudinal_target_speed_fraction=(config.longitudinal_max_speed_fraction * action[:, 1]),
+        longitudinal_target_speed_delta_mps=longitudinal_target_speed_delta_mps,
+        lateral_objective_delta=stack("lateral_objective_delta"),
+        longitudinal_objective_delta=stack("longitudinal_objective_delta"),
+        applied_gradient_l2=stack("applied_gradient_l2"),
+        applied_gradient_max_abs=stack("applied_gradient_max_abs"),
+        raw_neighbor_gradient_l2=stack("raw_neighbor_gradient_l2"),
+        zero_speed_count=stack("zero_speed_count"),
+    )
+
+
+def _clone_generator(
+    generator: torch.Generator | None,
+    state: torch.Tensor | None,
+    device: torch.device,
+) -> torch.Generator | None:
+    if generator is None:
+        return None
+    if state is None:
+        raise RuntimeError("guided DDIM did not capture the shared generator state")
+    clone = torch.Generator(device=device)
+    clone.set_state(state)
+    return clone

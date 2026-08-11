@@ -271,7 +271,8 @@ def test_official_planner_executes_no_traffic_closed_loop_cycle(
     try:
         env.reset(seed=0)
         observation = adapter.build(env)
-        _, _, prediction = stage0_runtime.infer(observation, generator)
+        _, _, planner_result = stage0_runtime.infer(observation, generator)
+        prediction = planner_result.prediction
         ego_trajectory = prediction[0, 0].detach().cpu().numpy().astype(np.float32)
         _, _, terminated, truncated, info = env.step(ego_trajectory)
 

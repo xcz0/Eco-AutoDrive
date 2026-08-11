@@ -33,6 +33,18 @@ uv run ruff format --check .
 `ddim5` 使用标准高斯初始噪声；`ddim5_project_noise` 使用 `0.5` 倍噪声且只用于项目隔离对照。
 两者都使用本项目明确选择的均匀连续时间五步表，不能据此声称作者未公开的 sampler parity。
 
+阶段 2 的固定 reference guidance 必须显式搭配标准高斯 `ddim5`。以下 action 分别表示左移与相对
+reference 加速；scale 必须在 `[-1,1]`，不会被裁剪：
+
+```powershell
+.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile smoke -Sampler ddim5 `
+  -Guidance orthogonal_reference -LateralScale 1 -LongitudinalScale 0
+```
+
+`(0,0)` 精确退化为同次 unguided reference。reference-centered energy、10 Hz 速度差分、单位
+梯度系数和 ego-only gradient scope 是 ADR 0012 的项目复现决定，不能声称为 PlannerRFT 作者未公开
+实现。guidance 不做中心线投影、平滑、裁剪或失败回退。
+
 ## 运行交通闭环
 
 ```powershell

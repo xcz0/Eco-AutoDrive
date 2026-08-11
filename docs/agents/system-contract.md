@@ -96,6 +96,37 @@ sampler 边界显式转换到该 dtype。`0.5 * N(0,I)` DDIM 仅作为带独立 
 
 `runtime.seed` 必须传给 `Fabric.seed_everything`，并作为每回合噪声 generator 的 seed；地图 seed 仍由 scenario 独立指定。自动设备解析只允许 CPU 或 CUDA。`runtime.precision=auto` 在 CPU 上解析为 `32-true`，在 CUDA 上优先解析为 `bf16-mixed`，不支持 BF16 时解析为 `16-mixed`。实际设备和解析后精度必须写入产物；只有显式 `32-true` 可作为严格 FP32 数值基线。相同 seed 不保证跨设备或跨精度逐位一致。
 
+## Reference planner 与正交 guidance
+
+默认 `guidance=none`，DPM-10 与无 guidance DDIM-5 保持独立入口。可选
+`guidance=orthogonal_reference` 只允许标准高斯 DDIM-5；DPM-10 或
+`ddim5_project_noise` 与 active guidance 组合时必须失败。
+
+每个规划周期只使用一份严格加载、冻结且 eval-mode 的官方 EMA 模型，并只计算一次 scene
+encoding。reference 与 guided pass 共享当前 observation、initial noise 和 DDIM transition draws；
+reference pass 推进回合的持久 generator 一次，guided pass 从 reference 开始前复制的 generator
+state 重放同一 transition draws。reference 每个规划周期刷新。
+
+reference 切向由其有限、非退化的 `[cos(h), sin(h)]` 归一化得到，左法向为
+`[-sin(h), cos(h)]`。速度由当前物理点和 80 个未来物理点按 `0.1 s` 后向差分，单位为 m/s；
+重复点作为 `0 m/s` 保存和计数，不触发回退。非有限 reference 或 heading norm 不超过配置 epsilon
+时立即失败。
+
+固定 guidance action 为有限 `float32 [B,2]`，与 sample 同设备且逐值位于 `[-1,1]`；不得裁剪。
+正 lateral 表示左移，正 longitudinal 表示沿 reference heading 加速。横向目标为
+`2.5 m * lateral_scale`，纵向目标为
+`0.25 * longitudinal_scale * reference_along_track_speed`。阶段 2 使用 ADR 0012 的
+reference-centered energy-gradient delta，使 `(0,0)` 精确退化为同次 unguided reference。
+
+每个 DDIM denoise step 对 physical ego objective 经 state normalizer 和冻结 DiT 链式求 normalized
+noisy joint sample 梯度。正常 DDIM transition 后以单位系数做负梯度更新，再恢复 current-state
+constraint。应用前将当前点和 10 个邻车的梯度置零，只更新 ego 80 个 future channels；未应用的
+neighbor gradient norm 仍进入审计。每步更新后 detach，冻结参数不得获得 `.grad`。
+
+guided trace 额外保存完整 reference joint prediction、action、横向目标、纵向目标速度变化、五步
+objective delta、应用梯度 L2/max、原始 neighbor gradient L2 和零速计数。上述 centered energy、
+单位系数、离散速度与 ego-only scope 是项目复现决定，不得描述为 PlannerRFT 作者公开实现。
+
 ## 轨迹执行
 
 运动学接口只接收有限的 `float32 [80,4]` ego 后轴局部轨迹。混合精度 forward 的完整预测必须在保存 trace 和进入环境前原值转换为 `float32`。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。

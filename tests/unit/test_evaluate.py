@@ -13,6 +13,8 @@ from eco_planner.evaluation import rendering, run_evaluation, runner
 from eco_planner.evaluation.runtime import InferenceRuntimeReport
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
 from eco_planner.models.checkpoint import CheckpointLoadReport
+from eco_planner.models.guidance import NoGuidanceConfig
+from eco_planner.models.pretrained import PlannerInferenceResult
 from eco_planner.models.sampling_config import SamplerReport
 
 
@@ -125,6 +127,7 @@ class _FakeRuntime:
             ddim_stochasticity=0.0,
             parity_label="official_diffusion_planner_baseline",
         )
+        self.guidance_config = NoGuidanceConfig()
 
     def new_noise_generator(self) -> torch.Generator:
         return torch.Generator(device="cpu").manual_seed(self.report.seed)
@@ -133,11 +136,11 @@ class _FakeRuntime:
         self,
         observation: dict[str, torch.Tensor],
         generator: torch.Generator,
-    ) -> tuple[dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
+    ) -> tuple[dict[str, torch.Tensor], torch.Tensor, PlannerInferenceResult]:
         noise = torch.randn((1, 11, 80, 4), generator=generator)
         prediction = torch.zeros_like(noise)
         prediction[..., 2] = 1.0
-        return observation, noise, prediction
+        return observation, noise, PlannerInferenceResult(prediction=prediction)
 
 
 def _config() -> object:
@@ -158,6 +161,7 @@ def _config() -> object:
                 "seed": 7,
             },
             "sampler": {"name": "dpm10"},
+            "guidance": {"name": "none"},
             "scenarios": [{"name": "fake", "map": "S", "seed": 3}],
             "video": {
                 "enabled": False,
@@ -214,24 +218,28 @@ def test_run_evaluation_writes_clean_job_summary(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         runner,
         "create_fabric_inference_runtime",
-        lambda runtime_config, sampler_config, args_path, checkpoint_path: _FakeRuntime(),
+        lambda runtime_config, sampler_config, guidance_config, args_path, checkpoint_path: (
+            _FakeRuntime()
+        ),
     )
     monkeypatch.setattr(
         runner,
         "write_runtime_metadata",
-        lambda output, report, sampler_report: None,
+        lambda output, report, sampler_report, guidance_config: None,
     )
 
     summary = runner.run_evaluation(_config(), tmp_path)
 
-    assert set(summary) == {"runtime", "checkpoint", "sampler", "episodes"}
+    assert set(summary) == {"runtime", "checkpoint", "sampler", "guidance", "episodes"}
     assert summary["runtime"]["seed"] == 7
     assert summary["checkpoint"] == {
         "ema_tensor_count": 276,
         "parameter_count": 6_042_628,
     }
     assert summary["sampler"]["name"] == "dpm10"
+    assert summary["guidance"] == {"name": "none"}
     assert summary["episodes"][0]["sampler"] == summary["sampler"]
+    assert summary["episodes"][0]["guidance"] == summary["guidance"]
     assert "checkpoint" not in summary["episodes"][0]
     persisted = json.loads((tmp_path / "summary.json").read_text())
     assert persisted == summary

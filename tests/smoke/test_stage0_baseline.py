@@ -15,9 +15,11 @@ def test_official_ema_checkpoint_cpu_smoke(
 ) -> None:
     generator = stage0_runtime.new_noise_generator()
 
-    _, noise, first = stage0_runtime.infer(stage0_observation, generator)
+    _, noise, first_result = stage0_runtime.infer(stage0_observation, generator)
     replay_generator = stage0_runtime.new_noise_generator()
-    _, replay_noise, second = stage0_runtime.infer(stage0_observation, replay_generator)
+    _, replay_noise, second_result = stage0_runtime.infer(stage0_observation, replay_generator)
+    first = first_result.prediction
+    second = second_result.prediction
 
     report = stage0_runtime.checkpoint_report
     assert report.ema_tensor_count == 276

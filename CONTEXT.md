@@ -18,6 +18,13 @@
 
 **噪声 seed（noise seed）**：决定规划周期扩散初始噪声序列的随机种子。比较策略时，配对的运行使用相同噪声 seed。
 
+**参考轨迹（reference trajectory）**：同一规划周期内，由冻结 planner 在共享观测、scene encoding
+和扩散随机流下先生成的完整联合未来预测。它是 guidance 的审计基准，不是道路中心线、专家轨迹
+或回退控制器。
+
+**正交 guidance（orthogonal guidance）**：相对参考轨迹切向与左法向定义的横纵向扩散样本更新。
+本项目阶段 2 的 guidance 只修改 ego future noisy channels，不平滑、投影或裁剪最终轨迹。
+
 **运动学执行条件（kinematic execution condition）**：规划轨迹点被直接写入仿真车辆状态的评测条件。该条件隔离轨迹规划行为，不表示低层 steering、throttle 或 brake 的动力学可执行性。
 
 **稳定能耗场景（stable energy scenario）**：能够重复表达巡航、曲率、变道或合流、限速变化及有限交通交互等能耗因素，并支持可比重复运行的短程或中程场景。

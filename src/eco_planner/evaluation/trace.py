@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from eco_planner.envs import TrafficObservationAudit
+from eco_planner.models.pretrained import PlannerInferenceResult
 
 PLANNER_ACTOR_COUNT = 11
 PLANNER_FUTURE_STEPS = 80
@@ -32,6 +33,17 @@ class EpisodeTraceRecorder:
     planning_anchors: list[np.ndarray] = field(default_factory=list)
     noises: list[np.ndarray] = field(default_factory=list)
     predictions_local: list[np.ndarray] = field(default_factory=list)
+    reference_predictions_local: list[np.ndarray] = field(default_factory=list)
+    guidance_actions: list[np.ndarray] = field(default_factory=list)
+    guidance_lateral_target_offset_m: list[np.ndarray] = field(default_factory=list)
+    guidance_longitudinal_target_speed_fraction: list[np.ndarray] = field(default_factory=list)
+    guidance_longitudinal_target_speed_delta_mps: list[np.ndarray] = field(default_factory=list)
+    guidance_lateral_objective_delta: list[np.ndarray] = field(default_factory=list)
+    guidance_longitudinal_objective_delta: list[np.ndarray] = field(default_factory=list)
+    guidance_applied_gradient_l2: list[np.ndarray] = field(default_factory=list)
+    guidance_applied_gradient_max_abs: list[np.ndarray] = field(default_factory=list)
+    guidance_raw_neighbor_gradient_l2: list[np.ndarray] = field(default_factory=list)
+    guidance_zero_speed_count: list[np.ndarray] = field(default_factory=list)
     observation_ego_current_state: list[np.ndarray] = field(default_factory=list)
     observation_neighbor_agents_past: list[np.ndarray] = field(default_factory=list)
     observation_static_objects: list[np.ndarray] = field(default_factory=list)
@@ -55,6 +67,7 @@ class EpisodeTraceRecorder:
     traffic_nearest_distance_m: list[float] = field(default_factory=list)
     traffic_has_nearest: list[bool] = field(default_factory=list)
     _finalized: bool = field(default=False, init=False, repr=False)
+    _guided: bool | None = field(default=None, init=False, repr=False)
 
     @classmethod
     def from_initial_state(cls, initial_state: np.ndarray) -> EpisodeTraceRecorder:
@@ -88,7 +101,7 @@ class EpisodeTraceRecorder:
         anchor: np.ndarray,
         observation: dict[str, torch.Tensor],
         noise: torch.Tensor,
-        prediction: torch.Tensor,
+        planner_result: PlannerInferenceResult,
         info: Mapping[str, Any],
         plan_index: int,
         traffic_audit: TrafficObservationAudit | None,
@@ -115,7 +128,10 @@ class EpisodeTraceRecorder:
         raw_observation = _raw_observation_for_trace(observation)
         self.planning_anchors.append(np.asarray(anchor, dtype=np.float64).copy())
         self.noises.append(noise.detach().cpu().numpy())
-        self.predictions_local.append(prediction.detach().cpu().numpy())
+        if not isinstance(planner_result, PlannerInferenceResult):
+            raise TypeError("planner_result must be PlannerInferenceResult")
+        self.predictions_local.append(planner_result.prediction.detach().cpu().numpy())
+        self._append_guidance(planner_result)
         self.observation_ego_current_state.append(raw_observation["ego_current_state"])
         self.observation_neighbor_agents_past.append(raw_observation["neighbor_agents_past"])
         self.observation_static_objects.append(raw_observation["static_objects"])
@@ -193,8 +209,94 @@ class EpisodeTraceRecorder:
             ),
             "traffic_has_nearest": np.asarray(self.traffic_has_nearest, dtype=np.bool_),
         }
+        if self._guided:
+            arrays.update(
+                {
+                    "reference_predictions_local": np.concatenate(
+                        self.reference_predictions_local, axis=0
+                    ),
+                    "guidance_actions": np.concatenate(self.guidance_actions, axis=0),
+                    "guidance_lateral_target_offset_m": np.concatenate(
+                        self.guidance_lateral_target_offset_m, axis=0
+                    ),
+                    "guidance_longitudinal_target_speed_fraction": np.concatenate(
+                        self.guidance_longitudinal_target_speed_fraction, axis=0
+                    ),
+                    "guidance_longitudinal_target_speed_delta_mps": np.concatenate(
+                        self.guidance_longitudinal_target_speed_delta_mps, axis=0
+                    ),
+                    "guidance_lateral_objective_delta": np.concatenate(
+                        self.guidance_lateral_objective_delta, axis=0
+                    ),
+                    "guidance_longitudinal_objective_delta": np.concatenate(
+                        self.guidance_longitudinal_objective_delta, axis=0
+                    ),
+                    "guidance_applied_gradient_l2": np.concatenate(
+                        self.guidance_applied_gradient_l2, axis=0
+                    ),
+                    "guidance_applied_gradient_max_abs": np.concatenate(
+                        self.guidance_applied_gradient_max_abs, axis=0
+                    ),
+                    "guidance_raw_neighbor_gradient_l2": np.concatenate(
+                        self.guidance_raw_neighbor_gradient_l2, axis=0
+                    ),
+                    "guidance_zero_speed_count": np.concatenate(
+                        self.guidance_zero_speed_count, axis=0
+                    ),
+                }
+            )
         validate_trace_arrays(arrays)
         return arrays
+
+    def _append_guidance(self, result: PlannerInferenceResult) -> None:
+        values = (
+            result.reference_prediction,
+            result.guidance_action,
+            result.guidance_diagnostics,
+        )
+        guided = all(value is not None for value in values)
+        if not guided and any(value is not None for value in values):
+            raise ValueError("planner guidance result is incomplete")
+        if self._guided is None:
+            self._guided = guided
+        elif self._guided != guided:
+            raise ValueError("episode cannot mix guided and unguided planning cycles")
+        if not guided:
+            return
+        reference = result.reference_prediction
+        action = result.guidance_action
+        diagnostics = result.guidance_diagnostics
+        if reference is None or action is None or diagnostics is None:
+            raise RuntimeError("validated guided result unexpectedly lost audit values")
+        self.reference_predictions_local.append(reference.detach().cpu().numpy())
+        self.guidance_actions.append(action.detach().cpu().numpy())
+        self.guidance_lateral_target_offset_m.append(
+            diagnostics.lateral_target_offset_m.detach().cpu().numpy()
+        )
+        self.guidance_longitudinal_target_speed_fraction.append(
+            diagnostics.longitudinal_target_speed_fraction.detach().cpu().numpy()
+        )
+        self.guidance_longitudinal_target_speed_delta_mps.append(
+            diagnostics.longitudinal_target_speed_delta_mps.detach().cpu().numpy()
+        )
+        for target, value in (
+            (self.guidance_lateral_objective_delta, diagnostics.lateral_objective_delta),
+            (
+                self.guidance_longitudinal_objective_delta,
+                diagnostics.longitudinal_objective_delta,
+            ),
+            (self.guidance_applied_gradient_l2, diagnostics.applied_gradient_l2),
+            (
+                self.guidance_applied_gradient_max_abs,
+                diagnostics.applied_gradient_max_abs,
+            ),
+            (
+                self.guidance_raw_neighbor_gradient_l2,
+                diagnostics.raw_neighbor_gradient_l2,
+            ),
+            (self.guidance_zero_speed_count, diagnostics.zero_speed_count),
+        ):
+            target.append(value.detach().cpu().numpy())
 
     def _append_traffic_audit(self, audit: TrafficObservationAudit | None) -> None:
         selected_ids = np.full(32, "", dtype="<U64")
@@ -274,6 +376,30 @@ def validate_trace_arrays(
         "traffic_nearest_distance_m": (None,),
         "traffic_has_nearest": (None,),
     }
+    guidance_shapes: dict[str, tuple[int | None, ...]] = {
+        "reference_predictions_local": (
+            None,
+            PLANNER_ACTOR_COUNT,
+            PLANNER_FUTURE_STEPS,
+            PLANNER_STATE_DIM,
+        ),
+        "guidance_actions": (None, 2),
+        "guidance_lateral_target_offset_m": (None,),
+        "guidance_longitudinal_target_speed_fraction": (None,),
+        "guidance_longitudinal_target_speed_delta_mps": (None, 80),
+        "guidance_lateral_objective_delta": (None, 5),
+        "guidance_longitudinal_objective_delta": (None, 5),
+        "guidance_applied_gradient_l2": (None, 5),
+        "guidance_applied_gradient_max_abs": (None, 5),
+        "guidance_raw_neighbor_gradient_l2": (None, 5),
+        "guidance_zero_speed_count": (None, 5),
+    }
+    present_guidance = set(guidance_shapes) & set(arrays)
+    if present_guidance and present_guidance != set(guidance_shapes):
+        missing_guidance = sorted(set(guidance_shapes) - present_guidance)
+        raise ValueError(f"guided trace is missing arrays: {missing_guidance}")
+    if present_guidance:
+        required_shapes.update(guidance_shapes)
     missing = sorted(set(required_shapes) - set(arrays))
     if missing:
         raise ValueError(f"trace is missing arrays: {missing}")
@@ -307,7 +433,10 @@ def validate_trace_arrays(
         "executed_plan_indices",
         "traffic_participant_counts",
         "traffic_static_object_counts",
+        "guidance_zero_speed_count",
     ):
+        if name not in arrays:
+            continue
         if arrays[name].dtype.kind not in "iu":
             raise TypeError(f"trace array {name!r} must use an integer dtype")
         if np.any(arrays[name] < 0):
@@ -345,6 +474,9 @@ def validate_trace_arrays(
         "traffic_has_nearest",
     ):
         if arrays[name].shape[0] != plan_cycles:
+            raise ValueError(f"trace array {name!r} is not planning-cycle aligned")
+    for name in guidance_shapes:
+        if name in arrays and arrays[name].shape[0] != plan_cycles:
             raise ValueError(f"trace array {name!r} is not planning-cycle aligned")
     for name in (
         "executed_rewards",

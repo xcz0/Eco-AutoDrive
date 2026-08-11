@@ -10,6 +10,7 @@ from torch import nn
 
 from eco_planner.evaluation import runtime
 from eco_planner.models.checkpoint import CheckpointLoadReport
+from eco_planner.models.pretrained import PlannerInferenceResult
 
 
 def _config(**overrides: object) -> DictConfig:
@@ -99,10 +100,10 @@ class _TinyPlanner(nn.Module):
         observation: dict[str, torch.Tensor],
         noise: torch.Tensor,
         generator: torch.Generator,
-    ) -> torch.Tensor:
+    ) -> PlannerInferenceResult:
         assert observation["value"].device == self.anchor.device
         assert generator.device == self.anchor.device
-        return noise * self.anchor
+        return PlannerInferenceResult(prediction=noise * self.anchor)
 
 
 def test_cpu_fabric_runtime_assembles_model_and_replays_noise(
@@ -113,22 +114,26 @@ def test_cpu_fabric_runtime_assembles_model_and_replays_noise(
     monkeypatch.setattr(
         runtime,
         "load_official_diffusion_planner",
-        lambda args_path, checkpoint_path, sampler_config: (planner, checkpoint_report),
+        lambda args_path, checkpoint_path, sampler_config, guidance_config: (
+            planner,
+            checkpoint_report,
+        ),
     )
     config = _config(accelerator="cpu", precision="32-true", seed=11)
 
     fabric_runtime = runtime.create_fabric_inference_runtime(
         config,
         OmegaConf.create({"name": "dpm10"}),
+        OmegaConf.create({"name": "none"}),
         tmp_path,
         tmp_path,
     )
     first_generator = fabric_runtime.new_noise_generator()
-    observation, first_noise, first_prediction = fabric_runtime.infer(
+    observation, first_noise, first_result = fabric_runtime.infer(
         {"value": torch.ones(1)}, first_generator
     )
     second_generator = fabric_runtime.new_noise_generator()
-    _, second_noise, second_prediction = fabric_runtime.infer(
+    _, second_noise, second_result = fabric_runtime.infer(
         {"value": torch.ones(1)}, second_generator
     )
 
@@ -136,6 +141,6 @@ def test_cpu_fabric_runtime_assembles_model_and_replays_noise(
     assert fabric_runtime.report.resolved_precision == "32-true"
     assert fabric_runtime.report.world_size == 1
     assert observation["value"].device == fabric_runtime.device
-    assert first_prediction.dtype == torch.float32
+    assert first_result.prediction.dtype == torch.float32
     assert torch.equal(first_noise, second_noise)
-    assert torch.equal(first_prediction, second_prediction)
+    assert torch.equal(first_result.prediction, second_result.prediction)

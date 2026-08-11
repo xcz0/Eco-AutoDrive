@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import torch
 
+from eco_planner.models.guidance import GuidanceGradientResult
 from eco_planner.models.vp_schedule import LinearVpSchedule
 
 
@@ -67,6 +69,72 @@ class DdimSampler:
                 sample,
             )
         return sample
+
+    def sample_guided(
+        self,
+        initial_sample: torch.Tensor,
+        model: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+        current_state_constraint: Callable[[torch.Tensor], torch.Tensor],
+        timesteps: torch.Tensor,
+        num_steps: int,
+        ddim_stochasticity: float,
+        generator: torch.Generator | None,
+        guidance: Callable[[torch.Tensor, torch.Tensor], GuidanceGradientResult],
+        *,
+        gradient_step_coefficient: float,
+    ) -> DdimGuidedSampleResult:
+        """Sample DDIM and apply one audited noisy-sample gradient after each transition."""
+
+        self._validate_inputs(
+            initial_sample,
+            timesteps,
+            num_steps,
+            ddim_stochasticity,
+            generator,
+        )
+        if not callable(guidance):
+            raise TypeError("guidance must be callable")
+        if (
+            type(gradient_step_coefficient) not in {int, float}
+            or not math.isfinite(gradient_step_coefficient)
+            or gradient_step_coefficient <= 0.0
+        ):
+            raise ValueError("gradient_step_coefficient must be finite and positive")
+        sample = self._validate_callback_result(
+            "current_state_constraint",
+            current_state_constraint(initial_sample),
+            initial_sample,
+        )
+        diagnostics: list[GuidanceGradientResult] = []
+        for index in range(num_steps):
+            sample_with_grad = sample.detach().requires_grad_(True)
+            current_time = timesteps[index]
+            next_time = timesteps[index + 1]
+            batch_time = current_time.expand(sample.shape[0])
+            prediction = self._validate_callback_result(
+                "denoise model",
+                model(sample_with_grad, batch_time),
+                sample_with_grad,
+            )
+            step = self._validate_guidance_result(
+                guidance(sample_with_grad, prediction), sample_with_grad
+            )
+            transitioned = self._transition(
+                sample_with_grad.detach(),
+                prediction.detach(),
+                current_time,
+                next_time,
+                ddim_stochasticity,
+                generator,
+            )
+            updated = transitioned - gradient_step_coefficient * step.applied_gradient
+            sample = self._validate_callback_result(
+                "current_state_constraint",
+                current_state_constraint(updated),
+                updated,
+            ).detach()
+            diagnostics.append(step)
+        return DdimGuidedSampleResult(sample=sample, diagnostics=tuple(diagnostics))
 
     def _transition(
         self,
@@ -178,3 +246,43 @@ class DdimSampler:
         if not torch.isfinite(result).all():
             raise ValueError(f"{name} must return finite values")
         return result
+
+    @staticmethod
+    def _validate_guidance_result(
+        result: GuidanceGradientResult,
+        reference: torch.Tensor,
+    ) -> GuidanceGradientResult:
+        if not isinstance(result, GuidanceGradientResult):
+            raise TypeError("guidance must return GuidanceGradientResult")
+        gradient = result.applied_gradient
+        if gradient.shape != reference.shape:
+            raise ValueError("guidance gradient must preserve sample shape")
+        if gradient.dtype != reference.dtype or gradient.device != reference.device:
+            raise ValueError("guidance gradient must preserve sample dtype and device")
+        batch = reference.shape[0]
+        for name in (
+            "lateral_objective_delta",
+            "longitudinal_objective_delta",
+            "applied_gradient_l2",
+            "applied_gradient_max_abs",
+            "raw_neighbor_gradient_l2",
+            "zero_speed_count",
+        ):
+            value = getattr(result, name)
+            if not isinstance(value, torch.Tensor) or value.shape != (batch,):
+                raise ValueError(f"guidance diagnostic {name} must have shape [B]")
+            if value.device != reference.device:
+                raise ValueError(f"guidance diagnostic {name} must be on the sample device")
+            if value.dtype.is_floating_point and not torch.isfinite(value).all():
+                raise ValueError(f"guidance diagnostic {name} must be finite")
+        if not torch.isfinite(gradient).all():
+            raise ValueError("guidance gradient must be finite")
+        return result
+
+
+@dataclass(frozen=True)
+class DdimGuidedSampleResult:
+    """Final normalized DDIM sample and one diagnostic record per transition."""
+
+    sample: torch.Tensor
+    diagnostics: tuple[GuidanceGradientResult, ...]

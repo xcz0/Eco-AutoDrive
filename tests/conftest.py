@@ -141,6 +141,7 @@ def stage0_runtime(stage0_checkpoint_dir: Path) -> FabricInferenceRuntime:
     return create_fabric_inference_runtime(
         runtime_config,
         OmegaConf.create({"name": "dpm10"}),
+        OmegaConf.create({"name": "none"}),
         stage0_checkpoint_dir / "args.json",
         stage0_checkpoint_dir / "model.pth",
     )
@@ -164,6 +165,49 @@ def stage1_ddim_runtime(stage0_checkpoint_dir: Path) -> FabricInferenceRuntime:
     return create_fabric_inference_runtime(
         runtime_config,
         sampler_config,
+        OmegaConf.create({"name": "none"}),
+        stage0_checkpoint_dir / "args.json",
+        stage0_checkpoint_dir / "model.pth",
+    )
+
+
+@pytest.fixture(scope="session")
+def stage2_guided_runtime(stage0_checkpoint_dir: Path) -> FabricInferenceRuntime:
+    runtime_config = OmegaConf.create(
+        {"accelerator": "cpu", "devices": 1, "precision": "32-true", "seed": 0}
+    )
+    sampler_config = OmegaConf.create(
+        {
+            "name": "ddim5",
+            "num_steps": 5,
+            "timesteps": [1.0, 0.8, 0.6, 0.4, 0.2, 0.0],
+            "initial_noise_scale": 1.0,
+            "ddim_stochasticity": 0.0,
+            "parity_label": "plannerrft_paper_text",
+        }
+    )
+    guidance_config = OmegaConf.create(
+        {
+            "name": "orthogonal_reference",
+            "formula_label": "centered_energy_gradient_delta_v1",
+            "lateral_scale": 1.0,
+            "longitudinal_scale": 0.0,
+            "lateral_max_offset_m": 2.5,
+            "longitudinal_max_speed_fraction": 0.25,
+            "trajectory_dt_s": 0.1,
+            "gradient_step_coefficient": 1.0,
+            "reference_refresh_cycles": 1,
+            "share_scene_encoding": True,
+            "share_initial_noise": True,
+            "share_transition_noise": True,
+            "heading_norm_epsilon": 1e-6,
+            "zero_speed_tolerance_mps": 1e-6,
+        }
+    )
+    return create_fabric_inference_runtime(
+        runtime_config,
+        sampler_config,
+        guidance_config,
         stage0_checkpoint_dir / "args.json",
         stage0_checkpoint_dir / "model.pth",
     )

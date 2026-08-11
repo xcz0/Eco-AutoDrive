@@ -16,6 +16,15 @@ param(
     [ValidateSet("dpm10", "ddim5", "ddim5_project_noise")]
     [string]$Sampler = "dpm10",
 
+    [ValidateSet("none", "orthogonal_reference")]
+    [string]$Guidance = "none",
+
+    [ValidateRange(-1.0, 1.0)]
+    [double]$LateralScale = 0.0,
+
+    [ValidateRange(-1.0, 1.0)]
+    [double]$LongitudinalScale = 0.0,
+
     [ValidateRange(0, [int]::MaxValue)]
     [int]$RuntimeSeed = 0,
 
@@ -35,6 +44,13 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if ($Guidance -eq "orthogonal_reference" -and $Sampler -ne "ddim5") {
+    throw "orthogonal_reference guidance requires -Sampler ddim5."
+}
+if ($Guidance -eq "none" -and ($LateralScale -ne 0.0 -or $LongitudinalScale -ne 0.0)) {
+    throw "Non-zero guidance scales require -Guidance orthogonal_reference."
+}
 
 function Join-OverrideValues {
     param([Parameter(Mandatory = $true)][object[]]$Values)
@@ -74,6 +90,13 @@ $overrides.Add("video.enabled=$videoEnabled")
 $overrides.Add("runtime.accelerator=$Accelerator")
 $overrides.Add("runtime.precision=$Precision")
 $overrides.Add("sampler=$Sampler")
+$overrides.Add("guidance=$Guidance")
+if ($Guidance -eq "orthogonal_reference") {
+    $lateralText = $LateralScale.ToString([Globalization.CultureInfo]::InvariantCulture)
+    $longitudinalText = $LongitudinalScale.ToString([Globalization.CultureInfo]::InvariantCulture)
+    $overrides.Add("guidance.lateral_scale=$lateralText")
+    $overrides.Add("guidance.longitudinal_scale=$longitudinalText")
+}
 
 if ($Mode -eq "no-traffic") {
     switch ($Profile) {
