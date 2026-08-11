@@ -4,6 +4,7 @@ defaults:
   - /env: metadrive
   - /model: diffusion_planner
   - /runtime: fabric
+  - /sampler: dpm10
   - _self_
 
 name: official_traffic_long_closed_loop

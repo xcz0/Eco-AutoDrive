@@ -29,6 +29,7 @@ from eco_planner.evaluation.runtime import (
     resolve_runtime_settings,
 )
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
+from eco_planner.models.sampling_config import parse_sampler_config
 
 
 @dataclass(frozen=True)
@@ -47,16 +48,18 @@ def run_evaluation(config: DictConfig, output_dir: Path) -> dict[str, Any]:
     checkpoint_path = Path(to_absolute_path(config.model.checkpoint_path))
     runtime = create_fabric_inference_runtime(
         config.runtime,
+        config.sampler,
         args_path,
         checkpoint_path,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(config, output_dir / "resolved_config.yaml", resolve=True)
-    write_runtime_metadata(output_dir, runtime.report)
+    write_runtime_metadata(output_dir, runtime.report, runtime.sampler_report)
     summaries = [_run_scenario(spec, runtime, config, output_dir) for spec in scenarios]
     summary = {
         "runtime": asdict(runtime.report),
         "checkpoint": asdict(runtime.checkpoint_report),
+        "sampler": asdict(runtime.sampler_report),
         "episodes": summaries,
     }
     write_json(output_dir / "summary.json", summary)
@@ -158,6 +161,7 @@ def _run_scenario(
             mode,
             float(config.env.traffic_density),
             route_length_m,
+            asdict(runtime.sampler_report),
         )
         write_episode_artifacts(
             output_root / spec.name, trace_arrays, frames, summary, config.video
@@ -217,6 +221,9 @@ def _validate_evaluation_config(config: DictConfig) -> None:
         if config.env.accident_prob != 0.0:
             raise ValueError("traffic evaluation requires accident_prob=0")
     resolve_runtime_settings(config.runtime)
+    if "sampler" not in config:
+        raise ValueError("evaluation configuration must select a sampler")
+    parse_sampler_config(config.sampler)
     if type(config.map_query_radius_m) not in {int, float} or config.map_query_radius_m <= 0:
         raise ValueError("map_query_radius_m must be positive")
     if type(config.video.enabled) is not bool:

@@ -23,6 +23,16 @@ uv run ruff format --check .
 
 该入口拒绝背景车辆和静态交通物体，不能用于有交通评测。
 
+默认 sampler 是保持官方语义的 `dpm10`。阶段 1 的确定性 DDIM 与初始尺度隔离变体必须显式选择：
+
+```powershell
+.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile smoke -Sampler ddim5
+.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile smoke -Sampler ddim5_project_noise
+```
+
+`ddim5` 使用标准高斯初始噪声；`ddim5_project_noise` 使用 `0.5` 倍噪声且只用于项目隔离对照。
+两者都使用本项目明确选择的均匀连续时间五步表，不能据此声称作者未公开的 sampler parity。
+
 ## 运行交通闭环
 
 ```powershell

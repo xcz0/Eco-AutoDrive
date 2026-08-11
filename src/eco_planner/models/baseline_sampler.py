@@ -6,35 +6,7 @@ from collections.abc import Callable
 
 import torch
 
-
-class _NoiseScheduleVP:
-    def __init__(self, beta_0: float = 0.1, beta_1: float = 20.0) -> None:
-        self.total_n = 1000
-        self.beta_0 = beta_0
-        self.beta_1 = beta_1
-
-    def log_alpha(self, timestep: torch.Tensor) -> torch.Tensor:
-        beta_range = self.beta_1 - self.beta_0
-        return -0.25 * timestep.square() * beta_range - 0.5 * timestep * self.beta_0
-
-    def alpha(self, timestep: torch.Tensor) -> torch.Tensor:
-        return torch.exp(self.log_alpha(timestep))
-
-    def std(self, timestep: torch.Tensor) -> torch.Tensor:
-        return torch.sqrt(1.0 - torch.exp(2.0 * self.log_alpha(timestep)))
-
-    def lambda_(self, timestep: torch.Tensor) -> torch.Tensor:
-        log_alpha = self.log_alpha(timestep)
-        return log_alpha - 0.5 * torch.log(1.0 - torch.exp(2.0 * log_alpha))
-
-    def inverse_lambda(self, value: torch.Tensor) -> torch.Tensor:
-        temporary = (
-            2.0
-            * (self.beta_1 - self.beta_0)
-            * torch.logaddexp(-2.0 * value, torch.zeros((1,), device=value.device))
-        )
-        delta = self.beta_0**2 + temporary
-        return temporary / (torch.sqrt(delta) + self.beta_0) / (self.beta_1 - self.beta_0)
+from eco_planner.models.vp_schedule import LinearVpSchedule
 
 
 def _expand(value: torch.Tensor, dimensions: int) -> torch.Tensor:
@@ -45,7 +17,7 @@ class BaselineDpmSampler:
     """Exact scope used by the upstream 10-step, order-2, multistep sampler."""
 
     def __init__(self) -> None:
-        self._schedule = _NoiseScheduleVP()
+        self._schedule = LinearVpSchedule()
 
     def sample(
         self,
@@ -97,7 +69,7 @@ class BaselineDpmSampler:
     ) -> torch.Tensor:
         batch_timestep = timestep.expand(sample.shape[0])
         alpha = _expand(self._schedule.alpha(batch_timestep), sample.dim())
-        std = _expand(self._schedule.std(batch_timestep), sample.dim())
+        std = _expand(self._schedule.sigma(batch_timestep), sample.dim())
         prediction = model(sample, batch_timestep)
         noise = (sample - alpha * prediction) / std
         return (sample - std * noise) / alpha
@@ -112,7 +84,7 @@ class BaselineDpmSampler:
         h = self._schedule.lambda_(end) - self._schedule.lambda_(start)
         alpha_end = torch.exp(self._schedule.log_alpha(end))
         return (
-            self._schedule.std(end) / self._schedule.std(start) * sample
+            self._schedule.sigma(end) / self._schedule.sigma(start) * sample
             - alpha_end * torch.expm1(-h) * prediction
         )
 
@@ -133,7 +105,7 @@ class BaselineDpmSampler:
         phi_1 = torch.expm1(-h)
         alpha_end = torch.exp(self._schedule.log_alpha(end))
         return (
-            self._schedule.std(end) / self._schedule.std(time_zero) * sample
+            self._schedule.sigma(end) / self._schedule.sigma(time_zero) * sample
             - alpha_end * phi_1 * previous_zero
             - 0.5 * alpha_end * phi_1 * derivative
         )

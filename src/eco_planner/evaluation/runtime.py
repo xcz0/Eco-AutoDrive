@@ -17,6 +17,11 @@ from eco_planner.models.pretrained import (
     CheckpointLoadReport,
     load_official_diffusion_planner,
 )
+from eco_planner.models.sampling_config import (
+    SamplerReport,
+    parse_sampler_config,
+    sampler_report,
+)
 
 _ACCELERATORS = frozenset({"auto", "cpu", "cuda"})
 _PRECISIONS = frozenset({"auto", "32-true", "16-mixed", "bf16-mixed"})
@@ -55,12 +60,14 @@ class FabricInferenceRuntime:
         planner_config: OfficialDiffusionPlannerConfig,
         checkpoint_report: CheckpointLoadReport,
         report: InferenceRuntimeReport,
+        sampler_report: SamplerReport,
     ) -> None:
         self._fabric = fabric
         self._planner = planner
         self.planner_config = planner_config
         self.checkpoint_report = checkpoint_report
         self.report = report
+        self.sampler_report = sampler_report
 
     @property
     def device(self) -> torch.device:
@@ -93,7 +100,7 @@ class FabricInferenceRuntime:
             generator=generator,
         )
         with torch.inference_mode():
-            prediction = self._planner(device_observation, noise)
+            prediction = self._planner(device_observation, noise, generator)
         if not isinstance(prediction, torch.Tensor):
             raise TypeError("Diffusion Planner forward must return a torch.Tensor")
         prediction = prediction.to(dtype=torch.float32)
@@ -110,6 +117,7 @@ class FabricInferenceRuntime:
 
 def create_fabric_inference_runtime(
     runtime_config: DictConfig,
+    sampler_config: DictConfig,
     args_path: Path,
     checkpoint_path: Path,
 ) -> FabricInferenceRuntime:
@@ -122,7 +130,12 @@ def create_fabric_inference_runtime(
         precision=settings.resolved_precision,
     )
     fabric.seed_everything(settings.seed, workers=True, verbose=False)
-    planner, checkpoint_report = load_official_diffusion_planner(args_path, checkpoint_path)
+    parsed_sampler = parse_sampler_config(sampler_config)
+    planner, checkpoint_report = load_official_diffusion_planner(
+        args_path,
+        checkpoint_path,
+        parsed_sampler,
+    )
     planner_config = planner.config
     wrapped_planner = fabric.setup_module(planner)
     report = InferenceRuntimeReport(
@@ -142,6 +155,7 @@ def create_fabric_inference_runtime(
         planner_config,
         checkpoint_report,
         report,
+        sampler_report(parsed_sampler),
     )
 
 

@@ -1,8 +1,0 @@
-defaults:
-  - /env: metadrive
-  - /model: diffusion_planner
-  - /reward: energy
-  - /train: dppo
-  - _self_
-
-name: baseline

@@ -13,6 +13,7 @@ from eco_planner.evaluation import rendering, run_evaluation, runner
 from eco_planner.evaluation.runtime import InferenceRuntimeReport
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
 from eco_planner.models.checkpoint import CheckpointLoadReport
+from eco_planner.models.sampling_config import SamplerReport
 
 
 class _FakeAgent:
@@ -116,6 +117,14 @@ class _FakeRuntime:
             world_size=1,
         )
         self.checkpoint_report = CheckpointLoadReport(276, 6_042_628)
+        self.sampler_report = SamplerReport(
+            name="dpm10",
+            num_steps=10,
+            timesteps=None,
+            initial_noise_scale=0.5,
+            ddim_stochasticity=0.0,
+            parity_label="official_diffusion_planner_baseline",
+        )
 
     def new_noise_generator(self) -> torch.Generator:
         return torch.Generator(device="cpu").manual_seed(self.report.seed)
@@ -148,6 +157,7 @@ def _config() -> object:
                 "precision": "32-true",
                 "seed": 7,
             },
+            "sampler": {"name": "dpm10"},
             "scenarios": [{"name": "fake", "map": "S", "seed": 3}],
             "video": {
                 "enabled": False,
@@ -204,18 +214,24 @@ def test_run_evaluation_writes_clean_job_summary(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         runner,
         "create_fabric_inference_runtime",
-        lambda runtime_config, args_path, checkpoint_path: _FakeRuntime(),
+        lambda runtime_config, sampler_config, args_path, checkpoint_path: _FakeRuntime(),
     )
-    monkeypatch.setattr(runner, "write_runtime_metadata", lambda output, report: None)
+    monkeypatch.setattr(
+        runner,
+        "write_runtime_metadata",
+        lambda output, report, sampler_report: None,
+    )
 
     summary = runner.run_evaluation(_config(), tmp_path)
 
-    assert set(summary) == {"runtime", "checkpoint", "episodes"}
+    assert set(summary) == {"runtime", "checkpoint", "sampler", "episodes"}
     assert summary["runtime"]["seed"] == 7
     assert summary["checkpoint"] == {
         "ema_tensor_count": 276,
         "parameter_count": 6_042_628,
     }
+    assert summary["sampler"]["name"] == "dpm10"
+    assert summary["episodes"][0]["sampler"] == summary["sampler"]
     assert "checkpoint" not in summary["episodes"][0]
     persisted = json.loads((tmp_path / "summary.json").read_text())
     assert persisted == summary
@@ -251,6 +267,14 @@ def test_evaluation_config_rejects_horizon_mismatch() -> None:
     config.env.horizon = 9
 
     with pytest.raises(ValueError, match="env.horizon"):
+        runner._validate_evaluation_config(config)
+
+
+def test_evaluation_config_requires_explicit_sampler() -> None:
+    config = _config()
+    del config.sampler
+
+    with pytest.raises(ValueError, match="select a sampler"):
         runner._validate_evaluation_config(config)
 
 

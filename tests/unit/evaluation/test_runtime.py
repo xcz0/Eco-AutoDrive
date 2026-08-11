@@ -94,8 +94,14 @@ class _TinyPlanner(nn.Module):
         self.register_parameter("anchor", nn.Parameter(torch.ones(()), requires_grad=False))
         self.eval()
 
-    def forward(self, observation: dict[str, torch.Tensor], noise: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        observation: dict[str, torch.Tensor],
+        noise: torch.Tensor,
+        generator: torch.Generator,
+    ) -> torch.Tensor:
         assert observation["value"].device == self.anchor.device
+        assert generator.device == self.anchor.device
         return noise * self.anchor
 
 
@@ -107,12 +113,13 @@ def test_cpu_fabric_runtime_assembles_model_and_replays_noise(
     monkeypatch.setattr(
         runtime,
         "load_official_diffusion_planner",
-        lambda args_path, checkpoint_path: (planner, checkpoint_report),
+        lambda args_path, checkpoint_path, sampler_config: (planner, checkpoint_report),
     )
     config = _config(accelerator="cpu", precision="32-true", seed=11)
 
     fabric_runtime = runtime.create_fabric_inference_runtime(
         config,
+        OmegaConf.create({"name": "dpm10"}),
         tmp_path,
         tmp_path,
     )

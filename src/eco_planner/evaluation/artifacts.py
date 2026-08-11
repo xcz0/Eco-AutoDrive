@@ -19,6 +19,7 @@ from metadrive.utils.doc_utils import generate_gif
 from omegaconf import DictConfig
 
 from eco_planner.evaluation.runtime import InferenceRuntimeReport
+from eco_planner.models.sampling_config import SamplerReport
 
 
 def build_episode_summary(
@@ -33,6 +34,7 @@ def build_episode_summary(
     evaluation_mode: str,
     traffic_density: float,
     route_length_m: float,
+    sampler: dict[str, Any],
 ) -> dict[str, Any]:
     """Build the stable per-episode summary JSON payload."""
 
@@ -60,6 +62,7 @@ def build_episode_summary(
         "traffic_density": traffic_density,
         "route_length_m": route_length_m,
         "noise_seed": noise_seed,
+        "sampler": sampler,
         "plan_cycles": int(trace_arrays["initial_noise"].shape[0]),
         "simulator_steps": int(trace_arrays["executed_states"].shape[0]),
         "simulated_seconds": float(trace_arrays["executed_states"].shape[0] * 0.1),
@@ -133,7 +136,11 @@ def write_episode_artifacts(
         generate_gif(frames, str(output_dir / "closed_loop.gif"), duration=duration_ms)
 
 
-def write_runtime_metadata(output_dir: Path, runtime_report: InferenceRuntimeReport) -> None:
+def write_runtime_metadata(
+    output_dir: Path,
+    runtime_report: InferenceRuntimeReport,
+    sampler_report: SamplerReport,
+) -> None:
     """Write reproducibility metadata and the possibly empty tracked diff."""
 
     repository_root = Path(to_absolute_path("."))
@@ -146,6 +153,7 @@ def write_runtime_metadata(output_dir: Path, runtime_report: InferenceRuntimeRep
         "lightning": version("lightning"),
         "metadrive": version("metadrive-simulator"),
         "inference_runtime": asdict(runtime_report),
+        "sampler": asdict(sampler_report),
     }
     write_json(output_dir / "runtime_metadata.json", metadata)
     (output_dir / "tracked_diff.patch").write_text(

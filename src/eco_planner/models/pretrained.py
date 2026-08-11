@@ -21,7 +21,12 @@ from eco_planner.models.contracts import (
     validate_official_observation,
     validate_standard_normal_noise,
 )
+from eco_planner.models.ddim_sampler import DdimSampler
 from eco_planner.models.diffusion_planner import DiffusionPlanner
+from eco_planner.models.sampling_config import (
+    Ddim5SamplerConfig,
+    SamplerConfig,
+)
 
 
 class PretrainedDiffusionPlanner(nn.Module):
@@ -31,11 +36,17 @@ class PretrainedDiffusionPlanner(nn.Module):
         self,
         config: OfficialDiffusionPlannerConfig,
         model: DiffusionPlanner,
+        sampler_config: SamplerConfig,
     ) -> None:
         super().__init__()
         self.config = config
         self.model = model
-        self._sampler = BaselineDpmSampler()
+        self.sampler_config = sampler_config
+        self._sampler = (
+            DdimSampler()
+            if isinstance(sampler_config, Ddim5SamplerConfig)
+            else BaselineDpmSampler()
+        )
         for parameter in self.model.parameters():
             parameter.requires_grad_(False)
         self.train(False)
@@ -57,6 +68,7 @@ class PretrainedDiffusionPlanner(nn.Module):
         self,
         observation: Mapping[str, torch.Tensor],
         standard_normal_noise: torch.Tensor,
+        transition_generator: torch.Generator | None = None,
     ) -> torch.Tensor:
         if self.training or self.model.training:
             raise RuntimeError("PretrainedDiffusionPlanner must remain in eval mode")
@@ -78,14 +90,22 @@ class PretrainedDiffusionPlanner(nn.Module):
         ]
         neighbor_current_mask = torch.sum(torch.ne(neighbors_current, 0), dim=-1) == 0
         current_states = torch.cat([ego_current, neighbors_current], dim=1)
+        initial_noise_scale = (
+            self.sampler_config.initial_noise_scale
+            if isinstance(self.sampler_config, Ddim5SamplerConfig)
+            else 0.5
+        )
         initial = torch.cat(
-            [current_states[:, :, None], 0.5 * standard_normal_noise], dim=2
+            [current_states[:, :, None], initial_noise_scale * standard_normal_noise], dim=2
         ).reshape(batch, participants, -1)
 
         def denoiser(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
-            return self.model.denoise(
+            prediction = self.model.denoise(
                 sample, timestep, encoding, inputs["route_lanes"], neighbor_current_mask
             )
+            if isinstance(self.sampler_config, Ddim5SamplerConfig):
+                prediction = prediction.to(dtype=sample.dtype)
+            return prediction
 
         def constrain(sample: torch.Tensor) -> torch.Tensor:
             constrained = sample.reshape(batch, participants, self.config.future_len + 1, 4)
@@ -93,15 +113,31 @@ class PretrainedDiffusionPlanner(nn.Module):
             constrained[:, :, 0] = current_states
             return constrained.reshape(batch, participants, -1)
 
-        normalized = self._sampler.sample(initial, denoiser, constrain).reshape(
-            batch, participants, self.config.future_len + 1, 4
-        )
+        if isinstance(self.sampler_config, Ddim5SamplerConfig):
+            timesteps = torch.tensor(
+                self.sampler_config.timesteps,
+                dtype=initial.dtype,
+                device=initial.device,
+            )
+            normalized_sample = self._sampler.sample(
+                initial,
+                denoiser,
+                constrain,
+                timesteps,
+                self.sampler_config.num_steps,
+                self.sampler_config.ddim_stochasticity,
+                transition_generator,
+            )
+        else:
+            normalized_sample = self._sampler.sample(initial, denoiser, constrain)
+        normalized = normalized_sample.reshape(batch, participants, self.config.future_len + 1, 4)
         return self.config.state_normalizer.inverse(normalized)[:, :, 1:]
 
 
 def load_official_diffusion_planner(
     args_path: Path,
     checkpoint_path: Path,
+    sampler_config: SamplerConfig,
 ) -> tuple[PretrainedDiffusionPlanner, CheckpointLoadReport]:
     """Load the pinned official EMA checkpoint without compatibility fallbacks."""
 
@@ -110,7 +146,7 @@ def load_official_diffusion_planner(
     state_dict = extract_official_ema_state_dict(checkpoint)
     model = DiffusionPlanner(config)
     model.load_state_dict(state_dict, strict=True)
-    planner = PretrainedDiffusionPlanner(config, model)
+    planner = PretrainedDiffusionPlanner(config, model, sampler_config)
     return planner, CheckpointLoadReport(
         ema_tensor_count=OFFICIAL_EMA_TENSOR_COUNT,
         parameter_count=OFFICIAL_PARAMETER_COUNT,

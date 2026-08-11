@@ -13,6 +13,9 @@ param(
     [ValidateSet("auto", "32-true", "16-mixed", "bf16-mixed")]
     [string]$Precision = "auto",
 
+    [ValidateSet("dpm10", "ddim5", "ddim5_project_noise")]
+    [string]$Sampler = "dpm10",
+
     [ValidateRange(0, [int]::MaxValue)]
     [int]$RuntimeSeed = 0,
 
@@ -70,6 +73,7 @@ $overrides = [System.Collections.Generic.List[string]]::new()
 $overrides.Add("video.enabled=$videoEnabled")
 $overrides.Add("runtime.accelerator=$Accelerator")
 $overrides.Add("runtime.precision=$Precision")
+$overrides.Add("sampler=$Sampler")
 
 if ($Mode -eq "no-traffic") {
     switch ($Profile) {

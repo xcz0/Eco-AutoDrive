@@ -17,6 +17,7 @@ from eco_planner.models.pretrained import (
     PretrainedDiffusionPlanner,
     load_official_diffusion_planner,
 )
+from eco_planner.models.sampling_config import Dpm10SamplerConfig
 
 
 @pytest.fixture
@@ -128,6 +129,7 @@ def stage0_planner(
     return load_official_diffusion_planner(
         stage0_checkpoint_dir / "args.json",
         stage0_checkpoint_dir / "model.pth",
+        Dpm10SamplerConfig(),
     )
 
 
@@ -138,6 +140,30 @@ def stage0_runtime(stage0_checkpoint_dir: Path) -> FabricInferenceRuntime:
     )
     return create_fabric_inference_runtime(
         runtime_config,
+        OmegaConf.create({"name": "dpm10"}),
+        stage0_checkpoint_dir / "args.json",
+        stage0_checkpoint_dir / "model.pth",
+    )
+
+
+@pytest.fixture(scope="session")
+def stage1_ddim_runtime(stage0_checkpoint_dir: Path) -> FabricInferenceRuntime:
+    runtime_config = OmegaConf.create(
+        {"accelerator": "cpu", "devices": 1, "precision": "32-true", "seed": 0}
+    )
+    sampler_config = OmegaConf.create(
+        {
+            "name": "ddim5",
+            "num_steps": 5,
+            "timesteps": [1.0, 0.8, 0.6, 0.4, 0.2, 0.0],
+            "initial_noise_scale": 1.0,
+            "ddim_stochasticity": 0.0,
+            "parity_label": "plannerrft_paper_text",
+        }
+    )
+    return create_fabric_inference_runtime(
+        runtime_config,
+        sampler_config,
         stage0_checkpoint_dir / "args.json",
         stage0_checkpoint_dir / "model.pth",
     )
