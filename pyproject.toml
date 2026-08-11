@@ -14,7 +14,6 @@ dependencies = [
     "omegaconf",
     "timm",
     "torch==2.6.0+cu124",
-    #"torchvision==0.28.0+cu124",
     "torchrl==0.12.0",
 ]
 
@@ -30,17 +29,14 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 metadrive-simulator = { path = "third_party/metadrive", editable = true }
-torch = { path = "C:/Users/x30085685/Downloads/torch-2.6.0+cu124-cp310-cp310-win_amd64.whl" }
 
-
-[tool.uv]
-allow-insecure-host = ["cmc-cd-mirror.rnd.huawei.com"]
+# 正常联网机器：torch 从 PyTorch 官方 CUDA 12.4 源安装
+torch = { index = "pytorch-cu124" }
 
 [[tool.uv.index]]
-name = "internal"
-url = "http://cmc-cd-mirror.rnd.huawei.com/pypi/simple/"
-default = true
-
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/eco_planner"]
