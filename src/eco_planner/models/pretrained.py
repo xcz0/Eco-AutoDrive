@@ -31,11 +31,10 @@ class PretrainedDiffusionPlanner(nn.Module):
         self,
         config: OfficialDiffusionPlannerConfig,
         model: DiffusionPlanner,
-        device: torch.device,
     ) -> None:
         super().__init__()
         self.config = config
-        self.model = model.to(device)
+        self.model = model
         self._sampler = BaselineDpmSampler()
         for parameter in self.model.parameters():
             parameter.requires_grad_(False)
@@ -54,7 +53,7 @@ class PretrainedDiffusionPlanner(nn.Module):
         super().train(False)
         return self
 
-    def predict(
+    def forward(
         self,
         observation: Mapping[str, torch.Tensor],
         standard_normal_noise: torch.Tensor,
@@ -72,54 +71,47 @@ class PretrainedDiffusionPlanner(nn.Module):
             device=device,
         )
         inputs = self.config.observation_normalizer(observation)
-        with torch.no_grad():
-            encoding = self.model.encode(inputs)
-            ego_current = inputs["ego_current_state"][:, None, :4]
-            neighbors_current = inputs["neighbor_agents_past"][
-                :, : self.config.predicted_neighbor_num, -1, :4
-            ]
-            neighbor_current_mask = torch.sum(torch.ne(neighbors_current, 0), dim=-1) == 0
-            current_states = torch.cat([ego_current, neighbors_current], dim=1)
-            initial = torch.cat(
-                [current_states[:, :, None], 0.5 * standard_normal_noise], dim=2
-            ).reshape(batch, participants, -1)
+        encoding = self.model.encode(inputs)
+        ego_current = inputs["ego_current_state"][:, None, :4]
+        neighbors_current = inputs["neighbor_agents_past"][
+            :, : self.config.predicted_neighbor_num, -1, :4
+        ]
+        neighbor_current_mask = torch.sum(torch.ne(neighbors_current, 0), dim=-1) == 0
+        current_states = torch.cat([ego_current, neighbors_current], dim=1)
+        initial = torch.cat(
+            [current_states[:, :, None], 0.5 * standard_normal_noise], dim=2
+        ).reshape(batch, participants, -1)
 
-            def denoiser(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
-                return self.model.denoise(
-                    sample, timestep, encoding, inputs["route_lanes"], neighbor_current_mask
-                )
-
-            def constrain(sample: torch.Tensor) -> torch.Tensor:
-                constrained = sample.reshape(batch, participants, self.config.future_len + 1, 4)
-                constrained = constrained.clone()
-                constrained[:, :, 0] = current_states
-                return constrained.reshape(batch, participants, -1)
-
-            normalized = self._sampler.sample(initial, denoiser, constrain).reshape(
-                batch, participants, self.config.future_len + 1, 4
+        def denoiser(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
+            return self.model.denoise(
+                sample, timestep, encoding, inputs["route_lanes"], neighbor_current_mask
             )
-            return self.config.state_normalizer.inverse(normalized)[:, :, 1:]
+
+        def constrain(sample: torch.Tensor) -> torch.Tensor:
+            constrained = sample.reshape(batch, participants, self.config.future_len + 1, 4)
+            constrained = constrained.clone()
+            constrained[:, :, 0] = current_states
+            return constrained.reshape(batch, participants, -1)
+
+        normalized = self._sampler.sample(initial, denoiser, constrain).reshape(
+            batch, participants, self.config.future_len + 1, 4
+        )
+        return self.config.state_normalizer.inverse(normalized)[:, :, 1:]
 
 
 def load_official_diffusion_planner(
     args_path: Path,
     checkpoint_path: Path,
-    device: torch.device,
 ) -> tuple[PretrainedDiffusionPlanner, CheckpointLoadReport]:
     """Load the pinned official EMA checkpoint without compatibility fallbacks."""
 
-    if device.type not in {"cpu", "cuda"}:
-        raise ValueError("runtime device must be either CPU or CUDA")
-    if device.type == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("CUDA was explicitly requested but is unavailable")
     config = OfficialDiffusionPlannerConfig.from_json(args_path)
     checkpoint: Any = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     state_dict = extract_official_ema_state_dict(checkpoint)
     model = DiffusionPlanner(config)
     model.load_state_dict(state_dict, strict=True)
-    planner = PretrainedDiffusionPlanner(config, model, device)
+    planner = PretrainedDiffusionPlanner(config, model)
     return planner, CheckpointLoadReport(
         ema_tensor_count=OFFICIAL_EMA_TENSOR_COUNT,
         parameter_count=OFFICIAL_PARAMETER_COUNT,
-        runtime_device=str(device),
     )

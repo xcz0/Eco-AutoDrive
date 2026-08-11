@@ -12,7 +12,7 @@ def test_pretrained_planner_remains_frozen(
     official_model_config: OfficialDiffusionPlannerConfig,
 ) -> None:
     planner = PretrainedDiffusionPlanner(
-        official_model_config, DiffusionPlanner(official_model_config), torch.device("cpu")
+        official_model_config, DiffusionPlanner(official_model_config)
     )
 
     assert not planner.training
@@ -27,19 +27,19 @@ def test_pretrained_planner_detects_child_train_mode(
     official_model_config: OfficialDiffusionPlannerConfig,
 ) -> None:
     planner = PretrainedDiffusionPlanner(
-        official_model_config, DiffusionPlanner(official_model_config), torch.device("cpu")
+        official_model_config, DiffusionPlanner(official_model_config)
     )
     planner.model.train()
 
     with pytest.raises(RuntimeError, match="remain in eval mode"):
-        planner.predict({}, torch.empty(0))
+        planner({}, torch.empty(0))
 
 
 def test_pretrained_planner_tracks_actual_runtime_device(
     official_model_config: OfficialDiffusionPlannerConfig,
 ) -> None:
     planner = PretrainedDiffusionPlanner(
-        official_model_config, DiffusionPlanner(official_model_config), torch.device("cpu")
+        official_model_config, DiffusionPlanner(official_model_config)
     )
     planner.to(torch.device("cpu"))
     assert planner._runtime_device == torch.device("cpu")
@@ -50,7 +50,7 @@ def test_pretrained_planner_tracks_cuda_device(
     official_model_config: OfficialDiffusionPlannerConfig,
 ) -> None:
     planner = PretrainedDiffusionPlanner(
-        official_model_config, DiffusionPlanner(official_model_config), torch.device("cpu")
+        official_model_config, DiffusionPlanner(official_model_config)
     )
     planner.to(torch.device("cuda"))
     assert planner._runtime_device.type == "cuda"

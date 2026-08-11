@@ -10,8 +10,8 @@ from eco_planner.envs import (
     NoTrafficMetaDriveObservationAdapter,
     TrajectoryMetaDriveEnv,
 )
+from eco_planner.evaluation.runtime import FabricInferenceRuntime
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.pretrained import CheckpointLoadReport, PretrainedDiffusionPlanner
 
 
 def _environment_config(map_sequence: str) -> dict[str, object]:
@@ -167,7 +167,7 @@ def test_traffic_adapter_builds_after_real_two_second_warmup(
             assert not truncated
             adapter.append_frames(info["traffic_substep_frames"])
 
-        observation = adapter.build(env, torch.device("cpu"))
+        observation = adapter.build(env)
 
         assert observation["neighbor_agents_past"].shape == (1, 32, 21, 11)
         assert torch.count_nonzero(observation["neighbor_agents_past"]).item() > 0
@@ -224,9 +224,9 @@ def test_map_adapter_is_deterministic_on_programmatic_maps(
     adapter = MetaDriveMapAdapter(official_model_config, query_radius_m=100.0)
     try:
         env.reset(seed=0)
-        first = adapter.build(env, torch.device("cpu"))
+        first = adapter.build(env)
         env.reset(seed=0)
-        second = adapter.build(env, torch.device("cpu"))
+        second = adapter.build(env)
 
         assert first["lanes"].shape == (1, 70, 20, 12)
         assert first["route_lanes"].shape == (1, 25, 20, 12)
@@ -247,7 +247,7 @@ def test_programmatic_map_adapter_encodes_configured_speed_limit_semantics(
     adapter = MetaDriveMapAdapter(official_model_config, query_radius_m=100.0)
     try:
         env.reset(seed=0)
-        observation = adapter.build(env, torch.device("cpu"))
+        observation = adapter.build(env)
         valid = observation["lanes_has_speed_limit"]
         observed_speed_limits = observation["lanes_speed_limit"][valid].detach().cpu().numpy()
 
@@ -263,22 +263,15 @@ def test_programmatic_map_adapter_encodes_configured_speed_limit_semantics(
 @pytest.mark.parametrize("map_sequence", ["S", "SC"])
 def test_official_planner_executes_no_traffic_closed_loop_cycle(
     map_sequence: str,
-    stage0_planner: tuple[PretrainedDiffusionPlanner, CheckpointLoadReport],
+    stage0_runtime: FabricInferenceRuntime,
 ) -> None:
-    planner, _ = stage0_planner
     env = TrajectoryMetaDriveEnv(_environment_config(map_sequence))
-    adapter = NoTrafficMetaDriveObservationAdapter(planner.config, 100.0)
-    generator = torch.Generator(device="cpu").manual_seed(0)
+    adapter = NoTrafficMetaDriveObservationAdapter(stage0_runtime.planner_config, 100.0)
+    generator = stage0_runtime.new_noise_generator()
     try:
         env.reset(seed=0)
-        observation = adapter.build(env, torch.device("cpu"))
-        noise = torch.randn(
-            (1, 11, 80, 4),
-            dtype=torch.float32,
-            generator=generator,
-        )
-
-        prediction = planner.predict(observation, noise)
+        observation = adapter.build(env)
+        _, _, prediction = stage0_runtime.infer(observation, generator)
         ego_trajectory = prediction[0, 0].detach().cpu().numpy().astype(np.float32)
         _, _, terminated, truncated, info = env.step(ego_trajectory)
 

@@ -56,22 +56,34 @@ def build_matrix_report(matrix_root: Path, *, partial: bool = False) -> dict[str
     for job_dir in jobs:
         _require_nonempty(job_dir / "resolved_config.yaml")
         _require_nonempty(job_dir / ".hydra" / "overrides.yaml")
-        _read_json(job_dir / "runtime_metadata.json")
+        metadata = _read_json(job_dir / "runtime_metadata.json")
         _require_file(job_dir / "tracked_diff.patch")
         job_summary = _read_json(job_dir / "summary.json")
-        config = _required_dict(job_summary, "config", job_dir / "summary.json")
-        seed = _required_int(config, "seed", job_dir / "summary.json")
-        env_config = _required_dict(config, "env", job_dir / "summary.json")
-        density = _required_finite_float(env_config, "traffic_density", job_dir / "summary.json")
+        runtime = _required_dict(job_summary, "runtime", job_dir / "summary.json")
+        _validate_runtime_report(runtime, job_dir / "summary.json")
+        metadata_runtime = _required_dict(
+            metadata, "inference_runtime", job_dir / "runtime_metadata.json"
+        )
+        if metadata_runtime != runtime:
+            raise ValueError(f"job {job_dir} runtime metadata disagrees with summary")
+        checkpoint = _required_dict(job_summary, "checkpoint", job_dir / "summary.json")
+        _required_int(checkpoint, "ema_tensor_count", job_dir / "summary.json")
+        _required_int(checkpoint, "parameter_count", job_dir / "summary.json")
+        seed = _required_int(runtime, "seed", job_dir / "summary.json")
+        job_episodes = job_summary.get("episodes")
+        if not isinstance(job_episodes, list) or len(job_episodes) != 2:
+            raise ValueError(f"job {job_dir} must contain exactly two episode summaries")
+        if not all(isinstance(episode, dict) for episode in job_episodes):
+            raise TypeError(f"job {job_dir} episode summaries must be objects")
+        density = _required_finite_float(
+            job_episodes[0], "traffic_density", job_dir / "summary.json"
+        )
         job_key = (seed, density)
         if job_key in observed_jobs:
             raise ValueError(f"duplicate matrix job: seed={seed}, density={density}")
         if job_key not in _expected_jobs():
             raise ValueError(f"unexpected matrix job: seed={seed}, density={density}")
         observed_jobs.add(job_key)
-        job_episodes = job_summary.get("episodes")
-        if not isinstance(job_episodes, list) or len(job_episodes) != 2:
-            raise ValueError(f"job {job_dir} must contain exactly two episode summaries")
         scenario_names = {_scenario_name(episode, job_dir) for episode in job_episodes}
         if scenario_names != EXPECTED_SCENARIOS:
             raise ValueError(f"job {job_dir} has unexpected scenarios: {scenario_names}")
@@ -295,6 +307,22 @@ def _required_finite_float(mapping: dict[str, Any], name: str, path: Path) -> fl
     if type(value) not in {int, float} or not np.isfinite(value):
         raise TypeError(f"{path} field {name!r} must be finite and numeric")
     return float(value)
+
+
+def _validate_runtime_report(runtime: dict[str, Any], path: Path) -> None:
+    for name in (
+        "requested_accelerator",
+        "resolved_accelerator",
+        "requested_precision",
+        "resolved_precision",
+        "device",
+    ):
+        value = runtime.get(name)
+        if not isinstance(value, str) or not value:
+            raise TypeError(f"{path} runtime field {name!r} must be a non-empty string")
+    _required_int(runtime, "seed", path)
+    if _required_int(runtime, "world_size", path) != 1:
+        raise ValueError(f"{path} runtime world_size must be 1")
 
 
 def _scenario_name(episode: object, path: Path) -> str:

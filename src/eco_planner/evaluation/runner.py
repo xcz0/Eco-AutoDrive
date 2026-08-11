@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, OmegaConf
 
@@ -24,12 +23,12 @@ from eco_planner.evaluation.artifacts import (
     write_runtime_metadata,
 )
 from eco_planner.evaluation.rendering import render_cycle_frame
-from eco_planner.evaluation.trace import EpisodeTraceRecorder
-from eco_planner.models.pretrained import (
-    CheckpointLoadReport,
-    PretrainedDiffusionPlanner,
-    load_official_diffusion_planner,
+from eco_planner.evaluation.runtime import (
+    FabricInferenceRuntime,
+    create_fabric_inference_runtime,
+    resolve_runtime_settings,
 )
+from eco_planner.evaluation.trace import EpisodeTraceRecorder
 
 
 @dataclass(frozen=True)
@@ -39,39 +38,36 @@ class ScenarioSpec:
     seed: int
 
 
-def run_evaluation(config: DictConfig, output_dir: Path) -> list[dict[str, Any]]:
+def run_evaluation(config: DictConfig, output_dir: Path) -> dict[str, Any]:
     """Run all configured scenarios and write reproducible artifacts."""
 
     _validate_evaluation_config(config)
     scenarios = _parse_scenarios(config)
-    device = torch.device(config.model.device)
     args_path = Path(to_absolute_path(config.model.args_path))
     checkpoint_path = Path(to_absolute_path(config.model.checkpoint_path))
-    planner, report = load_official_diffusion_planner(
+    runtime = create_fabric_inference_runtime(
+        config.runtime,
         args_path,
         checkpoint_path,
-        device,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(config, output_dir / "resolved_config.yaml", resolve=True)
-    write_runtime_metadata(output_dir)
-    summaries = [
-        _run_scenario(spec, planner, report, config, output_dir, device) for spec in scenarios
-    ]
-    write_json(
-        output_dir / "summary.json",
-        {"config": OmegaConf.to_container(config, resolve=True), "episodes": summaries},
-    )
-    return summaries
+    write_runtime_metadata(output_dir, runtime.report)
+    summaries = [_run_scenario(spec, runtime, config, output_dir) for spec in scenarios]
+    summary = {
+        "runtime": asdict(runtime.report),
+        "checkpoint": asdict(runtime.checkpoint_report),
+        "episodes": summaries,
+    }
+    write_json(output_dir / "summary.json", summary)
+    return summary
 
 
 def _run_scenario(
     spec: ScenarioSpec,
-    planner: PretrainedDiffusionPlanner,
-    report: CheckpointLoadReport,
+    runtime: FabricInferenceRuntime,
     config: DictConfig,
     output_root: Path,
-    device: torch.device,
 ) -> dict[str, Any]:
     raw_env_config = OmegaConf.to_container(config.env, resolve=True)
     if not isinstance(raw_env_config, dict):
@@ -81,16 +77,18 @@ def _run_scenario(
     env = TrajectoryMetaDriveEnv(env_config)
     mode = str(config.evaluation.mode)
     traffic_adapter = (
-        MetaDriveObservationAdapter(planner.config, float(config.map_query_radius_m))
+        MetaDriveObservationAdapter(runtime.planner_config, float(config.map_query_radius_m))
         if mode == "traffic"
         else None
     )
     no_traffic_adapter = (
-        NoTrafficMetaDriveObservationAdapter(planner.config, float(config.map_query_radius_m))
+        NoTrafficMetaDriveObservationAdapter(
+            runtime.planner_config, float(config.map_query_radius_m)
+        )
         if mode == "no_traffic"
         else None
     )
-    generator = torch.Generator(device=device).manual_seed(config.model.seed)
+    generator = runtime.new_noise_generator()
     frames: list[np.ndarray] = []
     try:
         env.reset(seed=spec.seed)
@@ -116,15 +114,14 @@ def _run_scenario(
         plan_index = 0
         while not terminated and not truncated:
             if traffic_adapter is not None:
-                observation = traffic_adapter.build(env, device)
+                raw_observation = traffic_adapter.build(env)
                 traffic_audit = traffic_adapter.last_audit
             elif no_traffic_adapter is not None:
-                observation = no_traffic_adapter.build(env, device)
+                raw_observation = no_traffic_adapter.build(env)
                 traffic_audit = None
             else:
                 raise RuntimeError("evaluation mode did not create an observation adapter")
-            noise = _noise_for_planner(planner, generator, device)
-            prediction = planner.predict(observation, noise)
+            observation, noise, prediction = runtime.infer(raw_observation, generator)
             ego_trajectory = prediction[0, 0].detach().cpu().numpy().astype(np.float32)
             anchor = _initial_vehicle_state(env)
             _, reward, terminated, truncated, info = env.step(ego_trajectory)
@@ -151,13 +148,12 @@ def _run_scenario(
             raise RuntimeError("traffic evaluation never observed a participant within radius")
         summary = build_episode_summary(
             asdict(spec),
-            report,
             trace_arrays,
             final_info,
             terminated,
             truncated,
             total_reward,
-            config.model.seed,
+            runtime.report.seed,
             env.programmatic_lane_speed_limit_audit,
             mode,
             float(config.env.traffic_density),
@@ -220,8 +216,7 @@ def _validate_evaluation_config(config: DictConfig) -> None:
             raise ValueError("traffic evaluation requires random_traffic=false")
         if config.env.accident_prob != 0.0:
             raise ValueError("traffic evaluation requires accident_prob=0")
-    if type(config.model.seed) is not int or config.model.seed < 0:
-        raise ValueError("model.seed must be a non-negative integer")
+    resolve_runtime_settings(config.runtime)
     if type(config.map_query_radius_m) not in {int, float} or config.map_query_radius_m <= 0:
         raise ValueError("map_query_radius_m must be positive")
     if type(config.video.enabled) is not bool:
@@ -313,22 +308,3 @@ def _route_length_m(env: TrajectoryMetaDriveEnv) -> float:
             raise RuntimeError(f"route edge {(start, end)!r} has an invalid length")
         edge_lengths.append(float(lane_length))
     return float(sum(edge_lengths))
-
-
-def _noise_for_planner(
-    planner: PretrainedDiffusionPlanner,
-    generator: torch.Generator,
-    device: torch.device,
-) -> torch.Tensor:
-    planner_config = planner.config
-    return torch.randn(
-        (
-            1,
-            1 + planner_config.predicted_neighbor_num,
-            planner_config.future_len,
-            4,
-        ),
-        dtype=torch.float32,
-        device=device,
-        generator=generator,
-    )

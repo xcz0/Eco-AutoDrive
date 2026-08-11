@@ -38,22 +38,23 @@ uv run ruff format --check .
 # 读取将执行的命令，不启动仿真。
 .\scripts\run_evaluation.ps1 -Mode no-traffic -Profile smoke -DryRun
 
-# 默认 S/SC 无交通场景，各最多 20 s；指定噪声 seed。
-.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile full -Seed 3
+# 默认 S/SC 无交通场景，各最多 20 s；指定全局/噪声 seed。
+.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile full -RuntimeSeed 3
 
 # 无交通多噪声 seed 检查。
-.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile matrix -Seeds 0,1,2,3,4
+.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile matrix -RuntimeSeeds 0,1,2,3,4
 
 # 两条长路线的交通检查：2 s 预热，正式评测各 10 s。
 .\scripts\run_evaluation.ps1 -Mode traffic -Profile smoke
 
 # 交通密度和 paired seed 的矩阵；该运行不是稳定能耗基线。
 .\scripts\run_evaluation.ps1 -Mode traffic -Profile matrix `
-  -Seeds 0,1,2 -TrafficDensities 0.05,0.10
+  -RuntimeSeeds 0,1,2 -TrafficDensities 0.05,0.10
 ```
 
-脚本会校验 checkpoint、MetaDrive 源码与 `uv` 是否存在。`no-traffic` 的 `env.horizon` 必须等于
-正式评测步数；`traffic` 必须额外包含固定的 20 步 history warmup，脚本预设已满足这些约束。
+脚本会校验 checkpoint、MetaDrive 源码与 `uv` 是否存在。`no-traffic` 的 `env.horizon` 必须等于正式评测步数；`traffic` 必须额外包含固定的 20 步 history warmup，脚本预设已满足这些约束。
+
+推理运行时使用单设备 Lightning Fabric。默认 `-Accelerator auto -Precision auto`：有 CUDA 时使用 BF16 mixed precision（硬件不支持 BF16 时使用 FP16），否则使用 CPU FP32。严格复现官方 FP32 数值基线时显式传入 `-Precision 32-true`。无交通 smoke 可用 `-ScenarioSeed` 单独指定地图 seed；交通预设则显式配对地图 seed 与 `RuntimeSeed`。
 
 ## 文档导航
 

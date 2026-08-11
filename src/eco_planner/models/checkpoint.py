@@ -45,4 +45,3 @@ def extract_official_ema_state_dict(
 class CheckpointLoadReport:
     ema_tensor_count: int
     parameter_count: int
-    runtime_device: str

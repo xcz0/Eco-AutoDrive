@@ -71,6 +71,18 @@ def _episode(name: str, seed: int, density: float) -> dict[str, object]:
     }
 
 
+def _runtime(seed: int) -> dict[str, object]:
+    return {
+        "requested_accelerator": "cpu",
+        "resolved_accelerator": "cpu",
+        "requested_precision": "32-true",
+        "resolved_precision": "32-true",
+        "device": "cpu",
+        "seed": seed,
+        "world_size": 1,
+    }
+
+
 def _write_job(
     root: Path,
     job_id: int,
@@ -82,9 +94,11 @@ def _write_job(
 ) -> None:
     job = root / str(job_id)
     (job / ".hydra").mkdir(parents=True)
-    (job / "resolved_config.yaml").write_text("seed: 0\n", encoding="utf-8")
+    (job / "resolved_config.yaml").write_text("runtime:\n  seed: 0\n", encoding="utf-8")
     (job / ".hydra" / "overrides.yaml").write_text("[]\n", encoding="utf-8")
-    (job / "runtime_metadata.json").write_text("{}", encoding="utf-8")
+    (job / "runtime_metadata.json").write_text(
+        json.dumps({"inference_runtime": _runtime(seed)}), encoding="utf-8"
+    )
     (job / "tracked_diff.patch").write_bytes(b"")
     episodes = [
         _episode("long_straight", seed, density),
@@ -103,7 +117,11 @@ def _write_job(
         )
     (job / "summary.json").write_text(
         json.dumps(
-            {"config": {"seed": seed, "env": {"traffic_density": density}}, "episodes": episodes}
+            {
+                "runtime": _runtime(seed),
+                "checkpoint": {"ema_tensor_count": 276, "parameter_count": 6_042_628},
+                "episodes": episodes,
+            }
         ),
         encoding="utf-8",
     )

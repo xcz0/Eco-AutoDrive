@@ -10,6 +10,7 @@ from omegaconf import OmegaConf
 
 from eco_planner.envs import TrafficFrame
 from eco_planner.evaluation import rendering, run_evaluation, runner
+from eco_planner.evaluation.runtime import InferenceRuntimeReport
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
 from eco_planner.models.checkpoint import CheckpointLoadReport
 
@@ -90,7 +91,7 @@ class _FakeAdapter:
     def __init__(self, config: object, radius: float) -> None:
         assert radius == 100.0
 
-    def build(self, env: _FakeEnv, device: torch.device) -> dict[str, torch.Tensor]:
+    def build(self, env: _FakeEnv) -> dict[str, torch.Tensor]:
         return {
             "ego_current_state": torch.zeros((1, 10)),
             "neighbor_agents_past": torch.zeros((1, 32, 21, 11)),
@@ -102,14 +103,32 @@ class _FakeAdapter:
         }
 
 
-class _FakePlanner:
+class _FakeRuntime:
     def __init__(self) -> None:
-        self.config = SimpleNamespace(predicted_neighbor_num=10, future_len=80)
+        self.planner_config = SimpleNamespace(predicted_neighbor_num=10, future_len=80)
+        self.report = InferenceRuntimeReport(
+            requested_accelerator="cpu",
+            resolved_accelerator="cpu",
+            requested_precision="32-true",
+            resolved_precision="32-true",
+            device="cpu",
+            seed=7,
+            world_size=1,
+        )
+        self.checkpoint_report = CheckpointLoadReport(276, 6_042_628)
 
-    def predict(self, observation: dict[str, torch.Tensor], noise: torch.Tensor) -> torch.Tensor:
+    def new_noise_generator(self) -> torch.Generator:
+        return torch.Generator(device="cpu").manual_seed(self.report.seed)
+
+    def infer(
+        self,
+        observation: dict[str, torch.Tensor],
+        generator: torch.Generator,
+    ) -> tuple[dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
+        noise = torch.randn((1, 11, 80, 4), generator=generator)
         prediction = torch.zeros_like(noise)
         prediction[..., 2] = 1.0
-        return prediction
+        return observation, noise, prediction
 
 
 def _config() -> object:
@@ -122,7 +141,14 @@ def _config() -> object:
             },
             "env": {"traffic_density": 0.0, "horizon": 10},
             "map_query_radius_m": 100.0,
-            "model": {"seed": 7},
+            "model": {"args_path": "args.json", "checkpoint_path": "model.pth"},
+            "runtime": {
+                "accelerator": "cpu",
+                "devices": 1,
+                "precision": "32-true",
+                "seed": 7,
+            },
+            "scenarios": [{"name": "fake", "map": "S", "seed": 3}],
             "video": {
                 "enabled": False,
                 "fps": 2,
@@ -144,15 +170,11 @@ def test_run_scenario_replans_and_writes_trace(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(runner, "TrajectoryMetaDriveEnv", _FakeEnv)
     monkeypatch.setattr(runner, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
     monkeypatch.setattr(runner, "_route_length_m", lambda env: 100.0)
-    report = CheckpointLoadReport(276, 6_042_628, "cpu")
-
     summary = runner._run_scenario(
         runner.ScenarioSpec("fake", "S", 3),
-        _FakePlanner(),
-        report,
+        _FakeRuntime(),  # type: ignore[arg-type]
         _config(),
         tmp_path,
-        torch.device("cpu"),
     )
 
     assert summary["plan_cycles"] == 2
@@ -173,6 +195,31 @@ def test_run_scenario_replans_and_writes_trace(tmp_path, monkeypatch) -> None:
     payload = json.loads((tmp_path / "fake" / "summary.json").read_text())
     assert payload["noise_seed"] == 7
     assert payload["map_input_audit"]["speed_limit_mps_min"] == pytest.approx(50.0 / 3.6)
+
+
+def test_run_evaluation_writes_clean_job_summary(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(runner, "TrajectoryMetaDriveEnv", _FakeEnv)
+    monkeypatch.setattr(runner, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
+    monkeypatch.setattr(runner, "_route_length_m", lambda env: 100.0)
+    monkeypatch.setattr(
+        runner,
+        "create_fabric_inference_runtime",
+        lambda runtime_config, args_path, checkpoint_path: _FakeRuntime(),
+    )
+    monkeypatch.setattr(runner, "write_runtime_metadata", lambda output, report: None)
+
+    summary = runner.run_evaluation(_config(), tmp_path)
+
+    assert set(summary) == {"runtime", "checkpoint", "episodes"}
+    assert summary["runtime"]["seed"] == 7
+    assert summary["checkpoint"] == {
+        "ema_tensor_count": 276,
+        "parameter_count": 6_042_628,
+    }
+    assert "checkpoint" not in summary["episodes"][0]
+    persisted = json.loads((tmp_path / "summary.json").read_text())
+    assert persisted == summary
+    assert (tmp_path / "resolved_config.yaml").is_file()
 
 
 def test_world_polyline_draws_on_frame() -> None:

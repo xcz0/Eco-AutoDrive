@@ -94,11 +94,9 @@ class MetaDriveObservationAdapter:
         self._history.extend(validated)
         self._last_audit = None
 
-    def build(self, env: Any, device: torch.device) -> dict[str, torch.Tensor]:
+    def build(self, env: Any) -> dict[str, torch.Tensor]:
         """Return a batch-one official observation anchored at the latest ego rear axle."""
 
-        if not isinstance(device, torch.device):
-            raise TypeError("device must be a torch.device")
         if len(self._history) != self._config.time_len:
             raise RuntimeError(
                 f"traffic history must contain exactly {self._config.time_len} frames; "
@@ -118,14 +116,12 @@ class MetaDriveObservationAdapter:
             nearest_participant_distance_m=neighbor_audit.nearest_participant_distance_m,
         )
         observation = {
-            "ego_current_state": torch.tensor(
-                [_EGO_CURRENT_STATE], dtype=torch.float32, device=device
-            ),
-            "neighbor_agents_past": torch.from_numpy(neighbor_agents)[None].to(device),
-            "static_objects": torch.from_numpy(static_objects)[None].to(device),
+            "ego_current_state": torch.tensor([_EGO_CURRENT_STATE], dtype=torch.float32),
+            "neighbor_agents_past": torch.from_numpy(neighbor_agents)[None],
+            "static_objects": torch.from_numpy(static_objects)[None],
         }
-        observation.update(self._map_adapter.build(env, device))
-        validate_official_observation(observation, device)
+        observation.update(self._map_adapter.build(env))
+        validate_official_observation(observation, torch.device("cpu"))
         return observation
 
     def _build_neighbor_agents(
@@ -288,11 +284,9 @@ class NoTrafficMetaDriveObservationAdapter:
         self._config = model_config
         self._map_adapter = MetaDriveMapAdapter(model_config, query_radius_m)
 
-    def build(self, env: Any, device: torch.device) -> dict[str, torch.Tensor]:
+    def build(self, env: Any) -> dict[str, torch.Tensor]:
         """Return a batch-one observation and reject any non-empty traffic scene."""
 
-        if not isinstance(device, torch.device):
-            raise TypeError("device must be a torch.device")
         self._validate_environment_config(env)
         self._validate_scene_is_empty(env)
 
@@ -301,21 +295,18 @@ class NoTrafficMetaDriveObservationAdapter:
             "ego_current_state": torch.tensor(
                 [_EGO_CURRENT_STATE],
                 dtype=torch.float32,
-                device=device,
             ),
             "neighbor_agents_past": torch.zeros(
                 (1, config.agent_num, config.time_len, config.agent_state_dim),
                 dtype=torch.float32,
-                device=device,
             ),
             "static_objects": torch.zeros(
                 (1, config.static_objects_num, config.static_objects_state_dim),
                 dtype=torch.float32,
-                device=device,
             ),
         }
-        observation.update(self._map_adapter.build(env, device))
-        validate_official_observation(observation, device)
+        observation.update(self._map_adapter.build(env))
+        validate_official_observation(observation, torch.device("cpu"))
         return observation
 
     @staticmethod

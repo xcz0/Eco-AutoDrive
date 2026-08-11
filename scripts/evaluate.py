@@ -19,8 +19,8 @@ from eco_planner.evaluation import run_evaluation
 )
 def main(config: DictConfig) -> None:
     output_dir = Path(HydraConfig.get().runtime.output_dir)
-    summaries = run_evaluation(config, output_dir)
-    print(json.dumps(summaries, ensure_ascii=False, indent=2, sort_keys=True))
+    summary = run_evaluation(config, output_dir)
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

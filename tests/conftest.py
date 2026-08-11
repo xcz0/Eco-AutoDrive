@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 import torch
+from omegaconf import OmegaConf
 
+from eco_planner.evaluation.runtime import (
+    FabricInferenceRuntime,
+    create_fabric_inference_runtime,
+)
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 from eco_planner.models.pretrained import (
     CheckpointLoadReport,
@@ -123,5 +128,16 @@ def stage0_planner(
     return load_official_diffusion_planner(
         stage0_checkpoint_dir / "args.json",
         stage0_checkpoint_dir / "model.pth",
-        torch.device("cpu"),
+    )
+
+
+@pytest.fixture(scope="session")
+def stage0_runtime(stage0_checkpoint_dir: Path) -> FabricInferenceRuntime:
+    runtime_config = OmegaConf.create(
+        {"accelerator": "cpu", "devices": 1, "precision": "32-true", "seed": 0}
+    )
+    return create_fabric_inference_runtime(
+        runtime_config,
+        stage0_checkpoint_dir / "args.json",
+        stage0_checkpoint_dir / "model.pth",
     )

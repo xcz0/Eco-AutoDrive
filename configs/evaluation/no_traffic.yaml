@@ -3,6 +3,7 @@
 defaults:
   - /env: metadrive
   - /model: diffusion_planner
+  - /runtime: fabric
   - _self_
 
 name: official_no_traffic_closed_loop
@@ -31,7 +32,8 @@ env:
 model:
   args_path: checkpoints/DP-Origin/args.json
   checkpoint_path: checkpoints/DP-Origin/model.pth
-  device: cuda
+
+runtime:
   seed: 0
 
 scenarios:

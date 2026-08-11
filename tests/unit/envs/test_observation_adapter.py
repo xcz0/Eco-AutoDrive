@@ -59,10 +59,10 @@ def test_no_traffic_adapter_builds_official_padding(
     monkeypatch.setattr(
         adapter._map_adapter,
         "build",
-        lambda env, device: _map_observation(official_model_config),
+        lambda env: _map_observation(official_model_config),
     )
 
-    result = adapter.build(_environment(), torch.device("cpu"))
+    result = adapter.build(_environment())
 
     torch.testing.assert_close(
         result["ego_current_state"],
@@ -92,7 +92,7 @@ def test_no_traffic_adapter_rejects_nonempty_configuration(
     env.config[name] = value
 
     with pytest.raises(ValueError, match=name):
-        adapter.build(env, torch.device("cpu"))
+        adapter.build(env)
 
 
 def test_no_traffic_adapter_rejects_runtime_static_object(
@@ -103,7 +103,7 @@ def test_no_traffic_adapter_rejects_runtime_static_object(
     env = _environment({"cone": cone})
 
     with pytest.raises(RuntimeError, match="static=.*cone"):
-        adapter.build(env, torch.device("cpu"))
+        adapter.build(env)
 
 
 def _traffic_frame(
@@ -146,7 +146,7 @@ def test_traffic_adapter_builds_rotated_history_and_reverse_padding(
     monkeypatch.setattr(
         adapter._map_adapter,
         "build",
-        lambda env, device: _map_observation(official_model_config),
+        lambda env: _map_observation(official_model_config),
     )
     frames = []
     for step in range(21):
@@ -166,7 +166,7 @@ def test_traffic_adapter_builds_rotated_history_and_reverse_padding(
     adapter.reset(frames[0])
     adapter.append_frames(tuple(frames[1:]))
 
-    result = adapter.build(env, torch.device("cpu"))
+    result = adapter.build(env)
 
     history = result["neighbor_agents_past"][0, 0]
     np.testing.assert_allclose(history[:11, 0].numpy(), 3.0, atol=1e-6)
@@ -189,7 +189,7 @@ def test_traffic_adapter_sorts_and_truncates_current_participants(
     monkeypatch.setattr(
         adapter._map_adapter,
         "build",
-        lambda env, device: _map_observation(official_model_config),
+        lambda env: _map_observation(official_model_config),
     )
     participants = tuple(
         _participant(f"vehicle-{index:02d}", y=11.0 + index) for index in range(33)
@@ -198,7 +198,7 @@ def test_traffic_adapter_sorts_and_truncates_current_participants(
     adapter.reset(frames[0])
     adapter.append_frames(frames[1:])
 
-    adapter.build(SimpleNamespace(engine=SimpleNamespace(episode_step=20)), torch.device("cpu"))
+    adapter.build(SimpleNamespace(engine=SimpleNamespace(episode_step=20)))
 
     assert len(adapter.last_audit.selected_participant_ids) == 32
     assert adapter.last_audit.selected_participant_ids[0] == "vehicle-00"
@@ -214,7 +214,7 @@ def test_traffic_adapter_requires_consecutive_complete_history(
     with pytest.raises(ValueError, match="consecutive"):
         adapter.append_frames((_traffic_frame(2, ()),))
     with pytest.raises(RuntimeError, match="exactly 21"):
-        adapter.build(SimpleNamespace(engine=SimpleNamespace(episode_step=0)), torch.device("cpu"))
+        adapter.build(SimpleNamespace(engine=SimpleNamespace(episode_step=0)))
 
 
 def test_traffic_adapter_rejects_frame_batch_atomically(

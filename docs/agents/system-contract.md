@@ -8,11 +8,14 @@
 
 仿真真实状态、模型观测、模型预测和能耗记录必须分别保存。模型预测不得覆盖仿真状态，不同能耗指标不得静默互换或混合累计。业务代码不得从 `ref/` 导入运行时实现。
 
+推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。`runtime.devices` 必须为 1，不得在同一评测作业内启动多进程闭环。
+
 ## Checkpoint 与模型输入
 
 - 加载官方资产时必须校验 metadata keys、EMA keys、张量形状、EMA tensor 数和参数总数；加载必须使用严格 state-dict 匹配，不提供兼容回退。
 - `args.json` 中的 observation/state normalization 是 checkpoint 输入分布契约的一部分，缺失或不匹配时必须失败。
 - 冻结的预训练 planner 始终处于 eval mode；该入口不得进入训练模式。
+- checkpoint 在 CPU 上完成结构校验和严格 state-dict 加载，再由 `Fabric.setup_module` 移至运行设备并包装标准 `forward`；不得绕过该装配边界手工移动闭环模型。
 - planner 必需 observation 字段如下。除 validity mask 为 `torch.bool` 外，字段均为有限 `torch.float32`，位于 planner 的 runtime device，且共享正 batch 维度。
 
 | 字段 | 每个 batch item 的形状 | 语义 |
@@ -76,9 +79,11 @@ lane 长度与宽度必须接受 Python 或 NumPy 的真实数值标量，同时
 
 给定 observation 和初始噪声，baseline sampler 是确定性的。每个回合创建一个由噪声 seed 初始化的持久化 `torch.Generator`；每个规划周期从中取得新的标准正态噪声，并把该噪声完整保存。地图 seed 与噪声 seed 必须分别记录。
 
+`runtime.seed` 必须传给 `Fabric.seed_everything`，并作为每回合噪声 generator 的 seed；地图 seed 仍由 scenario 独立指定。自动设备解析只允许 CPU 或 CUDA。`runtime.precision=auto` 在 CPU 上解析为 `32-true`，在 CUDA 上优先解析为 `bf16-mixed`，不支持 BF16 时解析为 `16-mixed`。实际设备和解析后精度必须写入产物；只有显式 `32-true` 可作为严格 FP32 数值基线。相同 seed 不保证跨设备或跨精度逐位一致。
+
 ## 轨迹执行
 
-运动学接口只接收有限的 `float32 [80,4]` ego 后轴局部轨迹。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。
+运动学接口只接收有限的 `float32 [80,4]` ego 后轴局部轨迹。混合精度 forward 的完整预测必须在保存 trace 和进入环境前原值转换为 `float32`。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。
 
 该接口不生成 steering、throttle 或 brake，也不证明低层车辆动力学可执行性。原始轨迹必须原样执行和保存；不得平滑、裁剪、限幅、旋转、投影到中心线、选择最佳噪声 seed、切换回退控制器，或在异常时返回零轨迹。
 
@@ -92,7 +97,7 @@ lane 长度与宽度必须接受 Python 或 NumPy 的真实数值标量，同时
 
 ## 评测与产物
 
-每个评测作业必须保存 resolved config、Hydra overrides、runtime Git metadata、tracked diff、地图/场景 seed、噪声 seed、设备、依赖环境和场景特征。`tracked_diff.patch` 必须存在，但干净工作区时允许为空。
+每个评测作业必须保存 resolved config、Hydra overrides、runtime Git metadata、tracked diff、地图/场景 seed、噪声 seed、Fabric 请求与解析后的 accelerator/precision、实际设备、依赖环境和场景特征。`tracked_diff.patch` 必须存在，但干净工作区时允许为空。
 
 每个回合至少保存 `summary.json` 和 `trace.npz`；开启视频时保存闭环 GIF。trace 必须包含 raw observation、初始噪声、完整联合预测、规划锚点、目标与实际状态、逐点误差、奖励、终止标志；交通回合还保存预热、对象 ID、交通数量、最近交通距离和历史有效性。
 

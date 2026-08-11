@@ -3,10 +3,10 @@
 defaults:
   - /env: metadrive
   - /model: diffusion_planner
+  - /runtime: fabric
   - _self_
 
 name: official_traffic_long_closed_loop
-seed: 0
 map_query_radius_m: 100.0
 
 evaluation:
@@ -34,16 +34,17 @@ env:
 model:
   args_path: checkpoints/DP-Origin/args.json
   checkpoint_path: checkpoints/DP-Origin/model.pth
-  device: cpu
-  seed: ${seed}
+
+runtime:
+  seed: 0
 
 scenarios:
   - name: long_straight
     map: SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
-    seed: ${seed}
+    seed: ${runtime.seed}
   - name: long_mixed
     map: SCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSC
-    seed: ${seed}
+    seed: ${runtime.seed}
 
 video:
   enabled: true

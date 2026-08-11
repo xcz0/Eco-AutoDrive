@@ -3,7 +3,10 @@ from __future__ import annotations
 import pytest
 import torch
 
-from eco_planner.models.pretrained import CheckpointLoadReport, PretrainedDiffusionPlanner
+from eco_planner.models.pretrained import (
+    CheckpointLoadReport,
+    PretrainedDiffusionPlanner,
+)
 
 
 @pytest.mark.slow
@@ -19,7 +22,7 @@ def test_stage0_planner_rejects_invalid_observation(
     noise = torch.zeros((1, 11, 80, 4), dtype=torch.float32, device=device)
 
     with pytest.raises(ValueError, match="shape"):
-        planner.predict(stage0_observation, noise)
+        planner(stage0_observation, noise)
 
 
 @pytest.mark.slow
@@ -33,4 +36,4 @@ def test_stage0_planner_rejects_nonfinite_noise(
     noise[0, 0, 0, 0] = torch.nan
 
     with pytest.raises(ValueError, match="finite"):
-        planner.predict(stage0_observation, noise)
+        planner(stage0_observation, noise)

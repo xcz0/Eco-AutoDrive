@@ -7,14 +7,20 @@ param(
     [ValidateSet("smoke", "full", "matrix")]
     [string]$Profile = "smoke",
 
-    [ValidateSet("cpu", "cuda")]
-    [string]$Device = "cpu",
+    [ValidateSet("auto", "cpu", "cuda")]
+    [string]$Accelerator = "auto",
+
+    [ValidateSet("auto", "32-true", "16-mixed", "bf16-mixed")]
+    [string]$Precision = "auto",
 
     [ValidateRange(0, [int]::MaxValue)]
-    [int]$Seed = 0,
+    [int]$RuntimeSeed = 0,
 
     [ValidateRange(0, 20)]
-    [int[]]$Seeds = @(0, 1, 2),
+    [int[]]$RuntimeSeeds = @(0, 1, 2),
+
+    [ValidateRange(0, [int]::MaxValue)]
+    [int]$ScenarioSeed = 0,
 
     [ValidateRange(0.000001, 1.0)]
     [double[]]$TrafficDensities = @(0.05, 0.10),
@@ -62,36 +68,37 @@ if ($Profile -eq "matrix") {
 $videoEnabled = $Video.IsPresent.ToString().ToLowerInvariant()
 $overrides = [System.Collections.Generic.List[string]]::new()
 $overrides.Add("video.enabled=$videoEnabled")
-$overrides.Add("model.device=$Device")
+$overrides.Add("runtime.accelerator=$Accelerator")
+$overrides.Add("runtime.precision=$Precision")
 
 if ($Mode -eq "no-traffic") {
     switch ($Profile) {
         "smoke" {
-            $overrides.Add("model.seed=$Seed")
+            $overrides.Add("runtime.seed=$RuntimeSeed")
             $overrides.Add("evaluation.evaluated_horizon_steps=20")
             $overrides.Add("env.horizon=20")
-            $overrides.Add("scenarios=[{name:straight,map:S,seed:$Seed}]")
+            $overrides.Add("scenarios=[{name:straight,map:S,seed:$ScenarioSeed}]")
         }
         "full" {
-            $overrides.Add("model.seed=$Seed")
+            $overrides.Add("runtime.seed=$RuntimeSeed")
         }
         "matrix" {
-            $overrides.Add("model.seed=$(Join-OverrideValues $Seeds)")
+            $overrides.Add("runtime.seed=$(Join-OverrideValues $RuntimeSeeds)")
         }
     }
 }
 else {
     switch ($Profile) {
         "smoke" {
-            $overrides.Add("seed=$Seed")
+            $overrides.Add("runtime.seed=$RuntimeSeed")
             $overrides.Add("evaluation.evaluated_horizon_steps=100")
             $overrides.Add("env.horizon=120")
         }
         "full" {
-            $overrides.Add("seed=$Seed")
+            $overrides.Add("runtime.seed=$RuntimeSeed")
         }
         "matrix" {
-            $overrides.Add("seed=$(Join-OverrideValues $Seeds)")
+            $overrides.Add("runtime.seed=$(Join-OverrideValues $RuntimeSeeds)")
             $overrides.Add("env.traffic_density=$(Join-OverrideValues $TrafficDensities)")
         }
     }

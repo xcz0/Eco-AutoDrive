@@ -47,9 +47,7 @@ class MetaDriveMapAdapter:
         self._config = model_config
         self._query_radius_m = float(query_radius_m)
 
-    def build(self, env: Any, device: torch.device) -> dict[str, torch.Tensor]:
-        if not isinstance(device, torch.device):
-            raise TypeError("device must be a torch.device")
+    def build(self, env: Any) -> dict[str, torch.Tensor]:
         current_map = getattr(env, "current_map", None)
         if current_map is None:
             raise RuntimeError("MetaDrive environment has no current map; call reset() first")
@@ -91,10 +89,7 @@ class MetaDriveMapAdapter:
             arrays["route_lanes"][index] = features
             arrays["route_lanes_speed_limit"][index, 0] = speed_limit
             arrays["route_lanes_has_speed_limit"][index, 0] = has_speed_limit
-        return {
-            name: torch.as_tensor(value, device=device).unsqueeze(0)
-            for name, value in arrays.items()
-        }
+        return {name: torch.as_tensor(value).unsqueeze(0) for name, value in arrays.items()}
 
     def _select_lanes(self, lanes: list[Any], rear_axle: np.ndarray) -> list[_LaneRecord]:
         records: list[_LaneRecord] = []
