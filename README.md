@@ -37,7 +37,7 @@ uv run ruff format --check .
 ## 运行无交通闭环
 
 ```powershell
-uv run python scripts/evaluate.py model.device=cpu env.horizon=5 `
+uv run scripts/evaluate.py model.device=cpu env.horizon=5 `
   video.enabled=false 'scenarios=[{name:straight,map:S,seed:0}]'
 ```
 
@@ -48,7 +48,7 @@ uv run python scripts/evaluate.py model.device=cpu env.horizon=5 `
 交通评测应优先使用能够稳定表达研究因素的短程或中程配置，并显式控制背景车辆数量、评测时长和场景特征。现有长路线配置仅保留为历史诊断，不作为默认能耗评测基线。
 
 ```powershell
-uv run python scripts/evaluate.py --config-name evaluation/traffic `
+uv run scripts/evaluate.py --config-name evaluation/traffic `
   evaluation.evaluated_horizon_steps=100 env.horizon=120 video.enabled=false
 ```
 
@@ -63,3 +63,10 @@ uv run python scripts/evaluate.py --config-name evaluation/traffic `
 | [RESEARCH.md](docs/RESEARCH.md) | 尚未确定或尚未实现的研究设想与局限 |
 | [experiments/README.md](experiments/README.md) | 实际评测配置、结果和产物索引 |
 | [AGENTS.md](AGENTS.md) | 工作规则和验证要求 |
+
+
+## 主要参考资源
+
+- [Diffusion Planner](https://github.com/ZhengYinan-AIR/Diffusion-Planner)：提供扩散模型的基础框架与初始权重
+- [metadrive](https://github.com/metadriverse/metadrive)：生成特定场景，远距离仿真环境
+-
