@@ -10,6 +10,8 @@
 
 推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。`runtime.devices` 必须为 1，不得在同一评测作业内启动多进程闭环。
 
+跨评测作业的进程并行方案已由 ADR 0012 接受并由 [GitHub Issue #5](https://github.com/xcz0/Eco-AutoDrive/issues/5) 跟踪，但尚未实现和验收；当前入口不得描述为已支持并行评测、Artifact v2 或失败后继续其他场景。
+
 ## Checkpoint 与模型输入
 
 - 加载官方资产时必须校验 metadata keys、EMA keys、张量形状、EMA tensor 数和参数总数；加载必须使用严格 state-dict 匹配，不提供兼容回退。
