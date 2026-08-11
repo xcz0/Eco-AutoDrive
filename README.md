@@ -18,8 +18,7 @@ uv run ruff format --check .
 ## 运行无交通闭环
 
 ```powershell
-uv run scripts/evaluate.py model.device=cpu env.horizon=5 `
-  video.enabled=false 'scenarios=[{name:straight,map:S,seed:0}]'
+.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile smoke
 ```
 
 该入口拒绝背景车辆和静态交通物体，不能用于有交通评测。
@@ -27,9 +26,34 @@ uv run scripts/evaluate.py model.device=cpu env.horizon=5 `
 ## 运行交通闭环
 
 ```powershell
-uv run scripts/evaluate.py --config-name evaluation/traffic `
-  evaluation.evaluated_horizon_steps=100 env.horizon=120 video.enabled=false
+.\scripts\run_evaluation.ps1 -Mode traffic -Profile smoke
 ```
+
+## 场景评测预设
+
+`scripts/run_evaluation.ps1` 只编排已有 Hydra 配置，默认关闭视频以缩短本机验证时间；使用
+`-Video` 才生成 GIF。所有运行仍由 Hydra 在 `outputs/` 下创建独立产物目录。
+
+```powershell
+# 读取将执行的命令，不启动仿真。
+.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile smoke -DryRun
+
+# 默认 S/SC 无交通场景，各最多 20 s；指定噪声 seed。
+.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile full -Seed 3
+
+# 无交通多噪声 seed 检查。
+.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile matrix -Seeds 0,1,2,3,4
+
+# 两条长路线的交通检查：2 s 预热，正式评测各 10 s。
+.\scripts\run_evaluation.ps1 -Mode traffic -Profile smoke
+
+# 交通密度和 paired seed 的矩阵；该运行不是稳定能耗基线。
+.\scripts\run_evaluation.ps1 -Mode traffic -Profile matrix `
+  -Seeds 0,1,2 -TrafficDensities 0.05,0.10
+```
+
+脚本会校验 checkpoint、MetaDrive 源码与 `uv` 是否存在。`no-traffic` 的 `env.horizon` 必须等于
+正式评测步数；`traffic` 必须额外包含固定的 20 步 history warmup，脚本预设已满足这些约束。
 
 ## 文档导航
 
