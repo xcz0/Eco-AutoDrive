@@ -2,6 +2,15 @@
 
 本文件只保存未成为系统事实、正式决定或 active task 的研究内容。当前契约见 `../agents/system-contract.md`，已采用的取舍见 `../adr/`，已承诺工作由 GitHub Issues 跟踪，实际证据见 `../../experiments/README.md`。
 
+## 专题研究
+
+| 专题 | 状态 | 入口 |
+| --- | --- | --- |
+| PlannerRFT PPO-only 论文级复现 | 候选方案，尚未形成系统决定或 active task | [范围与路线](plannerrft-ppo/README.md) |
+
+专题文档用于细化候选方案，不改变本文、本仓库 ADR 或 system contract 的权威性。某一阶段进入
+开发前，必须把可交付物和验收标准转入 GitHub Issue；不得把专题路线图当作实施状态。
+
 ## 研究目标
 
 研究如何在保留预训练 Diffusion Planner 驾驶能力的前提下引入道路预瞄，使规划轨迹在安全、有效进度和旅行效率可接受时呈现更好的能耗特性。
@@ -30,6 +39,11 @@
 
 候选路线包括 DPPO、普通环境 MDP 下的其他扩散策略优化、只训练新增模块、参数高效微调，以及先做监督式或代价引导实验。是否需要强化学习本身尚未确定；在作出决定前，不固定 sampler、log-prob、critic、优势估计、PPO 更新或奖励公式。
 
+当前已细化一个不含 GRPO 的 PlannerRFT 候选路线：冻结预训练 Diffusion Planner，仅用 PPO
+训练输出横向/纵向 guidance scale 的 Exploration Policy。该路线的论文事实、仓库适配和分阶段
+门槛见 [PlannerRFT PPO-only 研究](plannerrft-ppo/README.md)。专题中列出的 5-step DDIM、
+reference planner、奖励和 PPO 超参数均是该复现假设下的候选条件，不是当前系统配置。
+
 ### 精细能耗复核
 
 MetaDrive 代理指标可与 FASTSim 或其他车辆模型形成候选的两阶段评价，但尚未确定研究对象是燃油车、电动车还是一般化车辆，也未确定车辆参数、主指标和代理指标与精细模型不一致时的解释口径。
@@ -47,6 +61,9 @@ MetaDrive 代理指标可与 FASTSim 或其他车辆模型形成候选的两阶�
 - 道路预瞄应包含哪些信息、覆盖多远、采用何种表示和注入位置？
 - 如何定义与实际执行轨迹一致的策略动作和概率？
 - 是否需要强化学习；若需要，应更新完整模型、新增模块还是参数高效子集？
+- PlannerRFT PPO-only 复现应把一个 MDP step 定义为当前 0.5 s 规划周期，还是论文所述的
+  “执行第一个动作后重规划”？
+- PlannerRFT 奖励如何映射到 MetaDrive 可观测、单位明确且不会掩盖失败的逐步量？
 - 如何在能耗、安全、有效进度、旅行时间和舒适性之间形成不鼓励停车或任务失败的比较口径？
 - 主能耗指标应使用总能耗、单位距离能耗、单位有效进度能耗还是其他定义？
 - 不同场景长度和终止类型之间何时具有可比性？

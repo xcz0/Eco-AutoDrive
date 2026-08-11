@@ -75,9 +75,22 @@ lane 长度与宽度必须接受 Python 或 NumPy 的真实数值标量，同时
 
 ## 扩散与随机性
 
-预训练模型使用连续时间线性 VP-SDE 并预测 `x_start`。官方 baseline 从 `0.5 * N(0,I)` 的未来噪声开始，执行 10 步二阶 multistep DPM-Solver++，最后 denoise 到零时刻。
+预训练模型使用连续时间线性 VP-SDE 并预测 `x_start`。Hydra 必须显式选择 sampler；默认
+`dpm10` 保持官方 baseline：从 `0.5 * N(0,I)` 的未来噪声开始，执行 10 步二阶 multistep
+DPM-Solver++，最后 denoise 到零时刻。其公式和初始尺度不得由配置覆盖。
 
-给定 observation 和初始噪声，baseline sampler 是确定性的。每个回合创建一个由噪声 seed 初始化的持久化 `torch.Generator`；每个规划周期从中取得新的标准正态噪声，并把该噪声完整保存。地图 seed 与噪声 seed 必须分别记录。
+可选 `ddim5` 从标准高斯未来噪声开始，在 `t = [1.0, 0.8, 0.6, 0.4, 0.2]` 预测 `x_start`，
+依次转移到 `[0.8, 0.6, 0.4, 0.2, 0.0]`。该均匀连续时间子序列是本项目复现决定，不是论文公开
+事实。评测配置使用 `ddim_stochasticity=0`；非零值必须显式提供同设备
+`torch.Generator`。DDIM transition state 保持初始状态的 dtype；mixed-precision denoiser 输出在
+sampler 边界显式转换到该 dtype。`0.5 * N(0,I)` DDIM 仅作为带独立 parity 标签的项目隔离变体，
+不得解释为 PlannerRFT parity。
+
+给定 observation 和初始噪声，baseline sampler 以及 `ddim_stochasticity=0` 的 DDIM 是确定性的。
+每个回合创建一个由噪声 seed 初始化的持久化 `torch.Generator`；每个规划周期先从中取得新的标准
+正态噪声，随机 DDIM transition 再从同一 generator 顺序取样。trace 保存未缩放的标准正态初始
+噪声；resolved config、作业 summary、回合 summary 和 runtime metadata 保存 sampler 名称、步数、
+初始尺度、stochasticity、timestep 与 parity 标签。地图 seed 与噪声 seed 必须分别记录。
 
 `runtime.seed` 必须传给 `Fabric.seed_everything`，并作为每回合噪声 generator 的 seed；地图 seed 仍由 scenario 独立指定。自动设备解析只允许 CPU 或 CUDA。`runtime.precision=auto` 在 CPU 上解析为 `32-true`，在 CUDA 上优先解析为 `bf16-mixed`，不支持 BF16 时解析为 `16-mixed`。实际设备和解析后精度必须写入产物；只有显式 `32-true` 可作为严格 FP32 数值基线。相同 seed 不保证跨设备或跨精度逐位一致。
 
