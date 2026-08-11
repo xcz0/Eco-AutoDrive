@@ -156,6 +156,7 @@ checkpoints/
 datasets/
 wandb/
 third_party/metadrive/
+third_party/nuplan-devkit
 ref/Diffusion-Planner/
 ref/dppo/
 env.bak/
