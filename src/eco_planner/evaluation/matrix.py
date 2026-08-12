@@ -4,20 +4,33 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from omegaconf import OmegaConf
 
+from eco_planner.evaluation.artifact_reader import load_json_artifact, load_trace_artifact
 from eco_planner.evaluation.trace import validate_trace_arrays
 
-EXPECTED_SEEDS = frozenset(range(5))
-EXPECTED_DENSITIES = frozenset({0.05, 0.10})
-EXPECTED_SCENARIOS = frozenset({"long_straight", "long_mixed"})
 BOOTSTRAP_SAMPLES = 10_000
 BOOTSTRAP_SEED = 0
 POSITION_ERROR_LIMIT_M = 1e-3
 HEADING_ERROR_LIMIT_RAD = 1e-4
+
+
+@dataclass(frozen=True)
+class _MatrixSpec:
+    seeds: tuple[int, ...]
+    densities: tuple[float, ...]
+    scenario_names: tuple[str, ...]
+    warmup_steps: int
+    video_enabled: bool
+
+    @property
+    def expected_jobs(self) -> set[tuple[int, float]]:
+        return {(seed, density) for seed in self.seeds for density in self.densities}
 
 
 def summarize_matrix(matrix_root: Path, *, partial: bool = False) -> dict[str, Any]:
@@ -44,8 +57,6 @@ def build_matrix_report(matrix_root: Path, *, partial: bool = False) -> dict[str
         (path for path in matrix_root.iterdir() if path.is_dir() and path.name.isdigit()),
         key=lambda path: int(path.name),
     )
-    if not partial and len(jobs) != 10:
-        raise ValueError(f"expected exactly 10 Hydra jobs, found {len(jobs)}")
     if partial:
         jobs = [job for job in jobs if (job / "summary.json").is_file()]
         if not jobs:
@@ -53,8 +64,18 @@ def build_matrix_report(matrix_root: Path, *, partial: bool = False) -> dict[str
 
     observed_jobs: set[tuple[int, float]] = set()
     episodes: list[dict[str, Any]] = []
+    matrix_spec: _MatrixSpec | None = None
+    legacy_scenarios: tuple[str, ...] | None = None
     for job_dir in jobs:
         _require_nonempty(job_dir / "resolved_config.yaml")
+        job_spec = _read_matrix_spec(job_dir / "resolved_config.yaml")
+        if job_spec is not None:
+            if matrix_spec is None:
+                matrix_spec = job_spec
+            elif matrix_spec != job_spec:
+                raise ValueError(f"job {job_dir} resolved matrix specification disagrees")
+        elif matrix_spec is not None:
+            raise ValueError("matrix cannot mix v1 and v2 resolved grid specifications")
         _require_nonempty(job_dir / ".hydra" / "overrides.yaml")
         metadata = _read_json(job_dir / "runtime_metadata.json")
         _require_file(job_dir / "tracked_diff.patch")
@@ -71,8 +92,8 @@ def build_matrix_report(matrix_root: Path, *, partial: bool = False) -> dict[str
         _required_int(checkpoint, "parameter_count", job_dir / "summary.json")
         seed = _required_int(runtime, "seed", job_dir / "summary.json")
         job_episodes = job_summary.get("episodes")
-        if not isinstance(job_episodes, list) or len(job_episodes) != 2:
-            raise ValueError(f"job {job_dir} must contain exactly two episode summaries")
+        if not isinstance(job_episodes, list) or not job_episodes:
+            raise ValueError(f"job {job_dir} must contain episode summaries")
         if not all(isinstance(episode, dict) for episode in job_episodes):
             raise TypeError(f"job {job_dir} episode summaries must be objects")
         density = _required_finite_float(
@@ -81,12 +102,26 @@ def build_matrix_report(matrix_root: Path, *, partial: bool = False) -> dict[str
         job_key = (seed, density)
         if job_key in observed_jobs:
             raise ValueError(f"duplicate matrix job: seed={seed}, density={density}")
-        if job_key not in _expected_jobs():
+        if matrix_spec is not None and job_key not in matrix_spec.expected_jobs:
             raise ValueError(f"unexpected matrix job: seed={seed}, density={density}")
         observed_jobs.add(job_key)
         scenario_names = {_scenario_name(episode, job_dir) for episode in job_episodes}
-        if scenario_names != EXPECTED_SCENARIOS:
+        expected_scenarios = (
+            set(matrix_spec.scenario_names) if matrix_spec is not None else scenario_names
+        )
+        if legacy_scenarios is None and matrix_spec is None:
+            legacy_scenarios = tuple(sorted(scenario_names))
+        elif matrix_spec is None and scenario_names != set(legacy_scenarios or ()):
+            raise ValueError(f"job {job_dir} has inconsistent legacy scenarios")
+        if scenario_names != expected_scenarios:
             raise ValueError(f"job {job_dir} has unexpected scenarios: {scenario_names}")
+        expected_job_status = (
+            "failed"
+            if any(episode["status"] == "failed" for episode in job_episodes)
+            else "completed"
+        )
+        if job_summary.get("status") != expected_job_status:
+            raise ValueError(f"job {job_dir} status disagrees with episode statuses")
         for episode in job_episodes:
             _validate_episode_summary(episode, job_dir, seed, density)
             scenario_name = _scenario_name(episode, job_dir)
@@ -94,36 +129,53 @@ def build_matrix_report(matrix_root: Path, *, partial: bool = False) -> dict[str
             persisted_episode = _read_json(episode_dir / "summary.json")
             if persisted_episode != episode:
                 raise ValueError(f"episode summary copy disagrees with job summary: {episode_dir}")
-            _require_nonempty(episode_dir / "closed_loop.gif")
-            _validate_trace(episode_dir / "trace.npz", episode)
+            video_enabled = True if matrix_spec is None else matrix_spec.video_enabled
+            if video_enabled:
+                _require_nonempty(episode_dir / "closed_loop.gif")
+            _validate_trace(
+                episode_dir / "trace.npz",
+                episode,
+                warmup_steps=20 if matrix_spec is None else matrix_spec.warmup_steps,
+            )
             episodes.append(episode)
 
-    expected_jobs = _expected_jobs()
-    if not partial and observed_jobs != expected_jobs:
+    expected_jobs = observed_jobs if matrix_spec is None else matrix_spec.expected_jobs
+    if not partial and matrix_spec is not None and observed_jobs != expected_jobs:
         raise ValueError(
             f"matrix job grid mismatch: missing={sorted(expected_jobs - observed_jobs)}, "
             f"unexpected={sorted(observed_jobs - expected_jobs)}"
         )
-    expected_episode_count = 2 * len(observed_jobs)
+    scenario_count = len(matrix_spec.scenario_names) if matrix_spec else len(legacy_scenarios or ())
+    expected_episode_count = scenario_count * len(observed_jobs)
     if len(episodes) != expected_episode_count:
         raise RuntimeError("matrix episode count does not match validated job count")
-    if not partial and len(episodes) != 20:
-        raise RuntimeError(f"expected 20 episodes, found {len(episodes)}")
+    return _build_report(
+        matrix_root,
+        partial,
+        observed_jobs,
+        expected_jobs,
+        scenario_count,
+        episodes,
+    )
 
-    return _build_report(matrix_root, partial, observed_jobs, episodes)
 
-
-def _validate_trace(path: Path, episode: dict[str, Any]) -> None:
+def _validate_trace(path: Path, episode: dict[str, Any], *, warmup_steps: int) -> None:
     _require_nonempty(path)
-    with np.load(path, allow_pickle=False) as trace:
-        arrays = {name: trace[name] for name in trace.files}
+    loaded = load_trace_artifact(path)
+    arrays = loaded.arrays
+    completed = episode["status"] == "completed"
     validate_trace_arrays(
         arrays,
-        expected_plan_cycles=_required_int(episode, "plan_cycles", path),
-        expected_simulator_steps=_required_int(episode, "simulator_steps", path),
-        expected_warmup_steps=20,
-        require_traffic=True,
+        expected_plan_cycles=(_required_int(episode, "plan_cycles", path) if completed else None),
+        expected_simulator_steps=(
+            _required_int(episode, "simulator_steps", path) if completed else None
+        ),
+        expected_warmup_steps=warmup_steps if completed else None,
+        require_traffic=completed,
+        expected_trace_status=str(episode["trace_status"]),
     )
+    if not completed:
+        return
     position_errors = arrays["trajectory_position_errors_m"]
     heading_errors = arrays["trajectory_heading_errors_rad"]
     if float(position_errors.max()) >= POSITION_ERROR_LIMIT_M:
@@ -142,6 +194,20 @@ def _validate_episode_summary(episode: object, job_dir: Path, seed: int, density
         raise ValueError(f"job {job_dir} does not use paired map/noise seeds")
     if _required_finite_float(episode, "traffic_density", job_dir / "summary.json") != density:
         raise ValueError(f"job {job_dir} summary density disagrees with config")
+    status = episode.get("status")
+    if status not in {"completed", "failed"}:
+        raise ValueError(f"job {job_dir} episode has invalid status")
+    termination = _required_dict(episode, "termination", job_dir / "summary.json")
+    if not isinstance(termination.get("type"), str):
+        raise TypeError(f"job {job_dir} episode termination type must be a string")
+    if status == "failed":
+        failure = _required_dict(episode, "failure", job_dir / "summary.json")
+        for name in ("stage", "exception_type", "message", "traceback"):
+            if not isinstance(failure.get(name), str):
+                raise TypeError(f"job {job_dir} failure field {name!r} must be a string")
+        if episode.get("trace_status") not in {"partial", "empty"}:
+            raise ValueError(f"job {job_dir} failed episode has invalid trace status")
+        return
     route_length_m = _required_finite_float(episode, "route_length_m", job_dir / "summary.json")
     if not 2_000.0 <= route_length_m <= 5_000.0:
         raise ValueError(f"job {job_dir} route length is outside [2000, 5000] m")
@@ -170,10 +236,14 @@ def _build_report(
     matrix_root: Path,
     partial: bool,
     observed_jobs: set[tuple[int, float]],
+    expected_jobs: set[tuple[int, float]],
+    scenario_count: int,
     episodes: list[dict[str, Any]],
 ) -> dict[str, Any]:
     grouped: defaultdict[tuple[str, float], list[dict[str, Any]]] = defaultdict(list)
     for episode in episodes:
+        if episode["status"] != "completed":
+            continue
         grouped[(_scenario_name(episode, matrix_root), float(episode["traffic_density"]))].append(
             episode
         )
@@ -219,12 +289,14 @@ def _build_report(
             "scenario": episode["scenario"]["name"],
             "seed": episode["noise_seed"],
             "traffic_density": episode["traffic_density"],
-            "terminal_reason": episode["terminal_reason"],
-            "simulated_seconds": episode["simulated_seconds"],
-            "distance_m": episode["distance_m"],
-            "route_completion": episode["route_completion"],
-            "mean_speed_mps": episode["speed_mps"]["mean"],
-            "total_reward": episode["total_reward"],
+            "terminal_reason": episode.get("terminal_reason"),
+            "status": episode["status"],
+            "termination": episode["termination"],
+            "simulated_seconds": episode.get("simulated_seconds"),
+            "distance_m": episode.get("distance_m"),
+            "route_completion": episode.get("route_completion"),
+            "mean_speed_mps": (episode["speed_mps"]["mean"] if "speed_mps" in episode else None),
+            "total_reward": episode.get("total_reward"),
         }
         for episode in sorted(
             episodes,
@@ -238,11 +310,23 @@ def _build_report(
     return {
         "matrix_root": str(matrix_root),
         "matrix_complete": not partial,
+        "matrix_successful": all(episode["status"] == "completed" for episode in episodes),
         "observed_job_grid": [
             {"seed": seed, "traffic_density": density} for seed, density in sorted(observed_jobs)
         ],
-        "expected_episode_count": 20,
+        "expected_job_grid": [
+            {"seed": seed, "traffic_density": density} for seed, density in sorted(expected_jobs)
+        ],
+        "expected_episode_count": scenario_count * len(expected_jobs),
         "validated_episode_count": len(episodes),
+        "status_counts": {
+            status: sum(episode["status"] == status for episode in episodes)
+            for status in ("completed", "failed")
+        },
+        "termination_type_counts": {
+            kind: sum(episode["termination"]["type"] == kind for episode in episodes)
+            for kind in sorted({episode["termination"]["type"] for episode in episodes})
+        },
         "bootstrap_seed": BOOTSTRAP_SEED,
         "bootstrap_samples": BOOTSTRAP_SAMPLES,
         "interface_limits": {
@@ -272,10 +356,7 @@ def _bootstrap(values: np.ndarray) -> dict[str, float | list[float]]:
 
 def _read_json(path: Path) -> dict[str, Any]:
     _require_nonempty(path)
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise TypeError(f"JSON root must be an object: {path}")
-    return payload
+    return load_json_artifact(path)
 
 
 def _require_file(path: Path) -> None:
@@ -335,5 +416,27 @@ def _scenario_name(episode: object, path: Path) -> str:
     return name
 
 
-def _expected_jobs() -> set[tuple[int, float]]:
-    return {(seed, density) for seed in EXPECTED_SEEDS for density in EXPECTED_DENSITIES}
+def _read_matrix_spec(path: Path) -> _MatrixSpec | None:
+    config = OmegaConf.load(path)
+    raw = OmegaConf.select(config, "evaluation.matrix")
+    if raw is None:
+        return None
+    seeds = tuple(raw.seeds)
+    densities = tuple(float(value) for value in raw.traffic_densities)
+    scenarios = OmegaConf.select(config, "scenarios")
+    if not seeds or not all(type(seed) is int and seed >= 0 for seed in seeds):
+        raise ValueError(f"matrix seeds must be non-empty non-negative integers: {path}")
+    if not densities or not all(np.isfinite(value) and 0.0 < value <= 1.0 for value in densities):
+        raise ValueError(f"matrix traffic densities must be in (0, 1]: {path}")
+    if len(set(seeds)) != len(seeds) or len(set(densities)) != len(densities):
+        raise ValueError(f"matrix grid values must be unique: {path}")
+    if scenarios is None:
+        raise ValueError(f"matrix scenarios are missing: {path}")
+    names = tuple(str(value.name) for value in scenarios)
+    warmup_steps = OmegaConf.select(config, "evaluation.history_warmup_steps")
+    video_enabled = OmegaConf.select(config, "video.enabled")
+    if type(warmup_steps) is not int or warmup_steps < 0:
+        raise ValueError(f"matrix warmup steps are invalid: {path}")
+    if type(video_enabled) is not bool:
+        raise ValueError(f"matrix video.enabled must be boolean: {path}")
+    return _MatrixSpec(seeds, densities, names, warmup_steps, video_enabled)

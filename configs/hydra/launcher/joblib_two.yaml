@@ -1,0 +1,14 @@
+# @package hydra.launcher
+
+_target_: hydra_plugins.hydra_joblib_launcher.joblib_launcher.JoblibLauncher
+n_jobs: 2
+backend: loky
+prefer: processes
+require: null
+verbose: 0
+timeout: null
+pre_dispatch: 2*n_jobs
+batch_size: 1
+temp_folder: null
+max_nbytes: null
+mmap_mode: r

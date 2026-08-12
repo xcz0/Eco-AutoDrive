@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from eco_planner.evaluation.matrix import build_matrix_report, summarize_matrix
+from eco_planner.evaluation.trace import EpisodeTraceRecorder
 
 
 def _trace_arrays(*, bad_plan_indices: bool = False) -> dict[str, np.ndarray]:
@@ -91,10 +92,26 @@ def _write_job(
     *,
     mismatch_episode_copy: bool = False,
     bad_plan_indices: bool = False,
+    expected_seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
+    expected_densities: tuple[float, ...] = (0.05, 0.10),
+    video_enabled: bool = True,
 ) -> None:
     job = root / str(job_id)
     (job / ".hydra").mkdir(parents=True)
-    (job / "resolved_config.yaml").write_text("runtime:\n  seed: 0\n", encoding="utf-8")
+    resolved = f"""evaluation:
+  history_warmup_steps: 20
+  matrix:
+    seeds: {list(expected_seeds)}
+    traffic_densities: {list(expected_densities)}
+scenarios:
+  - name: long_straight
+  - name: long_mixed
+video:
+  enabled: {str(video_enabled).lower()}
+runtime:
+  seed: 0
+"""
+    (job / "resolved_config.yaml").write_text(resolved, encoding="utf-8")
     (job / ".hydra" / "overrides.yaml").write_text("[]\n", encoding="utf-8")
     (job / "runtime_metadata.json").write_text(
         json.dumps({"inference_runtime": _runtime(seed)}), encoding="utf-8"
@@ -111,7 +128,8 @@ def _write_job(
         if mismatch_episode_copy and index == 0:
             persisted["distance_m"] = 3.0
         (episode_dir / "summary.json").write_text(json.dumps(persisted), encoding="utf-8")
-        (episode_dir / "closed_loop.gif").write_bytes(b"GIF89a")
+        if video_enabled:
+            (episode_dir / "closed_loop.gif").write_bytes(b"GIF89a")
         np.savez_compressed(
             episode_dir / "trace.npz", **_trace_arrays(bad_plan_indices=bad_plan_indices)
         )
@@ -167,6 +185,89 @@ def test_complete_matrix_requires_and_reports_fixed_grid(tmp_path: Path) -> None
     assert report["matrix_complete"] is True
     assert report["validated_episode_count"] == 20
     assert len(report["statistics"]) == 4
+
+
+def test_matrix_grid_and_video_rule_are_read_from_resolved_config(tmp_path: Path) -> None:
+    for job_id, seed in enumerate((4, 7)):
+        _write_job(
+            tmp_path,
+            job_id,
+            seed,
+            0.2,
+            expected_seeds=(4, 7),
+            expected_densities=(0.2,),
+            video_enabled=False,
+        )
+
+    report = build_matrix_report(tmp_path)
+
+    assert report["expected_job_grid"] == [
+        {"seed": 4, "traffic_density": 0.2},
+        {"seed": 7, "traffic_density": 0.2},
+    ]
+    assert report["validated_episode_count"] == 4
+
+
+def test_matrix_includes_failed_episode_in_status_and_termination_counts(tmp_path: Path) -> None:
+    job = tmp_path / "0"
+    episode_dir = job / "long_straight"
+    (job / ".hydra").mkdir(parents=True)
+    episode_dir.mkdir()
+    (job / "resolved_config.yaml").write_text(
+        """evaluation:
+  history_warmup_steps: 20
+  matrix:
+    seeds: [0]
+    traffic_densities: [0.05]
+scenarios:
+  - name: long_straight
+video:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+    (job / ".hydra" / "overrides.yaml").write_text("[]\n", encoding="utf-8")
+    runtime = _runtime(0)
+    (job / "runtime_metadata.json").write_text(
+        json.dumps({"inference_runtime": runtime}), encoding="utf-8"
+    )
+    (job / "tracked_diff.patch").write_bytes(b"")
+    episode = {
+        "schema_version": 2,
+        "status": "failed",
+        "scenario": {"name": "long_straight", "map_sequence": "S", "seed": 0},
+        "noise_seed": 0,
+        "traffic_density": 0.05,
+        "trace_status": "empty",
+        "termination": {"type": "runtime_error", "detail": "reset"},
+        "failure": {
+            "stage": "reset",
+            "exception_type": "RuntimeError",
+            "message": "injected",
+            "traceback": "RuntimeError: injected",
+        },
+    }
+    (episode_dir / "summary.json").write_text(json.dumps(episode), encoding="utf-8")
+    np.savez_compressed(episode_dir / "trace.npz", **EpisodeTraceRecorder.empty().finalize("empty"))
+    (job / "summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "status": "failed",
+                "runtime": runtime,
+                "checkpoint": {"ema_tensor_count": 276, "parameter_count": 6_042_628},
+                "episodes": [episode],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_matrix_report(tmp_path)
+
+    assert report["matrix_successful"] is False
+    assert report["status_counts"] == {"completed": 0, "failed": 1}
+    assert report["termination_type_counts"] == {"runtime_error": 1}
+    assert report["statistics"] == {}
 
 
 def test_partial_matrix_rejects_job_outside_expected_grid(tmp_path: Path) -> None:
