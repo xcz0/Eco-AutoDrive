@@ -31,17 +31,23 @@ class _StubLane:
         self.width = width
         self.speed_limit = speed_limit
         self._distance = distance
+        self.position_calls = 0
+        self.width_calls = 0
+        self.distance_calls = 0
 
     def position(self, longitudinal: float, lateral: float) -> np.ndarray:
+        self.position_calls += 1
         forward = np.array([math.cos(self.heading), math.sin(self.heading)])
         right = np.array([math.sin(self.heading), -math.cos(self.heading)])
         return self.start + longitudinal * forward + lateral * right
 
     def width_at(self, longitudinal: float) -> float:
+        self.width_calls += 1
         assert 0.0 <= longitudinal <= self.length
         return self.width
 
     def distance(self, position: np.ndarray) -> float:
+        self.distance_calls += 1
         assert position.shape == (2,)
         return self._distance
 
@@ -124,6 +130,25 @@ def test_map_adapter_builds_official_raw_tensor_contract(
     torch.testing.assert_close(first_lane[-1, 2:4], torch.zeros(2))
     assert torch.count_nonzero(result["lanes"][0, 2:]) == 0
     torch.testing.assert_close(result["route_lanes"][0, :2], result["lanes"][0, :2])
+
+
+def test_map_adapter_caches_world_geometry_but_recomputes_exact_distance(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    lane = _lane(0, distance=1.0)
+    env = _StubEnv([lane], ["A", "B"])
+    adapter = MetaDriveMapAdapter(official_model_config, query_radius_m=100.0)
+
+    adapter.reset(env)
+    first = adapter.build(env)
+    geometry_calls = (lane.position_calls, lane.width_calls)
+    second = adapter.build(env)
+
+    assert geometry_calls == (60, 20)
+    assert (lane.position_calls, lane.width_calls) == geometry_calls
+    assert lane.distance_calls == 2
+    for name in first:
+        torch.testing.assert_close(first[name], second[name], rtol=0, atol=0)
 
 
 def test_map_adapter_marks_missing_speed_limit_explicitly(

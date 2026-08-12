@@ -55,6 +55,10 @@ class MetaDriveObservationAdapter:
         self._query_radius_m = float(query_radius_m)
         self._map_adapter = MetaDriveMapAdapter(model_config, self._query_radius_m)
         self._history: deque[TrafficFrame] = deque(maxlen=model_config.time_len)
+        self._history_by_id: deque[dict[str, TrafficParticipantState]] = deque(
+            maxlen=model_config.time_len
+        )
+        self._artifact_participant_ids: dict[str, str] = {}
         self._last_audit: TrafficObservationAudit | None = None
 
     @property
@@ -65,13 +69,19 @@ class MetaDriveObservationAdapter:
             raise RuntimeError("traffic observation audit is unavailable before build")
         return self._last_audit
 
-    def reset(self, initial_frame: TrafficFrame) -> None:
+    def reset(self, initial_frame: TrafficFrame, *, env: Any | None = None) -> None:
         """Clear prior episode state and seed history with the reset frame."""
 
         if not isinstance(initial_frame, TrafficFrame):
             raise TypeError("initial_frame must be a TrafficFrame")
         self._history.clear()
+        self._history_by_id.clear()
+        self._artifact_participant_ids.clear()
+        self._register_artifact_participant_ids(initial_frame)
         self._history.append(initial_frame)
+        self._history_by_id.append(_unique_participants(initial_frame))
+        if env is not None:
+            self._map_adapter.reset(env)
         self._last_audit = None
 
     def append_frames(self, frames: tuple[TrafficFrame, ...]) -> None:
@@ -81,6 +91,7 @@ class MetaDriveObservationAdapter:
             raise TypeError("frames must be a non-empty tuple of TrafficFrame values")
         previous_step = self._history[-1].simulator_step if self._history else None
         validated: list[TrafficFrame] = []
+        indexes: list[dict[str, TrafficParticipantState]] = []
         for frame in frames:
             if not isinstance(frame, TrafficFrame):
                 raise TypeError("frames must contain only TrafficFrame values")
@@ -90,8 +101,11 @@ class MetaDriveObservationAdapter:
                     f"expected {previous_step + 1}, got {frame.simulator_step}"
                 )
             validated.append(frame)
+            self._register_artifact_participant_ids(frame)
+            indexes.append(_unique_participants(frame))
             previous_step = frame.simulator_step
         self._history.extend(validated)
+        self._history_by_id.extend(indexes)
         self._last_audit = None
 
     def build(self, env: Any) -> dict[str, torch.Tensor]:
@@ -144,7 +158,8 @@ class MetaDriveObservationAdapter:
             (self._config.agent_num, self._config.time_len, self._config.agent_state_dim),
             dtype=np.float32,
         )
-        histories = [_unique_participants(frame) for frame in self._history]
+        histories = list(self._history_by_id)
+        selected_histories: list[list[TrafficParticipantState]] = []
         for output_index, object_id in enumerate(selected):
             filled: TrafficParticipantState | None = None
             resolved: list[TrafficParticipantState] = []
@@ -161,17 +176,36 @@ class MetaDriveObservationAdapter:
                         f"current traffic participant {object_id!r} is absent from current frame"
                     )
                 resolved.append(filled)
-            for time_index, state in enumerate(reversed(resolved)):
-                result[output_index, time_index] = _participant_features(
-                    state, anchor_xy, anchor_heading
-                )
+            selected_histories.append(list(reversed(resolved)))
+        if selected_histories:
+            result[: len(selected_histories)] = _participant_history_features(
+                selected_histories, anchor_xy, anchor_heading
+            )
         nearest = min((distances[object_id] for object_id in in_radius), default=None)
         return result, TrafficObservationAudit(
-            selected_participant_ids=tuple(selected),
+            selected_participant_ids=tuple(
+                self._artifact_participant_ids[object_id] for object_id in selected
+            ),
             participant_count_in_radius=len(in_radius),
             static_object_count_in_radius=0,
             nearest_participant_distance_m=nearest,
         )
+
+    def _register_artifact_participant_ids(self, frame: TrafficFrame) -> None:
+        unseen = [
+            state
+            for state in frame.participants
+            if state.object_id not in self._artifact_participant_ids
+        ]
+        keyed = sorted((_participant_identity_key(state), state.object_id) for state in unseen)
+        for previous, current in zip(keyed, keyed[1:]):
+            if previous[0] == current[0]:
+                raise RuntimeError(
+                    "new traffic participants have indistinguishable physical identity keys"
+                )
+        for _, object_id in keyed:
+            stable_id = f"participant-{len(self._artifact_participant_ids):06d}"
+            self._artifact_participant_ids[object_id] = stable_id
 
     def _build_static_objects(self, latest: TrafficFrame) -> tuple[np.ndarray, int]:
         anchor_xy, anchor_heading = _rear_axle_anchor(latest)
@@ -208,6 +242,19 @@ def _unique_participants(frame: TrafficFrame) -> dict[str, TrafficParticipantSta
             raise RuntimeError(f"duplicate traffic participant id: {state.object_id!r}")
         result[state.object_id] = state
     return result
+
+
+def _participant_identity_key(state: TrafficParticipantState) -> tuple[object, ...]:
+    """Return a UUID-independent first-observation key for artifact identity."""
+
+    return (
+        state.kind,
+        *state.position_xy_m,
+        state.heading_rad,
+        *state.velocity_xy_mps,
+        state.width_m,
+        state.length_m,
+    )
 
 
 def _rear_axle_anchor(frame: TrafficFrame) -> tuple[np.ndarray, float]:
@@ -248,6 +295,51 @@ def _participant_features(
     )
 
 
+def _participant_history_features(
+    histories: list[list[TrafficParticipantState]],
+    anchor_xy: np.ndarray,
+    anchor_heading: float,
+) -> np.ndarray:
+    """Encode selected histories with one batched position and velocity transform."""
+
+    positions = np.asarray(
+        [[state.position_xy_m for state in history] for history in histories],
+        dtype=np.float64,
+    )
+    velocities = np.asarray(
+        [[state.velocity_xy_mps for state in history] for history in histories],
+        dtype=np.float64,
+    )
+    shape = positions.shape
+    local_positions = world_vectors_to_local(
+        (positions - anchor_xy).reshape(-1, 2), anchor_heading
+    ).reshape(shape)
+    local_velocities = world_vectors_to_local(velocities.reshape(-1, 2), anchor_heading).reshape(
+        shape
+    )
+    result = np.zeros((shape[0], shape[1], 11), dtype=np.float32)
+    result[..., :2] = local_positions
+    headings = (
+        np.asarray(
+            [[state.heading_rad for state in history] for history in histories],
+            dtype=np.float64,
+        )
+        - anchor_heading
+    )
+    result[..., 2] = np.cos(headings)
+    result[..., 3] = np.sin(headings)
+    result[..., 4:6] = local_velocities
+    result[..., 6] = [[state.width_m for state in history] for history in histories]
+    result[..., 7] = [[state.length_m for state in history] for history in histories]
+    type_features = {
+        "vehicle": (1.0, 0.0, 0.0),
+        "pedestrian": (0.0, 1.0, 0.0),
+        "bicycle": (0.0, 0.0, 1.0),
+    }
+    result[..., 8:11] = [[type_features[state.kind] for state in history] for history in histories]
+    return result
+
+
 def _static_object_features(
     state: StaticTrafficObjectState, anchor_xy: np.ndarray, anchor_heading: float
 ) -> np.ndarray:
@@ -283,6 +375,11 @@ class NoTrafficMetaDriveObservationAdapter:
             raise TypeError("model_config must be an OfficialDiffusionPlannerConfig")
         self._config = model_config
         self._map_adapter = MetaDriveMapAdapter(model_config, query_radius_m)
+
+    def reset(self, env: Any) -> None:
+        """Capture immutable map geometry for the reset no-traffic episode."""
+
+        self._map_adapter.reset(env)
 
     def build(self, env: Any) -> dict[str, torch.Tensor]:
         """Return a batch-one observation and reject any non-empty traffic scene."""
