@@ -42,7 +42,7 @@ reference 加速；scale 必须在 `[-1,1]`，不会被裁剪：
 ```
 
 `(0,0)` 精确退化为同次 unguided reference。reference-centered energy、10 Hz 速度差分、单位
-梯度系数和 ego-only gradient scope 是 ADR 0012 的项目复现决定，不能声称为 PlannerRFT 作者未公开
+梯度系数和 ego-only gradient scope 是 ADR 0013 的项目复现决定，不能声称为 PlannerRFT 作者未公开
 实现。guidance 不做中心线投影、平滑、裁剪或失败回退。
 
 ## 运行交通闭环
@@ -73,6 +73,15 @@ reference 加速；scale 必须在 `[-1,1]`，不会被裁剪：
 .\scripts\run_evaluation.ps1 -Mode traffic -Profile matrix `
   -RuntimeSeeds 0,1,2 -TrafficDensities 0.05,0.10
 ```
+
+traffic matrix 默认以两个 Joblib `loky` 进程运行；使用 `-ExecutionMode serial` 可生成严格
+串行对照。并行入口关闭视频，CPU 显式限制每个 worker 的 PyTorch 线程；CUDA 只支持两个进程
+共享一张可见 GPU，并在正式矩阵前执行显存 preflight。CUDA 运行必须同时传入
+`-Extra cuda -Accelerator cuda`；CPU 对照使用 `-Extra cpu -Accelerator cpu`。多 GPU 分配不属于
+此入口。
+
+每个作业和回合使用 Artifact v2，显式保存状态与结构化终止类型。被归类为 `EpisodeFailure`
+的回合会保存 partial/empty trace 并继续同一作业的后续场景；未分类程序错误仍立即终止。
 
 脚本会校验 checkpoint、MetaDrive 源码与 `uv` 是否存在。`no-traffic` 的 `env.horizon` 必须等于正式评测步数；`traffic` 必须额外包含固定的 20 步 history warmup，脚本预设已满足这些约束。
 

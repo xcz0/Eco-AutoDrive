@@ -10,7 +10,10 @@
 
 推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。`runtime.devices` 必须为 1，不得在同一评测作业内启动多进程闭环。
 
-跨评测作业的进程并行方案已由 ADR 0012 接受并由 [GitHub Issue #5](https://github.com/xcz0/Eco-AutoDrive/issues/5) 跟踪，但尚未实现和验收；当前入口不得描述为已支持并行评测、Artifact v2 或失败后继续其他场景。
+跨评测作业的进程并行由 ADR 0012 定义。traffic matrix 默认使用两个 Joblib `loky` worker；
+每个进程仍保持一个 MetaDrive、一个 `devices=1` Fabric runtime 和一个 artifact writer。CPU
+显式验证线程预算；CUDA 只允许两个进程共享一张可见 GPU，并要求确定性配置和正式运行前显存
+preflight。smoke、no-traffic 和普通 full 运行保持串行，多 GPU 调度不属于该入口。
 
 ## Checkpoint 与模型输入
 
@@ -115,7 +118,7 @@ reference 切向由其有限、非退化的 `[cos(h), sin(h)]` 归一化得到�
 固定 guidance action 为有限 `float32 [B,2]`，与 sample 同设备且逐值位于 `[-1,1]`；不得裁剪。
 正 lateral 表示左移，正 longitudinal 表示沿 reference heading 加速。横向目标为
 `2.5 m * lateral_scale`，纵向目标为
-`0.25 * longitudinal_scale * reference_along_track_speed`。阶段 2 使用 ADR 0012 的
+`0.25 * longitudinal_scale * reference_along_track_speed`。阶段 2 使用 ADR 0013 的
 reference-centered energy-gradient delta，使 `(0,0)` 精确退化为同次 unguided reference。
 
 每个 DDIM denoise step 对 physical ego objective 经 state normalizer 和冻结 DiT 链式求 normalized
@@ -146,6 +149,14 @@ objective delta、应用梯度 L2/max、原始 neighbor gradient L2 和零速计
 每个评测作业必须保存 resolved config、Hydra overrides、runtime Git metadata、tracked diff、地图/场景 seed、噪声 seed、Fabric 请求与解析后的 accelerator/precision、实际设备、依赖环境和场景特征。`tracked_diff.patch` 必须存在，但干净工作区时允许为空。
 
 每个回合至少保存 `summary.json` 和 `trace.npz`；开启视频时保存闭环 GIF。trace 必须包含 raw observation、初始噪声、完整联合预测、规划锚点、目标与实际状态、逐点误差、奖励、终止标志；交通回合还保存预热、对象 ID、交通数量、最近交通距离和历史有效性。
+
+当前产物 schema version 为 2。job 与 episode summary 显式保存 `status` 和结构化
+`termination`；trace 显式保存 `complete`、`partial` 或 `empty` 状态、初始状态 validity、普通及
+route lane 的限速与有效性。v1 adapter 只读旧产物，缺失的 v2 字段标为 unavailable，不补猜数值。
+
+runner 只捕获显式 `EpisodeFailure`：保存阶段、异常类型、消息和 traceback 后继续同一作业的后续
+场景，作业最终标记失败且 CLI 返回非零。配置、checkpoint、Fabric 初始化、artifact IO 和未分类
+程序错误立即传播。
 
 所有回合都进入分析，按场景特征、运行阶段和终止类型标注。失败回合不得删除，完成与失败回合不得在缺少标注时合并解释。策略比较必须使用相同地图、交通配置和噪声 seed。
 
