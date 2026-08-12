@@ -18,9 +18,47 @@ from hydra.utils import to_absolute_path
 from metadrive.utils.doc_utils import generate_gif
 from omegaconf import DictConfig
 
+from eco_planner.evaluation.execution import ExecutionReport
 from eco_planner.evaluation.runtime import InferenceRuntimeReport
 from eco_planner.models.guidance import GuidanceConfig
 from eco_planner.models.sampling_config import SamplerReport
+
+ARTIFACT_SCHEMA_VERSION = 2
+
+
+def build_failed_episode_summary(
+    scenario: dict[str, Any],
+    *,
+    noise_seed: int,
+    evaluation_mode: str,
+    traffic_density: float,
+    sampler: dict[str, Any],
+    guidance: dict[str, Any],
+    trace_status: str,
+    stage: str,
+    cause: Exception,
+    traceback_text: str,
+) -> dict[str, Any]:
+    """Build a v2 failure summary without inventing unavailable episode metrics."""
+
+    return {
+        "schema_version": ARTIFACT_SCHEMA_VERSION,
+        "status": "failed",
+        "scenario": scenario,
+        "evaluation_mode": evaluation_mode,
+        "traffic_density": traffic_density,
+        "noise_seed": noise_seed,
+        "sampler": sampler,
+        "guidance": guidance,
+        "trace_status": trace_status,
+        "termination": {"type": "runtime_error", "detail": stage},
+        "failure": {
+            "stage": stage,
+            "exception_type": type(cause).__name__,
+            "message": str(cause),
+            "traceback": traceback_text,
+        },
+    }
 
 
 def build_episode_summary(
@@ -59,6 +97,9 @@ def build_episode_summary(
     traffic_has_nearest = trace_arrays["traffic_has_nearest"]
     nearest_distances = trace_arrays["traffic_nearest_distance_m"][traffic_has_nearest]
     return {
+        "schema_version": ARTIFACT_SCHEMA_VERSION,
+        "status": "completed",
+        "trace_status": "complete",
         "scenario": scenario,
         "evaluation_mode": evaluation_mode,
         "traffic_density": traffic_density,
@@ -89,6 +130,7 @@ def build_episode_summary(
         "terminated": terminated,
         "truncated": truncated,
         "terminal_reason": _terminal_reason(final_info, terminated, truncated),
+        "termination": _termination(final_info, terminated, truncated),
         "map_input_audit": _map_input_audit(trace_arrays, environment_map_audit),
         "history_warmup": {
             "simulator_steps": int(warmup_states.shape[0]),
@@ -133,10 +175,11 @@ def write_episode_artifacts(
     np.savez_compressed(output_dir / "trace.npz", **trace_arrays)
     write_json(output_dir / "summary.json", summary)
     if video_config.enabled:
-        if not frames:
+        if summary["status"] == "completed" and not frames:
             raise RuntimeError("video output was enabled but no frames were rendered")
-        duration_ms = round(1000 / video_config.fps)
-        generate_gif(frames, str(output_dir / "closed_loop.gif"), duration=duration_ms)
+        if frames:
+            duration_ms = round(1000 / video_config.fps)
+            generate_gif(frames, str(output_dir / "closed_loop.gif"), duration=duration_ms)
 
 
 def write_runtime_metadata(
@@ -144,11 +187,14 @@ def write_runtime_metadata(
     runtime_report: InferenceRuntimeReport,
     sampler_report: SamplerReport,
     guidance_config: GuidanceConfig,
+    execution_report: ExecutionReport,
+    elapsed_seconds: float,
 ) -> None:
     """Write reproducibility metadata and the possibly empty tracked diff."""
 
     repository_root = Path(to_absolute_path("."))
     metadata = {
+        "schema_version": ARTIFACT_SCHEMA_VERSION,
         "git_head": _git_output(repository_root, "rev-parse", "HEAD").strip(),
         "git_status_short": _git_output(repository_root, "status", "--short").splitlines(),
         "platform": platform.platform(),
@@ -159,11 +205,23 @@ def write_runtime_metadata(
         "inference_runtime": asdict(runtime_report),
         "sampler": asdict(sampler_report),
         "guidance": asdict(guidance_config),
+        "execution": asdict(execution_report),
+        "elapsed_seconds": elapsed_seconds,
+        "cuda_memory": _cuda_memory_report(runtime_report),
     }
     write_json(output_dir / "runtime_metadata.json", metadata)
     (output_dir / "tracked_diff.patch").write_text(
         _git_output(repository_root, "diff", "--binary", "--no-ext-diff"), encoding="utf-8"
     )
+
+
+def _cuda_memory_report(runtime_report: InferenceRuntimeReport) -> dict[str, int] | None:
+    if runtime_report.resolved_accelerator != "cuda":
+        return None
+    return {
+        "peak_allocated_bytes": int(torch.cuda.max_memory_allocated()),
+        "peak_reserved_bytes": int(torch.cuda.max_memory_reserved()),
+    }
 
 
 def write_json(path: Path, payload: Any) -> None:
@@ -202,6 +260,21 @@ def _terminal_reason(info: Mapping[str, Any], terminated: bool, truncated: bool)
     if terminated:
         return "terminated"
     raise RuntimeError("episode ended without a terminal reason")
+
+
+def _termination(info: Mapping[str, Any], terminated: bool, truncated: bool) -> dict[str, str]:
+    detail = _terminal_reason(info, terminated, truncated)
+    if detail == "arrive_dest":
+        kind = "arrive_dest"
+    elif detail == "out_of_road":
+        kind = "out_of_road"
+    elif detail.startswith("crash_"):
+        kind = "collision"
+    elif detail in {"max_step", "truncated"}:
+        kind = "time_truncation"
+    else:
+        kind = "runtime_error"
+    return {"type": kind, "detail": detail}
 
 
 def _map_input_audit(

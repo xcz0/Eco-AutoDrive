@@ -21,6 +21,8 @@ def main(config: DictConfig) -> None:
     output_dir = Path(HydraConfig.get().runtime.output_dir)
     summary = run_evaluation(config, output_dir)
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    if summary["status"] == "failed":
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

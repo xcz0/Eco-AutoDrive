@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import traceback
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 import numpy as np
@@ -17,11 +19,15 @@ from eco_planner.envs import (
     TrajectoryMetaDriveEnv,
 )
 from eco_planner.evaluation.artifacts import (
+    ARTIFACT_SCHEMA_VERSION,
     build_episode_summary,
+    build_failed_episode_summary,
     write_episode_artifacts,
     write_json,
     write_runtime_metadata,
 )
+from eco_planner.evaluation.execution import configure_job_execution
+from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.rendering import render_cycle_frame
 from eco_planner.evaluation.runtime import (
     FabricInferenceRuntime,
@@ -43,7 +49,9 @@ class ScenarioSpec:
 def run_evaluation(config: DictConfig, output_dir: Path) -> dict[str, Any]:
     """Run all configured scenarios and write reproducible artifacts."""
 
+    started = perf_counter()
     _validate_evaluation_config(config)
+    execution = configure_job_execution(config)
     scenarios = _parse_scenarios(config)
     args_path = Path(to_absolute_path(config.model.args_path))
     checkpoint_path = Path(to_absolute_path(config.model.checkpoint_path))
@@ -56,14 +64,12 @@ def run_evaluation(config: DictConfig, output_dir: Path) -> dict[str, Any]:
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(config, output_dir / "resolved_config.yaml", resolve=True)
-    write_runtime_metadata(
-        output_dir,
-        runtime.report,
-        runtime.sampler_report,
-        runtime.guidance_config,
-    )
     summaries = [_run_scenario(spec, runtime, config, output_dir) for spec in scenarios]
     summary = {
+        "schema_version": ARTIFACT_SCHEMA_VERSION,
+        "status": (
+            "failed" if any(episode["status"] == "failed" for episode in summaries) else "completed"
+        ),
         "runtime": asdict(runtime.report),
         "checkpoint": asdict(runtime.checkpoint_report),
         "sampler": asdict(runtime.sampler_report),
@@ -71,6 +77,14 @@ def run_evaluation(config: DictConfig, output_dir: Path) -> dict[str, Any]:
         "episodes": summaries,
     }
     write_json(output_dir / "summary.json", summary)
+    write_runtime_metadata(
+        output_dir,
+        runtime.report,
+        runtime.sampler_report,
+        runtime.guidance_config,
+        execution,
+        perf_counter() - started,
+    )
     return summary
 
 
@@ -85,7 +99,8 @@ def _run_scenario(
         raise TypeError("env configuration must resolve to a dictionary")
     env_config = dict(raw_env_config)
     env_config["map"] = spec.map_sequence
-    env = TrajectoryMetaDriveEnv(env_config)
+    env: TrajectoryMetaDriveEnv | None = None
+    trace: EpisodeTraceRecorder | None = None
     mode = str(config.evaluation.mode)
     traffic_adapter = (
         MetaDriveObservationAdapter(runtime.planner_config, float(config.map_query_radius_m))
@@ -102,21 +117,27 @@ def _run_scenario(
     generator = runtime.new_noise_generator()
     frames: list[np.ndarray] = []
     try:
+        env = TrajectoryMetaDriveEnv(env_config)
         env.reset(seed=spec.seed)
         route_length_m = _route_length_m(env)
         if mode == "traffic" and not 2_000.0 <= route_length_m <= 5_000.0:
-            raise RuntimeError(
-                f"traffic evaluation route length {route_length_m} m is outside [2000, 5000]"
+            raise EpisodeFailure(
+                "reset",
+                RuntimeError(
+                    f"traffic evaluation route length {route_length_m} m is outside [2000, 5000]"
+                ),
             )
         trace = EpisodeTraceRecorder.from_initial_state(_initial_vehicle_state(env))
         if traffic_adapter is not None:
-            traffic_adapter.reset(env.initial_traffic_frame)
+            traffic_adapter.reset(env.initial_traffic_frame, env=env)
             _run_traffic_warmup(
                 env,
                 traffic_adapter,
                 trace,
                 int(config.evaluation.history_warmup_steps),
             )
+        elif no_traffic_adapter is not None:
+            no_traffic_adapter.reset(env)
 
         terminated = False
         truncated = False
@@ -154,10 +175,16 @@ def _run_scenario(
             final_info = info
             plan_index += 1
         if final_info is None:
-            raise RuntimeError("closed-loop episode ended without a simulator result")
+            raise EpisodeFailure(
+                "execution",
+                RuntimeError("closed-loop episode ended without a simulator result"),
+            )
         trace_arrays = trace.finalize()
         if mode == "traffic" and not np.any(trace_arrays["traffic_participant_counts"] > 0):
-            raise RuntimeError("traffic evaluation never observed a participant within radius")
+            raise EpisodeFailure(
+                "observation",
+                RuntimeError("traffic evaluation never observed a participant within radius"),
+            )
         summary = build_episode_summary(
             asdict(spec),
             trace_arrays,
@@ -177,8 +204,33 @@ def _run_scenario(
             output_root / spec.name, trace_arrays, frames, summary, config.video
         )
         return summary
+    except EpisodeFailure as failure:
+        trace_status = (
+            "partial"
+            if trace is not None and (trace.noises or trace.substep_states or trace.warmup_states)
+            else "empty"
+        )
+        recorder = trace if trace is not None else EpisodeTraceRecorder.empty()
+        trace_arrays = recorder.finalize(trace_status)
+        summary = build_failed_episode_summary(
+            asdict(spec),
+            noise_seed=runtime.report.seed,
+            evaluation_mode=mode,
+            traffic_density=float(config.env.traffic_density),
+            sampler=asdict(runtime.sampler_report),
+            guidance=asdict(runtime.guidance_config),
+            trace_status=trace_status,
+            stage=failure.stage,
+            cause=failure.cause,
+            traceback_text=traceback.format_exc(),
+        )
+        write_episode_artifacts(
+            output_root / spec.name, trace_arrays, frames, summary, config.video
+        )
+        return summary
     finally:
-        env.close()
+        if env is not None:
+            env.close()
 
 
 def _parse_scenarios(config: DictConfig) -> list[ScenarioSpec]:
@@ -271,13 +323,22 @@ def _run_traffic_warmup(
             np.asarray([len(frame.static_objects) for frame in frames], dtype=np.int64),
         )
         if terminated or truncated:
-            raise RuntimeError("traffic history warmup terminated before 20 simulator steps")
+            raise EpisodeFailure(
+                "warmup",
+                RuntimeError("traffic history warmup terminated before 20 simulator steps"),
+            )
     states = np.concatenate(trace.warmup_states, axis=0)
     if states.shape != (warmup_steps, 7):
-        raise RuntimeError("traffic warmup did not produce the required number of states")
+        raise EpisodeFailure(
+            "warmup",
+            RuntimeError("traffic warmup did not produce the required number of states"),
+        )
     displacements = np.linalg.norm(states[:, :2] - initial_position, axis=1)
     if float(displacements.max()) >= 1e-3:
-        raise RuntimeError("ego moved during stationary traffic history warmup")
+        raise EpisodeFailure(
+            "warmup",
+            RuntimeError("ego moved during stationary traffic history warmup"),
+        )
     trace.initial_state = _initial_vehicle_state(env)
 
 

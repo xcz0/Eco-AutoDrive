@@ -12,6 +12,7 @@ from lightning.fabric import Fabric
 from omegaconf import DictConfig
 from torch import nn
 
+from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 from eco_planner.models.guidance import (
     GuidanceConfig,
@@ -122,8 +123,13 @@ class FabricInferenceRuntime:
                 f"Diffusion Planner prediction has shape {tuple(prediction.shape)}, "
                 f"expected {expected_shape}"
             )
-        if prediction.device != self.device or not torch.isfinite(prediction).all():
-            raise RuntimeError("Diffusion Planner prediction must be finite on the runtime device")
+        if prediction.device != self.device:
+            raise RuntimeError("Diffusion Planner prediction must remain on the runtime device")
+        if not torch.isfinite(prediction).all():
+            raise EpisodeFailure(
+                "inference",
+                RuntimeError("Diffusion Planner prediction contains non-finite values"),
+            )
         reference = (
             None
             if result.reference_prediction is None

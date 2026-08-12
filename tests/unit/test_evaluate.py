@@ -9,7 +9,7 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner.envs import TrafficFrame
-from eco_planner.evaluation import rendering, run_evaluation, runner
+from eco_planner.evaluation import EpisodeFailure, rendering, run_evaluation, runner
 from eco_planner.evaluation.runtime import InferenceRuntimeReport
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
 from eco_planner.models.checkpoint import CheckpointLoadReport
@@ -94,6 +94,9 @@ class _FakeAdapter:
     def __init__(self, config: object, radius: float) -> None:
         assert radius == 100.0
 
+    def reset(self, env: _FakeEnv) -> None:
+        pass
+
     def build(self, env: _FakeEnv) -> dict[str, torch.Tensor]:
         return {
             "ego_current_state": torch.zeros((1, 10)),
@@ -103,6 +106,8 @@ class _FakeAdapter:
             "lanes_speed_limit": torch.full((1, 70, 1), 50.0 / 3.6),
             "lanes_has_speed_limit": torch.ones((1, 70, 1), dtype=torch.bool),
             "route_lanes": torch.zeros((1, 25, 20, 12)),
+            "route_lanes_speed_limit": torch.full((1, 25, 1), 50.0 / 3.6),
+            "route_lanes_has_speed_limit": torch.ones((1, 25, 1), dtype=torch.bool),
         }
 
 
@@ -148,8 +153,16 @@ def _config() -> object:
         {
             "evaluation": {
                 "mode": "no_traffic",
+                "profile": "standard",
                 "history_warmup_steps": 0,
                 "evaluated_horizon_steps": 10,
+                "execution": {
+                    "mode": "serial",
+                    "launcher": "basic",
+                    "worker_count": 1,
+                    "torch_threads_per_worker": None,
+                    "deterministic": False,
+                },
             },
             "env": {"traffic_density": 0.0, "horizon": 10},
             "map_query_radius_m": 100.0,
@@ -225,12 +238,22 @@ def test_run_evaluation_writes_clean_job_summary(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         runner,
         "write_runtime_metadata",
-        lambda output, report, sampler_report, guidance_config: None,
+        lambda output, report, sampler_report, guidance_config, execution, elapsed: None,
     )
 
     summary = runner.run_evaluation(_config(), tmp_path)
 
-    assert set(summary) == {"runtime", "checkpoint", "sampler", "guidance", "episodes"}
+    assert set(summary) == {
+        "schema_version",
+        "status",
+        "runtime",
+        "checkpoint",
+        "sampler",
+        "guidance",
+        "episodes",
+    }
+    assert summary["schema_version"] == 2
+    assert summary["status"] == "completed"
     assert summary["runtime"]["seed"] == 7
     assert summary["checkpoint"] == {
         "ema_tensor_count": 276,
@@ -244,6 +267,77 @@ def test_run_evaluation_writes_clean_job_summary(tmp_path, monkeypatch) -> None:
     persisted = json.loads((tmp_path / "summary.json").read_text())
     assert persisted == summary
     assert (tmp_path / "resolved_config.yaml").is_file()
+
+
+def test_run_evaluation_persists_explicit_failure_and_continues(tmp_path, monkeypatch) -> None:
+    class FailureEnv(_FakeEnv):
+        def reset(self, seed: int) -> tuple[None, dict[str, object]]:
+            raise EpisodeFailure("reset", RuntimeError("injected episode failure"))
+
+    def environment(config: dict[str, object]) -> _FakeEnv:
+        return FailureEnv(config) if config["map"] == "FAIL" else _FakeEnv(config)
+
+    config = _config()
+    config.scenarios = [
+        {"name": "failed", "map": "FAIL", "seed": 3},
+        {"name": "completed", "map": "S", "seed": 3},
+    ]
+    monkeypatch.setattr(runner, "TrajectoryMetaDriveEnv", environment)
+    monkeypatch.setattr(runner, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
+    monkeypatch.setattr(runner, "_route_length_m", lambda env: 100.0)
+    monkeypatch.setattr(
+        runner,
+        "create_fabric_inference_runtime",
+        lambda runtime_config, sampler_config, guidance_config, args_path, checkpoint_path: (
+            _FakeRuntime()
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "write_runtime_metadata",
+        lambda output, report, sampler_report, guidance_config, execution, elapsed: None,
+    )
+
+    summary = run_evaluation(config, tmp_path)
+
+    assert summary["status"] == "failed"
+    assert [episode["status"] for episode in summary["episodes"]] == [
+        "failed",
+        "completed",
+    ]
+    failure = summary["episodes"][0]
+    assert failure["termination"] == {"type": "runtime_error", "detail": "reset"}
+    assert failure["failure"]["exception_type"] == "RuntimeError"
+    assert "injected episode failure" in failure["failure"]["traceback"]
+    with np.load(tmp_path / "failed" / "trace.npz") as trace:
+        assert trace["trace_status"].item() == "empty"
+    assert (tmp_path / "completed" / "trace.npz").is_file()
+
+
+def test_run_evaluation_does_not_catch_unclassified_errors(tmp_path, monkeypatch) -> None:
+    class BrokenEnv(_FakeEnv):
+        def reset(self, seed: int) -> tuple[None, dict[str, object]]:
+            raise RuntimeError("unclassified")
+
+    monkeypatch.setattr(runner, "TrajectoryMetaDriveEnv", BrokenEnv)
+    monkeypatch.setattr(runner, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
+    monkeypatch.setattr(
+        runner,
+        "create_fabric_inference_runtime",
+        lambda runtime_config, sampler_config, guidance_config, args_path, checkpoint_path: (
+            _FakeRuntime()
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "write_runtime_metadata",
+        lambda output, report, sampler_report, guidance_config, execution, elapsed: None,
+    )
+
+    with pytest.raises(RuntimeError, match="unclassified"):
+        run_evaluation(_config(), tmp_path)
+
+    assert not (tmp_path / "summary.json").exists()
 
 
 def test_world_polyline_draws_on_frame() -> None:

@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from eco_planner.envs import TrafficObservationAudit
+from eco_planner.evaluation.artifacts import ARTIFACT_SCHEMA_VERSION
 from eco_planner.models.pretrained import PlannerInferenceResult
 
 PLANNER_ACTOR_COUNT = 11
@@ -24,6 +25,8 @@ class EpisodeTraceRecorder:
 
     warmup_initial_state: np.ndarray
     initial_state: np.ndarray
+    warmup_initial_state_valid: bool = True
+    initial_state_valid: bool = True
     warmup_states: list[np.ndarray] = field(default_factory=list)
     warmup_rewards: list[np.ndarray] = field(default_factory=list)
     warmup_terminated: list[np.ndarray] = field(default_factory=list)
@@ -51,6 +54,8 @@ class EpisodeTraceRecorder:
     observation_lanes_speed_limit: list[np.ndarray] = field(default_factory=list)
     observation_lanes_has_speed_limit: list[np.ndarray] = field(default_factory=list)
     observation_route_lanes: list[np.ndarray] = field(default_factory=list)
+    observation_route_lanes_speed_limit: list[np.ndarray] = field(default_factory=list)
+    observation_route_lanes_has_speed_limit: list[np.ndarray] = field(default_factory=list)
     ego_world: list[np.ndarray] = field(default_factory=list)
     substep_states: list[np.ndarray] = field(default_factory=list)
     substep_rewards: list[np.ndarray] = field(default_factory=list)
@@ -75,6 +80,18 @@ class EpisodeTraceRecorder:
         if initial.shape != (7,) or not np.isfinite(initial).all():
             raise ValueError("initial episode state must be a finite [7] array")
         return cls(warmup_initial_state=initial.copy(), initial_state=initial.copy())
+
+    @classmethod
+    def empty(cls) -> EpisodeTraceRecorder:
+        """Create a recorder for a failure before a valid simulator state exists."""
+
+        state = np.zeros(7, dtype=np.float64)
+        return cls(
+            warmup_initial_state=state.copy(),
+            initial_state=state.copy(),
+            warmup_initial_state_valid=False,
+            initial_state_valid=False,
+        )
 
     def append_warmup(
         self,
@@ -139,6 +156,10 @@ class EpisodeTraceRecorder:
         self.observation_lanes_speed_limit.append(raw_observation["lanes_speed_limit"])
         self.observation_lanes_has_speed_limit.append(raw_observation["lanes_has_speed_limit"])
         self.observation_route_lanes.append(raw_observation["route_lanes"])
+        self.observation_route_lanes_speed_limit.append(raw_observation["route_lanes_speed_limit"])
+        self.observation_route_lanes_has_speed_limit.append(
+            raw_observation["route_lanes_has_speed_limit"]
+        )
         self.ego_world.append(_world_prediction(info))
         self.substep_states.append(substep_states)
         self.substep_rewards.append(
@@ -157,15 +178,24 @@ class EpisodeTraceRecorder:
         self.heading_errors_rad.append(heading_errors_rad)
         self._append_traffic_audit(traffic_audit)
 
-    def finalize(self) -> dict[str, np.ndarray]:
+    def finalize(self, trace_status: str = "complete") -> dict[str, np.ndarray]:
         """Return validated arrays and reject repeated finalization."""
 
         self._require_open()
-        if not self.noises or not self.substep_states:
-            raise RuntimeError("cannot save an empty closed-loop trace")
+        if trace_status not in {"complete", "partial", "empty"}:
+            raise ValueError("trace_status must be complete, partial, or empty")
+        if trace_status == "complete" and (not self.noises or not self.substep_states):
+            raise RuntimeError("complete trace must contain planning and simulator steps")
+        if trace_status == "empty" and (self.noises or self.substep_states or self.warmup_states):
+            raise RuntimeError("empty trace cannot contain recorded steps")
         self._finalized = True
         arrays = {
+            "schema_version": np.asarray(ARTIFACT_SCHEMA_VERSION, dtype=np.int64),
+            "trace_status": np.asarray(trace_status),
             "warmup_initial_state": self.warmup_initial_state,
+            "warmup_initial_state_valid": np.asarray(
+                self.warmup_initial_state_valid, dtype=np.bool_
+            ),
             "warmup_states": _concatenate_or_empty(self.warmup_states, (0, 7), np.float64),
             "warmup_rewards": _concatenate_or_empty(self.warmup_rewards, (0,), np.float64),
             "warmup_terminated": _concatenate_or_empty(self.warmup_terminated, (0,), np.bool_),
@@ -177,27 +207,70 @@ class EpisodeTraceRecorder:
                 self.warmup_static_object_counts, (0,), np.int64
             ),
             "initial_state": self.initial_state,
-            "planning_anchors": np.stack(self.planning_anchors),
-            "initial_noise": np.concatenate(self.noises, axis=0),
-            "predictions_local": np.concatenate(self.predictions_local, axis=0),
-            "observation_ego_current_state": np.stack(self.observation_ego_current_state),
-            "observation_neighbor_agents_past": np.stack(self.observation_neighbor_agents_past),
-            "observation_static_objects": np.stack(self.observation_static_objects),
-            "observation_lanes": np.stack(self.observation_lanes),
-            "observation_lanes_speed_limit": np.stack(self.observation_lanes_speed_limit),
-            "observation_lanes_has_speed_limit": np.stack(self.observation_lanes_has_speed_limit),
-            "observation_route_lanes": np.stack(self.observation_route_lanes),
-            "ego_predictions_world": np.stack(self.ego_world),
-            "executed_states": np.concatenate(self.substep_states, axis=0),
-            "executed_rewards": np.concatenate(self.substep_rewards, axis=0),
-            "executed_terminated": np.concatenate(self.substep_terminated, axis=0),
-            "executed_truncated": np.concatenate(self.substep_truncated, axis=0),
-            "executed_plan_indices": np.concatenate(self.substep_plan_indices, axis=0),
-            "trajectory_target_centers": np.concatenate(self.target_centers, axis=0),
-            "trajectory_target_headings": np.concatenate(self.target_headings, axis=0),
-            "trajectory_position_errors_m": np.concatenate(self.position_errors_m, axis=0),
-            "trajectory_heading_errors_rad": np.concatenate(self.heading_errors_rad, axis=0),
-            "traffic_selected_ids": np.stack(self.traffic_selected_ids),
+            "initial_state_valid": np.asarray(self.initial_state_valid, dtype=np.bool_),
+            "planning_anchors": _stack_or_empty(self.planning_anchors, (0, 7), np.float64),
+            "initial_noise": _concatenate_or_empty(
+                self.noises,
+                (0, PLANNER_ACTOR_COUNT, PLANNER_FUTURE_STEPS, PLANNER_STATE_DIM),
+                np.float32,
+            ),
+            "predictions_local": _concatenate_or_empty(
+                self.predictions_local,
+                (0, PLANNER_ACTOR_COUNT, PLANNER_FUTURE_STEPS, PLANNER_STATE_DIM),
+                np.float32,
+            ),
+            "observation_ego_current_state": _stack_or_empty(
+                self.observation_ego_current_state, (0, 10), np.float32
+            ),
+            "observation_neighbor_agents_past": _stack_or_empty(
+                self.observation_neighbor_agents_past, (0, 32, 21, 11), np.float32
+            ),
+            "observation_static_objects": _stack_or_empty(
+                self.observation_static_objects, (0, 5, 10), np.float32
+            ),
+            "observation_lanes": _stack_or_empty(
+                self.observation_lanes, (0, 70, 20, 12), np.float32
+            ),
+            "observation_lanes_speed_limit": _stack_or_empty(
+                self.observation_lanes_speed_limit, (0, 70, 1), np.float32
+            ),
+            "observation_lanes_has_speed_limit": _stack_or_empty(
+                self.observation_lanes_has_speed_limit, (0, 70, 1), np.bool_
+            ),
+            "observation_route_lanes": _stack_or_empty(
+                self.observation_route_lanes, (0, 25, 20, 12), np.float32
+            ),
+            "observation_route_lanes_speed_limit": _stack_or_empty(
+                self.observation_route_lanes_speed_limit, (0, 25, 1), np.float32
+            ),
+            "observation_route_lanes_has_speed_limit": _stack_or_empty(
+                self.observation_route_lanes_has_speed_limit, (0, 25, 1), np.bool_
+            ),
+            "ego_predictions_world": _stack_or_empty(
+                self.ego_world, (0, PLANNER_FUTURE_STEPS, PLANNER_STATE_DIM), np.float64
+            ),
+            "executed_states": _concatenate_or_empty(self.substep_states, (0, 7), np.float64),
+            "executed_rewards": _concatenate_or_empty(self.substep_rewards, (0,), np.float64),
+            "executed_terminated": _concatenate_or_empty(self.substep_terminated, (0,), np.bool_),
+            "executed_truncated": _concatenate_or_empty(self.substep_truncated, (0,), np.bool_),
+            "executed_plan_indices": _concatenate_or_empty(
+                self.substep_plan_indices, (0,), np.int64
+            ),
+            "trajectory_target_centers": _concatenate_or_empty(
+                self.target_centers, (0, 2), np.float64
+            ),
+            "trajectory_target_headings": _concatenate_or_empty(
+                self.target_headings, (0,), np.float64
+            ),
+            "trajectory_position_errors_m": _concatenate_or_empty(
+                self.position_errors_m, (0,), np.float64
+            ),
+            "trajectory_heading_errors_rad": _concatenate_or_empty(
+                self.heading_errors_rad, (0,), np.float64
+            ),
+            "traffic_selected_ids": _stack_or_empty(
+                self.traffic_selected_ids, (0, 32), np.dtype("<U64")
+            ),
             "traffic_participant_counts": np.asarray(
                 self.traffic_participant_counts, dtype=np.int64
             ),
@@ -245,7 +318,7 @@ class EpisodeTraceRecorder:
                     ),
                 }
             )
-        validate_trace_arrays(arrays)
+        validate_trace_arrays(arrays, expected_trace_status=trace_status)
         return arrays
 
     def _append_guidance(self, result: PlannerInferenceResult) -> None:
@@ -333,9 +406,11 @@ def validate_trace_arrays(
     expected_simulator_steps: int | None = None,
     expected_warmup_steps: int | None = None,
     require_traffic: bool = False,
+    expected_trace_status: str | None = None,
 ) -> None:
     """Validate the producer/consumer trace contract."""
 
+    is_v1 = "schema_version" not in arrays
     required_shapes: dict[str, tuple[int | None, ...]] = {
         "warmup_initial_state": (7,),
         "warmup_states": (None, 7),
@@ -376,6 +451,17 @@ def validate_trace_arrays(
         "traffic_nearest_distance_m": (None,),
         "traffic_has_nearest": (None,),
     }
+    if not is_v1:
+        required_shapes.update(
+            {
+                "schema_version": (),
+                "trace_status": (),
+                "warmup_initial_state_valid": (),
+                "initial_state_valid": (),
+                "observation_route_lanes_speed_limit": (None, 25, 1),
+                "observation_route_lanes_has_speed_limit": (None, 25, 1),
+            }
+        )
     guidance_shapes: dict[str, tuple[int | None, ...]] = {
         "reference_predictions_local": (
             None,
@@ -418,13 +504,18 @@ def validate_trace_arrays(
             raise ValueError(f"trace array {name!r} contains non-finite values")
 
     for name in (
+        "warmup_initial_state_valid",
+        "initial_state_valid",
         "warmup_terminated",
         "warmup_truncated",
         "observation_lanes_has_speed_limit",
+        "observation_route_lanes_has_speed_limit",
         "executed_terminated",
         "executed_truncated",
         "traffic_has_nearest",
     ):
+        if name not in arrays:
+            continue
         if arrays[name].dtype != np.bool_:
             raise TypeError(f"trace array {name!r} must use bool dtype")
     for name in (
@@ -447,8 +538,19 @@ def validate_trace_arrays(
     plan_cycles = arrays["initial_noise"].shape[0]
     simulator_steps = arrays["executed_states"].shape[0]
     warmup_steps = arrays["warmup_states"].shape[0]
-    if plan_cycles <= 0 or simulator_steps <= 0:
-        raise ValueError("trace must contain at least one plan cycle and simulator step")
+    if not is_v1 and arrays["schema_version"].item() != ARTIFACT_SCHEMA_VERSION:
+        raise ValueError("trace schema version is unsupported")
+    trace_status = "complete" if is_v1 else str(arrays["trace_status"].item())
+    if trace_status not in {"complete", "partial", "empty"}:
+        raise ValueError("trace status is invalid")
+    if expected_trace_status is not None and trace_status != expected_trace_status:
+        raise ValueError("trace status disagrees with summary")
+    if trace_status == "complete" and (plan_cycles <= 0 or simulator_steps <= 0):
+        raise ValueError("complete trace must contain planning and simulator steps")
+    if trace_status == "empty" and (plan_cycles or simulator_steps or warmup_steps):
+        raise ValueError("empty trace contains recorded steps")
+    if not is_v1 and trace_status == "complete" and not bool(arrays["initial_state_valid"].item()):
+        raise ValueError("complete trace requires a valid initial state")
     if expected_plan_cycles is not None and plan_cycles != expected_plan_cycles:
         raise ValueError("trace planning cycle count disagrees with summary")
     if expected_simulator_steps is not None and simulator_steps != expected_simulator_steps:
@@ -466,6 +568,8 @@ def validate_trace_arrays(
         "observation_lanes_speed_limit",
         "observation_lanes_has_speed_limit",
         "observation_route_lanes",
+        "observation_route_lanes_speed_limit",
+        "observation_route_lanes_has_speed_limit",
         "ego_predictions_world",
         "traffic_selected_ids",
         "traffic_participant_counts",
@@ -473,6 +577,8 @@ def validate_trace_arrays(
         "traffic_nearest_distance_m",
         "traffic_has_nearest",
     ):
+        if name not in arrays:
+            continue
         if arrays[name].shape[0] != plan_cycles:
             raise ValueError(f"trace array {name!r} is not planning-cycle aligned")
     for name in guidance_shapes:
@@ -501,14 +607,17 @@ def validate_trace_arrays(
             raise ValueError(f"trace array {name!r} is not warmup-step aligned")
 
     plan_indices = arrays["executed_plan_indices"]
-    if not np.array_equal(np.unique(plan_indices), np.arange(plan_cycles)):
-        raise ValueError("trace plan indices are not contiguous")
-    counts = np.bincount(plan_indices, minlength=plan_cycles)
-    if np.any(counts[:-1] != EXECUTION_PREFIX_STEPS) or not 1 <= counts[-1] <= 5:
-        raise ValueError("trace plan indices do not encode five-step prefixes")
-    expected_indices = np.repeat(np.arange(plan_cycles), counts)
-    if not np.array_equal(plan_indices, expected_indices):
-        raise ValueError("trace plan indices are not ordered by planning cycle")
+    if plan_cycles:
+        if not np.array_equal(np.unique(plan_indices), np.arange(plan_cycles)):
+            raise ValueError("trace plan indices are not contiguous")
+        counts = np.bincount(plan_indices, minlength=plan_cycles)
+        if np.any(counts[:-1] != EXECUTION_PREFIX_STEPS) or not 1 <= counts[-1] <= 5:
+            raise ValueError("trace plan indices do not encode five-step prefixes")
+        expected_indices = np.repeat(np.arange(plan_cycles), counts)
+        if not np.array_equal(plan_indices, expected_indices):
+            raise ValueError("trace plan indices are not ordered by planning cycle")
+    elif simulator_steps:
+        raise ValueError("trace has simulator steps without planning cycles")
     terminal = arrays["executed_terminated"] | arrays["executed_truncated"]
     if terminal[:-1].any():
         raise ValueError("trace contains a terminal flag before its final simulator step")
@@ -530,6 +639,8 @@ def _raw_observation_for_trace(
         "lanes_speed_limit",
         "lanes_has_speed_limit",
         "route_lanes",
+        "route_lanes_speed_limit",
+        "route_lanes_has_speed_limit",
     )
     raw: dict[str, np.ndarray] = {}
     for name in names:
@@ -552,3 +663,9 @@ def _concatenate_or_empty(
     values: list[np.ndarray], empty_shape: tuple[int, ...], dtype: np.dtype[Any]
 ) -> np.ndarray:
     return np.concatenate(values, axis=0) if values else np.empty(empty_shape, dtype=dtype)
+
+
+def _stack_or_empty(
+    values: list[np.ndarray], empty_shape: tuple[int, ...], dtype: np.dtype[Any]
+) -> np.ndarray:
+    return np.stack(values) if values else np.empty(empty_shape, dtype=dtype)

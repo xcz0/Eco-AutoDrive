@@ -18,6 +18,8 @@ def _observation() -> dict[str, torch.Tensor]:
         "lanes_speed_limit": torch.zeros((1, 70, 1)),
         "lanes_has_speed_limit": torch.zeros((1, 70, 1), dtype=torch.bool),
         "route_lanes": torch.zeros((1, 25, 20, 12)),
+        "route_lanes_speed_limit": torch.full((1, 25, 1), 13.0),
+        "route_lanes_has_speed_limit": torch.ones((1, 25, 1), dtype=torch.bool),
     }
 
 
@@ -53,6 +55,8 @@ def test_trace_recorder_finalizes_stable_schema_once() -> None:
     arrays = recorder.finalize()
 
     assert arrays["initial_noise"].shape == (1, 11, 80, 4)
+    assert arrays["observation_route_lanes_speed_limit"].shape == (1, 25, 1)
+    assert arrays["observation_route_lanes_has_speed_limit"].dtype == np.bool_
     assert arrays["observation_neighbor_agents_past"].shape == (1, 32, 21, 11)
     assert arrays["executed_states"].shape == (5, 7)
     assert arrays["warmup_states"].shape == (0, 7)
