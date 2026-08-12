@@ -45,3 +45,17 @@ def test_evaluation_defaults_to_none_guidance_and_composes_active_profile() -> N
     parsed_sampler = parse_sampler_config(active.sampler)
     assert isinstance(parsed_guidance, OrthogonalReferenceGuidanceConfig)
     validate_guidance_sampler(parsed_guidance, parsed_sampler)
+
+
+def test_traffic_matrix_composes_joblib_execution_grid() -> None:
+    config_dir = Path(__file__).resolve().parents[3] / "configs"
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
+        config = compose(config_name="evaluation/traffic_matrix", return_hydra_config=True)
+
+    assert config.evaluation.profile == "matrix"
+    assert list(config.evaluation.matrix.seeds) == [0, 1, 2]
+    assert list(config.evaluation.matrix.traffic_densities) == [0.05, 0.10]
+    assert config.evaluation.execution.mode == "parallel"
+    assert config.hydra.launcher.n_jobs == 2
+    assert config.hydra.launcher.backend == "loky"
+    assert config.video.enabled is False

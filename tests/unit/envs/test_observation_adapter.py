@@ -178,7 +178,7 @@ def test_traffic_adapter_builds_rotated_history_and_reverse_padding(
     assert static[0].item() == pytest.approx(2.0)
     assert static[1].item() == pytest.approx(1.0)
     torch.testing.assert_close(static[6:], torch.tensor([0.0, 0.0, 1.0, 0.0]))
-    assert adapter.last_audit.selected_participant_ids == ("vehicle-a",)
+    assert adapter.last_audit.selected_participant_ids == ("participant-000000",)
 
 
 def test_traffic_adapter_sorts_and_truncates_current_participants(
@@ -201,9 +201,44 @@ def test_traffic_adapter_sorts_and_truncates_current_participants(
     adapter.build(SimpleNamespace(engine=SimpleNamespace(episode_step=20)))
 
     assert len(adapter.last_audit.selected_participant_ids) == 32
-    assert adapter.last_audit.selected_participant_ids[0] == "vehicle-00"
-    assert adapter.last_audit.selected_participant_ids[-1] == "vehicle-31"
+    assert adapter.last_audit.selected_participant_ids[0] == "participant-000000"
+    assert adapter.last_audit.selected_participant_ids[-1] == "participant-000031"
     assert adapter.last_audit.participant_count_in_radius == 33
+
+
+def test_traffic_adapter_artifact_ids_do_not_depend_on_metadrive_uuid(
+    official_model_config: OfficialDiffusionPlannerConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    audits = []
+    observations = []
+    for object_id in ("random-uuid-a", "random-uuid-b"):
+        adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
+        monkeypatch.setattr(
+            adapter._map_adapter,
+            "build",
+            lambda env: _map_observation(official_model_config),
+        )
+        frames = tuple(
+            _traffic_frame(step, (_participant(object_id, y=11.0 + 0.1 * step),))
+            for step in range(21)
+        )
+        adapter.reset(frames[0])
+        adapter.append_frames(frames[1:])
+        observations.append(adapter.build(SimpleNamespace(engine=SimpleNamespace(episode_step=20))))
+        audits.append(adapter.last_audit)
+
+    torch.testing.assert_close(
+        observations[0]["neighbor_agents_past"],
+        observations[1]["neighbor_agents_past"],
+        rtol=0,
+        atol=0,
+    )
+    assert (
+        audits[0].selected_participant_ids
+        == audits[1].selected_participant_ids
+        == ("participant-000000",)
+    )
 
 
 def test_traffic_adapter_requires_consecutive_complete_history(

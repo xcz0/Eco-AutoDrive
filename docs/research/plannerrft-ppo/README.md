@@ -54,11 +54,11 @@ actor/value 参数。若未来加入 GRPO，必须另立专题和设计决定。
 | 模型 | 已移植 checkpoint-compatible encoder、DiT 和 10-step DPM-Solver++ | 新 sampler 必须是显式可选边界，不能覆盖 baseline 语义 |
 | 编码 | `DiffusionPlanner.encode()` 只返回 scene token `encoding` | policy 输入的 mask、reference token 和 route 条件需要显式定义，不能假定现有 API 已提供 |
 | 扩散 | VP-SDE、`x_start` prediction、baseline 初始噪声 `0.5 * N(0,I)` 已形成契约；论文描述 DDIM 从标准高斯开始 | DDIM 必须复用 normalization 和当前状态约束；初始噪声尺度/timestep 先经 parity gate，不能静默混同 |
-| guidance | 已有可选的固定 reference-centered orthogonal guidance；默认仍关闭 | 阶段 2 的 neutral、离散几何与注入系数是 ADR 0012 的项目复现决定，不是作者实现 parity；Exploration Policy 仍未实现 |
+| guidance | 已有可选的固定 reference-centered orthogonal guidance；默认仍关闭 | 阶段 2 的 neutral、离散几何与注入系数是 ADR 0013 的项目复现决定，不是作者实现 parity；Exploration Policy 仍未实现 |
 | 环境动作 | `TrajectoryMetaDriveEnv.step()` 固定执行 5 个 0.1 s 点 | 与论文“执行第一个动作后重规划”的口径存在待决差异 |
 | reward | 环境返回 MetaDrive reward 及 5 个 substep reward；当前系统不定义最终优化奖励 | 不能把现有 `total_reward` 或 `configs/reward/energy.yaml` 直接称为 PlannerRFT reward |
 | RL | `src/eco_planner/rl/` 只有包声明，没有 rollout/GAE/PPO 实现 | `pyproject.toml` 和旧配置中的 DPPO 命名是遗留意图，不是可用能力 |
-| 运行时 | 当前 evaluation runtime 是单进程、单设备 Fabric | 论文规模的并行环境需要独立 training orchestrator 和相应 ADR |
+| 运行时 | 每个 evaluation job 是单进程、单设备 Fabric；traffic matrix 可做隔离作业并行 | 论文规模的并行环境仍需要独立 training orchestrator 和相应 ADR |
 
 ## 文档导航
 

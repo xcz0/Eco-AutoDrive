@@ -13,8 +13,15 @@ map_query_radius_m: 100.0
 
 evaluation:
   mode: traffic
+  profile: standard
   history_warmup_steps: 20
   evaluated_horizon_steps: 3000
+  execution:
+    mode: serial
+    launcher: basic
+    worker_count: 1
+    torch_threads_per_worker: null
+    deterministic: false
 
 env:
   start_seed: 0

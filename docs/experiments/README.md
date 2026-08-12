@@ -45,6 +45,7 @@
 | [E-007](records/e-007-five-step-ddim-acceptance.md) | 2026-08-11 | 阶段 1 正式验收 | DPM-10、标准高斯 DDIM-5 与 `0.5` 噪声 DDIM-5 的 30 回合配对闭环 | 5-step DDIM 阶段门槛通过 |
 | [E-008](records/e-008-joblib-parallel-diagnosis.md) | 2026-08-11 | 并行可行性诊断 | Windows CPU 上的 Joblib 作业级并行、短回合剖析和串并行一致性 | 进程隔离可行；短矩阵无净加速，长交通矩阵尚未验收 |
 | [E-009](records/e-009-stage2-guidance-smoke.md) | 2026-08-11 | 阶段 2 快速验收 | reference-centered orthogonal guidance 的数学、随机性、checkpoint 与 2 s 闭环 smoke | 快速门槛通过；60 回合正式矩阵延期，Issue #6 保持开启 |
+| [E-010](records/e-010-parallel-evaluation-acceptance.md) | 2026-08-12 | 并行正式验收 | Windows CPU 6-job/300-step 矩阵与单 GPU 双进程一致性 | CPU 加速与 CPU/CUDA 串并行逐值一致性门槛通过 |
 
 ## 服务器训练与正式实验登记模板
 
