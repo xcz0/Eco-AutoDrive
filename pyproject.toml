@@ -19,6 +19,7 @@ dependencies = [
     "metadrive-simulator",
     "numpy",
     "omegaconf",
+    "pydantic",
     "timm",
     "torch==2.12.1",
     "torchrl",
