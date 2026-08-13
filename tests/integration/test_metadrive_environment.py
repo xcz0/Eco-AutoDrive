@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
+from metadrive.utils import merge_dicts
 
 from eco_planner.envs import (
     MetaDriveMapAdapter,
@@ -13,6 +14,23 @@ from eco_planner.envs import (
 )
 from eco_planner.evaluation.runtime import FabricInferenceRuntime
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
+
+
+class _LegacyPhysicsTrajectoryMetaDriveEnv(TrajectoryMetaDriveEnv):
+    def _step_planner_simulator(self, actions: dict[str, object]) -> dict[str, object]:
+        before_info = self.engine.before_step(actions)
+        for _ in range(self.config["decision_repeat"]):
+            for name, manager in self.engine.managers.items():
+                if name != "record_manager":
+                    manager.step()
+            self.engine.step_physics_world()
+        after_info = self.engine.after_step()
+        return merge_dicts(
+            after_info,
+            before_info,
+            allow_new_keys=True,
+            without_copy=True,
+        )
 
 
 def _environment_config(map_sequence: str) -> dict[str, object]:
@@ -57,12 +75,18 @@ def _stationary_trajectory() -> np.ndarray:
 def test_trajectory_environment_executes_five_simulator_steps() -> None:
     env = TrajectoryMetaDriveEnv(_environment_config("S"))
     try:
-        env.reset(seed=0)
+        reset_observation, _ = env.reset(seed=0)
         start_position = np.asarray(env.agent.position, dtype=np.float64)
         start_heading = float(env.agent.heading_theta)
 
-        _, reward, terminated, truncated, info = env.step(_straight_trajectory(5.0))
+        observation, reward, terminated, truncated, info = env.step(_straight_trajectory(5.0))
         execution = TrajectoryExecutionRecord.from_info(info)
+
+        np.testing.assert_array_equal(reset_observation, np.zeros(1, dtype=np.float32))
+        np.testing.assert_array_equal(observation, np.zeros(1, dtype=np.float32))
+        assert env.observation_space.shape == (1,)
+        assert env.observation_space.dtype == np.float32
+        assert env.engine.sensors == {}
 
         displacement = np.asarray(env.agent.position, dtype=np.float64) - start_position
         forward_progress = float(
@@ -109,6 +133,19 @@ def test_trajectory_environment_executes_five_simulator_steps() -> None:
 
 
 @pytest.mark.simulator
+def test_trajectory_environment_rejects_non_planner_observations() -> None:
+    image_config = _environment_config("S")
+    image_config["image_observation"] = True
+    with pytest.raises(ValueError, match="image_observation"):
+        TrajectoryMetaDriveEnv(image_config)
+
+    agent_config = _environment_config("S")
+    agent_config["agent_observation"] = object
+    with pytest.raises(ValueError, match="agent_observation"):
+        TrajectoryMetaDriveEnv(agent_config)
+
+
+@pytest.mark.simulator
 def test_trajectory_environment_matches_variable_heading_waypoints() -> None:
     env = TrajectoryMetaDriveEnv(_environment_config("S"))
     try:
@@ -130,6 +167,25 @@ def test_trajectory_environment_matches_variable_heading_waypoints() -> None:
 
 
 @pytest.mark.simulator
+def test_trajectory_environment_stops_prefix_at_episode_horizon() -> None:
+    config = _environment_config("S")
+    config["horizon"] = 2
+    env = TrajectoryMetaDriveEnv(config)
+    try:
+        env.reset(seed=0)
+        _, _, terminated, truncated, info = env.step(_straight_trajectory(5.0))
+        execution = TrajectoryExecutionRecord.from_info(info)
+
+        assert not terminated
+        assert truncated
+        assert execution.substep_states.shape == (2, 7)
+        assert tuple(frame.simulator_step for frame in execution.traffic_frames) == (1, 2)
+        assert execution.substep_truncated.tolist() == [False, True]
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
 def test_trajectory_environment_returns_consecutive_traffic_frames() -> None:
     config = _environment_config("SC")
     config["traffic_density"] = 0.1
@@ -137,6 +193,7 @@ def test_trajectory_environment_returns_consecutive_traffic_frames() -> None:
     try:
         env.reset(seed=0)
         initial = env.initial_traffic_frame
+        assert set(env.engine.sensors) == {"lidar"}
         start_position = np.asarray(env.agent.position, dtype=np.float64).copy()
 
         _, _, terminated, truncated, info = env.step(_stationary_trajectory())
@@ -179,6 +236,68 @@ def test_traffic_adapter_builds_after_real_two_second_warmup(
         np.testing.assert_allclose(env.agent.position, start_position, atol=1e-3)
     finally:
         env.close()
+
+
+def _traffic_observation_sequence(
+    env_class: type[TrajectoryMetaDriveEnv],
+    model_config: OfficialDiffusionPlannerConfig,
+) -> list[tuple[dict[str, torch.Tensor], object, np.ndarray, float]]:
+    config = _environment_config("SCSCSCSCSC")
+    config["traffic_density"] = 0.05
+    config["horizon"] = 100
+    env = env_class(config)
+    adapter = MetaDriveObservationAdapter(model_config, 100.0)
+    records: list[tuple[dict[str, torch.Tensor], object, np.ndarray, float]] = []
+    try:
+        env.reset(seed=0)
+        adapter.reset(env.initial_traffic_frame, env=env)
+        for _ in range(4):
+            _, _, _, _, info = env.step(_stationary_trajectory())
+            adapter.append_frames(info["traffic_substep_frames"])
+        for _ in range(8):
+            observation = adapter.build(env)
+            audit = adapter.last_audit
+            _, _, terminated, truncated, info = env.step(_straight_trajectory(5.0))
+            assert not terminated
+            assert not truncated
+            adapter.append_frames(info["traffic_substep_frames"])
+            records.append(
+                (
+                    observation,
+                    audit,
+                    info["trajectory_substep_states"].copy(),
+                    float(info["route_completion"]),
+                )
+            )
+        return records
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
+def test_batched_bullet_substeps_match_legacy_planner_boundary(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    legacy = _traffic_observation_sequence(
+        _LegacyPhysicsTrajectoryMetaDriveEnv, official_model_config
+    )
+    optimized = _traffic_observation_sequence(TrajectoryMetaDriveEnv, official_model_config)
+
+    for legacy_cycle, optimized_cycle in zip(legacy, optimized, strict=True):
+        legacy_observation, legacy_audit, legacy_states, legacy_route = legacy_cycle
+        observation, audit, states, route = optimized_cycle
+        for name in legacy_observation:
+            torch.testing.assert_close(
+                observation[name], legacy_observation[name], rtol=0.0, atol=1e-5
+            )
+        assert audit.selected_participant_ids == legacy_audit.selected_participant_ids
+        assert audit.participant_count_in_radius == legacy_audit.participant_count_in_radius
+        assert audit.static_object_count_in_radius == legacy_audit.static_object_count_in_radius
+        assert audit.nearest_participant_distance_m == pytest.approx(
+            legacy_audit.nearest_participant_distance_m, abs=1e-3
+        )
+        np.testing.assert_allclose(states, legacy_states, rtol=0.0, atol=1e-12)
+        assert route == pytest.approx(legacy_route, abs=1e-12)
 
 
 @pytest.mark.simulator
@@ -239,6 +358,31 @@ def test_map_adapter_is_deterministic_on_programmatic_maps(
             if first[name].dtype == torch.float32:
                 assert torch.isfinite(first[name]).all()
             torch.testing.assert_close(first[name], second[name], rtol=0.0, atol=0.0)
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
+def test_indexed_map_adapter_matches_full_lane_scan(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    env = TrajectoryMetaDriveEnv(_environment_config("SCSCSCSCSC"))
+    indexed = MetaDriveMapAdapter(official_model_config, query_radius_m=100.0)
+    reference = MetaDriveMapAdapter(official_model_config, query_radius_m=100.0)
+    try:
+        env.reset(seed=0)
+        indexed.reset(env)
+        reference.reset(env)
+        reference._candidate_snapshots = lambda _: reference._lane_snapshots  # type: ignore[method-assign]
+
+        for _ in range(3):
+            indexed_result = indexed.build(env)
+            reference_result = reference.build(env)
+            for name in indexed_result:
+                torch.testing.assert_close(
+                    indexed_result[name], reference_result[name], rtol=0.0, atol=0.0
+                )
+            env.step(_straight_trajectory(5.0))
     finally:
         env.close()
 

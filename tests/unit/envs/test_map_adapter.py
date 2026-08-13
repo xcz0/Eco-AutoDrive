@@ -222,6 +222,8 @@ def test_map_adapter_truncates_lane_and_route_capacity(
     official_model_config: OfficialDiffusionPlannerConfig,
 ) -> None:
     lanes = [_lane(index, distance=float(index)) for index in range(75)]
+    for index, lane in enumerate(lanes):
+        lane.start[1] = float(index)
     env = _StubEnv(lanes, ["A", "B"])
     result = MetaDriveMapAdapter(official_model_config, 100.0).build(env)
 

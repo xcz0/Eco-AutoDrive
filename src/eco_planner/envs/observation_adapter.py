@@ -37,6 +37,13 @@ class TrafficObservationAudit:
     nearest_participant_distance_m: float | None
 
 
+@dataclass(frozen=True)
+class _EncodedParticipantFrame:
+    ids: tuple[str, ...]
+    rows: np.ndarray
+    index_by_id: dict[str, int]
+
+
 class MetaDriveObservationAdapter:
     """Build official observations from a strict 21-frame MetaDrive traffic history."""
 
@@ -55,9 +62,7 @@ class MetaDriveObservationAdapter:
         self._query_radius_m = float(query_radius_m)
         self._map_adapter = MetaDriveMapAdapter(model_config, self._query_radius_m)
         self._history: deque[TrafficFrame] = deque(maxlen=model_config.time_len)
-        self._history_by_id: deque[dict[str, TrafficParticipantState]] = deque(
-            maxlen=model_config.time_len
-        )
+        self._encoded_history: deque[_EncodedParticipantFrame] = deque(maxlen=model_config.time_len)
         self._artifact_participant_ids: dict[str, str] = {}
         self._last_audit: TrafficObservationAudit | None = None
 
@@ -75,11 +80,11 @@ class MetaDriveObservationAdapter:
         if not isinstance(initial_frame, TrafficFrame):
             raise TypeError("initial_frame must be a TrafficFrame")
         self._history.clear()
-        self._history_by_id.clear()
+        self._encoded_history.clear()
         self._artifact_participant_ids.clear()
         self._register_artifact_participant_ids(initial_frame)
         self._history.append(initial_frame)
-        self._history_by_id.append(_unique_participants(initial_frame))
+        self._encoded_history.append(_encode_participants(initial_frame))
         if env is not None:
             self._map_adapter.reset(env)
         self._last_audit = None
@@ -91,7 +96,7 @@ class MetaDriveObservationAdapter:
             raise TypeError("frames must be a non-empty tuple of TrafficFrame values")
         previous_step = self._history[-1].simulator_step if self._history else None
         validated: list[TrafficFrame] = []
-        indexes: list[dict[str, TrafficParticipantState]] = []
+        encoded_frames: list[_EncodedParticipantFrame] = []
         staged_artifact_ids = dict(self._artifact_participant_ids)
         for frame in frames:
             if not isinstance(frame, TrafficFrame):
@@ -103,11 +108,11 @@ class MetaDriveObservationAdapter:
                 )
             validated.append(frame)
             _register_artifact_participant_ids(frame, staged_artifact_ids)
-            indexes.append(_unique_participants(frame))
+            encoded_frames.append(_encode_participants(frame))
             previous_step = frame.simulator_step
         self._artifact_participant_ids = staged_artifact_ids
         self._history.extend(validated)
-        self._history_by_id.extend(indexes)
+        self._encoded_history.extend(encoded_frames)
         self._last_audit = None
 
     def build(self, env: Any) -> dict[str, torch.Tensor]:
@@ -144,14 +149,12 @@ class MetaDriveObservationAdapter:
         self, latest: TrafficFrame
     ) -> tuple[np.ndarray, TrafficObservationAudit]:
         anchor_xy, anchor_heading = _rear_axle_anchor(latest)
-        current_by_id = _unique_participants(latest)
-        distances = {
-            object_id: float(np.linalg.norm(np.asarray(state.position_xy_m) - anchor_xy))
-            for object_id, state in current_by_id.items()
-        }
+        current = self._encoded_history[-1]
+        distances_array = np.linalg.norm(current.rows[:, :2] - anchor_xy, axis=1)
+        distances = dict(zip(current.ids, distances_array, strict=True))
         in_radius = [
             object_id
-            for object_id, distance in distances.items()
+            for object_id, distance in zip(current.ids, distances_array, strict=True)
             if distance <= self._query_radius_m
         ]
         in_radius.sort(key=lambda object_id: (distances[object_id], object_id))
@@ -160,28 +163,28 @@ class MetaDriveObservationAdapter:
             (self._config.agent_num, self._config.time_len, self._config.agent_state_dim),
             dtype=np.float32,
         )
-        histories = list(self._history_by_id)
-        selected_histories: list[list[TrafficParticipantState]] = []
-        for object_id in selected:
-            filled: TrafficParticipantState | None = None
-            resolved: list[TrafficParticipantState] = []
-            for frame_states in reversed(histories):
-                state = frame_states.get(object_id)
-                if state is not None:
-                    if state.kind != current_by_id[object_id].kind:
+        histories = tuple(self._encoded_history)
+        selected_rows = np.empty((len(selected), len(histories), 8), dtype=np.float64)
+        for output_index, object_id in enumerate(selected):
+            current_row = current.rows[current.index_by_id[object_id]]
+            filled: np.ndarray | None = None
+            for reverse_index, frame in enumerate(reversed(histories)):
+                row_index = frame.index_by_id.get(object_id)
+                if row_index is not None:
+                    state_row = frame.rows[row_index]
+                    if state_row[7] != current_row[7]:
                         raise RuntimeError(
                             f"traffic participant {object_id!r} changed type within history"
                         )
-                    filled = state
+                    filled = state_row
                 if filled is None:
                     raise RuntimeError(
                         f"current traffic participant {object_id!r} is absent from current frame"
                     )
-                resolved.append(filled)
-            selected_histories.append(list(reversed(resolved)))
-        if selected_histories:
-            result[: len(selected_histories)] = _participant_history_features(
-                selected_histories, anchor_xy, anchor_heading
+                selected_rows[output_index, len(histories) - reverse_index - 1] = filled
+        if selected:
+            result[: len(selected)] = _encoded_participant_history_features(
+                selected_rows, anchor_xy, anchor_heading
             )
         nearest = min((distances[object_id] for object_id in in_radius), default=None)
         return result, TrafficObservationAudit(
@@ -233,6 +236,29 @@ def _unique_participants(frame: TrafficFrame) -> dict[str, TrafficParticipantSta
     return result
 
 
+def _encode_participants(frame: TrafficFrame) -> _EncodedParticipantFrame:
+    unique = _unique_participants(frame)
+    ids = tuple(unique)
+    rows = np.empty((len(ids), 8), dtype=np.float64)
+    kind_codes = {"vehicle": 0.0, "pedestrian": 1.0, "bicycle": 2.0}
+    for index, object_id in enumerate(ids):
+        state = unique[object_id]
+        rows[index] = (
+            *state.position_xy_m,
+            state.heading_rad,
+            *state.velocity_xy_mps,
+            state.width_m,
+            state.length_m,
+            kind_codes[state.kind],
+        )
+    rows.setflags(write=False)
+    return _EncodedParticipantFrame(
+        ids=ids,
+        rows=rows,
+        index_by_id={object_id: index for index, object_id in enumerate(ids)},
+    )
+
+
 def _participant_identity_key(state: TrafficParticipantState) -> tuple[object, ...]:
     """Return a UUID-independent first-observation key for artifact identity."""
 
@@ -271,73 +297,29 @@ def _to_local_vector(vector: np.ndarray, anchor_heading: float) -> np.ndarray:
     return world_vectors_to_local(array[None], anchor_heading)[0]
 
 
-def _participant_features(
-    state: TrafficParticipantState, anchor_xy: np.ndarray, anchor_heading: float
-) -> np.ndarray:
-    position = _to_local_vector(np.asarray(state.position_xy_m) - anchor_xy, anchor_heading)
-    velocity = _to_local_vector(np.asarray(state.velocity_xy_mps), anchor_heading)
-    relative_heading = state.heading_rad - anchor_heading
-    type_features = {
-        "vehicle": (1.0, 0.0, 0.0),
-        "pedestrian": (0.0, 1.0, 0.0),
-        "bicycle": (0.0, 0.0, 1.0),
-    }[state.kind]
-    return np.asarray(
-        [
-            *position,
-            np.cos(relative_heading),
-            np.sin(relative_heading),
-            *velocity,
-            state.width_m,
-            state.length_m,
-            *type_features,
-        ],
-        dtype=np.float32,
-    )
-
-
-def _participant_history_features(
-    histories: list[list[TrafficParticipantState]],
+def _encoded_participant_history_features(
+    histories: np.ndarray,
     anchor_xy: np.ndarray,
     anchor_heading: float,
 ) -> np.ndarray:
-    """Encode selected histories with one batched position and velocity transform."""
-
-    positions = np.asarray(
-        [[state.position_xy_m for state in history] for history in histories],
-        dtype=np.float64,
-    )
-    velocities = np.asarray(
-        [[state.velocity_xy_mps for state in history] for history in histories],
-        dtype=np.float64,
-    )
-    shape = positions.shape
+    shape = histories.shape[:2]
+    positions = histories[..., :2]
+    velocities = histories[..., 3:5]
     local_positions = world_vectors_to_local(
         (positions - anchor_xy).reshape(-1, 2), anchor_heading
-    ).reshape(shape)
+    ).reshape((*shape, 2))
     local_velocities = world_vectors_to_local(velocities.reshape(-1, 2), anchor_heading).reshape(
-        shape
+        (*shape, 2)
     )
-    result = np.zeros((shape[0], shape[1], 11), dtype=np.float32)
+    result = np.zeros((*shape, 11), dtype=np.float32)
     result[..., :2] = local_positions
-    headings = (
-        np.asarray(
-            [[state.heading_rad for state in history] for history in histories],
-            dtype=np.float64,
-        )
-        - anchor_heading
-    )
-    result[..., 2] = np.cos(headings)
-    result[..., 3] = np.sin(headings)
+    relative_headings = histories[..., 2] - anchor_heading
+    result[..., 2] = np.cos(relative_headings)
+    result[..., 3] = np.sin(relative_headings)
     result[..., 4:6] = local_velocities
-    result[..., 6] = [[state.width_m for state in history] for history in histories]
-    result[..., 7] = [[state.length_m for state in history] for history in histories]
-    type_features = {
-        "vehicle": (1.0, 0.0, 0.0),
-        "pedestrian": (0.0, 1.0, 0.0),
-        "bicycle": (0.0, 0.0, 1.0),
-    }
-    result[..., 8:11] = [[type_features[state.kind] for state in history] for history in histories]
+    result[..., 6:8] = histories[..., 5:7]
+    type_codes = histories[..., 7].astype(np.intp)
+    result[..., 8:11] = np.eye(3, dtype=np.float32)[type_codes]
     return result
 
 

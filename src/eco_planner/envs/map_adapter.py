@@ -7,6 +7,8 @@ from typing import Any
 
 import numpy as np
 import torch
+from shapely import LineString, box
+from shapely.strtree import STRtree
 
 from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
 from eco_planner.envs.lane_speed import model_lane_speed_limit_mps
@@ -58,6 +60,11 @@ class MetaDriveMapAdapter:
         self._query_radius_m = float(query_radius_m)
         self._map_identity: int | None = None
         self._lane_snapshots: tuple[_LaneSnapshot, ...] | None = None
+        self._lane_centers_world: np.ndarray | None = None
+        self._lane_left_world: np.ndarray | None = None
+        self._lane_right_world: np.ndarray | None = None
+        self._lane_tree: STRtree | None = None
+        self._maximum_sample_interval_m: float | None = None
 
     def reset(self, env: Any) -> None:
         """Capture immutable lane geometry and metadata for the current map."""
@@ -68,6 +75,14 @@ class MetaDriveMapAdapter:
             raise RuntimeError("current map does not contain any lanes")
         self._map_identity = id(current_map)
         self._lane_snapshots = snapshots
+        self._lane_centers_world = np.stack([snapshot.centers_world for snapshot in snapshots])
+        self._lane_left_world = np.stack([snapshot.left_boundary_world for snapshot in snapshots])
+        self._lane_right_world = np.stack([snapshot.right_boundary_world for snapshot in snapshots])
+        self._lane_tree = STRtree([LineString(snapshot.centers_world) for snapshot in snapshots])
+        self._maximum_sample_interval_m = max(
+            float(np.linalg.norm(np.diff(snapshot.centers_world, axis=0), axis=1).max())
+            for snapshot in snapshots
+        )
 
     def build(self, env: Any) -> dict[str, torch.Tensor]:
         current_map, _, ego, navigation = self._environment_parts(env)
@@ -87,7 +102,7 @@ class MetaDriveMapAdapter:
             raise ValueError("ego vehicle must define a finite positive REAR_WHEELBASE")
         rear_axle = rear_axle_position(center_position, center_heading, float(rear_wheelbase))
 
-        lane_records = self._select_lanes(self._lane_snapshots, rear_axle)
+        lane_records = self._select_lanes(self._candidate_snapshots(rear_axle), rear_axle)
         route_records = self._select_route_lanes(lane_records, navigation)
         arrays = self._allocate_arrays()
         encoded = self._encode_lanes(lane_records, rear_axle, center_heading)
@@ -171,6 +186,23 @@ class MetaDriveMapAdapter:
             raise RuntimeError("no lanes were found within the configured map query radius")
         return selected
 
+    def _candidate_snapshots(self, rear_axle: np.ndarray) -> tuple[_LaneSnapshot, ...]:
+        if (
+            self._lane_snapshots is None
+            or self._lane_tree is None
+            or self._maximum_sample_interval_m is None
+        ):
+            raise RuntimeError("map spatial index is unavailable before reset")
+        radius = self._query_radius_m + self._maximum_sample_interval_m
+        bounds = box(
+            rear_axle[0] - radius,
+            rear_axle[1] - radius,
+            rear_axle[0] + radius,
+            rear_axle[1] + radius,
+        )
+        indexes = np.asarray(self._lane_tree.query(bounds), dtype=np.intp)
+        return tuple(self._lane_snapshots[index] for index in indexes)
+
     def _select_route_lanes(
         self, lane_records: list[_LaneRecord], navigation: Any
     ) -> list[_LaneRecord]:
@@ -216,9 +248,24 @@ class MetaDriveMapAdapter:
         rear_axle: np.ndarray,
         ego_heading: float,
     ) -> list[tuple[np.ndarray, float, bool]]:
-        centers_world = np.stack([record.snapshot.centers_world for record in records])
-        left_world = np.stack([record.snapshot.left_boundary_world for record in records])
-        right_world = np.stack([record.snapshot.right_boundary_world for record in records])
+        if (
+            self._lane_snapshots is None
+            or self._lane_centers_world is None
+            or self._lane_left_world is None
+            or self._lane_right_world is None
+        ):
+            raise RuntimeError("map geometry cache is unavailable before reset")
+        snapshot_indexes = {
+            snapshot.stable_id: index for index, snapshot in enumerate(self._lane_snapshots)
+        }
+        indexes = np.fromiter(
+            (snapshot_indexes[record.snapshot.stable_id] for record in records),
+            dtype=np.intp,
+            count=len(records),
+        )
+        centers_world = self._lane_centers_world[indexes]
+        left_world = self._lane_left_world[indexes]
+        right_world = self._lane_right_world[indexes]
         shape = centers_world.shape
         centers_local = (
             world_points_to_local(centers_world.reshape(-1, 2), rear_axle, ego_heading)

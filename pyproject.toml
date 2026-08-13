@@ -20,6 +20,7 @@ dependencies = [
     "numpy",
     "omegaconf",
     "pydantic",
+    "shapely",
     "timm",
     "torch==2.12.1",
     "torchrl",
