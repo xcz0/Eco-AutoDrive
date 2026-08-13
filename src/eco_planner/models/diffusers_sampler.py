@@ -46,10 +46,15 @@ class DiffusersDdimSampler:
         num_steps: int,
         ddim_stochasticity: float,
         generator: torch.Generator | None,
+        *,
+        variance_noises: tuple[torch.Tensor, ...] | None = None,
     ) -> torch.Tensor:
         """Sample the fixed DDIM-5 profile while retaining Planner constraints."""
 
         self._validate_inputs(initial_sample, timesteps, num_steps, ddim_stochasticity, generator)
+        self._validate_variance_noises(
+            variance_noises, initial_sample, num_steps, ddim_stochasticity
+        )
         scheduler = self._new_scheduler(initial_sample.device, initial_sample.dtype)
         sample = DdimSampler._validate_callback_result(
             "current_state_constraint",
@@ -66,6 +71,7 @@ class DiffusersDdimSampler:
                 index,
                 ddim_stochasticity,
                 generator,
+                None if variance_noises is None else variance_noises[index],
             )
             sample = DdimSampler._validate_callback_result(
                 "current_state_constraint",
@@ -86,10 +92,14 @@ class DiffusersDdimSampler:
         guidance: Callable[[torch.Tensor, torch.Tensor], GuidanceGradientResult],
         *,
         gradient_step_coefficient: float,
+        variance_noises: tuple[torch.Tensor, ...] | None = None,
     ) -> DdimGuidedSampleResult:
         """Sample DDIM-5 and apply the project's post-transition guidance policy."""
 
         self._validate_inputs(initial_sample, timesteps, num_steps, ddim_stochasticity, generator)
+        self._validate_variance_noises(
+            variance_noises, initial_sample, num_steps, ddim_stochasticity
+        )
         if not callable(guidance):
             raise TypeError("guidance must be callable")
         if (
@@ -119,6 +129,7 @@ class DiffusersDdimSampler:
                 index,
                 ddim_stochasticity,
                 generator,
+                None if variance_noises is None else variance_noises[index],
             )
             updated = transitioned - gradient_step_coefficient * step.applied_gradient
             sample = DdimSampler._validate_callback_result(
@@ -175,9 +186,11 @@ class DiffusersDdimSampler:
         index: int,
         stochasticity: float,
         generator: torch.Generator | None,
+        variance_noise: torch.Tensor | None,
     ) -> torch.Tensor:
-        random_noise = torch.zeros_like(sample)
-        if stochasticity > 0.0 and index < scheduler.num_inference_steps - 1:
+        if variance_noise is not None:
+            random_noise = variance_noise
+        elif stochasticity > 0.0 and index < scheduler.num_inference_steps - 1:
             if generator is None:
                 raise RuntimeError("validated stochastic DDIM transition lost its generator")
             random_noise = torch.randn(
@@ -186,6 +199,8 @@ class DiffusersDdimSampler:
                 device=sample.device,
                 generator=generator,
             )
+        else:
+            random_noise = torch.zeros_like(sample)
         result = scheduler.step(
             model_output=prediction,
             timestep=int(scheduler_timestep.item()),
@@ -196,6 +211,29 @@ class DiffusersDdimSampler:
         if not torch.isfinite(result).all():
             raise RuntimeError("Diffusers DDIM transition produced non-finite state")
         return result
+
+    @staticmethod
+    def _validate_variance_noises(
+        variance_noises: tuple[torch.Tensor, ...] | None,
+        sample: torch.Tensor,
+        num_steps: int,
+        stochasticity: float,
+    ) -> None:
+        if variance_noises is None:
+            return
+        if stochasticity == 0.0:
+            raise ValueError("variance_noises require non-zero ddim_stochasticity")
+        if len(variance_noises) != num_steps:
+            raise ValueError("variance_noises must have one tensor per DDIM transition")
+        for index, noise in enumerate(variance_noises):
+            if not isinstance(noise, torch.Tensor):
+                raise TypeError(f"variance_noises[{index}] must be a torch.Tensor")
+            if noise.shape != sample.shape:
+                raise ValueError(f"variance_noises[{index}] must preserve sample shape")
+            if noise.dtype != sample.dtype or noise.device != sample.device:
+                raise ValueError(f"variance_noises[{index}] must preserve sample dtype and device")
+            if not torch.isfinite(noise).all():
+                raise ValueError(f"variance_noises[{index}] must be finite")
 
     @staticmethod
     def _validate_inputs(

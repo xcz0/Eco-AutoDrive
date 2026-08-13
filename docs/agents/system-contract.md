@@ -120,8 +120,9 @@ sampler 配置还必须显式记录 `implementation`。当前 `dpm10` 仅允许 
 
 每个规划周期只使用一份严格加载、冻结且 eval-mode 的官方 EMA 模型，并只计算一次 scene
 encoding。reference 与 guided pass 共享当前 observation、initial noise 和 DDIM transition draws；
-reference pass 推进回合的持久 generator 一次，guided pass 从 reference 开始前复制的 generator
-state 重放同一 transition draws。reference 每个规划周期刷新。
+legacy backend 通过从 reference 开始前复制 generator state 重放，`diffusers` backend 则在
+reference 前显式取得每个非末步 `variance_noise` 并将同一组 tensor 传给两次 scheduler step。
+reference 每个规划周期刷新。
 
 reference 切向由其有限、非退化的 `[cos(h), sin(h)]` 归一化得到，左法向为
 `[-sin(h), cos(h)]`。速度由当前物理点和 80 个未来物理点按 `0.1 s` 后向差分，单位为 m/s；

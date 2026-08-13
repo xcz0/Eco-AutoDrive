@@ -135,7 +135,19 @@ class PretrainedDiffusionPlanner(nn.Module):
         shared_generator_state = (
             transition_generator.get_state().clone()
             if isinstance(self.guidance_config, OrthogonalReferenceGuidanceConfig)
+            and not isinstance(self._sampler, DiffusersDdimSampler)
             and transition_generator is not None
+            else None
+        )
+        shared_variance_noises = (
+            _draw_ddim_variance_noises(
+                initial,
+                self.sampler_config.num_steps,
+                self.sampler_config.ddim_stochasticity,
+                transition_generator,
+            )
+            if isinstance(self.guidance_config, OrthogonalReferenceGuidanceConfig)
+            and isinstance(self._sampler, DiffusersDdimSampler)
             else None
         )
         if isinstance(self.sampler_config, Ddim5SamplerConfig):
@@ -144,15 +156,27 @@ class PretrainedDiffusionPlanner(nn.Module):
                 dtype=initial.dtype,
                 device=initial.device,
             )
-            normalized_sample = self._sampler.sample(
-                initial,
-                denoiser,
-                constrain,
-                timesteps,
-                self.sampler_config.num_steps,
-                self.sampler_config.ddim_stochasticity,
-                transition_generator,
-            )
+            if isinstance(self._sampler, DiffusersDdimSampler):
+                normalized_sample = self._sampler.sample(
+                    initial,
+                    denoiser,
+                    constrain,
+                    timesteps,
+                    self.sampler_config.num_steps,
+                    self.sampler_config.ddim_stochasticity,
+                    transition_generator,
+                    variance_noises=shared_variance_noises,
+                )
+            else:
+                normalized_sample = self._sampler.sample(
+                    initial,
+                    denoiser,
+                    constrain,
+                    timesteps,
+                    self.sampler_config.num_steps,
+                    self.sampler_config.ddim_stochasticity,
+                    transition_generator,
+                )
         else:
             normalized_sample = self._sampler.sample(initial, denoiser, constrain)
         normalized = normalized_sample.reshape(batch, participants, self.config.future_len + 1, 4)
@@ -199,22 +223,36 @@ class PretrainedDiffusionPlanner(nn.Module):
                 action,
             )
 
-        guided_generator = _clone_generator(
-            transition_generator,
-            shared_generator_state,
-            device,
+        guided_generator = (
+            transition_generator
+            if isinstance(self._sampler, DiffusersDdimSampler)
+            else _clone_generator(transition_generator, shared_generator_state, device)
         )
-        guided_result = self._sampler.sample_guided(
-            initial,
-            denoiser,
-            constrain,
-            timesteps,
-            self.sampler_config.num_steps,
-            self.sampler_config.ddim_stochasticity,
-            guided_generator,
-            guidance_callback,
-            gradient_step_coefficient=self.guidance_config.gradient_step_coefficient,
-        )
+        if isinstance(self._sampler, DiffusersDdimSampler):
+            guided_result = self._sampler.sample_guided(
+                initial,
+                denoiser,
+                constrain,
+                timesteps,
+                self.sampler_config.num_steps,
+                self.sampler_config.ddim_stochasticity,
+                guided_generator,
+                guidance_callback,
+                gradient_step_coefficient=self.guidance_config.gradient_step_coefficient,
+                variance_noises=shared_variance_noises,
+            )
+        else:
+            guided_result = self._sampler.sample_guided(
+                initial,
+                denoiser,
+                constrain,
+                timesteps,
+                self.sampler_config.num_steps,
+                self.sampler_config.ddim_stochasticity,
+                guided_generator,
+                guidance_callback,
+                gradient_step_coefficient=self.guidance_config.gradient_step_coefficient,
+            )
         guided_normalized = guided_result.sample.reshape(
             batch, participants, self.config.future_len + 1, 4
         )
@@ -326,3 +364,22 @@ def _clone_generator(
     clone = torch.Generator(device=device)
     clone.set_state(state)
     return clone
+
+
+def _draw_ddim_variance_noises(
+    sample: torch.Tensor,
+    num_steps: int,
+    stochasticity: float,
+    generator: torch.Generator | None,
+) -> tuple[torch.Tensor, ...] | None:
+    """Draw the shared stochastic DDIM stream once for both diffusers passes."""
+
+    if stochasticity == 0.0:
+        return None
+    if generator is None:
+        raise RuntimeError("validated stochastic DDIM transition lost its generator")
+    draws = tuple(
+        torch.randn(sample.shape, dtype=sample.dtype, device=sample.device, generator=generator)
+        for _ in range(num_steps - 1)
+    )
+    return (*draws, torch.zeros_like(sample))

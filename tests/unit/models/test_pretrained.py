@@ -220,8 +220,10 @@ def test_neutral_reference_guidance_reuses_one_encoding_and_returns_reference_ex
     assert torch.count_nonzero(result.guidance_diagnostics.applied_gradient_l2) == 0
 
 
+@pytest.mark.parametrize("implementation", ("legacy", "diffusers"))
 def test_signed_reference_guidance_moves_ego_left_and_right_without_parameter_gradients(
     stage0_observation: dict[str, torch.Tensor],
+    implementation: str,
 ) -> None:
     config = SimpleNamespace(
         predicted_neighbor_num=10,
@@ -236,6 +238,7 @@ def test_signed_reference_guidance_moves_ego_left_and_right_without_parameter_gr
         initial_noise_scale=1.0,
         ddim_stochasticity=0.0,
         parity_label="plannerrft_paper_text",
+        implementation=implementation,  # type: ignore[arg-type]
     )
     noise = torch.zeros((1, 11, 80, 4), dtype=torch.float32)
     noise[..., 0] = torch.arange(1, 81, dtype=torch.float32)
@@ -277,8 +280,10 @@ def test_signed_reference_guidance_moves_ego_left_and_right_without_parameter_gr
     assert all(parameter.grad is None for parameter in right_planner.parameters())
 
 
+@pytest.mark.parametrize("implementation", ("legacy", "diffusers"))
 def test_guided_reference_consumes_one_shared_stochastic_ddim_stream(
     stage0_observation: dict[str, torch.Tensor],
+    implementation: str,
 ) -> None:
     config = SimpleNamespace(
         predicted_neighbor_num=10,
@@ -293,6 +298,7 @@ def test_guided_reference_consumes_one_shared_stochastic_ddim_stream(
         initial_noise_scale=1.0,
         ddim_stochasticity=1.0,
         parity_label="plannerrft_paper_text",
+        implementation=implementation,  # type: ignore[arg-type]
     )
     noise = torch.zeros((1, 11, 80, 4), dtype=torch.float32)
     noise[..., 0] = torch.arange(1, 81, dtype=torch.float32)
