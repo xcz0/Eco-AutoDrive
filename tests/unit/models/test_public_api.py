@@ -6,6 +6,7 @@ from eco_planner.models import (
     OfficialDiffusionPlannerConfig,
     OrthogonalReferenceGuidanceConfig,
     PlannerInferenceResult,
+    PlanningSampler,
     PretrainedDiffusionPlanner,
     load_official_diffusion_planner,
     parse_guidance_config,
@@ -23,6 +24,7 @@ def test_models_public_api_remains_importable() -> None:
     assert NoGuidanceConfig.__name__ == "NoGuidanceConfig"
     assert OrthogonalReferenceGuidanceConfig.__name__ == "OrthogonalReferenceGuidanceConfig"
     assert PlannerInferenceResult.__name__ == "PlannerInferenceResult"
+    assert PlanningSampler.__name__ == "PlanningSampler"
     assert PretrainedDiffusionPlanner.__name__ == "PretrainedDiffusionPlanner"
     assert load_official_diffusion_planner.__name__ == "load_official_diffusion_planner"
     assert parse_sampler_config.__name__ == "parse_sampler_config"

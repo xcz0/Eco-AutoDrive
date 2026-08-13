@@ -67,7 +67,7 @@ class CheckpointSummary(ArtifactModel):
 
 class SamplerSummary(ArtifactModel):
     name: Literal["dpm10", "ddim5"]
-    implementation: Literal["legacy", "diffusers"]
+    implementation: Literal["diffusers"]
     num_steps: StrictInt = Field(gt=0)
     timesteps: tuple[StrictFloat, ...] | None
     initial_noise_scale: StrictFloat = Field(gt=0.0)

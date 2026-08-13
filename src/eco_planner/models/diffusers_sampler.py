@@ -8,8 +8,13 @@ import numpy as np
 import torch
 from diffusers import DDIMScheduler, DPMSolverMultistepScheduler
 
-from eco_planner.models.ddim_sampler import DdimGuidedSampleResult, DdimSampler
 from eco_planner.models.guidance import GuidanceGradientResult
+from eco_planner.models.sampling_contracts import (
+    DdimGuidedSampleResult,
+    validate_callback_result,
+    validate_ddim_inputs,
+    validate_guidance_result,
+)
 from eco_planner.models.vp_schedule import LinearVpSchedule
 
 _NUM_TRAIN_TIMESTEPS = 1000
@@ -57,7 +62,7 @@ class DiffusersDdimSampler:
             variance_noises, initial_sample, num_steps, ddim_stochasticity
         )
         scheduler = self._new_scheduler(initial_sample.device, initial_sample.dtype)
-        sample = DdimSampler._validate_callback_result(
+        sample = validate_callback_result(
             "current_state_constraint",
             current_state_constraint(initial_sample),
             initial_sample,
@@ -74,7 +79,7 @@ class DiffusersDdimSampler:
                 generator,
                 None if variance_noises is None else variance_noises[index],
             )
-            sample = DdimSampler._validate_callback_result(
+            sample = validate_callback_result(
                 "current_state_constraint",
                 current_state_constraint(sample),
                 sample,
@@ -110,7 +115,7 @@ class DiffusersDdimSampler:
         ):
             raise ValueError("gradient_step_coefficient must be finite and positive")
         scheduler = self._new_scheduler(initial_sample.device, initial_sample.dtype)
-        sample = DdimSampler._validate_callback_result(
+        sample = validate_callback_result(
             "current_state_constraint",
             current_state_constraint(initial_sample),
             initial_sample,
@@ -119,7 +124,7 @@ class DiffusersDdimSampler:
         for index, scheduler_timestep in enumerate(scheduler.timesteps):
             sample_with_grad = sample.detach().requires_grad_(True)
             prediction = self._prediction(model, sample_with_grad, scheduler_timestep)
-            step = DdimSampler._validate_guidance_result(
+            step = validate_guidance_result(
                 guidance(sample_with_grad, prediction), sample_with_grad
             )
             transitioned = self._step(
@@ -133,7 +138,7 @@ class DiffusersDdimSampler:
                 None if variance_noises is None else variance_noises[index],
             )
             updated = transitioned - gradient_step_coefficient * step.applied_gradient
-            sample = DdimSampler._validate_callback_result(
+            sample = validate_callback_result(
                 "current_state_constraint",
                 current_state_constraint(updated),
                 updated,
@@ -174,9 +179,7 @@ class DiffusersDdimSampler:
             dtype=sample.dtype,
             device=sample.device,
         )
-        return DdimSampler._validate_callback_result(
-            "denoise model", model(sample, batch_timestep), sample
-        )
+        return validate_callback_result("denoise model", model(sample, batch_timestep), sample)
 
     @staticmethod
     def _step(
@@ -244,7 +247,7 @@ class DiffusersDdimSampler:
         stochasticity: float,
         generator: torch.Generator | None,
     ) -> None:
-        DdimSampler._validate_inputs(initial_sample, timesteps, num_steps, stochasticity, generator)
+        validate_ddim_inputs(initial_sample, timesteps, num_steps, stochasticity, generator)
         if num_steps != 5:
             raise ValueError("Diffusers DDIM sampler only supports the five-step profile")
         expected = torch.tensor(
@@ -279,7 +282,7 @@ class DiffusersDpmSampler:
             for index, scheduler_timestep in enumerate(scheduler.timesteps[:_DPM10_NUM_STEPS]):
                 prediction = self._prediction(model, scheduler, sample, index)
                 if index == 0:
-                    sample = DdimSampler._validate_callback_result(
+                    sample = validate_callback_result(
                         "current_state_constraint",
                         current_state_constraint(sample),
                         sample,
@@ -291,7 +294,7 @@ class DiffusersDpmSampler:
                 ).prev_sample
                 if not torch.isfinite(sample).all():
                     raise RuntimeError("Diffusers DPM transition produced non-finite state")
-                sample = DdimSampler._validate_callback_result(
+                sample = validate_callback_result(
                     "current_state_constraint",
                     current_state_constraint(sample),
                     sample,
@@ -302,10 +305,10 @@ class DiffusersDpmSampler:
                 dtype=sample.dtype,
                 device=sample.device,
             )
-            final_prediction = DdimSampler._validate_callback_result(
+            final_prediction = validate_callback_result(
                 "denoise model", model(sample, final_timestep), sample
             )
-            return DdimSampler._validate_callback_result(
+            return validate_callback_result(
                 "current_state_constraint",
                 current_state_constraint(final_prediction),
                 final_prediction,
@@ -351,6 +354,4 @@ class DiffusersDpmSampler:
         continuous_timestep = self._schedule.inverse_lambda(lambda_timestep)
         batch_timestep = continuous_timestep.expand(sample.shape[0])
         model_input = scheduler.scale_model_input(sample)
-        return DdimSampler._validate_callback_result(
-            "denoise model", model(model_input, batch_timestep), sample
-        )
+        return validate_callback_result("denoise model", model(model_input, batch_timestep), sample)

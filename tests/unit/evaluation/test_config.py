@@ -33,7 +33,7 @@ def _config() -> object:
                 "precision": "32-true",
                 "seed": 0,
             },
-            "sampler": {"name": "dpm10", "implementation": "legacy"},
+            "sampler": {"name": "dpm10", "implementation": "diffusers"},
             "guidance": {"name": "none"},
             "scenarios": [{"name": "straight", "map": "S", "seed": 0}],
             "video": {

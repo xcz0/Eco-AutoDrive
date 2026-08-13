@@ -45,7 +45,8 @@ reward。
 ### 代码边界
 
 建议在 `src/eco_planner/models/` 下增加独立 DDIM sampler，并由显式 Hydra `sampler` 配置选择；
-不得改写 `BaselineDpmSampler` 的公式或默认语义。sampler 公共 API 至少显式接收：
+采样数值更新由 `diffusers` scheduler 实现，项目不得维护 DPM 或 DDIM update 公式。sampler 公共 API
+至少显式接收：
 
 - 初始扩散状态、denoise callable 和 current-state constraint；
 - 有序 timestep/schedule；

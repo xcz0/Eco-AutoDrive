@@ -7,18 +7,16 @@ from dataclasses import dataclass
 
 import torch
 
-from eco_planner.models.baseline_sampler import BaselineDpmSampler
-from eco_planner.models.ddim_sampler import DdimGuidedSampleResult, DdimSampler
 from eco_planner.models.diffusers_sampler import DiffusersDdimSampler, DiffusersDpmSampler
 from eco_planner.models.guidance import GuidanceGradientResult
 from eco_planner.models.sampling_config import Ddim5SamplerConfig, SamplerConfig
+from eco_planner.models.sampling_contracts import DdimGuidedSampleResult
 
 
 @dataclass(frozen=True)
 class GuidanceSamplingRandomness:
     """Transition randomness shared by the reference and guided DDIM passes."""
 
-    legacy_generator_state: torch.Tensor | None = None
     variance_noises: tuple[torch.Tensor, ...] | None = None
 
 
@@ -51,14 +49,6 @@ class PlanningSampler:
         """Capture one DDIM random stream for semantically identical paired passes."""
 
         config = self._ddim_config()
-        if config.implementation == "legacy":
-            return (
-                GuidanceSamplingRandomness()
-                if generator is None
-                else GuidanceSamplingRandomness(
-                    legacy_generator_state=generator.get_state().clone()
-                )
-            )
         if config.ddim_stochasticity == 0.0:
             return GuidanceSamplingRandomness()
         if generator is None:
@@ -93,20 +83,6 @@ class PlanningSampler:
                 dtype=initial_sample.dtype,
                 device=initial_sample.device,
             )
-            if isinstance(self._sampler, DiffusersDdimSampler):
-                variance_noises = (
-                    None if guidance_randomness is None else guidance_randomness.variance_noises
-                )
-                return self._sampler.sample(
-                    initial_sample,
-                    model,
-                    current_state_constraint,
-                    timesteps,
-                    self.config.num_steps,
-                    self.config.ddim_stochasticity,
-                    generator,
-                    variance_noises=variance_noises,
-                )
             return self._sampler.sample(
                 initial_sample,
                 model,
@@ -115,6 +91,9 @@ class PlanningSampler:
                 self.config.num_steps,
                 self.config.ddim_stochasticity,
                 generator,
+                variance_noises=(
+                    None if guidance_randomness is None else guidance_randomness.variance_noises
+                ),
             )
         return self._sampler.sample(initial_sample, model, current_state_constraint)
 
@@ -137,19 +116,6 @@ class PlanningSampler:
             dtype=initial_sample.dtype,
             device=initial_sample.device,
         )
-        if isinstance(self._sampler, DiffusersDdimSampler):
-            return self._sampler.sample_guided(
-                initial_sample,
-                model,
-                current_state_constraint,
-                timesteps,
-                config.num_steps,
-                config.ddim_stochasticity,
-                generator,
-                guidance,
-                gradient_step_coefficient=gradient_step_coefficient,
-                variance_noises=guidance_randomness.variance_noises,
-            )
         return self._sampler.sample_guided(
             initial_sample,
             model,
@@ -157,38 +123,21 @@ class PlanningSampler:
             timesteps,
             config.num_steps,
             config.ddim_stochasticity,
-            _clone_generator(
-                generator, guidance_randomness.legacy_generator_state, initial_sample.device
-            ),
+            generator,
             guidance,
             gradient_step_coefficient=gradient_step_coefficient,
+            variance_noises=guidance_randomness.variance_noises,
         )
 
     @staticmethod
     def _new_implementation(
         config: SamplerConfig,
-    ) -> BaselineDpmSampler | DdimSampler | DiffusersDdimSampler | DiffusersDpmSampler:
+    ) -> DiffusersDdimSampler | DiffusersDpmSampler:
         if isinstance(config, Ddim5SamplerConfig):
-            return DiffusersDdimSampler() if config.implementation == "diffusers" else DdimSampler()
-        return (
-            DiffusersDpmSampler() if config.implementation == "diffusers" else BaselineDpmSampler()
-        )
+            return DiffusersDdimSampler()
+        return DiffusersDpmSampler()
 
     def _ddim_config(self) -> Ddim5SamplerConfig:
         if not isinstance(self.config, Ddim5SamplerConfig):
             raise RuntimeError("guidance is only supported by the DDIM-5 sampler profile")
         return self.config
-
-
-def _clone_generator(
-    generator: torch.Generator | None,
-    state: torch.Tensor | None,
-    device: torch.device,
-) -> torch.Generator | None:
-    if generator is None:
-        return None
-    if state is None:
-        raise RuntimeError("guided DDIM did not capture the shared generator state")
-    clone = torch.Generator(device=device)
-    clone.set_state(state)
-    return clone

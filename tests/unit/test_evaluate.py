@@ -138,7 +138,7 @@ class _FakeRuntime:
         self.checkpoint_report = CheckpointLoadReport(276, 6_042_628)
         self.sampler_report = SamplerReport(
             name="dpm10",
-            implementation="legacy",
+            implementation="diffusers",
             num_steps=10,
             timesteps=None,
             initial_noise_scale=0.5,
@@ -187,7 +187,7 @@ def _config() -> object:
                 "precision": "32-true",
                 "seed": 7,
             },
-            "sampler": {"name": "dpm10", "implementation": "legacy"},
+            "sampler": {"name": "dpm10", "implementation": "diffusers"},
             "guidance": {"name": "none"},
             "scenarios": [{"name": "fake", "map": "S", "seed": 3}],
             "video": {

@@ -20,7 +20,7 @@ class Dpm10SamplerConfig:
     """The immutable official Diffusion Planner sampling profile."""
 
     name: Literal["dpm10"] = "dpm10"
-    implementation: Literal["legacy", "diffusers"] = "legacy"
+    implementation: Literal["diffusers"] = "diffusers"
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,7 @@ class Ddim5SamplerConfig:
     initial_noise_scale: float
     ddim_stochasticity: float
     parity_label: Literal["plannerrft_paper_text", "project_noise_scale_0_5"]
-    implementation: Literal["legacy", "diffusers"] = "legacy"
+    implementation: Literal["diffusers"] = "diffusers"
 
 
 SamplerConfig = Dpm10SamplerConfig | Ddim5SamplerConfig
@@ -64,8 +64,8 @@ def parse_sampler_config(config: DictConfig) -> SamplerConfig:
     if name == "dpm10":
         _require_exact_keys(raw, {"name", "implementation"}, "dpm10")
         implementation = raw["implementation"]
-        if implementation not in {"legacy", "diffusers"}:
-            raise ValueError("dpm10 implementation must be either 'legacy' or 'diffusers'")
+        if implementation != "diffusers":
+            raise ValueError("dpm10 implementation must be 'diffusers'")
         return Dpm10SamplerConfig(implementation=implementation)
     if name != "ddim5":
         raise ValueError("sampler.name must be either 'dpm10' or 'ddim5'")
@@ -105,8 +105,8 @@ def parse_sampler_config(config: DictConfig) -> SamplerConfig:
             f"ddim5 parity_label {parity_label!r} requires initial_noise_scale={expected_scale}"
         )
     implementation = raw["implementation"]
-    if implementation not in {"legacy", "diffusers"}:
-        raise ValueError("ddim5 implementation must be either 'legacy' or 'diffusers'")
+    if implementation != "diffusers":
+        raise ValueError("ddim5 implementation must be 'diffusers'")
     return Ddim5SamplerConfig(
         name="ddim5",
         num_steps=num_steps,

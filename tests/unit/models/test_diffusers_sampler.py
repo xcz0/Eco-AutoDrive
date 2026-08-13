@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
-from eco_planner.models.baseline_sampler import BaselineDpmSampler
-from eco_planner.models.ddim_sampler import DdimSampler
 from eco_planner.models.diffusers_sampler import DiffusersDdimSampler, DiffusersDpmSampler
 from eco_planner.models.guidance import GuidanceGradientResult
 from eco_planner.models.vp_schedule import LinearVpSchedule
@@ -56,37 +55,6 @@ def test_diffusers_ddim_uses_the_certified_discrete_and_continuous_timesteps() -
         atol=0.0,
     )
     assert torch.equal(result[:, :, 0], torch.ones((2, 3)))
-
-
-def test_diffusers_ddim_matches_legacy_deterministic_and_stochastic_transitions() -> None:
-    initial = torch.linspace(-1.0, 1.0, 16, dtype=torch.float64).reshape(1, 2, 8)
-    timesteps = torch.tensor((1.0, 0.8, 0.6, 0.4, 0.2, 0.0), dtype=torch.float64)
-    legacy = DdimSampler()
-    diffusers = DiffusersDdimSampler()
-
-    expected = legacy.sample(initial, _model, _constraint, timesteps, 5, 0.0, None)
-    actual = diffusers.sample(initial, _model, _constraint, timesteps, 5, 0.0, None)
-    torch.testing.assert_close(actual, expected, rtol=0.0, atol=1e-12)
-
-    expected_stochastic = legacy.sample(
-        initial,
-        _model,
-        _constraint,
-        timesteps,
-        5,
-        0.7,
-        torch.Generator().manual_seed(31),
-    )
-    actual_stochastic = diffusers.sample(
-        initial,
-        _model,
-        _constraint,
-        timesteps,
-        5,
-        0.7,
-        torch.Generator().manual_seed(31),
-    )
-    torch.testing.assert_close(actual_stochastic, expected_stochastic, rtol=0.0, atol=1e-12)
 
 
 def test_diffusers_guided_ddim_reuses_explicit_variance_noises_without_rng_side_effects() -> None:
@@ -146,6 +114,23 @@ def test_diffusers_guided_ddim_reuses_explicit_variance_noises_without_rng_side_
     assert torch.equal(guided_generator.get_state(), guided_state)
 
 
+def test_diffusers_ddim_retains_sampler_boundary_validation() -> None:
+    sampler = DiffusersDdimSampler()
+    initial = torch.ones((1, 2, 4))
+    timesteps = torch.tensor((1.0, 0.8, 0.6, 0.4, 0.2, 0.0))
+
+    with pytest.raises(ValueError, match="preserve sample shape"):
+        sampler.sample(
+            initial,
+            lambda sample, timestep: sample[..., :1],
+            _constraint,
+            timesteps,
+            5,
+            0.0,
+            None,
+        )
+
+
 def test_diffusers_dpm_uses_the_certified_profile_and_continuous_sigma_times() -> None:
     adapter = DiffusersDpmSampler()
     scheduler = adapter._new_scheduler(torch.device("cpu"), torch.float64)
@@ -185,9 +170,8 @@ def test_diffusers_dpm_uses_the_certified_profile_and_continuous_sigma_times() -
     )
 
 
-def test_diffusers_dpm_matches_legacy_and_preserves_baseline_call_contract() -> None:
+def test_diffusers_dpm_preserves_baseline_call_contract() -> None:
     initial = torch.linspace(-1.0, 1.0, 48, dtype=torch.float32).reshape(2, 3, 8)
-    legacy = BaselineDpmSampler()
     diffusers = DiffusersDpmSampler()
     model_calls = 0
     constraint_calls = 0
@@ -202,10 +186,8 @@ def test_diffusers_dpm_matches_legacy_and_preserves_baseline_call_contract() -> 
         constraint_calls += 1
         return _constraint(sample)
 
-    expected = legacy.sample(initial, _model, _constraint)
     actual = diffusers.sample(initial, model, counted_constraint)
 
-    torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
     assert model_calls == 11
     assert constraint_calls == 12
     assert torch.equal(actual[:, :, 0], torch.ones((2, 3)))

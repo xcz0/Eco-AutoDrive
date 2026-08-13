@@ -99,9 +99,9 @@ DPM-Solver++，结束于 `t=1/1000` 后额外预测一次 `x_start`。其公式�
 sampler 边界显式转换到该 dtype。`0.5 * N(0,I)` DDIM 仅作为带独立 parity 标签的项目隔离变体，
 不得解释为 PlannerRFT parity。
 
-sampler 配置还必须显式记录 `implementation`。`dpm10` 和 `ddim5` 可以选择 `legacy` 或经数值
-parity 测试认证的 `diffusers`；默认配置保持 `legacy`。两种 `diffusers` scheduler 都使用由项目连续
-VP-SDE 离散化的 `trained_betas`，而非其默认 beta schedule。DPM10 使用 DPM-Solver++、二阶
+sampler 配置必须显式记录固定值 `implementation=diffusers`。两种 `diffusers` scheduler 都使用由项目
+连续 VP-SDE 离散化的 `trained_betas`，而非其默认 beta schedule；项目不维护任何 local solver 数值
+更新公式。DPM10 使用 DPM-Solver++、二阶
 multistep、均匀 lambda spacing，结束于最小训练 sigma 后额外以 `t=0.001` 预测一次 `x_start`；
 模型时间由 scheduler 的实际 sigma 恢复，不能直接使用其离散 timestep。DDIM-5 模型时间仍严格为
 `[1.0, 0.8, 0.6, 0.4, 0.2]`。`PlanningSampler` 是规划器唯一的 sampler 边界：它封装 profile、
@@ -124,9 +124,8 @@ backend 选择和 backend 专属参数，规划器不得按具体 sampler 类型
 
 每个规划周期只使用一份严格加载、冻结且 eval-mode 的官方 EMA 模型，并只计算一次 scene
 encoding。reference 与 guided pass 共享当前 observation、initial noise 和 DDIM transition draws；
-legacy backend 通过从 reference 开始前复制 generator state 重放，`diffusers` backend 则在
-reference 前显式取得每个非末步 `variance_noise` 并将同一组 tensor 传给两次 scheduler step；
-上述 backend 专属随机流协调由 `PlanningSampler` 负责。
+在 reference 前显式取得每个非末步 `variance_noise`，并将同一组 tensor 传给两次 scheduler step；
+该随机流协调由 `PlanningSampler` 负责。
 reference 每个规划周期刷新。
 
 reference 切向由其有限、非退化的 `[cos(h), sin(h)]` 归一化得到，左法向为

@@ -1,5 +1,5 @@
 name: ddim5
-implementation: legacy
+implementation: diffusers
 num_steps: 5
 timesteps: [1.0, 0.8, 0.6, 0.4, 0.2, 0.0]
 initial_noise_scale: 0.5
