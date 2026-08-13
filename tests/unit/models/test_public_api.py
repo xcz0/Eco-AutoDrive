@@ -1,5 +1,6 @@
 from eco_planner.models import (
     Ddim5SamplerConfig,
+    DiffusersDpmSampler,
     Dpm10SamplerConfig,
     NoGuidanceConfig,
     OfficialDiffusionPlannerConfig,
@@ -17,6 +18,7 @@ from eco_planner.models.pretrained import CheckpointLoadReport
 def test_models_public_api_remains_importable() -> None:
     assert OfficialDiffusionPlannerConfig.__name__ == "OfficialDiffusionPlannerConfig"
     assert Ddim5SamplerConfig.__name__ == "Ddim5SamplerConfig"
+    assert DiffusersDpmSampler.__name__ == "DiffusersDpmSampler"
     assert Dpm10SamplerConfig.__name__ == "Dpm10SamplerConfig"
     assert NoGuidanceConfig.__name__ == "NoGuidanceConfig"
     assert OrthogonalReferenceGuidanceConfig.__name__ == "OrthogonalReferenceGuidanceConfig"

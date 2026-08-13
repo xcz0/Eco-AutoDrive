@@ -1,7 +1,11 @@
 """Checkpoint-compatible model components for Eco-AutoDrive."""
 
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.diffusers_sampler import DiffusersDdimSampler, build_vp_trained_betas
+from eco_planner.models.diffusers_sampler import (
+    DiffusersDdimSampler,
+    DiffusersDpmSampler,
+    build_vp_trained_betas,
+)
 from eco_planner.models.guidance import (
     GuidanceConfig,
     GuidanceDiagnostics,
@@ -28,6 +32,7 @@ __all__ = [
     "OfficialDiffusionPlannerConfig",
     "Ddim5SamplerConfig",
     "DiffusersDdimSampler",
+    "DiffusersDpmSampler",
     "Dpm10SamplerConfig",
     "GuidanceConfig",
     "GuidanceDiagnostics",

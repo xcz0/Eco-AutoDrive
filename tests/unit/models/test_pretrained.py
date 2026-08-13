@@ -7,6 +7,7 @@ import torch
 from torch import nn
 
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.diffusers_sampler import DiffusersDpmSampler
 from eco_planner.models.diffusion_planner import DiffusionPlanner
 from eco_planner.models.guidance import OrthogonalReferenceGuidanceConfig
 from eco_planner.models.pretrained import PretrainedDiffusionPlanner
@@ -120,6 +121,18 @@ def test_pretrained_planner_tracks_actual_runtime_device(
     )
     planner.to(torch.device("cpu"))
     assert planner._runtime_device == torch.device("cpu")
+
+
+def test_pretrained_planner_selects_diffusers_dpm_backend(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    planner = PretrainedDiffusionPlanner(
+        official_model_config,
+        DiffusionPlanner(official_model_config),
+        Dpm10SamplerConfig(implementation="diffusers"),
+    )
+
+    assert isinstance(planner._sampler, DiffusersDpmSampler)
 
 
 @pytest.mark.gpu

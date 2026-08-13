@@ -1,4 +1,4 @@
-"""Diffusers-backed DDIM-5 sampler with the Planner's continuous-time contract."""
+"""Diffusers schedulers adapted to the Planner's continuous-time contract."""
 
 from __future__ import annotations
 
@@ -6,13 +6,14 @@ from collections.abc import Callable
 
 import numpy as np
 import torch
-from diffusers import DDIMScheduler
+from diffusers import DDIMScheduler, DPMSolverMultistepScheduler
 
 from eco_planner.models.ddim_sampler import DdimGuidedSampleResult, DdimSampler
 from eco_planner.models.guidance import GuidanceGradientResult
 from eco_planner.models.vp_schedule import LinearVpSchedule
 
 _NUM_TRAIN_TIMESTEPS = 1000
+_DPM10_NUM_STEPS = 10
 _DDIM5_TIMESTEPS = (1.0, 0.8, 0.6, 0.4, 0.2, 0.0)
 
 
@@ -253,3 +254,103 @@ class DiffusersDdimSampler:
         )
         if not torch.equal(timesteps, expected):
             raise ValueError(f"Diffusers DDIM timesteps must equal {_DDIM5_TIMESTEPS}")
+
+
+class DiffusersDpmSampler:
+    """Apply the fixed DPM-Solver++ ten-step profile through Diffusers."""
+
+    def __init__(self) -> None:
+        self._schedule = LinearVpSchedule()
+        if self._schedule.total_n != _NUM_TRAIN_TIMESTEPS:
+            raise RuntimeError("Diffusers DPM-10 adapter requires exactly 1000 training timesteps")
+        self._trained_betas = build_vp_trained_betas(self._schedule)
+
+    def sample(
+        self,
+        initial_sample: torch.Tensor,
+        model: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+        current_state_constraint: Callable[[torch.Tensor], torch.Tensor],
+    ) -> torch.Tensor:
+        """Sample the certified DPM10 profile and retain its final ``x_start`` call."""
+
+        scheduler = self._new_scheduler(initial_sample.device, initial_sample.dtype)
+        with torch.no_grad():
+            sample = initial_sample
+            for index, scheduler_timestep in enumerate(scheduler.timesteps[:_DPM10_NUM_STEPS]):
+                prediction = self._prediction(model, scheduler, sample, index)
+                if index == 0:
+                    sample = DdimSampler._validate_callback_result(
+                        "current_state_constraint",
+                        current_state_constraint(sample),
+                        sample,
+                    )
+                sample = scheduler.step(
+                    model_output=prediction,
+                    timestep=scheduler_timestep,
+                    sample=sample,
+                ).prev_sample
+                if not torch.isfinite(sample).all():
+                    raise RuntimeError("Diffusers DPM transition produced non-finite state")
+                sample = DdimSampler._validate_callback_result(
+                    "current_state_constraint",
+                    current_state_constraint(sample),
+                    sample,
+                )
+            final_timestep = torch.full(
+                (sample.shape[0],),
+                1.0 / _NUM_TRAIN_TIMESTEPS,
+                dtype=sample.dtype,
+                device=sample.device,
+            )
+            final_prediction = DdimSampler._validate_callback_result(
+                "denoise model", model(sample, final_timestep), sample
+            )
+            return DdimSampler._validate_callback_result(
+                "current_state_constraint",
+                current_state_constraint(final_prediction),
+                final_prediction,
+            )
+
+    def _new_scheduler(
+        self, device: torch.device, dtype: torch.dtype = torch.float32
+    ) -> DPMSolverMultistepScheduler:
+        scheduler = DPMSolverMultistepScheduler(
+            num_train_timesteps=_NUM_TRAIN_TIMESTEPS,
+            trained_betas=self._trained_betas,
+            prediction_type="sample",
+            algorithm_type="dpmsolver++",
+            solver_order=2,
+            solver_type="midpoint",
+            thresholding=False,
+            use_lu_lambdas=True,
+            lower_order_final=False,
+            final_sigmas_type="sigma_min",
+        )
+        if dtype == torch.float64:
+            scheduler.betas = torch.from_numpy(self._trained_betas).to(dtype=dtype)
+            scheduler.alphas = 1.0 - scheduler.betas
+            scheduler.alphas_cumprod = torch.cumprod(scheduler.alphas, dim=0)
+            scheduler.alpha_t = torch.sqrt(scheduler.alphas_cumprod)
+            scheduler.sigma_t = torch.sqrt(1.0 - scheduler.alphas_cumprod)
+            scheduler.lambda_t = torch.log(scheduler.alpha_t) - torch.log(scheduler.sigma_t)
+        # Diffusers includes both endpoints in its Lu schedule and then appends the final sigma.
+        # Request one extra scheduler point so the ten executed transitions end at sigma_min rather
+        # than duplicating it in the final transition.
+        scheduler.set_timesteps(num_inference_steps=_DPM10_NUM_STEPS + 1, device=device)
+        return scheduler
+
+    def _prediction(
+        self,
+        model: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+        scheduler: DPMSolverMultistepScheduler,
+        sample: torch.Tensor,
+        index: int,
+    ) -> torch.Tensor:
+        sigma_ratio = scheduler.sigmas[index].to(device=sample.device, dtype=sample.dtype)
+        lambda_timestep = -torch.log(sigma_ratio)
+        continuous_timestep = self._schedule.inverse_lambda(lambda_timestep)
+        batch_timestep = continuous_timestep.expand(sample.shape[0])
+        model_input = scheduler.scale_model_input(sample)
+        return DdimSampler._validate_callback_result(
+            "denoise model", model(model_input, batch_timestep), sample
+        )

@@ -23,7 +23,7 @@ from eco_planner.models.contracts import (
     validate_standard_normal_noise,
 )
 from eco_planner.models.ddim_sampler import DdimSampler
-from eco_planner.models.diffusers_sampler import DiffusersDdimSampler
+from eco_planner.models.diffusers_sampler import DiffusersDdimSampler, DiffusersDpmSampler
 from eco_planner.models.diffusion_planner import DiffusionPlanner
 from eco_planner.models.guidance import (
     GuidanceConfig,
@@ -63,7 +63,11 @@ class PretrainedDiffusionPlanner(nn.Module):
                 else DdimSampler()
             )
             if isinstance(sampler_config, Ddim5SamplerConfig)
-            else BaselineDpmSampler()
+            else (
+                DiffusersDpmSampler()
+                if sampler_config.implementation == "diffusers"
+                else BaselineDpmSampler()
+            )
         )
         for parameter in self.model.parameters():
             parameter.requires_grad_(False)

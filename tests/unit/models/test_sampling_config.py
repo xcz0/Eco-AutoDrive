@@ -63,5 +63,5 @@ def test_dpm_config_rejects_irrelevant_math_fields() -> None:
 def test_sampler_config_allows_only_certified_backends() -> None:
     config = parse_sampler_config(_ddim_config(implementation="diffusers"))  # type: ignore[arg-type]
     assert config.implementation == "diffusers"
-    with pytest.raises(ValueError, match="until DPM parity"):
-        parse_sampler_config(OmegaConf.create({"name": "dpm10", "implementation": "diffusers"}))
+    dpm = parse_sampler_config(OmegaConf.create({"name": "dpm10", "implementation": "diffusers"}))
+    assert dpm.implementation == "diffusers"

@@ -20,7 +20,7 @@ class Dpm10SamplerConfig:
     """The immutable official Diffusion Planner sampling profile."""
 
     name: Literal["dpm10"] = "dpm10"
-    implementation: Literal["legacy"] = "legacy"
+    implementation: Literal["legacy", "diffusers"] = "legacy"
 
 
 @dataclass(frozen=True)
@@ -63,9 +63,10 @@ def parse_sampler_config(config: DictConfig) -> SamplerConfig:
     name = raw.get("name")
     if name == "dpm10":
         _require_exact_keys(raw, {"name", "implementation"}, "dpm10")
-        if raw["implementation"] != "legacy":
-            raise ValueError("dpm10 implementation must be 'legacy' until DPM parity is certified")
-        return Dpm10SamplerConfig()
+        implementation = raw["implementation"]
+        if implementation not in {"legacy", "diffusers"}:
+            raise ValueError("dpm10 implementation must be either 'legacy' or 'diffusers'")
+        return Dpm10SamplerConfig(implementation=implementation)
     if name != "ddim5":
         raise ValueError("sampler.name must be either 'dpm10' or 'ddim5'")
 

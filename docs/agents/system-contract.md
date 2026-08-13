@@ -90,7 +90,7 @@ lane 长度与宽度必须接受 Python 或 NumPy 的真实数值标量，同时
 
 预训练模型使用连续时间线性 VP-SDE 并预测 `x_start`。Hydra 必须显式选择 sampler；默认
 `dpm10` 保持官方 baseline：从 `0.5 * N(0,I)` 的未来噪声开始，执行 10 步二阶 multistep
-DPM-Solver++，最后 denoise 到零时刻。其公式和初始尺度不得由配置覆盖。
+DPM-Solver++，结束于 `t=1/1000` 后额外预测一次 `x_start`。其公式和初始尺度不得由配置覆盖。
 
 可选 `ddim5` 从标准高斯未来噪声开始，在 `t = [1.0, 0.8, 0.6, 0.4, 0.2]` 预测 `x_start`，
 依次转移到 `[0.8, 0.6, 0.4, 0.2, 0.0]`。该均匀连续时间子序列是本项目复现决定，不是论文公开
@@ -99,9 +99,11 @@ DPM-Solver++，最后 denoise 到零时刻。其公式和初始尺度不得由�
 sampler 边界显式转换到该 dtype。`0.5 * N(0,I)` DDIM 仅作为带独立 parity 标签的项目隔离变体，
 不得解释为 PlannerRFT parity。
 
-sampler 配置还必须显式记录 `implementation`。当前 `dpm10` 仅允许 `legacy`；`ddim5` 可以选择
-`legacy` 或经数值 parity 测试认证的 `diffusers`。默认配置保持 `legacy`。`diffusers` DDIM-5 使用
-由项目连续 VP-SDE 离散化的 `trained_betas`，而非其默认 beta schedule，模型时间仍严格为
+sampler 配置还必须显式记录 `implementation`。`dpm10` 和 `ddim5` 可以选择 `legacy` 或经数值
+parity 测试认证的 `diffusers`；默认配置保持 `legacy`。两种 `diffusers` scheduler 都使用由项目连续
+VP-SDE 离散化的 `trained_betas`，而非其默认 beta schedule。DPM10 使用 DPM-Solver++、二阶
+multistep、均匀 lambda spacing，结束于最小训练 sigma 后额外以 `t=0.001` 预测一次 `x_start`；
+模型时间由 scheduler 的实际 sigma 恢复，不能直接使用其离散 timestep。DDIM-5 模型时间仍严格为
 `[1.0, 0.8, 0.6, 0.4, 0.2]`。产物中的 sampler metadata 必须保存该后端选择。
 
 给定 observation 和初始噪声，baseline sampler 以及 `ddim_stochasticity=0` 的 DDIM 是确定性的。
