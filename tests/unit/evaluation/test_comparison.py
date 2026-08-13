@@ -26,6 +26,7 @@ def _runtime() -> dict[str, object]:
 def _sampler() -> dict[str, object]:
     return {
         "name": "dpm10",
+        "implementation": "legacy",
         "num_steps": 10,
         "timesteps": None,
         "initial_noise_scale": 0.5,

@@ -49,7 +49,7 @@ def _config(*, accelerator: str = "cpu", video: bool = False, threads: int = 2):
                 "accident_prob": 0.0,
             },
             "model": {"args_path": "args.json", "checkpoint_path": "model.pth"},
-            "sampler": {"name": "dpm10"},
+            "sampler": {"name": "dpm10", "implementation": "legacy"},
             "guidance": {"name": "none"},
             "scenarios": [{"name": "straight", "map": "S", "seed": 0}],
         }

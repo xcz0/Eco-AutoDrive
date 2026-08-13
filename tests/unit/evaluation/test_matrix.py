@@ -14,6 +14,7 @@ from eco_planner.evaluation.trace import EpisodeTraceRecorder
 def _sampler() -> dict[str, object]:
     return {
         "name": "dpm10",
+        "implementation": "legacy",
         "num_steps": 10,
         "timesteps": None,
         "initial_noise_scale": 0.5,

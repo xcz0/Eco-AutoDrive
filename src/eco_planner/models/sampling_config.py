@@ -20,6 +20,7 @@ class Dpm10SamplerConfig:
     """The immutable official Diffusion Planner sampling profile."""
 
     name: Literal["dpm10"] = "dpm10"
+    implementation: Literal["legacy"] = "legacy"
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class Ddim5SamplerConfig:
     initial_noise_scale: float
     ddim_stochasticity: float
     parity_label: Literal["plannerrft_paper_text", "project_noise_scale_0_5"]
+    implementation: Literal["legacy", "diffusers"] = "legacy"
 
 
 SamplerConfig = Dpm10SamplerConfig | Ddim5SamplerConfig
@@ -47,6 +49,7 @@ class SamplerReport:
     initial_noise_scale: float
     ddim_stochasticity: float
     parity_label: str
+    implementation: str
 
 
 def parse_sampler_config(config: DictConfig) -> SamplerConfig:
@@ -59,7 +62,9 @@ def parse_sampler_config(config: DictConfig) -> SamplerConfig:
         raise TypeError("sampler configuration must resolve to a dictionary")
     name = raw.get("name")
     if name == "dpm10":
-        _require_exact_keys(raw, {"name"}, "dpm10")
+        _require_exact_keys(raw, {"name", "implementation"}, "dpm10")
+        if raw["implementation"] != "legacy":
+            raise ValueError("dpm10 implementation must be 'legacy' until DPM parity is certified")
         return Dpm10SamplerConfig()
     if name != "ddim5":
         raise ValueError("sampler.name must be either 'dpm10' or 'ddim5'")
@@ -71,6 +76,7 @@ def parse_sampler_config(config: DictConfig) -> SamplerConfig:
         "initial_noise_scale",
         "ddim_stochasticity",
         "parity_label",
+        "implementation",
     }
     _require_exact_keys(raw, required, "ddim5")
     num_steps = raw["num_steps"]
@@ -97,6 +103,9 @@ def parse_sampler_config(config: DictConfig) -> SamplerConfig:
         raise ValueError(
             f"ddim5 parity_label {parity_label!r} requires initial_noise_scale={expected_scale}"
         )
+    implementation = raw["implementation"]
+    if implementation not in {"legacy", "diffusers"}:
+        raise ValueError("ddim5 implementation must be either 'legacy' or 'diffusers'")
     return Ddim5SamplerConfig(
         name="ddim5",
         num_steps=num_steps,
@@ -104,6 +113,7 @@ def parse_sampler_config(config: DictConfig) -> SamplerConfig:
         initial_noise_scale=initial_noise_scale,
         ddim_stochasticity=stochasticity,
         parity_label=parity_label,
+        implementation=implementation,
     )
 
 
@@ -116,6 +126,7 @@ def sampler_report(config: SamplerConfig) -> SamplerReport:
             initial_noise_scale=0.5,
             ddim_stochasticity=0.0,
             parity_label="official_diffusion_planner_baseline",
+            implementation=config.implementation,
         )
     return SamplerReport(
         name=config.name,
@@ -124,6 +135,7 @@ def sampler_report(config: SamplerConfig) -> SamplerReport:
         initial_noise_scale=config.initial_noise_scale,
         ddim_stochasticity=config.ddim_stochasticity,
         parity_label=config.parity_label,
+        implementation=config.implementation,
     )
 
 

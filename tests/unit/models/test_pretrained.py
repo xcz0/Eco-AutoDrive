@@ -136,13 +136,18 @@ def test_pretrained_planner_tracks_cuda_device(
 
 
 @pytest.mark.parametrize(
-    ("scale", "label"),
-    [(1.0, "plannerrft_paper_text"), (0.5, "project_noise_scale_0_5")],
+    ("scale", "label", "implementation"),
+    [
+        (1.0, "plannerrft_paper_text", "legacy"),
+        (1.0, "plannerrft_paper_text", "diffusers"),
+        (0.5, "project_noise_scale_0_5", "legacy"),
+    ],
 )
 def test_pretrained_ddim_applies_explicit_noise_scale_and_sampler_dtype_boundary(
     stage0_observation: dict[str, torch.Tensor],
     scale: float,
     label: str,
+    implementation: str,
 ) -> None:
     config = SimpleNamespace(
         predicted_neighbor_num=10,
@@ -158,6 +163,7 @@ def test_pretrained_ddim_applies_explicit_noise_scale_and_sampler_dtype_boundary
         initial_noise_scale=scale,
         ddim_stochasticity=0.0,
         parity_label=label,  # type: ignore[arg-type]
+        implementation=implementation,  # type: ignore[arg-type]
     )
     planner = PretrainedDiffusionPlanner(  # type: ignore[arg-type]
         config,

@@ -99,6 +99,11 @@ DPM-Solver++，最后 denoise 到零时刻。其公式和初始尺度不得由�
 sampler 边界显式转换到该 dtype。`0.5 * N(0,I)` DDIM 仅作为带独立 parity 标签的项目隔离变体，
 不得解释为 PlannerRFT parity。
 
+sampler 配置还必须显式记录 `implementation`。当前 `dpm10` 仅允许 `legacy`；`ddim5` 可以选择
+`legacy` 或经数值 parity 测试认证的 `diffusers`。默认配置保持 `legacy`。`diffusers` DDIM-5 使用
+由项目连续 VP-SDE 离散化的 `trained_betas`，而非其默认 beta schedule，模型时间仍严格为
+`[1.0, 0.8, 0.6, 0.4, 0.2]`。产物中的 sampler metadata 必须保存该后端选择。
+
 给定 observation 和初始噪声，baseline sampler 以及 `ddim_stochasticity=0` 的 DDIM 是确定性的。
 每个回合创建一个由噪声 seed 初始化的持久化 `torch.Generator`；每个规划周期先从中取得新的标准
 正态噪声，随机 DDIM transition 再从同一 generator 顺序取样。trace 保存未缩放的标准正态初始
