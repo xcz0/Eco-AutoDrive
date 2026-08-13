@@ -92,6 +92,7 @@ class MetaDriveObservationAdapter:
         previous_step = self._history[-1].simulator_step if self._history else None
         validated: list[TrafficFrame] = []
         indexes: list[dict[str, TrafficParticipantState]] = []
+        staged_artifact_ids = dict(self._artifact_participant_ids)
         for frame in frames:
             if not isinstance(frame, TrafficFrame):
                 raise TypeError("frames must contain only TrafficFrame values")
@@ -101,9 +102,10 @@ class MetaDriveObservationAdapter:
                     f"expected {previous_step + 1}, got {frame.simulator_step}"
                 )
             validated.append(frame)
-            self._register_artifact_participant_ids(frame)
+            _register_artifact_participant_ids(frame, staged_artifact_ids)
             indexes.append(_unique_participants(frame))
             previous_step = frame.simulator_step
+        self._artifact_participant_ids = staged_artifact_ids
         self._history.extend(validated)
         self._history_by_id.extend(indexes)
         self._last_audit = None
@@ -160,7 +162,7 @@ class MetaDriveObservationAdapter:
         )
         histories = list(self._history_by_id)
         selected_histories: list[list[TrafficParticipantState]] = []
-        for output_index, object_id in enumerate(selected):
+        for object_id in selected:
             filled: TrafficParticipantState | None = None
             resolved: list[TrafficParticipantState] = []
             for frame_states in reversed(histories):
@@ -192,20 +194,7 @@ class MetaDriveObservationAdapter:
         )
 
     def _register_artifact_participant_ids(self, frame: TrafficFrame) -> None:
-        unseen = [
-            state
-            for state in frame.participants
-            if state.object_id not in self._artifact_participant_ids
-        ]
-        keyed = sorted((_participant_identity_key(state), state.object_id) for state in unseen)
-        for previous, current in zip(keyed, keyed[1:]):
-            if previous[0] == current[0]:
-                raise RuntimeError(
-                    "new traffic participants have indistinguishable physical identity keys"
-                )
-        for _, object_id in keyed:
-            stable_id = f"participant-{len(self._artifact_participant_ids):06d}"
-            self._artifact_participant_ids[object_id] = stable_id
+        _register_artifact_participant_ids(frame, self._artifact_participant_ids)
 
     def _build_static_objects(self, latest: TrafficFrame) -> tuple[np.ndarray, int]:
         anchor_xy, anchor_heading = _rear_axle_anchor(latest)
@@ -255,6 +244,18 @@ def _participant_identity_key(state: TrafficParticipantState) -> tuple[object, .
         state.width_m,
         state.length_m,
     )
+
+
+def _register_artifact_participant_ids(frame: TrafficFrame, artifact_ids: dict[str, str]) -> None:
+    unseen = [state for state in frame.participants if state.object_id not in artifact_ids]
+    keyed = sorted((_participant_identity_key(state), state.object_id) for state in unseen)
+    for previous, current in zip(keyed, keyed[1:], strict=False):
+        if previous[0] == current[0]:
+            raise RuntimeError(
+                "new traffic participants have indistinguishable physical identity keys"
+            )
+    for _, object_id in keyed:
+        artifact_ids[object_id] = f"participant-{len(artifact_ids):06d}"
 
 
 def _rear_axle_anchor(frame: TrafficFrame) -> tuple[np.ndarray, float]:

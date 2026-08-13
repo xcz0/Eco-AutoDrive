@@ -9,7 +9,15 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner.envs import TrafficFrame
-from eco_planner.evaluation import EpisodeFailure, rendering, run_evaluation, runner
+from eco_planner.evaluation import (
+    EpisodeFailure,
+    episode,
+    parse_evaluation_config,
+    rendering,
+    run_evaluation,
+    runner,
+)
+from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.evaluation.runtime import InferenceRuntimeReport
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
 from eco_planner.models.checkpoint import CheckpointLoadReport
@@ -75,6 +83,10 @@ class _FakeEnv:
             "trajectory_target_headings": np.zeros(5),
             "trajectory_position_errors_m": np.zeros(5),
             "trajectory_heading_errors_rad": np.zeros(5),
+            "traffic_substep_frames": tuple(
+                TrafficFrame(index, (0.0, 0.0), 0.0, 1.0, (), ())
+                for index in range((self._step - 1) * 5 + 1, self._step * 5 + 1)
+            ),
             "route_completion": self._step / 2,
             "arrive_dest": terminated,
             "out_of_road": False,
@@ -151,6 +163,7 @@ class _FakeRuntime:
 def _config() -> object:
     return OmegaConf.create(
         {
+            "name": "test-evaluation",
             "evaluation": {
                 "mode": "no_traffic",
                 "profile": "standard",
@@ -194,19 +207,19 @@ def test_evaluation_package_preserves_public_runner() -> None:
 
 
 def test_run_scenario_replans_and_writes_trace(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(runner, "TrajectoryMetaDriveEnv", _FakeEnv)
-    monkeypatch.setattr(runner, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
-    monkeypatch.setattr(runner, "_route_length_m", lambda env: 100.0)
-    summary = runner._run_scenario(
-        runner.ScenarioSpec("fake", "S", 3),
+    monkeypatch.setattr(episode, "TrajectoryMetaDriveEnv", _FakeEnv)
+    monkeypatch.setattr(episode, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
+    monkeypatch.setattr(episode, "route_length_m", lambda env: 100.0)
+    summary = episode.run_scenario(
+        ScenarioConfig(name="fake", map="S", seed=3),
         _FakeRuntime(),  # type: ignore[arg-type]
-        _config(),
+        parse_evaluation_config(_config()),
         tmp_path,
     )
 
-    assert summary["plan_cycles"] == 2
-    assert summary["simulator_steps"] == 10
-    assert summary["terminal_reason"] == "arrive_dest"
+    assert summary.plan_cycles == 2
+    assert summary.simulator_steps == 10
+    assert summary.terminal_reason == "arrive_dest"
     assert (tmp_path / "fake" / "summary.json").is_file()
     with np.load(tmp_path / "fake" / "trace.npz") as trace:
         assert trace["initial_noise"].shape == (2, 11, 80, 4)
@@ -225,9 +238,9 @@ def test_run_scenario_replans_and_writes_trace(tmp_path, monkeypatch) -> None:
 
 
 def test_run_evaluation_writes_clean_job_summary(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(runner, "TrajectoryMetaDriveEnv", _FakeEnv)
-    monkeypatch.setattr(runner, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
-    monkeypatch.setattr(runner, "_route_length_m", lambda env: 100.0)
+    monkeypatch.setattr(episode, "TrajectoryMetaDriveEnv", _FakeEnv)
+    monkeypatch.setattr(episode, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
+    monkeypatch.setattr(episode, "route_length_m", lambda env: 100.0)
     monkeypatch.setattr(
         runner,
         "create_fabric_inference_runtime",
@@ -241,9 +254,9 @@ def test_run_evaluation_writes_clean_job_summary(tmp_path, monkeypatch) -> None:
         lambda output, report, sampler_report, guidance_config, execution, elapsed: None,
     )
 
-    summary = runner.run_evaluation(_config(), tmp_path)
+    summary = runner.run_evaluation(parse_evaluation_config(_config()), tmp_path)
 
-    assert set(summary) == {
+    assert set(summary.model_dump()) == {
         "schema_version",
         "status",
         "runtime",
@@ -252,20 +265,20 @@ def test_run_evaluation_writes_clean_job_summary(tmp_path, monkeypatch) -> None:
         "guidance",
         "episodes",
     }
-    assert summary["schema_version"] == 2
-    assert summary["status"] == "completed"
-    assert summary["runtime"]["seed"] == 7
-    assert summary["checkpoint"] == {
+    assert summary.schema_version == 3
+    assert summary.status == "completed"
+    assert summary.runtime.seed == 7
+    assert summary.checkpoint.model_dump() == {
         "ema_tensor_count": 276,
         "parameter_count": 6_042_628,
     }
-    assert summary["sampler"]["name"] == "dpm10"
-    assert summary["guidance"] == {"name": "none"}
-    assert summary["episodes"][0]["sampler"] == summary["sampler"]
-    assert summary["episodes"][0]["guidance"] == summary["guidance"]
-    assert "checkpoint" not in summary["episodes"][0]
+    assert summary.sampler.name == "dpm10"
+    assert summary.guidance.model_dump() == {"name": "none"}
+    assert summary.episodes[0].sampler == summary.sampler
+    assert summary.episodes[0].guidance == summary.guidance
+    assert "checkpoint" not in type(summary.episodes[0]).model_fields
     persisted = json.loads((tmp_path / "summary.json").read_text())
-    assert persisted == summary
+    assert persisted == summary.model_dump(mode="json")
     assert (tmp_path / "resolved_config.yaml").is_file()
 
 
@@ -282,9 +295,9 @@ def test_run_evaluation_persists_explicit_failure_and_continues(tmp_path, monkey
         {"name": "failed", "map": "FAIL", "seed": 3},
         {"name": "completed", "map": "S", "seed": 3},
     ]
-    monkeypatch.setattr(runner, "TrajectoryMetaDriveEnv", environment)
-    monkeypatch.setattr(runner, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
-    monkeypatch.setattr(runner, "_route_length_m", lambda env: 100.0)
+    monkeypatch.setattr(episode, "TrajectoryMetaDriveEnv", environment)
+    monkeypatch.setattr(episode, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
+    monkeypatch.setattr(episode, "route_length_m", lambda env: 100.0)
     monkeypatch.setattr(
         runner,
         "create_fabric_inference_runtime",
@@ -298,17 +311,17 @@ def test_run_evaluation_persists_explicit_failure_and_continues(tmp_path, monkey
         lambda output, report, sampler_report, guidance_config, execution, elapsed: None,
     )
 
-    summary = run_evaluation(config, tmp_path)
+    summary = run_evaluation(parse_evaluation_config(config), tmp_path)
 
-    assert summary["status"] == "failed"
-    assert [episode["status"] for episode in summary["episodes"]] == [
+    assert summary.status == "failed"
+    assert [episode.status for episode in summary.episodes] == [
         "failed",
         "completed",
     ]
-    failure = summary["episodes"][0]
-    assert failure["termination"] == {"type": "runtime_error", "detail": "reset"}
-    assert failure["failure"]["exception_type"] == "RuntimeError"
-    assert "injected episode failure" in failure["failure"]["traceback"]
+    failure = summary.episodes[0]
+    assert failure.termination.model_dump() == {"type": "runtime_error", "detail": "reset"}
+    assert failure.failure.exception_type == "RuntimeError"
+    assert "injected episode failure" in failure.failure.traceback
     with np.load(tmp_path / "failed" / "trace.npz") as trace:
         assert trace["trace_status"].item() == "empty"
     assert (tmp_path / "completed" / "trace.npz").is_file()
@@ -319,8 +332,8 @@ def test_run_evaluation_does_not_catch_unclassified_errors(tmp_path, monkeypatch
         def reset(self, seed: int) -> tuple[None, dict[str, object]]:
             raise RuntimeError("unclassified")
 
-    monkeypatch.setattr(runner, "TrajectoryMetaDriveEnv", BrokenEnv)
-    monkeypatch.setattr(runner, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
+    monkeypatch.setattr(episode, "TrajectoryMetaDriveEnv", BrokenEnv)
+    monkeypatch.setattr(episode, "NoTrafficMetaDriveObservationAdapter", _FakeAdapter)
     monkeypatch.setattr(
         runner,
         "create_fabric_inference_runtime",
@@ -335,7 +348,7 @@ def test_run_evaluation_does_not_catch_unclassified_errors(tmp_path, monkeypatch
     )
 
     with pytest.raises(RuntimeError, match="unclassified"):
-        run_evaluation(_config(), tmp_path)
+        run_evaluation(parse_evaluation_config(_config()), tmp_path)
 
     assert not (tmp_path / "summary.json").exists()
 
@@ -361,7 +374,7 @@ def test_route_length_accepts_finite_numpy_lane_scalars() -> None:
     current_map = SimpleNamespace(road_network=road_network)
     env = SimpleNamespace(agent=agent, current_map=current_map)
 
-    assert runner._route_length_m(env) == pytest.approx(123.5)
+    assert episode.route_length_m(env) == pytest.approx(123.5)
 
 
 def test_evaluation_config_rejects_horizon_mismatch() -> None:
@@ -369,15 +382,15 @@ def test_evaluation_config_rejects_horizon_mismatch() -> None:
     config.env.horizon = 9
 
     with pytest.raises(ValueError, match="env.horizon"):
-        runner._validate_evaluation_config(config)
+        parse_evaluation_config(config)
 
 
 def test_evaluation_config_requires_explicit_sampler() -> None:
     config = _config()
     del config.sampler
 
-    with pytest.raises(ValueError, match="select a sampler"):
-        runner._validate_evaluation_config(config)
+    with pytest.raises(ValueError, match="select sampler"):
+        parse_evaluation_config(config)
 
 
 def test_traffic_warmup_records_exact_stationary_history() -> None:
@@ -401,11 +414,25 @@ def test_traffic_warmup_records_exact_stationary_history() -> None:
                     )
                 )
             info = {
+                "trajectory_world_centers": np.zeros((80, 2)),
+                "trajectory_world_headings": np.zeros(80),
                 "trajectory_substep_states": np.zeros((5, 7)),
                 "trajectory_substep_rewards": np.zeros(5),
                 "trajectory_substep_terminated": np.zeros(5, dtype=np.bool_),
                 "trajectory_substep_truncated": np.zeros(5, dtype=np.bool_),
                 "traffic_substep_frames": tuple(frames),
+                "trajectory_target_centers": np.zeros((5, 2)),
+                "trajectory_target_headings": np.zeros(5),
+                "trajectory_position_errors_m": np.zeros(5),
+                "trajectory_heading_errors_rad": np.zeros(5),
+                "route_completion": 0.0,
+                "arrive_dest": False,
+                "out_of_road": False,
+                "crash_vehicle": False,
+                "crash_object": False,
+                "crash_building": False,
+                "crash_human": False,
+                "max_step": False,
             }
             return None, 0.0, False, False, info
 
@@ -420,8 +447,8 @@ def test_traffic_warmup_records_exact_stationary_history() -> None:
     adapter = WarmupAdapter()
     trace = EpisodeTraceRecorder.from_initial_state(np.zeros(7))
 
-    runner._run_traffic_warmup(env, adapter, trace, 20)  # type: ignore[arg-type]
+    episode.run_traffic_warmup(env, adapter, trace, 20)  # type: ignore[arg-type]
 
     assert len(adapter.frames) == 20
-    assert np.concatenate(trace.warmup_states).shape == (20, 7)
+    assert np.concatenate(trace.warmup_state_arrays).shape == (20, 7)
     np.testing.assert_array_equal(trace.initial_state, np.zeros(7))

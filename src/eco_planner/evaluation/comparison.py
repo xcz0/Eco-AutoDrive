@@ -41,8 +41,6 @@ def compare_artifact_trees(serial_root: Path, parallel_root: Path) -> dict[str, 
         for name in sorted(serial_episodes):
             serial_trace = load_trace_artifact(serial_job / name / "trace.npz")
             parallel_trace = load_trace_artifact(parallel_job / name / "trace.npz")
-            if serial_trace.unavailable_fields != parallel_trace.unavailable_fields:
-                raise ValueError(f"trace schema availability mismatch for {key}/{name}")
             if set(serial_trace.arrays) != set(parallel_trace.arrays):
                 raise ValueError(f"trace field mismatch for {key}/{name}")
             for field in sorted(serial_trace.arrays):

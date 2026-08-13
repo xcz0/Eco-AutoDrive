@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 from omegaconf import OmegaConf
 
+from eco_planner.evaluation.artifact_reader import load_json_artifact, load_trace_artifact
 from eco_planner.evaluation.trace import validate_trace_arrays
 
 PROFILE_ACTIONS = {
@@ -258,16 +259,12 @@ def _numbered_jobs(root: Path) -> list[Path]:
 
 def _load_trace(path: Path) -> dict[str, np.ndarray]:
     _require_nonempty(path)
-    with np.load(path, allow_pickle=False) as trace:
-        return {name: trace[name] for name in trace.files}
+    return load_trace_artifact(path).arrays
 
 
 def _read_json(path: Path) -> dict[str, Any]:
     _require_nonempty(path)
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise TypeError(f"JSON root must be an object: {path}")
-    return payload
+    return load_json_artifact(path)
 
 
 def _scenario_name(episode: object) -> str:

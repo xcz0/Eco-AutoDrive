@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import hydra
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 
-from eco_planner.evaluation import run_evaluation
+from eco_planner.evaluation import parse_evaluation_config, run_evaluation
 
 
 @hydra.main(
@@ -19,9 +18,9 @@ from eco_planner.evaluation import run_evaluation
 )
 def main(config: DictConfig) -> None:
     output_dir = Path(HydraConfig.get().runtime.output_dir)
-    summary = run_evaluation(config, output_dir)
-    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
-    if summary["status"] == "failed":
+    summary = run_evaluation(parse_evaluation_config(config), output_dir)
+    print(summary.model_dump_json(indent=2))
+    if summary.status == "failed":
         raise SystemExit(1)
 
 

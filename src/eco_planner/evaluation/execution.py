@@ -6,8 +6,8 @@ import os
 from dataclasses import dataclass
 
 import torch
-from omegaconf import DictConfig
 
+from eco_planner.evaluation.config import EvaluationJobConfig
 from eco_planner.evaluation.runtime import resolve_runtime_settings
 
 
@@ -25,31 +25,13 @@ class ExecutionReport:
     logical_cpu_count: int
 
 
-def configure_job_execution(config: DictConfig) -> ExecutionReport:
+def configure_job_execution(config: EvaluationJobConfig) -> ExecutionReport:
     """Validate orchestration constraints and configure this worker process."""
 
     execution = config.evaluation.execution
     mode = execution.mode
-    launcher = execution.launcher
     workers = execution.worker_count
     threads = execution.torch_threads_per_worker
-    deterministic = execution.deterministic
-    if mode not in {"serial", "parallel"}:
-        raise ValueError("evaluation.execution.mode must be serial or parallel")
-    if launcher not in {"basic", "joblib"}:
-        raise ValueError("evaluation.execution.launcher must be basic or joblib")
-    if type(workers) is not int or workers <= 0:
-        raise ValueError("evaluation.execution.worker_count must be positive")
-    if threads is not None and (type(threads) is not int or threads <= 0):
-        raise ValueError("torch_threads_per_worker must be null or a positive integer")
-    if type(deterministic) is not bool:
-        raise TypeError("evaluation.execution.deterministic must be boolean")
-    if mode == "serial" and (launcher != "basic" or workers != 1):
-        raise ValueError("serial execution requires the basic launcher and one worker")
-    if mode == "parallel" and (launcher != "joblib" or workers != 2):
-        raise ValueError("parallel execution requires Joblib with exactly two workers")
-    if mode == "parallel" and config.video.enabled:
-        raise ValueError("parallel execution requires video.enabled=false")
 
     settings = resolve_runtime_settings(config.runtime)
     logical_cpus = os.cpu_count()
@@ -66,7 +48,7 @@ def configure_job_execution(config: DictConfig) -> ExecutionReport:
     if mode == "parallel" and settings.resolved_accelerator == "cuda":
         if torch.cuda.device_count() != 1:
             raise ValueError("CUDA parallel execution requires exactly one visible CUDA GPU")
-        if not deterministic:
+        if not execution.deterministic:
             raise ValueError("CUDA parallel execution requires deterministic=true")
         workspace = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
         if workspace not in {None, ":4096:8"}:
@@ -77,10 +59,10 @@ def configure_job_execution(config: DictConfig) -> ExecutionReport:
 
     return ExecutionReport(
         mode=str(mode),
-        launcher=str(launcher),
+        launcher=execution.launcher,
         worker_count=workers,
         torch_threads_per_worker=threads,
-        deterministic=deterministic,
+        deterministic=execution.deterministic,
         resolved_accelerator=settings.resolved_accelerator,
         process_id=os.getpid(),
         logical_cpu_count=logical_cpus,

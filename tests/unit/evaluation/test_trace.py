@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 import torch
 
-from eco_planner.evaluation.trace import EpisodeTraceRecorder
+from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
+from eco_planner.evaluation.trace import EpisodeTraceRecorder, validate_trace_arrays
 from eco_planner.models.guidance import GuidanceDiagnostics
 from eco_planner.models.pretrained import PlannerInferenceResult
 
@@ -23,7 +24,7 @@ def _observation() -> dict[str, torch.Tensor]:
     }
 
 
-def _step_info() -> dict[str, np.ndarray]:
+def _step_info() -> dict[str, object]:
     states = np.zeros((5, 7), dtype=np.float64)
     return {
         "trajectory_world_centers": np.zeros((80, 2), dtype=np.float64),
@@ -36,7 +37,22 @@ def _step_info() -> dict[str, np.ndarray]:
         "trajectory_target_headings": states[:, 2],
         "trajectory_position_errors_m": np.zeros(5),
         "trajectory_heading_errors_rad": np.zeros(5),
+        "traffic_substep_frames": tuple(
+            TrafficFrame(index, (0.0, 0.0), 0.0, 1.0, (), ()) for index in range(5)
+        ),
+        "route_completion": 1.0,
+        "arrive_dest": True,
+        "out_of_road": False,
+        "crash_vehicle": False,
+        "crash_object": False,
+        "crash_building": False,
+        "crash_human": False,
+        "max_step": False,
     }
+
+
+def _execution() -> TrajectoryExecutionRecord:
+    return TrajectoryExecutionRecord.from_info(_step_info())
 
 
 def test_trace_recorder_finalizes_stable_schema_once() -> None:
@@ -47,7 +63,7 @@ def test_trace_recorder_finalizes_stable_schema_once() -> None:
         _observation(),
         noise,
         PlannerInferenceResult(prediction=noise),
-        _step_info(),
+        _execution(),
         0,
         None,
     )
@@ -66,21 +82,19 @@ def test_trace_recorder_finalizes_stable_schema_once() -> None:
 
 
 def test_trace_recorder_rejects_misaligned_step_arrays() -> None:
-    recorder = EpisodeTraceRecorder.from_initial_state(np.zeros(7))
     info = _step_info()
     info["trajectory_target_centers"] = np.zeros((4, 2))
-    noise = torch.zeros((1, 11, 80, 4))
 
-    with pytest.raises(RuntimeError, match="target centers"):
-        recorder.append_cycle(
-            np.zeros(7),
-            _observation(),
-            noise,
-            PlannerInferenceResult(prediction=noise),
-            info,
-            0,
-            None,
-        )
+    with pytest.raises(ValueError, match="trajectory_target_centers"):
+        TrajectoryExecutionRecord.from_info(info)
+
+
+def test_trace_validator_rejects_unexpected_arrays() -> None:
+    arrays = EpisodeTraceRecorder.empty().finalize("empty")
+    arrays["legacy_field"] = np.zeros(1)
+
+    with pytest.raises(ValueError, match="unexpected arrays"):
+        validate_trace_arrays(arrays)
 
 
 def test_guided_trace_requires_and_persists_reference_action_targets_and_step_diagnostics() -> None:
@@ -111,7 +125,7 @@ def test_guided_trace_requires_and_persists_reference_action_targets_and_step_di
         _observation(),
         torch.zeros_like(prediction),
         result,
-        _step_info(),
+        _execution(),
         0,
         None,
     )

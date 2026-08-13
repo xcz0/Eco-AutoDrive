@@ -5,15 +5,17 @@ from types import SimpleNamespace
 
 import pytest
 import torch
-from omegaconf import DictConfig, OmegaConf
 from torch import nn
 
 from eco_planner.evaluation import runtime
+from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.models.checkpoint import CheckpointLoadReport
+from eco_planner.models.guidance import NoGuidanceConfig
 from eco_planner.models.pretrained import PlannerInferenceResult
+from eco_planner.models.sampling_config import Dpm10SamplerConfig
 
 
-def _config(**overrides: object) -> DictConfig:
+def _config(**overrides: object) -> RuntimeConfig:
     values: dict[str, object] = {
         "accelerator": "auto",
         "devices": 1,
@@ -21,7 +23,7 @@ def _config(**overrides: object) -> DictConfig:
         "seed": 7,
     }
     values.update(overrides)
-    return OmegaConf.create(values)
+    return RuntimeConfig.model_validate(values)
 
 
 def test_auto_runtime_resolves_cpu_fp32(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -123,8 +125,8 @@ def test_cpu_fabric_runtime_assembles_model_and_replays_noise(
 
     fabric_runtime = runtime.create_fabric_inference_runtime(
         config,
-        OmegaConf.create({"name": "dpm10"}),
-        OmegaConf.create({"name": "none"}),
+        Dpm10SamplerConfig(),
+        NoGuidanceConfig(),
         tmp_path,
         tmp_path,
     )

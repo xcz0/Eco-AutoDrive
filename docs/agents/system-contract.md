@@ -6,6 +6,11 @@
 
 当前闭环链路为：MetaDrive 状态构造成官方格式 raw observation，冻结的官方 EMA Diffusion Planner 生成 8 s 联合轨迹，环境执行 ego 轨迹前 0.5 s，然后从实际仿真状态重新规划。
 
+Hydra/OmegaConf 只存在于 CLI 配置边界。入口必须通过 `parse_evaluation_config` 将完整配置解析为
+严格且字段冻结的 `EvaluationJobConfig`；runner、episode、runtime 和 execution 组件只接收该类型或
+其子模型，不读取 `DictConfig`。`env` 子树是传给 MetaDrive 的开放第三方配置，保留为普通映射；
+本项目消费的 horizon、traffic 和 evaluation 字段仍必须由顶层模型交叉校验。
+
 仿真真实状态、模型观测、模型预测和能耗记录必须分别保存。模型预测不得覆盖仿真状态，不同能耗指标不得静默互换或混合累计。业务代码不得从 `ref/` 导入运行时实现。
 
 推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。`runtime.devices` 必须为 1，不得在同一评测作业内启动多进程闭环。
@@ -136,6 +141,11 @@ objective delta、应用梯度 L2/max、原始 neighbor gradient L2 和零速计
 
 该接口不生成 steering、throttle 或 brake，也不证明低层车辆动力学可执行性。原始轨迹必须原样执行和保存；不得平滑、裁剪、限幅、旋转、投影到中心线、选择最佳噪声 seed、切换回退控制器，或在异常时返回零轨迹。
 
+MetaDrive `step` 返回的轨迹数组、交通快照和终止字段必须在环境边界一次性解析为不可变的
+`TrajectoryExecutionRecord`。数组必须具有约定形状、dtype 和有限值，交通帧必须是非空 tuple，
+终止标志必须是 bool；evaluation 的 trace、rendering 和 summary 组件不得继续读取原始 `info`
+映射。
+
 ## 能耗记录
 
 - 每种能耗指标使用独立名称、单位和累计边界。
@@ -150,9 +160,11 @@ objective delta、应用梯度 L2/max、原始 neighbor gradient L2 和零速计
 
 每个回合至少保存 `summary.json` 和 `trace.npz`；开启视频时保存闭环 GIF。trace 必须包含 raw observation、初始噪声、完整联合预测、规划锚点、目标与实际状态、逐点误差、奖励、终止标志；交通回合还保存预热、对象 ID、交通数量、最近交通距离和历史有效性。
 
-当前产物 schema version 为 2。job 与 episode summary 显式保存 `status` 和结构化
-`termination`；trace 显式保存 `complete`、`partial` 或 `empty` 状态、初始状态 validity、普通及
-route lane 的限速与有效性。v1 adapter 只读旧产物，缺失的 v2 字段标为 unavailable，不补猜数值。
+当前唯一支持的产物 schema version 为 3。job summary、episode summary 和 runtime metadata
+使用 `extra=forbid` 的严格 Pydantic 模型；读取器拒绝缺失、额外或类型错误字段。trace 显式保存
+`complete`、`partial` 或 `empty` 状态、初始状态 validity、普通及 route lane 的限速与有效性，
+NPZ 读取时必须校验完整字段集合、形状、dtype、有限性和跨数组长度关系。生产者和消费者均不接受
+v1/v2 产物，不提供兼容、推断或迁移层。
 
 runner 只捕获显式 `EpisodeFailure`：保存阶段、异常类型、消息和 traceback 后继续同一作业的后续
 场景，作业最终标记失败且 CLI 返回非零。配置、checkpoint、Fabric 初始化、artifact IO 和未分类

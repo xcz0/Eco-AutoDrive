@@ -6,7 +6,6 @@ import json
 import platform
 import subprocess
 import sys
-from collections.abc import Mapping
 from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
@@ -16,14 +15,20 @@ import numpy as np
 import torch
 from hydra.utils import to_absolute_path
 from metadrive.utils.doc_utils import generate_gif
-from omegaconf import DictConfig
+from pydantic import BaseModel
 
+from eco_planner.envs import TrajectoryExecutionRecord
+from eco_planner.evaluation.config import VideoConfig
 from eco_planner.evaluation.execution import ExecutionReport
 from eco_planner.evaluation.runtime import InferenceRuntimeReport
+from eco_planner.evaluation.schema import (
+    ARTIFACT_SCHEMA_VERSION,
+    CompletedEpisodeSummary,
+    FailedEpisodeSummary,
+    RuntimeMetadata,
+)
 from eco_planner.models.guidance import GuidanceConfig
 from eco_planner.models.sampling_config import SamplerReport
-
-ARTIFACT_SCHEMA_VERSION = 2
 
 
 def build_failed_episode_summary(
@@ -38,33 +43,35 @@ def build_failed_episode_summary(
     stage: str,
     cause: Exception,
     traceback_text: str,
-) -> dict[str, Any]:
-    """Build a v2 failure summary without inventing unavailable episode metrics."""
+) -> FailedEpisodeSummary:
+    """Build a v3 failure summary without inventing unavailable episode metrics."""
 
-    return {
-        "schema_version": ARTIFACT_SCHEMA_VERSION,
-        "status": "failed",
-        "scenario": scenario,
-        "evaluation_mode": evaluation_mode,
-        "traffic_density": traffic_density,
-        "noise_seed": noise_seed,
-        "sampler": sampler,
-        "guidance": guidance,
-        "trace_status": trace_status,
-        "termination": {"type": "runtime_error", "detail": stage},
-        "failure": {
-            "stage": stage,
-            "exception_type": type(cause).__name__,
-            "message": str(cause),
-            "traceback": traceback_text,
-        },
-    }
+    return FailedEpisodeSummary.model_validate(
+        {
+            "schema_version": ARTIFACT_SCHEMA_VERSION,
+            "status": "failed",
+            "scenario": scenario,
+            "evaluation_mode": evaluation_mode,
+            "traffic_density": traffic_density,
+            "noise_seed": noise_seed,
+            "sampler": sampler,
+            "guidance": guidance,
+            "trace_status": trace_status,
+            "termination": {"type": "runtime_error", "detail": stage},
+            "failure": {
+                "stage": stage,
+                "exception_type": type(cause).__name__,
+                "message": str(cause),
+                "traceback": traceback_text,
+            },
+        }
+    )
 
 
 def build_episode_summary(
     scenario: dict[str, Any],
     trace_arrays: dict[str, np.ndarray],
-    final_info: Mapping[str, Any],
+    final_execution: TrajectoryExecutionRecord,
     terminated: bool,
     truncated: bool,
     total_reward: float,
@@ -75,7 +82,7 @@ def build_episode_summary(
     route_length_m: float,
     sampler: dict[str, Any],
     guidance: dict[str, Any],
-) -> dict[str, Any]:
+) -> CompletedEpisodeSummary:
     """Build the stable per-episode summary JSON payload."""
 
     positions = np.vstack(
@@ -96,78 +103,80 @@ def build_episode_summary(
     traffic_counts = trace_arrays["traffic_participant_counts"]
     traffic_has_nearest = trace_arrays["traffic_has_nearest"]
     nearest_distances = trace_arrays["traffic_nearest_distance_m"][traffic_has_nearest]
-    return {
-        "schema_version": ARTIFACT_SCHEMA_VERSION,
-        "status": "completed",
-        "trace_status": "complete",
-        "scenario": scenario,
-        "evaluation_mode": evaluation_mode,
-        "traffic_density": traffic_density,
-        "route_length_m": route_length_m,
-        "noise_seed": noise_seed,
-        "sampler": sampler,
-        "guidance": guidance,
-        "plan_cycles": int(trace_arrays["initial_noise"].shape[0]),
-        "simulator_steps": int(trace_arrays["executed_states"].shape[0]),
-        "simulated_seconds": float(trace_arrays["executed_states"].shape[0] * 0.1),
-        "environment_steps_including_warmup": int(
-            warmup_states.shape[0] + trace_arrays["executed_states"].shape[0]
-        ),
-        "total_reward": total_reward,
-        "distance_m": distance_m,
-        "speed_mps": {
-            "minimum": float(speeds.min()),
-            "mean": float(speeds.mean()),
-            "maximum": float(speeds.max()),
-        },
-        "route_completion": float(final_info["route_completion"]),
-        "arrive_dest": bool(final_info["arrive_dest"]),
-        "out_of_road": bool(final_info["out_of_road"]),
-        "crash_vehicle": bool(final_info["crash_vehicle"]),
-        "crash_object": bool(final_info["crash_object"]),
-        "crash_building": bool(final_info["crash_building"]),
-        "crash_human": bool(final_info["crash_human"]),
-        "terminated": terminated,
-        "truncated": truncated,
-        "terminal_reason": _terminal_reason(final_info, terminated, truncated),
-        "termination": _termination(final_info, terminated, truncated),
-        "map_input_audit": _map_input_audit(trace_arrays, environment_map_audit),
-        "history_warmup": {
-            "simulator_steps": int(warmup_states.shape[0]),
-            "simulated_seconds": float(warmup_states.shape[0] * 0.1),
-            "ego_displacement_m_maximum": float(warmup_displacement.max())
-            if warmup_displacement.size
-            else 0.0,
-            "participant_count_minimum": int(trace_arrays["warmup_participant_counts"].min())
-            if trace_arrays["warmup_participant_counts"].size
-            else 0,
-            "participant_count_maximum": int(trace_arrays["warmup_participant_counts"].max())
-            if trace_arrays["warmup_participant_counts"].size
-            else 0,
-        },
-        "traffic_observation": {
-            "planning_frames": int(traffic_counts.size),
-            "frames_with_participants": int(np.count_nonzero(traffic_counts)),
-            "frames_with_participants_fraction": float(np.mean(traffic_counts > 0)),
-            "participant_count_minimum": int(traffic_counts.min()),
-            "participant_count_maximum": int(traffic_counts.max()),
-            "nearest_participant_distance_m_minimum": float(nearest_distances.min())
-            if nearest_distances.size
-            else None,
-        },
-        "trajectory_execution_error": {
-            "position_m": _error_summary(position_errors),
-            "heading_rad": _error_summary(heading_errors),
-        },
-    }
+    return CompletedEpisodeSummary.model_validate(
+        {
+            "schema_version": ARTIFACT_SCHEMA_VERSION,
+            "status": "completed",
+            "trace_status": "complete",
+            "scenario": scenario,
+            "evaluation_mode": evaluation_mode,
+            "traffic_density": traffic_density,
+            "route_length_m": route_length_m,
+            "noise_seed": noise_seed,
+            "sampler": sampler,
+            "guidance": guidance,
+            "plan_cycles": int(trace_arrays["initial_noise"].shape[0]),
+            "simulator_steps": int(trace_arrays["executed_states"].shape[0]),
+            "simulated_seconds": float(trace_arrays["executed_states"].shape[0] * 0.1),
+            "environment_steps_including_warmup": int(
+                warmup_states.shape[0] + trace_arrays["executed_states"].shape[0]
+            ),
+            "total_reward": total_reward,
+            "distance_m": distance_m,
+            "speed_mps": {
+                "minimum": float(speeds.min()),
+                "mean": float(speeds.mean()),
+                "maximum": float(speeds.max()),
+            },
+            "route_completion": final_execution.route_completion,
+            "arrive_dest": final_execution.arrive_dest,
+            "out_of_road": final_execution.out_of_road,
+            "crash_vehicle": final_execution.crash_vehicle,
+            "crash_object": final_execution.crash_object,
+            "crash_building": final_execution.crash_building,
+            "crash_human": final_execution.crash_human,
+            "terminated": terminated,
+            "truncated": truncated,
+            "terminal_reason": _terminal_reason(final_execution, terminated, truncated),
+            "termination": _termination(final_execution, terminated, truncated),
+            "map_input_audit": _map_input_audit(trace_arrays, environment_map_audit),
+            "history_warmup": {
+                "simulator_steps": int(warmup_states.shape[0]),
+                "simulated_seconds": float(warmup_states.shape[0] * 0.1),
+                "ego_displacement_m_maximum": float(warmup_displacement.max())
+                if warmup_displacement.size
+                else 0.0,
+                "participant_count_minimum": int(trace_arrays["warmup_participant_counts"].min())
+                if trace_arrays["warmup_participant_counts"].size
+                else 0,
+                "participant_count_maximum": int(trace_arrays["warmup_participant_counts"].max())
+                if trace_arrays["warmup_participant_counts"].size
+                else 0,
+            },
+            "traffic_observation": {
+                "planning_frames": int(traffic_counts.size),
+                "frames_with_participants": int(np.count_nonzero(traffic_counts)),
+                "frames_with_participants_fraction": float(np.mean(traffic_counts > 0)),
+                "participant_count_minimum": int(traffic_counts.min()),
+                "participant_count_maximum": int(traffic_counts.max()),
+                "nearest_participant_distance_m_minimum": float(nearest_distances.min())
+                if nearest_distances.size
+                else None,
+            },
+            "trajectory_execution_error": {
+                "position_m": _error_summary(position_errors),
+                "heading_rad": _error_summary(heading_errors),
+            },
+        }
+    )
 
 
 def write_episode_artifacts(
     output_dir: Path,
     trace_arrays: dict[str, np.ndarray],
     frames: list[np.ndarray],
-    summary: dict[str, Any],
-    video_config: DictConfig,
+    summary: CompletedEpisodeSummary | FailedEpisodeSummary,
+    video_config: VideoConfig,
 ) -> None:
     """Persist one finalized episode without recomputing trace arrays."""
 
@@ -175,7 +184,7 @@ def write_episode_artifacts(
     np.savez_compressed(output_dir / "trace.npz", **trace_arrays)
     write_json(output_dir / "summary.json", summary)
     if video_config.enabled:
-        if summary["status"] == "completed" and not frames:
+        if summary.status == "completed" and not frames:
             raise RuntimeError("video output was enabled but no frames were rendered")
         if frames:
             duration_ms = round(1000 / video_config.fps)
@@ -193,22 +202,27 @@ def write_runtime_metadata(
     """Write reproducibility metadata and the possibly empty tracked diff."""
 
     repository_root = Path(to_absolute_path("."))
-    metadata = {
-        "schema_version": ARTIFACT_SCHEMA_VERSION,
-        "git_head": _git_output(repository_root, "rev-parse", "HEAD").strip(),
-        "git_status_short": _git_output(repository_root, "status", "--short").splitlines(),
-        "platform": platform.platform(),
-        "python": sys.version,
-        "torch": torch.__version__,
-        "lightning": version("lightning"),
-        "metadrive": version("metadrive-simulator"),
-        "inference_runtime": asdict(runtime_report),
-        "sampler": asdict(sampler_report),
-        "guidance": asdict(guidance_config),
-        "execution": asdict(execution_report),
-        "elapsed_seconds": elapsed_seconds,
-        "cuda_memory": _cuda_memory_report(runtime_report),
-    }
+    metadata = RuntimeMetadata.model_validate(
+        {
+            "schema_version": ARTIFACT_SCHEMA_VERSION,
+            "git_head": _git_output(repository_root, "rev-parse", "HEAD").strip(),
+            "git_status_short": tuple(
+                _git_output(repository_root, "status", "--short").splitlines()
+            ),
+            "platform": platform.platform(),
+            "python": sys.version,
+            "torch": torch.__version__,
+            "lightning": version("lightning"),
+            "metadrive": version("metadrive-simulator"),
+            "pydantic": version("pydantic"),
+            "inference_runtime": asdict(runtime_report),
+            "sampler": asdict(sampler_report),
+            "guidance": asdict(guidance_config),
+            "execution": asdict(execution_report),
+            "elapsed_seconds": elapsed_seconds,
+            "cuda_memory": _cuda_memory_report(runtime_report),
+        }
+    )
     write_json(output_dir / "runtime_metadata.json", metadata)
     (output_dir / "tracked_diff.patch").write_text(
         _git_output(repository_root, "diff", "--binary", "--no-ext-diff"), encoding="utf-8"
@@ -225,6 +239,8 @@ def _cuda_memory_report(runtime_report: InferenceRuntimeReport) -> dict[str, int
 
 
 def write_json(path: Path, payload: Any) -> None:
+    if isinstance(payload, BaseModel):
+        payload = payload.model_dump(mode="json")
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
     )
@@ -242,18 +258,20 @@ def _git_output(repository_root: Path, *arguments: str) -> str:
     return result.stdout
 
 
-def _terminal_reason(info: Mapping[str, Any], terminated: bool, truncated: bool) -> str:
+def _terminal_reason(
+    execution: TrajectoryExecutionRecord, terminated: bool, truncated: bool
+) -> str:
     ordered_flags = (
-        ("arrive_dest", "arrive_dest"),
-        ("out_of_road", "out_of_road"),
-        ("crash_vehicle", "crash_vehicle"),
-        ("crash_object", "crash_object"),
-        ("crash_building", "crash_building"),
-        ("crash_human", "crash_human"),
-        ("max_step", "max_step"),
+        (execution.arrive_dest, "arrive_dest"),
+        (execution.out_of_road, "out_of_road"),
+        (execution.crash_vehicle, "crash_vehicle"),
+        (execution.crash_object, "crash_object"),
+        (execution.crash_building, "crash_building"),
+        (execution.crash_human, "crash_human"),
+        (execution.max_step, "max_step"),
     )
-    for key, reason in ordered_flags:
-        if bool(info[key]):
+    for active, reason in ordered_flags:
+        if active:
             return reason
     if truncated:
         return "truncated"
@@ -262,8 +280,10 @@ def _terminal_reason(info: Mapping[str, Any], terminated: bool, truncated: bool)
     raise RuntimeError("episode ended without a terminal reason")
 
 
-def _termination(info: Mapping[str, Any], terminated: bool, truncated: bool) -> dict[str, str]:
-    detail = _terminal_reason(info, terminated, truncated)
+def _termination(
+    execution: TrajectoryExecutionRecord, terminated: bool, truncated: bool
+) -> dict[str, str]:
+    detail = _terminal_reason(execution, terminated, truncated)
     if detail == "arrive_dest":
         kind = "arrive_dest"
     elif detail == "out_of_road":
@@ -295,15 +315,15 @@ def _map_input_audit(
             "speed_limit_valid_count_max": int(valid_counts.max()),
             "speed_limit_mps_min": None,
             "speed_limit_mps_max": None,
-            "speed_limit_mps_unique_values": [],
+            "speed_limit_mps_unique_values": (),
         }
     )
     if valid_speed_limits.size:
         result["speed_limit_mps_min"] = float(valid_speed_limits.min())
         result["speed_limit_mps_max"] = float(valid_speed_limits.max())
-        result["speed_limit_mps_unique_values"] = [
+        result["speed_limit_mps_unique_values"] = tuple(
             float(value) for value in np.unique(valid_speed_limits)
-        ]
+        )
     return result
 
 

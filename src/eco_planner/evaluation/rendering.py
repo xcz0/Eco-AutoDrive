@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
-from omegaconf import DictConfig
 
-from eco_planner.envs import TrajectoryMetaDriveEnv
+from eco_planner.envs import TrajectoryExecutionRecord, TrajectoryMetaDriveEnv
+from eco_planner.evaluation.config import VideoConfig
 
 
 def draw_world_polyline(
@@ -26,19 +24,19 @@ def draw_world_polyline(
     pixels = np.empty((points.shape[0], 2), dtype=np.int64)
     pixels[:, 0] = np.rint(frame_width / 2 + (points[:, 0] - camera_position[0]) * scaling)
     pixels[:, 1] = np.rint(height / 2 - (points[:, 1] - camera_position[1]) * scaling)
-    for start, end in zip(pixels[:-1], pixels[1:]):
+    for start, end in zip(pixels[:-1], pixels[1:], strict=True):
         _draw_segment(frame, tuple(start), tuple(end), color, width)
 
 
 def render_cycle_frame(
     env: TrajectoryMetaDriveEnv,
-    info: dict[str, Any],
+    execution: TrajectoryExecutionRecord,
     anchor_position: np.ndarray,
-    video_config: DictConfig,
+    video_config: VideoConfig,
     plan_index: int,
 ) -> np.ndarray:
     frame = env.render(
-        text={"plan_cycle": plan_index, "route_completion": info["route_completion"]},
+        text={"plan_cycle": plan_index, "route_completion": execution.route_completion},
         mode="top_down",
         screen_size=(video_config.screen_width, video_config.screen_height),
         film_size=(video_config.film_width, video_config.film_height),
@@ -52,13 +50,11 @@ def render_cycle_frame(
         raise RuntimeError("MetaDrive top-down renderer did not return an RGB frame")
     rendered = frame.copy()
     camera_position = np.asarray(env.agent.position, dtype=np.float64)
-    planned = np.vstack(
-        (anchor_position, np.asarray(info["trajectory_world_centers"], dtype=np.float64))
-    )
+    planned = np.vstack((anchor_position, execution.world_centers))
     executed = np.vstack(
         (
             anchor_position,
-            np.asarray(info["trajectory_substep_states"], dtype=np.float64)[:, :2],
+            execution.substep_states[:, :2],
         )
     )
     draw_world_polyline(

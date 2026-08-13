@@ -10,7 +10,7 @@ from eco_planner.evaluation.artifacts import ARTIFACT_SCHEMA_VERSION
 from eco_planner.evaluation.trace import EpisodeTraceRecorder, validate_trace_arrays
 
 
-def test_empty_v2_trace_has_explicit_state_validity() -> None:
+def test_empty_v3_trace_has_explicit_state_validity() -> None:
     arrays = EpisodeTraceRecorder.empty().finalize("empty")
 
     assert arrays["schema_version"].item() == ARTIFACT_SCHEMA_VERSION
@@ -34,7 +34,7 @@ def test_episode_failure_preserves_stage_and_original_error() -> None:
     assert str(failure) == "inference: planner produced a non-finite trajectory"
 
 
-def test_v2_failure_summary_is_json_serializable(tmp_path: Path) -> None:
+def test_v3_failure_summary_is_json_serializable(tmp_path: Path) -> None:
     payload = {
         "schema_version": ARTIFACT_SCHEMA_VERSION,
         "status": "failed",

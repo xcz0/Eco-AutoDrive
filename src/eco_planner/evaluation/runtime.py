@@ -9,15 +9,14 @@ from typing import cast
 
 import torch
 from lightning.fabric import Fabric
-from omegaconf import DictConfig
 from torch import nn
 
+from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 from eco_planner.models.guidance import (
     GuidanceConfig,
     NoGuidanceConfig,
-    parse_guidance_config,
 )
 from eco_planner.models.pretrained import (
     CheckpointLoadReport,
@@ -25,8 +24,8 @@ from eco_planner.models.pretrained import (
     load_official_diffusion_planner,
 )
 from eco_planner.models.sampling_config import (
+    SamplerConfig,
     SamplerReport,
-    parse_sampler_config,
     sampler_report,
 )
 
@@ -154,9 +153,9 @@ class FabricInferenceRuntime:
 
 
 def create_fabric_inference_runtime(
-    runtime_config: DictConfig,
-    sampler_config: DictConfig,
-    guidance_config: DictConfig,
+    runtime_config: RuntimeConfig,
+    sampler_config: SamplerConfig,
+    guidance_config: GuidanceConfig,
     args_path: Path,
     checkpoint_path: Path,
 ) -> FabricInferenceRuntime:
@@ -169,13 +168,11 @@ def create_fabric_inference_runtime(
         precision=settings.resolved_precision,
     )
     fabric.seed_everything(settings.seed, workers=True, verbose=False)
-    parsed_sampler = parse_sampler_config(sampler_config)
-    parsed_guidance = parse_guidance_config(guidance_config)
     planner, checkpoint_report = load_official_diffusion_planner(
         args_path,
         checkpoint_path,
-        parsed_sampler,
-        parsed_guidance,
+        sampler_config,
+        guidance_config,
     )
     planner_config = planner.config
     wrapped_planner = fabric.setup_module(planner)
@@ -196,8 +193,8 @@ def create_fabric_inference_runtime(
         planner_config,
         checkpoint_report,
         report,
-        sampler_report(parsed_sampler),
-        parsed_guidance,
+        sampler_report(sampler_config),
+        guidance_config,
     )
 
 
@@ -253,11 +250,11 @@ def _validate_optional_guidance_result(
             raise RuntimeError(f"guidance diagnostic {name} must be finite")
 
 
-def resolve_runtime_settings(runtime_config: DictConfig) -> _ResolvedRuntimeSettings:
+def resolve_runtime_settings(runtime_config: RuntimeConfig) -> _ResolvedRuntimeSettings:
     """Validate Hydra values and resolve the explicit Fabric accelerator and precision."""
 
-    if not isinstance(runtime_config, DictConfig):
-        raise TypeError("runtime configuration must be a DictConfig")
+    if not isinstance(runtime_config, RuntimeConfig):
+        raise TypeError("runtime configuration must be a RuntimeConfig")
     accelerator = runtime_config.accelerator
     precision = runtime_config.precision
     devices = runtime_config.devices

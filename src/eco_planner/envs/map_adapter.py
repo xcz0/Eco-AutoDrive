@@ -92,7 +92,7 @@ class MetaDriveMapAdapter:
         arrays = self._allocate_arrays()
         encoded = self._encode_lanes(lane_records, rear_axle, center_heading)
         encoded_by_id: dict[str, tuple[np.ndarray, float, bool]] = {}
-        for index, (record, values) in enumerate(zip(lane_records, encoded)):
+        for index, (record, values) in enumerate(zip(lane_records, encoded, strict=True)):
             features, speed_limit, has_speed_limit = values
             arrays["lanes"][index] = features
             arrays["lanes_speed_limit"][index, 0] = speed_limit
@@ -177,7 +177,7 @@ class MetaDriveMapAdapter:
         checkpoints = getattr(navigation, "checkpoints", None)
         if not isinstance(checkpoints, (list, tuple)) or len(checkpoints) < 2:
             raise RuntimeError("navigation checkpoints must contain at least one road")
-        route_roads = list(zip(checkpoints[:-1], checkpoints[1:]))
+        route_roads = list(zip(checkpoints[:-1], checkpoints[1:], strict=True))
         local_roads = {record.snapshot.road for record in lane_records}
         connected_local_route: list[tuple[Any, Any]] = []
         route_started = False

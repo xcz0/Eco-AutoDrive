@@ -4,30 +4,57 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
+from eco_planner.evaluation.config import parse_evaluation_config
 from eco_planner.evaluation.execution import configure_job_execution
 
 
 def _config(*, accelerator: str = "cpu", video: bool = False, threads: int = 2):
-    return OmegaConf.create(
+    config = OmegaConf.create(
         {
+            "name": "execution-test",
+            "map_query_radius_m": 100.0,
             "runtime": {
                 "accelerator": accelerator,
                 "devices": 1,
                 "precision": "32-true",
                 "seed": 0,
             },
-            "video": {"enabled": video},
+            "video": {
+                "enabled": video,
+                "fps": 2,
+                "screen_width": 32,
+                "screen_height": 32,
+                "film_width": 32,
+                "film_height": 32,
+                "scaling": 1.0,
+            },
             "evaluation": {
+                "mode": "traffic",
+                "profile": "matrix",
+                "history_warmup_steps": 20,
+                "evaluated_horizon_steps": 5,
                 "execution": {
                     "mode": "parallel",
                     "launcher": "joblib",
                     "worker_count": 2,
                     "torch_threads_per_worker": threads,
                     "deterministic": True,
-                }
+                },
             },
+            "env": {
+                "horizon": 25,
+                "traffic_mode": "trigger",
+                "traffic_density": 0.05,
+                "random_traffic": False,
+                "accident_prob": 0.0,
+            },
+            "model": {"args_path": "args.json", "checkpoint_path": "model.pth"},
+            "sampler": {"name": "dpm10"},
+            "guidance": {"name": "none"},
+            "scenarios": [{"name": "straight", "map": "S", "seed": 0}],
         }
     )
+    return parse_evaluation_config(config)
 
 
 def test_cpu_parallel_execution_applies_explicit_thread_budget(

@@ -8,6 +8,7 @@ from eco_planner.envs import (
     MetaDriveMapAdapter,
     MetaDriveObservationAdapter,
     NoTrafficMetaDriveObservationAdapter,
+    TrajectoryExecutionRecord,
     TrajectoryMetaDriveEnv,
 )
 from eco_planner.evaluation.runtime import FabricInferenceRuntime
@@ -61,6 +62,7 @@ def test_trajectory_environment_executes_five_simulator_steps() -> None:
         start_heading = float(env.agent.heading_theta)
 
         _, reward, terminated, truncated, info = env.step(_straight_trajectory(5.0))
+        execution = TrajectoryExecutionRecord.from_info(info)
 
         displacement = np.asarray(env.agent.position, dtype=np.float64) - start_position
         forward_progress = float(
@@ -80,6 +82,8 @@ def test_trajectory_environment_executes_five_simulator_steps() -> None:
         assert info["trajectory_target_headings"].shape == (5,)
         assert info["trajectory_position_errors_m"].shape == (5,)
         assert info["trajectory_heading_errors_rad"].shape == (5,)
+        assert execution.substep_states.shape == (5, 7)
+        assert execution.route_completion == pytest.approx(info["route_completion"])
         np.testing.assert_allclose(
             info["trajectory_substep_states"][-1, :2],
             np.asarray(env.agent.position),

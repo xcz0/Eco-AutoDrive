@@ -1,4 +1,4 @@
-"""Read-only loading and normalization for evaluation artifact schemas."""
+"""Read-only loading for the current evaluation artifact schema."""
 
 from __future__ import annotations
 
@@ -8,83 +8,55 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from pydantic import TypeAdapter
 
-from eco_planner.evaluation.artifacts import ARTIFACT_SCHEMA_VERSION
-
-_V2_ROUTE_TRACE_FIELDS = frozenset(
-    {
-        "observation_route_lanes_speed_limit",
-        "observation_route_lanes_has_speed_limit",
-    }
+from eco_planner.evaluation.schema import (
+    ARTIFACT_SCHEMA_VERSION,
+    EpisodeSummary,
+    JobSummary,
+    RuntimeMetadata,
 )
+from eco_planner.evaluation.trace import validate_trace_arrays
+
+_EPISODE_ADAPTER = TypeAdapter(EpisodeSummary)
 
 
 @dataclass(frozen=True)
 class LoadedTraceArtifact:
-    """Trace arrays plus explicit schema fields unavailable in the source artifact."""
+    """Validated current-schema trace arrays."""
 
-    source_schema_version: int
     trace_status: str
     arrays: dict[str, np.ndarray]
-    unavailable_fields: frozenset[str]
 
 
 def load_json_artifact(path: Path) -> dict[str, Any]:
-    """Load a JSON artifact and normalize the v1 status/termination envelope."""
+    """Load a current-schema JSON artifact without compatibility conversion."""
 
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    payload = json.loads(text)
     if not isinstance(payload, dict):
         raise TypeError(f"JSON root must be an object: {path}")
-    if "schema_version" in payload:
-        if payload["schema_version"] != ARTIFACT_SCHEMA_VERSION:
-            raise ValueError(f"unsupported artifact schema version: {path}")
-        return payload
-    normalized = dict(payload)
-    normalized["schema_version"] = 1
-    normalized["status"] = "completed"
-    if "episodes" in normalized:
-        episodes = normalized["episodes"]
-        if not isinstance(episodes, list):
-            raise TypeError(f"v1 job episodes must be a list: {path}")
-        normalized["episodes"] = [_normalize_v1_episode(value, path) for value in episodes]
-    elif "terminal_reason" in normalized:
-        normalized = _normalize_v1_episode(normalized, path)
-    return normalized
+    if payload.get("schema_version") != ARTIFACT_SCHEMA_VERSION:
+        raise ValueError(f"artifact must use schema version {ARTIFACT_SCHEMA_VERSION}: {path}")
+    if "episodes" in payload:
+        return JobSummary.model_validate_json(text).model_dump(mode="json")
+    if "scenario" in payload and "status" in payload:
+        return _EPISODE_ADAPTER.validate_json(text).model_dump(mode="json")
+    if "inference_runtime" in payload:
+        return RuntimeMetadata.model_validate_json(text).model_dump(mode="json")
+    raise ValueError(f"unrecognized schema v{ARTIFACT_SCHEMA_VERSION} JSON artifact: {path}")
 
 
 def load_trace_artifact(path: Path) -> LoadedTraceArtifact:
-    """Load v1 or v2 NPZ arrays without synthesizing fields absent from v1."""
+    """Load current-schema NPZ arrays without synthesizing missing fields."""
 
     with np.load(path, allow_pickle=False) as trace:
         arrays = {name: trace[name] for name in trace.files}
     if "schema_version" not in arrays:
-        return LoadedTraceArtifact(1, "complete", arrays, _V2_ROUTE_TRACE_FIELDS)
+        raise ValueError(f"trace is missing schema version: {path}")
     version = int(arrays["schema_version"].item())
     if version != ARTIFACT_SCHEMA_VERSION:
         raise ValueError(f"unsupported trace schema version {version}: {path}")
     status = str(arrays["trace_status"].item())
-    return LoadedTraceArtifact(version, status, arrays, frozenset())
-
-
-def _normalize_v1_episode(value: object, path: Path) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise TypeError(f"v1 episode summary must be an object: {path}")
-    episode = dict(value)
-    episode["schema_version"] = 1
-    episode["status"] = "completed"
-    episode["trace_status"] = "complete"
-    reason = episode.get("terminal_reason")
-    if not isinstance(reason, str) or not reason:
-        raise ValueError(f"v1 episode is missing terminal_reason: {path}")
-    if reason == "arrive_dest":
-        kind = "arrive_dest"
-    elif reason == "out_of_road":
-        kind = "out_of_road"
-    elif reason.startswith("crash_"):
-        kind = "collision"
-    elif reason in {"max_step", "truncated"}:
-        kind = "time_truncation"
-    else:
-        kind = "runtime_error"
-    episode["termination"] = {"type": kind, "detail": reason}
-    return episode
+    validate_trace_arrays(arrays, expected_trace_status=status)
+    return LoadedTraceArtifact(status, arrays)

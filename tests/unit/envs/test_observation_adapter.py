@@ -262,3 +262,23 @@ def test_traffic_adapter_rejects_frame_batch_atomically(
         adapter.append_frames((_traffic_frame(1, ()), object()))  # type: ignore[arg-type]
 
     assert tuple(frame.simulator_step for frame in adapter._history) == (0,)
+    assert adapter._artifact_participant_ids == {}
+
+
+def test_traffic_adapter_does_not_commit_ids_from_invalid_batch(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
+    adapter.reset(_traffic_frame(0, ()))
+    new_participant = _participant("new-id", y=12.0)
+
+    with pytest.raises(ValueError, match="consecutive"):
+        adapter.append_frames(
+            (
+                _traffic_frame(1, (new_participant,)),
+                _traffic_frame(3, (new_participant,)),
+            )
+        )
+
+    assert tuple(frame.simulator_step for frame in adapter._history) == (0,)
+    assert adapter._artifact_participant_ids == {}

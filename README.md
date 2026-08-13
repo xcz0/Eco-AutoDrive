@@ -78,6 +78,19 @@ traffic matrix 默认使用两个 Joblib `loky` 进程；可用 `-ExecutionMode 
 
 具体 horizon、warmup、Artifact、终止类型、实验元数据和其他执行契约以 [system-contract.md](docs/agents/system-contract.md) 与 [docs/experiments/README.md](docs/experiments/README.md) 为准。
 
+### 评测代码接口
+
+`scripts/evaluate.py` 是 Hydra 配置入口，先调用
+`eco_planner.evaluation.parse_evaluation_config`，得到不可变的
+字段冻结的 `EvaluationJobConfig`，再传给 `run_evaluation(config, output_dir)`。核心评测代码不接收
+`DictConfig`，配置字段缺失、类型错误或互相矛盾时由 Pydantic 在入口一次性拒绝。
+
+环境每次执行轨迹后返回的动态 `info`，必须立即通过
+`TrajectoryExecutionRecord.from_info(info)` 转成已校验的执行记录；evaluation 层不直接读取
+MetaDrive 字典字段。对外产物只支持 Artifact v3：JSON 使用严格 Pydantic schema，NPZ 使用
+`validate_trace_arrays` 的显式数组 schema。`load_json_artifact` 和 `load_trace_artifact` 不读取
+v1/v2 产物，也不提供兼容或迁移层。
+
 ## 文档导航
 
 | 文件 | 内容 |

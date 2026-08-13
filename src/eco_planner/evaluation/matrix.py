@@ -65,17 +65,13 @@ def build_matrix_report(matrix_root: Path, *, partial: bool = False) -> dict[str
     observed_jobs: set[tuple[int, float]] = set()
     episodes: list[dict[str, Any]] = []
     matrix_spec: _MatrixSpec | None = None
-    legacy_scenarios: tuple[str, ...] | None = None
     for job_dir in jobs:
         _require_nonempty(job_dir / "resolved_config.yaml")
         job_spec = _read_matrix_spec(job_dir / "resolved_config.yaml")
-        if job_spec is not None:
-            if matrix_spec is None:
-                matrix_spec = job_spec
-            elif matrix_spec != job_spec:
-                raise ValueError(f"job {job_dir} resolved matrix specification disagrees")
-        elif matrix_spec is not None:
-            raise ValueError("matrix cannot mix v1 and v2 resolved grid specifications")
+        if matrix_spec is None:
+            matrix_spec = job_spec
+        elif matrix_spec != job_spec:
+            raise ValueError(f"job {job_dir} resolved matrix specification disagrees")
         _require_nonempty(job_dir / ".hydra" / "overrides.yaml")
         metadata = _read_json(job_dir / "runtime_metadata.json")
         _require_file(job_dir / "tracked_diff.patch")
@@ -102,17 +98,11 @@ def build_matrix_report(matrix_root: Path, *, partial: bool = False) -> dict[str
         job_key = (seed, density)
         if job_key in observed_jobs:
             raise ValueError(f"duplicate matrix job: seed={seed}, density={density}")
-        if matrix_spec is not None and job_key not in matrix_spec.expected_jobs:
+        if job_key not in matrix_spec.expected_jobs:
             raise ValueError(f"unexpected matrix job: seed={seed}, density={density}")
         observed_jobs.add(job_key)
         scenario_names = {_scenario_name(episode, job_dir) for episode in job_episodes}
-        expected_scenarios = (
-            set(matrix_spec.scenario_names) if matrix_spec is not None else scenario_names
-        )
-        if legacy_scenarios is None and matrix_spec is None:
-            legacy_scenarios = tuple(sorted(scenario_names))
-        elif matrix_spec is None and scenario_names != set(legacy_scenarios or ()):
-            raise ValueError(f"job {job_dir} has inconsistent legacy scenarios")
+        expected_scenarios = set(matrix_spec.scenario_names)
         if scenario_names != expected_scenarios:
             raise ValueError(f"job {job_dir} has unexpected scenarios: {scenario_names}")
         expected_job_status = (
@@ -129,23 +119,24 @@ def build_matrix_report(matrix_root: Path, *, partial: bool = False) -> dict[str
             persisted_episode = _read_json(episode_dir / "summary.json")
             if persisted_episode != episode:
                 raise ValueError(f"episode summary copy disagrees with job summary: {episode_dir}")
-            video_enabled = True if matrix_spec is None else matrix_spec.video_enabled
-            if video_enabled:
+            if matrix_spec.video_enabled:
                 _require_nonempty(episode_dir / "closed_loop.gif")
             _validate_trace(
                 episode_dir / "trace.npz",
                 episode,
-                warmup_steps=20 if matrix_spec is None else matrix_spec.warmup_steps,
+                warmup_steps=matrix_spec.warmup_steps,
             )
             episodes.append(episode)
 
-    expected_jobs = observed_jobs if matrix_spec is None else matrix_spec.expected_jobs
-    if not partial and matrix_spec is not None and observed_jobs != expected_jobs:
+    if matrix_spec is None:
+        raise ValueError("matrix has no Hydra jobs")
+    expected_jobs = matrix_spec.expected_jobs
+    if not partial and observed_jobs != expected_jobs:
         raise ValueError(
             f"matrix job grid mismatch: missing={sorted(expected_jobs - observed_jobs)}, "
             f"unexpected={sorted(observed_jobs - expected_jobs)}"
         )
-    scenario_count = len(matrix_spec.scenario_names) if matrix_spec else len(legacy_scenarios or ())
+    scenario_count = len(matrix_spec.scenario_names)
     expected_episode_count = scenario_count * len(observed_jobs)
     if len(episodes) != expected_episode_count:
         raise RuntimeError("matrix episode count does not match validated job count")
@@ -416,11 +407,11 @@ def _scenario_name(episode: object, path: Path) -> str:
     return name
 
 
-def _read_matrix_spec(path: Path) -> _MatrixSpec | None:
+def _read_matrix_spec(path: Path) -> _MatrixSpec:
     config = OmegaConf.load(path)
     raw = OmegaConf.select(config, "evaluation.matrix")
     if raw is None:
-        return None
+        raise ValueError(f"evaluation.matrix is missing: {path}")
     seeds = tuple(raw.seeds)
     densities = tuple(float(value) for value in raw.traffic_densities)
     scenarios = OmegaConf.select(config, "scenarios")
