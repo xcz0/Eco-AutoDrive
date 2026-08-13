@@ -20,6 +20,7 @@ from eco_planner.models.pretrained import (
     PretrainedDiffusionPlanner,
     load_official_diffusion_planner,
 )
+from eco_planner.models.planning_sampler import PlanningSampler
 from eco_planner.models.sampling_config import (
     Ddim5SamplerConfig,
     Dpm10SamplerConfig,
@@ -39,6 +40,7 @@ __all__ = [
     "NoGuidanceConfig",
     "PretrainedDiffusionPlanner",
     "PlannerInferenceResult",
+    "PlanningSampler",
     "OrthogonalGuidance",
     "OrthogonalReferenceGuidanceConfig",
     "SamplerConfig",

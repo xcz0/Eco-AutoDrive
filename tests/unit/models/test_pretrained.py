@@ -7,9 +7,9 @@ import torch
 from torch import nn
 
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.diffusers_sampler import DiffusersDpmSampler
 from eco_planner.models.diffusion_planner import DiffusionPlanner
 from eco_planner.models.guidance import OrthogonalReferenceGuidanceConfig
+from eco_planner.models.planning_sampler import PlanningSampler
 from eco_planner.models.pretrained import PretrainedDiffusionPlanner
 from eco_planner.models.sampling_config import Ddim5SamplerConfig, Dpm10SamplerConfig
 
@@ -132,7 +132,8 @@ def test_pretrained_planner_selects_diffusers_dpm_backend(
         Dpm10SamplerConfig(implementation="diffusers"),
     )
 
-    assert isinstance(planner._sampler, DiffusersDpmSampler)
+    assert isinstance(planner._sampler, PlanningSampler)
+    assert planner._sampler.config.implementation == "diffusers"
 
 
 @pytest.mark.gpu
@@ -264,6 +265,7 @@ def test_signed_reference_guidance_moves_ego_left_and_right_without_parameter_gr
     left = left_planner(
         stage0_observation,
         noise,
+        torch.Generator().manual_seed(11),
         guidance_action=torch.tensor([[1.0, 0.0]]),
     )
     right_model = _IdentityDenoiser()
@@ -273,6 +275,7 @@ def test_signed_reference_guidance_moves_ego_left_and_right_without_parameter_gr
     right = right_planner(
         stage0_observation,
         noise,
+        torch.Generator().manual_seed(11),
         guidance_action=torch.tensor([[-1.0, 0.0]]),
     )
 

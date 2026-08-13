@@ -10,7 +10,6 @@ from typing import Any
 import torch
 from torch import nn
 
-from eco_planner.models.baseline_sampler import BaselineDpmSampler
 from eco_planner.models.checkpoint import (
     OFFICIAL_EMA_TENSOR_COUNT,
     OFFICIAL_PARAMETER_COUNT,
@@ -22,8 +21,6 @@ from eco_planner.models.contracts import (
     validate_official_observation,
     validate_standard_normal_noise,
 )
-from eco_planner.models.ddim_sampler import DdimSampler
-from eco_planner.models.diffusers_sampler import DiffusersDdimSampler, DiffusersDpmSampler
 from eco_planner.models.diffusion_planner import DiffusionPlanner
 from eco_planner.models.guidance import (
     GuidanceConfig,
@@ -34,10 +31,8 @@ from eco_planner.models.guidance import (
     validate_guidance_action,
     validate_guidance_sampler,
 )
-from eco_planner.models.sampling_config import (
-    Ddim5SamplerConfig,
-    SamplerConfig,
-)
+from eco_planner.models.planning_sampler import PlanningSampler
+from eco_planner.models.sampling_config import SamplerConfig
 
 
 class PretrainedDiffusionPlanner(nn.Module):
@@ -56,19 +51,7 @@ class PretrainedDiffusionPlanner(nn.Module):
         self.sampler_config = sampler_config
         self.guidance_config = guidance_config or NoGuidanceConfig()
         validate_guidance_sampler(self.guidance_config, sampler_config)
-        self._sampler = (
-            (
-                DiffusersDdimSampler()
-                if sampler_config.implementation == "diffusers"
-                else DdimSampler()
-            )
-            if isinstance(sampler_config, Ddim5SamplerConfig)
-            else (
-                DiffusersDpmSampler()
-                if sampler_config.implementation == "diffusers"
-                else BaselineDpmSampler()
-            )
-        )
+        self._sampler = PlanningSampler(sampler_config)
         for parameter in self.model.parameters():
             parameter.requires_grad_(False)
         self.train(False)
@@ -113,20 +96,16 @@ class PretrainedDiffusionPlanner(nn.Module):
         ]
         neighbor_current_mask = torch.sum(torch.ne(neighbors_current, 0), dim=-1) == 0
         current_states = torch.cat([ego_current, neighbors_current], dim=1)
-        initial_noise_scale = (
-            self.sampler_config.initial_noise_scale
-            if isinstance(self.sampler_config, Ddim5SamplerConfig)
-            else 0.5
-        )
         initial = torch.cat(
-            [current_states[:, :, None], initial_noise_scale * standard_normal_noise], dim=2
+            [current_states[:, :, None], self._sampler.initial_noise_scale * standard_normal_noise],
+            dim=2,
         ).reshape(batch, participants, -1)
 
         def denoiser(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
             prediction = self.model.denoise(
                 sample, timestep, encoding, inputs["route_lanes"], neighbor_current_mask
             )
-            if isinstance(self.sampler_config, Ddim5SamplerConfig):
+            if self.sampler_config.name == "ddim5":
                 prediction = prediction.to(dtype=sample.dtype)
             return prediction
 
@@ -136,53 +115,18 @@ class PretrainedDiffusionPlanner(nn.Module):
             constrained[:, :, 0] = current_states
             return constrained.reshape(batch, participants, -1)
 
-        shared_generator_state = (
-            transition_generator.get_state().clone()
+        guidance_randomness = (
+            self._sampler.prepare_guidance_randomness(initial, transition_generator)
             if isinstance(self.guidance_config, OrthogonalReferenceGuidanceConfig)
-            and not isinstance(self._sampler, DiffusersDdimSampler)
-            and transition_generator is not None
             else None
         )
-        shared_variance_noises = (
-            _draw_ddim_variance_noises(
-                initial,
-                self.sampler_config.num_steps,
-                self.sampler_config.ddim_stochasticity,
-                transition_generator,
-            )
-            if isinstance(self.guidance_config, OrthogonalReferenceGuidanceConfig)
-            and isinstance(self._sampler, DiffusersDdimSampler)
-            else None
+        normalized_sample = self._sampler.sample(
+            initial,
+            denoiser,
+            constrain,
+            transition_generator,
+            guidance_randomness=guidance_randomness,
         )
-        if isinstance(self.sampler_config, Ddim5SamplerConfig):
-            timesteps = torch.tensor(
-                self.sampler_config.timesteps,
-                dtype=initial.dtype,
-                device=initial.device,
-            )
-            if isinstance(self._sampler, DiffusersDdimSampler):
-                normalized_sample = self._sampler.sample(
-                    initial,
-                    denoiser,
-                    constrain,
-                    timesteps,
-                    self.sampler_config.num_steps,
-                    self.sampler_config.ddim_stochasticity,
-                    transition_generator,
-                    variance_noises=shared_variance_noises,
-                )
-            else:
-                normalized_sample = self._sampler.sample(
-                    initial,
-                    denoiser,
-                    constrain,
-                    timesteps,
-                    self.sampler_config.num_steps,
-                    self.sampler_config.ddim_stochasticity,
-                    transition_generator,
-                )
-        else:
-            normalized_sample = self._sampler.sample(initial, denoiser, constrain)
         normalized = normalized_sample.reshape(batch, participants, self.config.future_len + 1, 4)
         prediction = self.config.state_normalizer.inverse(normalized)[:, :, 1:]
         if isinstance(self.guidance_config, NoGuidanceConfig):
@@ -207,7 +151,7 @@ class PretrainedDiffusionPlanner(nn.Module):
                 self.guidance_config,
                 action,
                 batch,
-                self.sampler_config.num_steps,
+                self._sampler.num_steps,
             )
             return PlannerInferenceResult(
                 prediction=prediction,
@@ -227,36 +171,17 @@ class PretrainedDiffusionPlanner(nn.Module):
                 action,
             )
 
-        guided_generator = (
-            transition_generator
-            if isinstance(self._sampler, DiffusersDdimSampler)
-            else _clone_generator(transition_generator, shared_generator_state, device)
+        if guidance_randomness is None:
+            raise RuntimeError("active guidance did not prepare shared DDIM randomness")
+        guided_result = self._sampler.sample_guided(
+            initial,
+            denoiser,
+            constrain,
+            transition_generator,
+            guidance_callback,
+            gradient_step_coefficient=self.guidance_config.gradient_step_coefficient,
+            guidance_randomness=guidance_randomness,
         )
-        if isinstance(self._sampler, DiffusersDdimSampler):
-            guided_result = self._sampler.sample_guided(
-                initial,
-                denoiser,
-                constrain,
-                timesteps,
-                self.sampler_config.num_steps,
-                self.sampler_config.ddim_stochasticity,
-                guided_generator,
-                guidance_callback,
-                gradient_step_coefficient=self.guidance_config.gradient_step_coefficient,
-                variance_noises=shared_variance_noises,
-            )
-        else:
-            guided_result = self._sampler.sample_guided(
-                initial,
-                denoiser,
-                constrain,
-                timesteps,
-                self.sampler_config.num_steps,
-                self.sampler_config.ddim_stochasticity,
-                guided_generator,
-                guidance_callback,
-                gradient_step_coefficient=self.guidance_config.gradient_step_coefficient,
-            )
         guided_normalized = guided_result.sample.reshape(
             batch, participants, self.config.future_len + 1, 4
         )
@@ -354,36 +279,3 @@ def _stack_guidance_diagnostics(
         raw_neighbor_gradient_l2=stack("raw_neighbor_gradient_l2"),
         zero_speed_count=stack("zero_speed_count"),
     )
-
-
-def _clone_generator(
-    generator: torch.Generator | None,
-    state: torch.Tensor | None,
-    device: torch.device,
-) -> torch.Generator | None:
-    if generator is None:
-        return None
-    if state is None:
-        raise RuntimeError("guided DDIM did not capture the shared generator state")
-    clone = torch.Generator(device=device)
-    clone.set_state(state)
-    return clone
-
-
-def _draw_ddim_variance_noises(
-    sample: torch.Tensor,
-    num_steps: int,
-    stochasticity: float,
-    generator: torch.Generator | None,
-) -> tuple[torch.Tensor, ...] | None:
-    """Draw the shared stochastic DDIM stream once for both diffusers passes."""
-
-    if stochasticity == 0.0:
-        return None
-    if generator is None:
-        raise RuntimeError("validated stochastic DDIM transition lost its generator")
-    draws = tuple(
-        torch.randn(sample.shape, dtype=sample.dtype, device=sample.device, generator=generator)
-        for _ in range(num_steps - 1)
-    )
-    return (*draws, torch.zeros_like(sample))
