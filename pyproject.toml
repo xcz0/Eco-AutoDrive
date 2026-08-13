@@ -5,21 +5,23 @@ build-backend = "hatchling.build"
 [project]
 name = "eco-planner"
 version = "0.1.0"
-description = "Energy-aware diffusion planning in MetaDrive with DPPO fine-tuning."
+description = "Energy-aware diffusion planning in MetaDrive with RL fine-tuning."
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
 
 dependencies = [
+    "diffusers",
     "fastsim",
     "gymnasium",
     "hydra-core",
-    "hydra-joblib-launcher==1.2.0",
+    "hydra-joblib-launcher",
     "lightning",
     "metadrive-simulator",
     "numpy",
     "omegaconf",
     "timm",
-    "torchrl==0.12.0",
+    "torch==2.12.1",
+    "torchrl",
 ]
 
 [dependency-groups]
@@ -28,10 +30,21 @@ dev = [
     "ruff",
 ]
 
+[tool.uv.sources]
+metadrive-simulator = { path = "third_party/metadrive", editable = true }
+torch = { index = "pytorch-cu126" }
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]
 pythonpath = ["src"]
 testpaths = ["tests"]
+strict_markers = true
+xfail_strict = true
 markers = [
     "gpu: requires a CUDA-capable PyTorch runtime and GPU",
     "simulator: requires the local MetaDrive runtime and assets",
@@ -40,44 +53,11 @@ markers = [
 
 [tool.ruff]
 line-length = 100
+target-version = "py310"
+extend-exclude = ["third_party", "ref"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = ["E", "F", "I", "UP", "B"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/eco_planner"]
-
-[project.optional-dependencies]
-cpu = [
-    "torch==2.6.0",
-]
-
-cuda = [
-    "torch==2.6.0",
-]
-
-[tool.uv]
-conflicts = [
-    [
-        { extra = "cpu" },
-        { extra = "cuda" },
-    ],
-]
-
-[tool.uv.sources]
-metadrive-simulator = { path = "third_party/metadrive", editable = true }
-
-torch = [
-    { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu124", extra = "cuda" },
-]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
-explicit = true
