@@ -20,6 +20,12 @@ class Dpm10SamplerConfig:
     """The immutable official Diffusion Planner sampling profile."""
 
     name: Literal["dpm10"] = "dpm10"
+    num_steps: int = 10
+    initial_noise_scale: float = 0.5
+    ddim_stochasticity: float = 0.0
+    parity_label: Literal["official_diffusion_planner_baseline"] = (
+        "official_diffusion_planner_baseline"
+    )
     implementation: Literal["diffusers"] = "diffusers"
 
 
@@ -121,12 +127,12 @@ def parse_sampler_config(config: DictConfig) -> SamplerConfig:
 def sampler_report(config: SamplerConfig) -> SamplerReport:
     if isinstance(config, Dpm10SamplerConfig):
         return SamplerReport(
-            name="dpm10",
-            num_steps=10,
+            name=config.name,
+            num_steps=config.num_steps,
             timesteps=None,
-            initial_noise_scale=0.5,
-            ddim_stochasticity=0.0,
-            parity_label="official_diffusion_planner_baseline",
+            initial_noise_scale=config.initial_noise_scale,
+            ddim_stochasticity=config.ddim_stochasticity,
+            parity_label=config.parity_label,
             implementation=config.implementation,
         )
     return SamplerReport(

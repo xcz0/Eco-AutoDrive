@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 import torch
 
-from eco_planner.models.diffusers_sampler import DiffusersDdimSampler, DiffusersDpmSampler
 from eco_planner.models.guidance import GuidanceGradientResult
-from eco_planner.models.vp_schedule import LinearVpSchedule
+from eco_planner.models.sampling.backends.diffusers import DiffusersDdimSampler, DiffusersDpmSampler
+from eco_planner.models.sampling.backends.vp_schedule import LinearVpSchedule
 
 
 def _constraint(sample: torch.Tensor) -> torch.Tensor:

@@ -11,7 +11,7 @@ import torch
 
 from eco_planner.envs import TrafficObservationAudit, TrajectoryExecutionRecord
 from eco_planner.evaluation.schema import ARTIFACT_SCHEMA_VERSION
-from eco_planner.models.pretrained import PlannerInferenceResult
+from eco_planner.models.runtime import PlannerInferenceResult
 
 PLANNER_ACTOR_COUNT = 11
 PLANNER_FUTURE_STEPS = 80

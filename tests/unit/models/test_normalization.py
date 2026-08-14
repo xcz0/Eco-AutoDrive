@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from eco_planner.models.normalization import ObservationNormalizer, StateNormalizer
+from eco_planner.models.checkpoint.normalization import ObservationNormalizer, StateNormalizer
 
 
 def test_observation_normalizer_preserves_padding() -> None:

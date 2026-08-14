@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import torch
 
-from eco_planner.models.checkpoint import OFFICIAL_EMA_TENSOR_COUNT, OFFICIAL_PARAMETER_COUNT
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.diffusion_planner import DiffusionPlanner
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.checkpoint.loader import OFFICIAL_EMA_TENSOR_COUNT, OFFICIAL_PARAMETER_COUNT
+from eco_planner.models.diffusion.model import DiffusionPlanner
 
 
 def test_model_hierarchy_matches_official_checkpoint(

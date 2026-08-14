@@ -6,25 +6,41 @@ from collections.abc import Mapping
 
 import torch
 
-REQUIRED_OBSERVATION_SHAPES = {
-    "ego_current_state": (10,),
-    "neighbor_agents_past": (32, 21, 11),
-    "static_objects": (5, 10),
-    "lanes": (70, 20, 12),
-    "lanes_speed_limit": (70, 1),
-    "lanes_has_speed_limit": (70, 1),
-    "route_lanes": (25, 20, 12),
-}
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
+
+
+def observation_shapes(config: OfficialDiffusionPlannerConfig) -> dict[str, tuple[int, ...]]:
+    """Derive the runtime observation schema from the loaded architecture."""
+
+    return {
+        "ego_current_state": (config.observation_feature_dimensions["ego_current_state"],),
+        "neighbor_agents_past": (
+            config.agent_num,
+            config.time_len,
+            config.agent_state_dim,
+        ),
+        "static_objects": (
+            config.static_objects_num,
+            config.static_objects_state_dim,
+        ),
+        "lanes": (config.lane_num, config.lane_len, config.lane_state_dim),
+        "lanes_speed_limit": (config.lane_num, 1),
+        "lanes_has_speed_limit": (config.lane_num, 1),
+        "route_lanes": (config.route_num, config.route_len, config.route_state_dim),
+    }
 
 
 def validate_official_observation(
-    observation: Mapping[str, torch.Tensor], device: torch.device
+    observation: Mapping[str, torch.Tensor],
+    device: torch.device,
+    config: OfficialDiffusionPlannerConfig,
 ) -> int:
-    missing = sorted(set(REQUIRED_OBSERVATION_SHAPES) - set(observation))
+    required_shapes = observation_shapes(config)
+    missing = sorted(set(required_shapes) - set(observation))
     if missing:
         raise ValueError(f"observation is missing required fields: {missing}")
     batch: int | None = None
-    for name, tail_shape in REQUIRED_OBSERVATION_SHAPES.items():
+    for name, tail_shape in required_shapes.items():
         value = observation[name]
         if not isinstance(value, torch.Tensor):
             raise TypeError(f"observation field {name!r} must be a torch.Tensor")

@@ -7,7 +7,7 @@ import torch
 from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
 from eco_planner.evaluation.trace import EpisodeTraceRecorder, validate_trace_arrays
 from eco_planner.models.guidance import GuidanceDiagnostics
-from eco_planner.models.pretrained import PlannerInferenceResult
+from eco_planner.models.runtime import PlannerInferenceResult
 
 
 def _observation() -> dict[str, torch.Tensor]:

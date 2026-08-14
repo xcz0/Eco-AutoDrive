@@ -13,17 +13,16 @@ from torch import nn
 
 from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.failures import EpisodeFailure
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.checkpoint import CheckpointLoadReport, OfficialDiffusionPlannerConfig
 from eco_planner.models.guidance import (
     GuidanceConfig,
     NoGuidanceConfig,
 )
-from eco_planner.models.pretrained import (
-    CheckpointLoadReport,
+from eco_planner.models.runtime import (
     PlannerInferenceResult,
     load_official_diffusion_planner,
 )
-from eco_planner.models.sampling_config import (
+from eco_planner.models.sampling import (
     SamplerConfig,
     SamplerReport,
     sampler_report,
@@ -231,8 +230,9 @@ def _validate_optional_guidance_result(
         raise RuntimeError("guidance action must have shape [B, 2]")
     diagnostics = result.guidance_diagnostics
     batch = expected_prediction_shape[0]
-    if tuple(diagnostics.longitudinal_target_speed_delta_mps.shape) != (batch, 80):
-        raise RuntimeError("longitudinal guidance target must have shape [B, 80]")
+    future_len = expected_prediction_shape[2]
+    if tuple(diagnostics.longitudinal_target_speed_delta_mps.shape) != (batch, future_len):
+        raise RuntimeError("longitudinal guidance target must have shape [B, T]")
     if not torch.isfinite(diagnostics.longitudinal_target_speed_delta_mps).all():
         raise RuntimeError("longitudinal guidance target must be finite")
     for name in (

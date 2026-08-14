@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import torch
 
-from eco_planner.models.guidance import GuidanceGradientResult
+from eco_planner.models.guidance.contracts import GuidanceGradientResult
 
 
 @dataclass(frozen=True)

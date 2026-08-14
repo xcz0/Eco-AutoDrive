@@ -6,9 +6,9 @@ import torch
 from timm.layers import Mlp
 from torch import nn
 
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.dit import DiTBlock, FinalLayer, TimestepEmbedder
-from eco_planner.models.mixer import MixerBlock
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.diffusion.dit import DiTBlock, FinalLayer, TimestepEmbedder
+from eco_planner.models.diffusion.mixer import MixerBlock
 
 
 class RouteEncoder(nn.Module):

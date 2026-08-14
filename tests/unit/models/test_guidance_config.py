@@ -9,7 +9,7 @@ from eco_planner.models.guidance import (
     parse_guidance_config,
     validate_guidance_sampler,
 )
-from eco_planner.models.sampling_config import Ddim5SamplerConfig, Dpm10SamplerConfig
+from eco_planner.models.sampling.config import Ddim5SamplerConfig, Dpm10SamplerConfig
 
 
 def _active_config(**overrides: object) -> object:

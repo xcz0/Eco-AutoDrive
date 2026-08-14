@@ -21,8 +21,8 @@ from eco_planner.envs.traffic_state import (
     TrafficFrame,
     TrafficParticipantState,
 )
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.contracts import validate_official_observation
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.runtime.validation import validate_official_observation
 
 _EGO_CURRENT_STATE = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
@@ -142,7 +142,7 @@ class MetaDriveObservationAdapter:
             "static_objects": torch.from_numpy(static_objects)[None],
         }
         observation.update(self._map_adapter.build(env))
-        validate_official_observation(observation, torch.device("cpu"))
+        validate_official_observation(observation, torch.device("cpu"), self._config)
         return observation
 
     def _build_neighbor_agents(
@@ -386,7 +386,7 @@ class NoTrafficMetaDriveObservationAdapter:
             ),
         }
         observation.update(self._map_adapter.build(env))
-        validate_official_observation(observation, torch.device("cpu"))
+        validate_official_observation(observation, torch.device("cpu"), self._config)
         return observation
 
     @staticmethod

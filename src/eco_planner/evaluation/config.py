@@ -20,7 +20,7 @@ from eco_planner.models.guidance import (
     parse_guidance_config,
     validate_guidance_sampler,
 )
-from eco_planner.models.sampling_config import SamplerConfig, parse_sampler_config
+from eco_planner.models.sampling import SamplerConfig, parse_sampler_config
 
 
 class _StrictModel(BaseModel):

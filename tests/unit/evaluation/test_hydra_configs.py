@@ -10,7 +10,7 @@ from eco_planner.models.guidance import (
     parse_guidance_config,
     validate_guidance_sampler,
 )
-from eco_planner.models.sampling_config import parse_sampler_config, sampler_report
+from eco_planner.models.sampling import parse_sampler_config, sampler_report
 
 
 @pytest.mark.parametrize(

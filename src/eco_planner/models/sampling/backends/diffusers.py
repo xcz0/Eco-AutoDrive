@@ -8,14 +8,14 @@ import numpy as np
 import torch
 from diffusers import DDIMScheduler, DPMSolverMultistepScheduler
 
-from eco_planner.models.guidance import GuidanceGradientResult
-from eco_planner.models.sampling_contracts import (
+from eco_planner.models.guidance.contracts import GuidanceGradientResult
+from eco_planner.models.sampling.backends.vp_schedule import LinearVpSchedule
+from eco_planner.models.sampling.contracts import (
     DdimGuidedSampleResult,
     validate_callback_result,
     validate_ddim_inputs,
     validate_guidance_result,
 )
-from eco_planner.models.vp_schedule import LinearVpSchedule
 
 _NUM_TRAIN_TIMESTEPS = 1000
 _DPM10_NUM_STEPS = 10

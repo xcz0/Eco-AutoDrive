@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from eco_planner.models.checkpoint import extract_official_ema_state_dict
+from eco_planner.models.checkpoint.loader import extract_official_ema_state_dict
 
 
 def test_ema_loader_rejects_invalid_prefix() -> None:

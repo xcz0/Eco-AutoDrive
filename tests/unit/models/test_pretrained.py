@@ -6,11 +6,11 @@ import pytest
 import torch
 from torch import nn
 
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.diffusion_planner import DiffusionPlanner
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.diffusion.model import DiffusionPlanner
 from eco_planner.models.guidance import OrthogonalReferenceGuidanceConfig
-from eco_planner.models.pretrained import PretrainedDiffusionPlanner
-from eco_planner.models.sampling_config import Ddim5SamplerConfig, Dpm10SamplerConfig
+from eco_planner.models.runtime.planner import PretrainedDiffusionPlanner
+from eco_planner.models.sampling.config import Ddim5SamplerConfig, Dpm10SamplerConfig
 
 
 class _IdentityStateNormalizer:
@@ -83,6 +83,18 @@ def _planner_config() -> SimpleNamespace:
     return SimpleNamespace(
         predicted_neighbor_num=10,
         future_len=80,
+        observation_feature_dimensions={"ego_current_state": 10},
+        agent_num=32,
+        time_len=21,
+        agent_state_dim=11,
+        static_objects_num=5,
+        static_objects_state_dim=10,
+        lane_num=70,
+        lane_len=20,
+        lane_state_dim=12,
+        route_num=25,
+        route_len=20,
+        route_state_dim=12,
         observation_normalizer=lambda observation: dict(observation),
         state_normalizer=_IdentityStateNormalizer(),
     )

@@ -13,7 +13,7 @@ from eco_planner.envs import (
     TrajectoryMetaDriveEnv,
 )
 from eco_planner.evaluation.runtime import FabricInferenceRuntime
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
 
 
 class _LegacyPhysicsTrajectoryMetaDriveEnv(TrajectoryMetaDriveEnv):

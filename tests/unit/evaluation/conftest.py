@@ -15,8 +15,8 @@ from eco_planner.evaluation.runtime import InferenceRuntimeReport
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
 from eco_planner.models.checkpoint import CheckpointLoadReport
 from eco_planner.models.guidance import NoGuidanceConfig
-from eco_planner.models.pretrained import PlannerInferenceResult
-from eco_planner.models.sampling_config import SamplerReport
+from eco_planner.models.runtime import PlannerInferenceResult
+from eco_planner.models.sampling import SamplerReport
 
 
 class FakeAgent:

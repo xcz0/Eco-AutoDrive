@@ -11,8 +11,8 @@ from eco_planner.evaluation import runtime
 from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.models.checkpoint import CheckpointLoadReport
 from eco_planner.models.guidance import NoGuidanceConfig
-from eco_planner.models.pretrained import PlannerInferenceResult
-from eco_planner.models.sampling_config import Dpm10SamplerConfig
+from eco_planner.models.runtime import PlannerInferenceResult
+from eco_planner.models.sampling import Dpm10SamplerConfig
 
 
 def _config(**overrides: object) -> RuntimeConfig:

@@ -28,7 +28,7 @@ from eco_planner.evaluation.schema import (
     RuntimeMetadata,
 )
 from eco_planner.models.guidance import GuidanceConfig
-from eco_planner.models.sampling_config import SamplerReport
+from eco_planner.models.sampling import SamplerReport
 
 
 def build_failed_episode_summary(

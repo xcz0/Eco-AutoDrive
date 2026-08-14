@@ -15,7 +15,7 @@ from eco_planner.envs import (
     NoTrafficMetaDriveObservationAdapter,
     TrajectoryMetaDriveEnv,
 )
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
 
 _LONG_MIXED_MAP = "SCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSC"
 _WARMUP_HISTORY_STEPS = 20
