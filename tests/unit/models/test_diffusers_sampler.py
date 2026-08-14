@@ -3,9 +3,11 @@ from __future__ import annotations
 import pytest
 import torch
 
-from eco_planner.models.diffusers_sampler import DiffusersDdimSampler, DiffusersDpmSampler
 from eco_planner.models.guidance import GuidanceGradientResult
-from eco_planner.models.vp_schedule import LinearVpSchedule
+from eco_planner.models.sampling.backends.diffusers import DiffusersDdimSampler, DiffusersDpmSampler
+from eco_planner.models.sampling.backends.vp_schedule import LinearVpSchedule
+from eco_planner.models.sampling.config import Ddim5SamplerConfig
+from eco_planner.models.sampling.planner import PlanningSampler
 
 
 def _constraint(sample: torch.Tensor) -> torch.Tensor:
@@ -179,3 +181,17 @@ def test_diffusers_dpm_uses_the_certified_profile_and_call_contract() -> None:
     )
     assert constraint_calls == 12
     assert torch.equal(result[:, :, 0], torch.ones((2, 3), dtype=torch.float64))
+
+
+def test_planning_sampler_rejects_invalid_static_ddim_profile_at_construction() -> None:
+    config = Ddim5SamplerConfig(
+        name="ddim5",
+        num_steps=5,
+        timesteps=(1.0, 0.7, 0.6, 0.4, 0.2, 0.0),
+        initial_noise_scale=1.0,
+        ddim_stochasticity=0.0,
+        parity_label="plannerrft_paper_text",
+    )
+
+    with pytest.raises(ValueError, match="fixed five-step"):
+        PlanningSampler(config)

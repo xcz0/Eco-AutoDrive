@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from eco_planner.models.normalization import ObservationNormalizer, StateNormalizer
+from eco_planner.models.checkpoint.normalization import ObservationNormalizer, StateNormalizer
 
 _EXPECTED_KEYS = {
     "future_len",
@@ -112,6 +112,12 @@ class OfficialDiffusionPlannerConfig:
     predicted_neighbor_num: int
     state_normalizer: StateNormalizer
     observation_normalizer: ObservationNormalizer
+
+    @property
+    def observation_feature_dimensions(self) -> dict[str, int]:
+        """Return checkpoint-defined feature widths for normalized observation fields."""
+
+        return self.observation_normalizer.feature_dimensions
 
     @classmethod
     def from_json(cls, path: Path) -> OfficialDiffusionPlannerConfig:

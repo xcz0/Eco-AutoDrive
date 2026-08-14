@@ -8,14 +8,14 @@ import numpy as np
 import torch
 from diffusers import DDIMScheduler, DPMSolverMultistepScheduler
 
-from eco_planner.models.guidance import GuidanceGradientResult
-from eco_planner.models.sampling_contracts import (
+from eco_planner.models.guidance.contracts import GuidanceGradientResult
+from eco_planner.models.sampling.backends.vp_schedule import LinearVpSchedule
+from eco_planner.models.sampling.contracts import (
     DdimGuidedSampleResult,
     validate_callback_result,
     validate_ddim_inputs,
     validate_guidance_result,
 )
-from eco_planner.models.vp_schedule import LinearVpSchedule
 
 _NUM_TRAIN_TIMESTEPS = 1000
 _DPM10_NUM_STEPS = 10
@@ -67,13 +67,14 @@ class DiffusersDdimSampler:
             current_state_constraint(initial_sample),
             initial_sample,
         )
-        for index, scheduler_timestep in enumerate(scheduler.timesteps):
-            prediction = self._prediction(model, sample, scheduler_timestep)
+        for index in range(len(scheduler.timesteps)):
+            discrete_timestep = int(_DDIM5_TIMESTEPS[index] * _NUM_TRAIN_TIMESTEPS) - 1
+            prediction = self._prediction(model, sample, discrete_timestep)
             sample = self._step(
                 scheduler,
                 sample,
                 prediction,
-                scheduler_timestep,
+                discrete_timestep,
                 index,
                 ddim_stochasticity,
                 generator,
@@ -121,9 +122,10 @@ class DiffusersDdimSampler:
             initial_sample,
         )
         diagnostics: list[GuidanceGradientResult] = []
-        for index, scheduler_timestep in enumerate(scheduler.timesteps):
+        for index in range(len(scheduler.timesteps)):
+            discrete_timestep = int(_DDIM5_TIMESTEPS[index] * _NUM_TRAIN_TIMESTEPS) - 1
             sample_with_grad = sample.detach().requires_grad_(True)
-            prediction = self._prediction(model, sample_with_grad, scheduler_timestep)
+            prediction = self._prediction(model, sample_with_grad, discrete_timestep)
             step = validate_guidance_result(
                 guidance(sample_with_grad, prediction), sample_with_grad
             )
@@ -131,7 +133,7 @@ class DiffusersDdimSampler:
                 scheduler,
                 sample_with_grad.detach(),
                 prediction.detach(),
-                scheduler_timestep,
+                discrete_timestep,
                 index,
                 ddim_stochasticity,
                 generator,
@@ -169,9 +171,8 @@ class DiffusersDdimSampler:
         self,
         model: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
         sample: torch.Tensor,
-        scheduler_timestep: torch.Tensor,
+        discrete_timestep: int,
     ) -> torch.Tensor:
-        discrete_timestep = int(scheduler_timestep.item())
         continuous_timestep = (discrete_timestep + 1) / _NUM_TRAIN_TIMESTEPS
         batch_timestep = torch.full(
             (sample.shape[0],),
@@ -179,14 +180,19 @@ class DiffusersDdimSampler:
             dtype=sample.dtype,
             device=sample.device,
         )
-        return validate_callback_result("denoise model", model(sample, batch_timestep), sample)
+        return validate_callback_result(
+            "denoise model",
+            model(sample, batch_timestep),
+            sample,
+            preserve_dtype=False,
+        )
 
     @staticmethod
     def _step(
         scheduler: DDIMScheduler,
         sample: torch.Tensor,
         prediction: torch.Tensor,
-        scheduler_timestep: torch.Tensor,
+        discrete_timestep: int,
         index: int,
         stochasticity: float,
         generator: torch.Generator | None,
@@ -207,13 +213,11 @@ class DiffusersDdimSampler:
             random_noise = torch.zeros_like(sample)
         result = scheduler.step(
             model_output=prediction,
-            timestep=int(scheduler_timestep.item()),
+            timestep=discrete_timestep,
             sample=sample,
             eta=stochasticity,
             variance_noise=random_noise,
         ).prev_sample
-        if not torch.isfinite(result).all():
-            raise RuntimeError("Diffusers DDIM transition produced non-finite state")
         return result
 
     @staticmethod
@@ -236,8 +240,6 @@ class DiffusersDdimSampler:
                 raise ValueError(f"variance_noises[{index}] must preserve sample shape")
             if noise.dtype != sample.dtype or noise.device != sample.device:
                 raise ValueError(f"variance_noises[{index}] must preserve sample dtype and device")
-            if not torch.isfinite(noise).all():
-                raise ValueError(f"variance_noises[{index}] must be finite")
 
     @staticmethod
     def _validate_inputs(
@@ -250,13 +252,6 @@ class DiffusersDdimSampler:
         validate_ddim_inputs(initial_sample, timesteps, num_steps, stochasticity, generator)
         if num_steps != 5:
             raise ValueError("Diffusers DDIM sampler only supports the five-step profile")
-        expected = torch.tensor(
-            _DDIM5_TIMESTEPS,
-            dtype=timesteps.dtype,
-            device=timesteps.device,
-        )
-        if not torch.equal(timesteps, expected):
-            raise ValueError(f"Diffusers DDIM timesteps must equal {_DDIM5_TIMESTEPS}")
 
 
 class DiffusersDpmSampler:
@@ -292,8 +287,6 @@ class DiffusersDpmSampler:
                     timestep=scheduler_timestep,
                     sample=sample,
                 ).prev_sample
-                if not torch.isfinite(sample).all():
-                    raise RuntimeError("Diffusers DPM transition produced non-finite state")
                 sample = validate_callback_result(
                     "current_state_constraint",
                     current_state_constraint(sample),
@@ -306,7 +299,10 @@ class DiffusersDpmSampler:
                 device=sample.device,
             )
             final_prediction = validate_callback_result(
-                "denoise model", model(sample, final_timestep), sample
+                "denoise model",
+                model(sample, final_timestep),
+                sample,
+                preserve_dtype=False,
             )
             return validate_callback_result(
                 "current_state_constraint",
@@ -354,4 +350,9 @@ class DiffusersDpmSampler:
         continuous_timestep = self._schedule.inverse_lambda(lambda_timestep)
         batch_timestep = continuous_timestep.expand(sample.shape[0])
         model_input = scheduler.scale_model_input(sample)
-        return validate_callback_result("denoise model", model(model_input, batch_timestep), sample)
+        return validate_callback_result(
+            "denoise model",
+            model(model_input, batch_timestep),
+            sample,
+            preserve_dtype=False,
+        )

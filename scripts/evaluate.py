@@ -8,7 +8,8 @@ import hydra
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 
-from eco_planner.evaluation import parse_evaluation_config, run_evaluation
+from eco_planner.evaluation.config import parse_evaluation_config
+from eco_planner.evaluation.runner import run_evaluation
 
 
 @hydra.main(

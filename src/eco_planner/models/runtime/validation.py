@@ -6,25 +6,44 @@ from collections.abc import Mapping
 
 import torch
 
-REQUIRED_OBSERVATION_SHAPES = {
-    "ego_current_state": (10,),
-    "neighbor_agents_past": (32, 21, 11),
-    "static_objects": (5, 10),
-    "lanes": (70, 20, 12),
-    "lanes_speed_limit": (70, 1),
-    "lanes_has_speed_limit": (70, 1),
-    "route_lanes": (25, 20, 12),
-}
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
+
+
+def observation_shapes(config: OfficialDiffusionPlannerConfig) -> dict[str, tuple[int, ...]]:
+    """Derive the runtime observation schema from the loaded architecture."""
+
+    return {
+        "ego_current_state": (config.observation_feature_dimensions["ego_current_state"],),
+        "neighbor_agents_past": (
+            config.agent_num,
+            config.time_len,
+            config.agent_state_dim,
+        ),
+        "static_objects": (
+            config.static_objects_num,
+            config.static_objects_state_dim,
+        ),
+        "lanes": (config.lane_num, config.lane_len, config.lane_state_dim),
+        "lanes_speed_limit": (config.lane_num, 1),
+        "lanes_has_speed_limit": (config.lane_num, 1),
+        "route_lanes": (config.route_num, config.route_len, config.route_state_dim),
+    }
 
 
 def validate_official_observation(
-    observation: Mapping[str, torch.Tensor], device: torch.device
+    observation: Mapping[str, torch.Tensor],
+    device: torch.device,
+    config: OfficialDiffusionPlannerConfig,
+    *,
+    allowed_float_dtypes: tuple[torch.dtype, ...] = (torch.float32,),
+    require_finite: bool = True,
 ) -> int:
-    missing = sorted(set(REQUIRED_OBSERVATION_SHAPES) - set(observation))
+    required_shapes = observation_shapes(config)
+    missing = sorted(set(required_shapes) - set(observation))
     if missing:
         raise ValueError(f"observation is missing required fields: {missing}")
     batch: int | None = None
-    for name, tail_shape in REQUIRED_OBSERVATION_SHAPES.items():
+    for name, tail_shape in required_shapes.items():
         value = observation[name]
         if not isinstance(value, torch.Tensor):
             raise TypeError(f"observation field {name!r} must be a torch.Tensor")
@@ -44,9 +63,12 @@ def validate_official_observation(
             if value.dtype != torch.bool:
                 raise TypeError("lanes_has_speed_limit must use torch.bool")
         else:
-            if value.dtype != torch.float32:
-                raise TypeError(f"observation field {name!r} must use torch.float32")
-            if not torch.isfinite(value).all():
+            if value.dtype not in allowed_float_dtypes:
+                expected = ", ".join(
+                    str(dtype).removeprefix("torch.") for dtype in allowed_float_dtypes
+                )
+                raise TypeError(f"observation field {name!r} must use one of: {expected}")
+            if require_finite and not torch.isfinite(value).all():
                 raise ValueError(f"observation field {name!r} must be finite")
     if batch is None:
         raise RuntimeError("official observation contract has no required fields")
@@ -60,15 +82,18 @@ def validate_standard_normal_noise(
     participants: int,
     future_len: int,
     device: torch.device,
+    allowed_float_dtypes: tuple[torch.dtype, ...] = (torch.float32,),
+    require_finite: bool = True,
 ) -> None:
     if not isinstance(noise, torch.Tensor):
         raise TypeError("standard_normal_noise must be a torch.Tensor")
-    if noise.dtype != torch.float32:
-        raise TypeError("standard_normal_noise must use torch.float32")
+    if noise.dtype not in allowed_float_dtypes:
+        expected = ", ".join(str(dtype).removeprefix("torch.") for dtype in allowed_float_dtypes)
+        raise TypeError(f"standard_normal_noise must use one of: {expected}")
     if noise.device != device:
         raise ValueError(f"standard_normal_noise must be on the runtime device {device}")
     expected_shape = (batch, participants, future_len, 4)
     if tuple(noise.shape) != expected_shape:
         raise ValueError(f"standard_normal_noise must have shape {expected_shape}")
-    if not torch.isfinite(noise).all():
+    if require_finite and not torch.isfinite(noise).all():
         raise ValueError("standard_normal_noise must be finite")

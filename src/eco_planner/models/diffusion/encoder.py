@@ -8,8 +8,8 @@ import torch
 from timm.layers import DropPath, Mlp
 from torch import nn
 
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.mixer import MixerBlock
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.diffusion.mixer import MixerBlock
 
 
 class AgentFusionEncoder(nn.Module):
@@ -55,7 +55,7 @@ class AgentFusionEncoder(nn.Module):
         encoded = torch.mean(encoded, dim=1)
         encoded = encoded + self.type_emb(agent_type.view(batch * participants, -1)[valid])
         encoded = self.emb_project(self.norm(encoded))
-        result = torch.zeros((batch * participants, encoded.shape[-1]), device=value.device)
+        result = encoded.new_zeros((batch * participants, encoded.shape[-1]))
         result[valid] = encoded
         return result.view(batch, participants, -1), mask_participant, position
 
@@ -79,9 +79,8 @@ class StaticFusionEncoder(nn.Module):
         position[..., -2] = 1.0
         mask = torch.sum(torch.ne(value[..., :10], 0), dim=-1) == 0
         valid = ~mask.view(-1)
-        result = torch.zeros((batch * participants, self._hidden_dim), device=value.device)
-        if valid.any():
-            result[valid] = self.projection(value.view(batch * participants, -1)[valid])
+        projected = self.projection(value.view(batch * participants, -1))
+        result = torch.where(valid[:, None], projected, torch.zeros_like(projected))
         return result.view(batch, participants, -1), mask, position
 
 
@@ -133,22 +132,18 @@ class LaneFusionEncoder(nn.Module):
         encoded = torch.mean(encoded, dim=1)
         flat_has_limit = has_speed_limit.view(batch * participants, 1)[valid].squeeze(-1)
         flat_limit = speed_limit.view(batch * participants, 1)[valid].squeeze(-1)
-        speed_embedding = torch.zeros((flat_limit.shape[0], self._channel), device=value.device)
-        if flat_has_limit.any():
-            speed_embedding[flat_has_limit] = self.speed_limit_emb(
-                flat_limit[flat_has_limit].unsqueeze(-1)
-            )
-        if (~flat_has_limit).any():
-            speed_embedding[~flat_has_limit] = self.unknown_speed_emb.weight.expand(
-                (~flat_has_limit).sum().item(), -1
-            )
+        known_speed_embedding = self.speed_limit_emb(flat_limit.unsqueeze(-1))
+        unknown_speed_embedding = self.unknown_speed_emb.weight.expand(flat_limit.shape[0], -1)
+        speed_embedding = torch.where(
+            flat_has_limit[:, None], known_speed_embedding, unknown_speed_embedding
+        )
         encoded = (
             encoded
             + speed_embedding
             + self.traffic_emb(traffic.view(batch * participants, -1)[valid])
         )
         encoded = self.emb_project(self.norm(encoded))
-        result = torch.zeros((batch * participants, encoded.shape[-1]), device=value.device)
+        result = encoded.new_zeros((batch * participants, encoded.shape[-1]))
         result[valid] = encoded
         return result.view(batch, participants, -1), mask_participant, position
 
@@ -215,12 +210,10 @@ class Encoder(nn.Module):
         )
         mask = torch.cat([neighbors_mask, static_mask, lanes_mask], dim=1).view(-1)
         projected = self.pos_emb(positions[~mask])
-        position_result = torch.zeros(
-            (batch * self.token_num, self.hidden_dim), device=value.device
-        )
+        position_result = projected.new_zeros((batch * self.token_num, self.hidden_dim))
         position_result[~mask] = projected
-        return {
-            "encoding": self.fusion(
-                value + position_result.view(batch, self.token_num, -1), mask.view(batch, -1)
-            )
-        }
+        padding_mask = mask.view(batch, -1)
+        encoding = self.fusion(
+            value + position_result.view(batch, self.token_num, -1), padding_mask
+        )
+        return {"encoding": encoding, "padding_mask": padding_mask}

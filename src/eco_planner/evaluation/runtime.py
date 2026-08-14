@@ -7,23 +7,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+import numpy as np
 import torch
 from lightning.fabric import Fabric
 from torch import nn
 
 from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.failures import EpisodeFailure
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.evaluation.inference import HostGuidanceDiagnostics, HostInferenceResult
+from eco_planner.models.checkpoint import CheckpointLoadReport, OfficialDiffusionPlannerConfig
 from eco_planner.models.guidance import (
     GuidanceConfig,
     NoGuidanceConfig,
 )
-from eco_planner.models.pretrained import (
-    CheckpointLoadReport,
+from eco_planner.models.runtime import (
     PlannerInferenceResult,
     load_official_diffusion_planner,
 )
-from eco_planner.models.sampling_config import (
+from eco_planner.models.runtime.validation import validate_official_observation
+from eco_planner.models.sampling import (
     SamplerConfig,
     SamplerReport,
     sampler_report,
@@ -90,10 +92,18 @@ class FabricInferenceRuntime:
         self,
         observation: Mapping[str, torch.Tensor],
         generator: torch.Generator,
-    ) -> tuple[dict[str, torch.Tensor], torch.Tensor, PlannerInferenceResult]:
-        """Move a raw observation, sample noise, and run one planner forward pass."""
+    ) -> HostInferenceResult:
+        """Run one planner pass and transfer its auditable result to CPU once."""
 
-        moved = self._fabric.to_device(dict(observation))
+        raw_observation = dict(observation)
+        validate_official_observation(
+            raw_observation,
+            torch.device("cpu"),
+            self.planner_config,
+        )
+        _validate_artifact_observation_fields(raw_observation, self.planner_config)
+
+        moved = self._fabric.to_device(raw_observation)
         if not isinstance(moved, dict) or not all(
             isinstance(name, str) and isinstance(value, torch.Tensor)
             for name, value in moved.items()
@@ -115,7 +125,7 @@ class FabricInferenceRuntime:
                 result = self._planner(device_observation, noise, generator)
         if not isinstance(result, PlannerInferenceResult):
             raise TypeError("Diffusion Planner forward must return PlannerInferenceResult")
-        prediction = result.prediction.to(dtype=torch.float32).detach()
+        prediction = result.prediction.detach()
         expected_shape = (1, 1 + config.predicted_neighbor_num, config.future_len, 4)
         if tuple(prediction.shape) != expected_shape:
             raise RuntimeError(
@@ -124,32 +134,14 @@ class FabricInferenceRuntime:
             )
         if prediction.device != self.device:
             raise RuntimeError("Diffusion Planner prediction must remain on the runtime device")
-        if not torch.isfinite(prediction).all():
-            raise EpisodeFailure(
-                "inference",
-                RuntimeError("Diffusion Planner prediction contains non-finite values"),
-            )
-        reference = (
-            None
-            if result.reference_prediction is None
-            else result.reference_prediction.to(dtype=torch.float32).detach()
-        )
-        normalized_result = PlannerInferenceResult(
-            prediction=prediction,
-            reference_prediction=reference,
-            guidance_action=(
-                None if result.guidance_action is None else result.guidance_action.detach()
-            ),
-            guidance_diagnostics=result.guidance_diagnostics,
-        )
         _validate_optional_guidance_result(
-            normalized_result,
+            result,
             self.guidance_config,
             expected_shape,
             self.sampler_report.num_steps,
             self.device,
         )
-        return device_observation, noise, normalized_result
+        return _to_host_result(noise, result, self.device)
 
 
 def create_fabric_inference_runtime(
@@ -162,6 +154,8 @@ def create_fabric_inference_runtime(
     """Resolve settings, seed all RNGs, and assemble the frozen planner with Fabric."""
 
     settings = resolve_runtime_settings(runtime_config)
+    if settings.resolved_accelerator == "cuda":
+        torch.set_float32_matmul_precision("high")
     fabric = Fabric(
         accelerator=settings.resolved_accelerator,
         devices=settings.devices,
@@ -222,19 +216,15 @@ def _validate_optional_guidance_result(
         raise RuntimeError("guided planner must return guidance diagnostics")
     if tuple(result.reference_prediction.shape) != expected_prediction_shape:
         raise RuntimeError("reference prediction shape disagrees with planner prediction")
-    if (
-        result.reference_prediction.device != device
-        or not torch.isfinite(result.reference_prediction).all()
-    ):
-        raise RuntimeError("reference prediction must be finite on the runtime device")
+    if result.reference_prediction.device != device:
+        raise RuntimeError("reference prediction must remain on the runtime device")
     if tuple(result.guidance_action.shape) != (expected_prediction_shape[0], 2):
         raise RuntimeError("guidance action must have shape [B, 2]")
     diagnostics = result.guidance_diagnostics
     batch = expected_prediction_shape[0]
-    if tuple(diagnostics.longitudinal_target_speed_delta_mps.shape) != (batch, 80):
-        raise RuntimeError("longitudinal guidance target must have shape [B, 80]")
-    if not torch.isfinite(diagnostics.longitudinal_target_speed_delta_mps).all():
-        raise RuntimeError("longitudinal guidance target must be finite")
+    future_len = expected_prediction_shape[2]
+    if tuple(diagnostics.longitudinal_target_speed_delta_mps.shape) != (batch, future_len):
+        raise RuntimeError("longitudinal guidance target must have shape [B, T]")
     for name in (
         "lateral_objective_delta",
         "longitudinal_objective_delta",
@@ -246,8 +236,101 @@ def _validate_optional_guidance_result(
         value = getattr(diagnostics, name)
         if tuple(value.shape) != (batch, num_steps) or value.device != device:
             raise RuntimeError(f"guidance diagnostic {name} has an invalid shape or device")
-        if value.dtype.is_floating_point and not torch.isfinite(value).all():
-            raise RuntimeError(f"guidance diagnostic {name} must be finite")
+
+
+def _validate_artifact_observation_fields(
+    observation: Mapping[str, torch.Tensor],
+    config: OfficialDiffusionPlannerConfig,
+) -> None:
+    extra_fields = {
+        "route_lanes_speed_limit": ((1, config.route_num, 1), torch.float32),
+        "route_lanes_has_speed_limit": ((1, config.route_num, 1), torch.bool),
+    }
+    for name, (shape, dtype) in extra_fields.items():
+        value = observation.get(name)
+        if not isinstance(value, torch.Tensor) or tuple(value.shape) != shape:
+            raise ValueError(f"raw observation field {name!r} must have shape {shape}")
+        if value.device.type != "cpu" or value.dtype != dtype:
+            raise TypeError(f"raw observation field {name!r} has an invalid device or dtype")
+        if dtype.is_floating_point and not torch.isfinite(value).all():
+            raise ValueError(f"raw observation field {name!r} must be finite")
+
+
+def _to_host_result(
+    noise: torch.Tensor,
+    result: PlannerInferenceResult,
+    device: torch.device,
+) -> HostInferenceResult:
+    tensors: dict[str, tuple[torch.Tensor, torch.dtype]] = {
+        "initial_noise": (noise.detach(), torch.float32),
+        "prediction": (result.prediction.detach(), torch.float32),
+    }
+    if result.reference_prediction is not None:
+        tensors["reference_prediction"] = (result.reference_prediction.detach(), torch.float32)
+    if result.guidance_action is not None:
+        tensors["guidance_action"] = (result.guidance_action.detach(), torch.float32)
+    diagnostics = result.guidance_diagnostics
+    if diagnostics is not None:
+        for name in (
+            "lateral_target_offset_m",
+            "longitudinal_target_speed_fraction",
+            "longitudinal_target_speed_delta_mps",
+            "lateral_objective_delta",
+            "longitudinal_objective_delta",
+            "applied_gradient_l2",
+            "applied_gradient_max_abs",
+            "raw_neighbor_gradient_l2",
+        ):
+            tensors[name] = (getattr(diagnostics, name).detach(), torch.float32)
+        tensors["zero_speed_count"] = (diagnostics.zero_speed_count.detach(), torch.int64)
+
+    host_tensors = _copy_tensors_to_host(tensors, device)
+    arrays = {name: tensor.numpy() for name, tensor in host_tensors.items()}
+    for name, value in arrays.items():
+        if value.dtype.kind in "fc" and not np.isfinite(value).all():
+            raise EpisodeFailure(
+                "inference",
+                RuntimeError(f"Diffusion Planner result {name!r} contains non-finite values"),
+            )
+    host_diagnostics = (
+        None
+        if diagnostics is None
+        else HostGuidanceDiagnostics(
+            lateral_target_offset_m=arrays["lateral_target_offset_m"],
+            longitudinal_target_speed_fraction=arrays["longitudinal_target_speed_fraction"],
+            longitudinal_target_speed_delta_mps=arrays["longitudinal_target_speed_delta_mps"],
+            lateral_objective_delta=arrays["lateral_objective_delta"],
+            longitudinal_objective_delta=arrays["longitudinal_objective_delta"],
+            applied_gradient_l2=arrays["applied_gradient_l2"],
+            applied_gradient_max_abs=arrays["applied_gradient_max_abs"],
+            raw_neighbor_gradient_l2=arrays["raw_neighbor_gradient_l2"],
+            zero_speed_count=arrays["zero_speed_count"],
+        )
+    )
+    return HostInferenceResult(
+        initial_noise=arrays["initial_noise"],
+        prediction=arrays["prediction"],
+        reference_prediction=arrays.get("reference_prediction"),
+        guidance_action=arrays.get("guidance_action"),
+        guidance_diagnostics=host_diagnostics,
+    )
+
+
+def _copy_tensors_to_host(
+    tensors: Mapping[str, tuple[torch.Tensor, torch.dtype]],
+    device: torch.device,
+) -> dict[str, torch.Tensor]:
+    if device.type != "cuda":
+        return {
+            name: value.to(device="cpu", dtype=dtype) for name, (value, dtype) in tensors.items()
+        }
+    host: dict[str, torch.Tensor] = {}
+    for name, (value, dtype) in tensors.items():
+        destination = torch.empty(value.shape, dtype=dtype, device="cpu", pin_memory=True)
+        destination.copy_(value.to(dtype=dtype), non_blocking=True)
+        host[name] = destination
+    torch.cuda.current_stream(device).synchronize()
+    return host
 
 
 def resolve_runtime_settings(runtime_config: RuntimeConfig) -> _ResolvedRuntimeSettings:

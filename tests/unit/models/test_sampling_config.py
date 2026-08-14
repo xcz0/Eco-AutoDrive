@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from omegaconf import OmegaConf
 
-from eco_planner.models.sampling_config import (
+from eco_planner.models.sampling.config import (
     Ddim5SamplerConfig,
     Dpm10SamplerConfig,
     parse_sampler_config,

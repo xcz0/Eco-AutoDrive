@@ -2,9 +2,10 @@
 
 ## 文档状态
 
-本文描述一个**论文级候选复现**，用于指导后续拆分 GitHub Issues；它不是当前系统契约、已接受
-设计、已实现功能或实验结果。当前系统仍是冻结官方 EMA、10-step DPM-Solver++、每个规划周期
-执行前 0.5 s 轨迹的 MetaDrive 运动学闭环，详见
+本文描述 PlannerRFT PPO-only 的分阶段复现路线。阶段 1--3 已分别加入可选 DDIM-5、固定正交
+guidance 和 forward-only Exploration Policy；默认评测仍是冻结官方 EMA、10-step
+DPM-Solver++、每个规划周期执行前 0.5 s 轨迹的 MetaDrive 运动学闭环。rollout、reward、GAE、
+PPO optimizer 和 learned-policy 闭环仍是候选工作，不是已实现能力。当前不变量详见
 [`system-contract.md`](../../agents/system-contract.md)。
 
 ## 目标边界
@@ -52,12 +53,12 @@ actor/value 参数。若未来加入 GRPO，必须另立专题和设计决定。
 | 区域 | 当前事实 | 对复现的含义 |
 | --- | --- | --- |
 | 模型 | 已移植 checkpoint-compatible encoder、DiT 和 10-step DPM-Solver++ | 新 sampler 必须是显式可选边界，不能覆盖 baseline 语义 |
-| 编码 | `DiffusionPlanner.encode()` 只返回 scene token `encoding` | policy 输入的 mask、reference token 和 route 条件需要显式定义，不能假定现有 API 已提供 |
+| 编码 | planner 可一次返回冻结 scene tokens/padding mask 与 route/navigation token/validity mask | policy feature 提取不建立 planner autograd graph；该接口不改变普通 `encode()` 和评测 runner |
 | 扩散 | VP-SDE、`x_start` prediction、baseline 初始噪声 `0.5 * N(0,I)` 已形成契约；论文描述 DDIM 从标准高斯开始 | DDIM 必须复用 normalization 和当前状态约束；初始噪声尺度/timestep 先经 parity gate，不能静默混同 |
-| guidance | 已有可选的固定 reference-centered orthogonal guidance；默认仍关闭 | 阶段 2 的 neutral、离散几何与注入系数是 ADR 0013 的项目复现决定，不是作者实现 parity；Exploration Policy 仍未实现 |
+| guidance | 已有可选的固定 reference-centered orthogonal guidance；默认仍关闭 | 阶段 2 的 neutral、离散几何与注入系数是 ADR 0013 的项目复现决定，不是作者实现 parity；learned action 尚未接入闭环 |
 | 环境动作 | `TrajectoryMetaDriveEnv.step()` 固定执行 5 个 0.1 s 点 | 与论文“执行第一个动作后重规划”的口径存在待决差异 |
 | reward | 环境返回 MetaDrive reward 及 5 个 substep reward；当前系统不定义最终优化奖励 | 不能把现有 `total_reward` 或 `configs/reward/energy.yaml` 直接称为 PlannerRFT reward |
-| RL | `src/eco_planner/rl/` 只有包声明，没有 rollout/GAE/PPO 实现 | `pyproject.toml` 和旧配置中的 DPPO 命名是遗留意图，不是可用能力 |
+| RL | `src/eco_planner/rl/` 已实现严格 Exploration Policy config、Beta action 概率接口、value head、冻结 feature 提取与 policy-only checkpoint | 阶段 3 仅为 forward-only；没有 rollout/GAE/PPO/training 或 learned-policy 评测入口 |
 | 运行时 | 每个 evaluation job 是单进程、单设备 Fabric；traffic matrix 可做隔离作业并行 | 论文规模的并行环境仍需要独立 training orchestrator 和相应 ADR |
 
 ## 文档导航
@@ -97,6 +98,8 @@ baseline 可复现
   动作和失败回合必须可追溯。
 - ADR 0007/0008 要求在稳定场景上比较并按终止类型分层。PPO 消融必须遵循配对 seed 和完整
   回合保留规则。
+- ADR 0016 固定阶段 3 的 policy observation、单候选、Beta 仿射变换、显式 policy RNG、共享
+  actor/value trunk 与 policy-only checkpoint；这些都是项目复现决定，不是作者公开实现。
 
 论文训练使用 nuMax、nuPlan/PDM-Closed LQR tracker、运动学自行车模型和 log-replay traffic；
 本项目使用 MetaDrive 运动学轨迹点执行与不同场景分布。论文分数、40M environment steps 和

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
 
 
 def _write_args(tmp_path: Path, contents: dict[str, object]) -> Path:

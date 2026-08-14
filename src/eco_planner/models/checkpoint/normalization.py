@@ -57,3 +57,17 @@ class ObservationNormalizer:
             result[padding] = 0
             normalized[name] = result
         return normalized
+
+    def feature_dimension(self, name: str) -> int:
+        """Return the checkpoint-defined feature width for one normalized field."""
+
+        try:
+            return int(self._normalization[name]["mean"].numel())
+        except KeyError as error:
+            raise KeyError(f"no normalization is defined for {name!r}") from error
+
+    @property
+    def feature_dimensions(self) -> dict[str, int]:
+        """Return feature widths indexed by their checkpoint observation field."""
+
+        return {name: int(values["mean"].numel()) for name, values in self._normalization.items()}

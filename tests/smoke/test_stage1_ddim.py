@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 import torch
 
@@ -12,9 +13,9 @@ def test_ddim5_official_ema_cpu_is_finite_and_replayable(
     stage0_observation: dict[str, torch.Tensor],
 ) -> None:
     generator = stage1_ddim_runtime.new_noise_generator()
-    _, noise, result = stage1_ddim_runtime.infer(stage0_observation, generator)
+    result = stage1_ddim_runtime.infer(stage0_observation, generator)
     replay_generator = stage1_ddim_runtime.new_noise_generator()
-    _, replay_noise, replay_result = stage1_ddim_runtime.infer(
+    replay_result = stage1_ddim_runtime.infer(
         stage0_observation,
         replay_generator,
     )
@@ -25,7 +26,7 @@ def test_ddim5_official_ema_cpu_is_finite_and_replayable(
     assert stage1_ddim_runtime.sampler_report.num_steps == 5
     assert stage1_ddim_runtime.sampler_report.initial_noise_scale == 1.0
     assert tuple(prediction.shape) == (1, 11, 80, 4)
-    assert prediction.dtype == torch.float32
-    assert torch.isfinite(prediction).all()
-    assert torch.equal(noise, replay_noise)
-    assert torch.equal(prediction, replay_prediction)
+    assert prediction.dtype == np.float32
+    assert np.isfinite(prediction).all()
+    assert np.array_equal(result.initial_noise, replay_result.initial_noise)
+    assert np.array_equal(prediction, replay_prediction)

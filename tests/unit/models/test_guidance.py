@@ -5,11 +5,11 @@ import math
 import pytest
 import torch
 
+from eco_planner.models.checkpoint.normalization import StateNormalizer
 from eco_planner.models.guidance import (
     OrthogonalGuidance,
     OrthogonalReferenceGuidanceConfig,
 )
-from eco_planner.models.normalization import StateNormalizer
 
 
 def _config() -> OrthogonalReferenceGuidanceConfig:

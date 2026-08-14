@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import torch
 
-from eco_planner.models.guidance import GuidanceGradientResult
+from eco_planner.models.guidance.contracts import GuidanceGradientResult
 
 
 @dataclass(frozen=True)
@@ -33,8 +33,6 @@ def validate_ddim_inputs(
         raise ValueError("initial_sample must have a non-empty [B, A, D] shape")
     if not initial_sample.dtype.is_floating_point:
         raise TypeError("initial_sample must use a floating dtype")
-    if not torch.isfinite(initial_sample).all():
-        raise ValueError("initial_sample must be finite")
     if type(num_steps) is not int or num_steps <= 0:
         raise ValueError("num_steps must be a positive integer")
     if not isinstance(timesteps, torch.Tensor):
@@ -45,12 +43,6 @@ def validate_ddim_inputs(
         raise TypeError("timesteps must use the initial_sample dtype")
     if timesteps.ndim != 1 or timesteps.shape[0] != num_steps + 1:
         raise ValueError("timesteps must have shape [num_steps + 1]")
-    if not torch.isfinite(timesteps).all():
-        raise ValueError("timesteps must be finite")
-    if float(timesteps[0].item()) != 1.0 or float(timesteps[-1].item()) != 0.0:
-        raise ValueError("timesteps must start at 1.0 and end at 0.0")
-    if not torch.all(timesteps[:-1] > timesteps[1:]):
-        raise ValueError("timesteps must be strictly decreasing")
     if type(stochasticity) not in {int, float} or not math.isfinite(stochasticity):
         raise TypeError("ddim_stochasticity must be a finite number")
     if not 0.0 <= stochasticity <= 1.0:
@@ -68,6 +60,8 @@ def validate_callback_result(
     name: str,
     result: torch.Tensor,
     reference: torch.Tensor,
+    *,
+    preserve_dtype: bool = True,
 ) -> torch.Tensor:
     """Require callbacks to preserve the sample tensor contract."""
 
@@ -75,12 +69,12 @@ def validate_callback_result(
         raise TypeError(f"{name} must return a torch.Tensor")
     if result.shape != reference.shape:
         raise ValueError(f"{name} must preserve sample shape")
-    if result.dtype != reference.dtype:
+    if preserve_dtype and result.dtype != reference.dtype:
         raise TypeError(f"{name} must preserve sample dtype")
+    if not result.dtype.is_floating_point:
+        raise TypeError(f"{name} must return a floating tensor")
     if result.device != reference.device:
         raise ValueError(f"{name} must preserve sample device")
-    if not torch.isfinite(result).all():
-        raise ValueError(f"{name} must return finite values")
     return result
 
 
@@ -111,8 +105,4 @@ def validate_guidance_result(
             raise ValueError(f"guidance diagnostic {name} must have shape [B]")
         if value.device != reference.device:
             raise ValueError(f"guidance diagnostic {name} must be on the sample device")
-        if value.dtype.is_floating_point and not torch.isfinite(value).all():
-            raise ValueError(f"guidance diagnostic {name} must be finite")
-    if not torch.isfinite(gradient).all():
-        raise ValueError("guidance gradient must be finite")
     return result

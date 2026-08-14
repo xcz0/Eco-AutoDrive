@@ -14,17 +14,15 @@ from eco_planner.envs import (
     TrajectoryExecutionRecord,
     TrajectoryMetaDriveEnv,
 )
-from eco_planner.evaluation.artifacts import (
-    build_episode_summary,
-    build_failed_episode_summary,
-    write_episode_artifacts,
-)
+from eco_planner.evaluation.artifact_writer import write_episode_artifacts
 from eco_planner.evaluation.config import EvaluationJobConfig, ScenarioConfig
 from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.rendering import render_cycle_frame
 from eco_planner.evaluation.runtime import FabricInferenceRuntime
 from eco_planner.evaluation.schema import CompletedEpisodeSummary, FailedEpisodeSummary
+from eco_planner.evaluation.summary import build_episode_summary, build_failed_episode_summary
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
+from eco_planner.models.guidance import NoGuidanceConfig
 
 
 def run_scenario(
@@ -62,7 +60,12 @@ def run_scenario(
                     "is outside [2000, 5000]"
                 ),
             )
-        trace = EpisodeTraceRecorder.from_initial_state(vehicle_state(env))
+        trace = EpisodeTraceRecorder.from_initial_state(
+            vehicle_state(env),
+            max_plan_cycles=(config.evaluation.evaluated_horizon_steps + 4) // 5,
+            max_warmup_steps=config.evaluation.history_warmup_steps,
+            guided=not isinstance(runtime.guidance_config, NoGuidanceConfig),
+        )
         if traffic_adapter is not None:
             traffic_adapter.reset(env.initial_traffic_frame, env=env)
             run_traffic_warmup(
@@ -88,10 +91,8 @@ def run_scenario(
                 traffic_audit = None
             else:
                 raise RuntimeError("evaluation mode did not create an observation adapter")
-            observation, noise, planner_result = runtime.infer(raw_observation, generator)
-            ego_trajectory = (
-                planner_result.prediction[0, 0].detach().cpu().numpy().astype(np.float32)
-            )
+            inference = runtime.infer(raw_observation, generator)
+            ego_trajectory = inference.ego_trajectory
             anchor = vehicle_state(env)
             _, reward, terminated, truncated, info = env.step(ego_trajectory)
             execution = TrajectoryExecutionRecord.from_info(info)
@@ -100,9 +101,8 @@ def run_scenario(
             total_reward += float(reward)
             trace.append_cycle(
                 anchor,
-                observation,
-                noise,
-                planner_result,
+                raw_observation,
+                inference,
                 execution,
                 plan_index,
                 traffic_audit,

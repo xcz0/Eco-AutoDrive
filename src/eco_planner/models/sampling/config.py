@@ -20,6 +20,12 @@ class Dpm10SamplerConfig:
     """The immutable official Diffusion Planner sampling profile."""
 
     name: Literal["dpm10"] = "dpm10"
+    num_steps: int = 10
+    initial_noise_scale: float = 0.5
+    ddim_stochasticity: float = 0.0
+    parity_label: Literal["official_diffusion_planner_baseline"] = (
+        "official_diffusion_planner_baseline"
+    )
     implementation: Literal["diffusers"] = "diffusers"
 
 
@@ -50,6 +56,31 @@ class SamplerReport:
     ddim_stochasticity: float
     parity_label: str
     implementation: str
+
+
+def validate_sampler_config(config: SamplerConfig) -> None:
+    """Validate immutable sampler values once when constructing a runtime sampler."""
+
+    if isinstance(config, Dpm10SamplerConfig):
+        expected = Dpm10SamplerConfig()
+        if config != expected:
+            raise ValueError("dpm10 configuration must equal the fixed official profile")
+        return
+    if not isinstance(config, Ddim5SamplerConfig):
+        raise TypeError("sampler configuration has an unsupported type")
+    if config.num_steps != 5 or config.timesteps != DDIM5_TIMESTEPS:
+        raise ValueError("ddim5 configuration must use the fixed five-step timestep profile")
+    if not math.isfinite(config.initial_noise_scale) or not math.isfinite(
+        config.ddim_stochasticity
+    ):
+        raise ValueError("ddim5 numeric configuration must be finite")
+    if not 0.0 <= config.ddim_stochasticity <= 1.0:
+        raise ValueError("ddim5 stochasticity must be in [0, 1]")
+    expected_scale = _DDIM_PARITY_SCALES.get(config.parity_label)
+    if expected_scale is None or config.initial_noise_scale != expected_scale:
+        raise ValueError("ddim5 noise scale must agree with its parity label")
+    if config.implementation != "diffusers":
+        raise ValueError("ddim5 implementation must be 'diffusers'")
 
 
 def parse_sampler_config(config: DictConfig) -> SamplerConfig:
@@ -121,12 +152,12 @@ def parse_sampler_config(config: DictConfig) -> SamplerConfig:
 def sampler_report(config: SamplerConfig) -> SamplerReport:
     if isinstance(config, Dpm10SamplerConfig):
         return SamplerReport(
-            name="dpm10",
-            num_steps=10,
+            name=config.name,
+            num_steps=config.num_steps,
             timesteps=None,
-            initial_noise_scale=0.5,
-            ddim_stochasticity=0.0,
-            parity_label="official_diffusion_planner_baseline",
+            initial_noise_scale=config.initial_noise_scale,
+            ddim_stochasticity=config.ddim_stochasticity,
+            parity_label=config.parity_label,
             implementation=config.implementation,
         )
     return SamplerReport(

@@ -6,9 +6,9 @@ import torch
 from timm.layers import Mlp
 from torch import nn
 
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.dit import DiTBlock, FinalLayer, TimestepEmbedder
-from eco_planner.models.mixer import MixerBlock
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.diffusion.dit import DiTBlock, FinalLayer, TimestepEmbedder
+from eco_planner.models.diffusion.mixer import MixerBlock
 
 
 class RouteEncoder(nn.Module):
@@ -30,6 +30,9 @@ class RouteEncoder(nn.Module):
         )
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
+        return self.encode_with_mask(value)[0]
+
+    def encode_with_mask(self, value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         states = value[..., :4]
         batch, routes, horizon, _ = states.shape
         mask_time = torch.sum(torch.ne(states, 0), dim=-1) == 0
@@ -42,9 +45,9 @@ class RouteEncoder(nn.Module):
         encoded = self.token_pre_project(encoded).permute(0, 2, 1)
         encoded = torch.mean(self.Mixer(encoded), dim=1)
         encoded = self.emb_project(self.norm(encoded))
-        result = torch.zeros((batch, encoded.shape[-1]), device=value.device)
+        result = encoded.new_zeros((batch, encoded.shape[-1]))
         result[valid] = encoded
-        return result
+        return result, mask_batch
 
 
 class DiT(nn.Module):

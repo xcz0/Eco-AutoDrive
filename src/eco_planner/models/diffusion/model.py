@@ -7,28 +7,17 @@ from collections.abc import Mapping
 import torch
 from torch import nn
 
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.decoder import Decoder
-from eco_planner.models.encoder import Encoder
-
-
-def _initialize_module(module: nn.Module) -> None:
-    if isinstance(module, nn.Linear):
-        nn.init.xavier_uniform_(module.weight)
-        if module.bias is not None:
-            nn.init.constant_(module.bias, 0)
-    elif isinstance(module, nn.LayerNorm):
-        nn.init.constant_(module.bias, 0)
-        nn.init.constant_(module.weight, 1.0)
-    elif isinstance(module, nn.Embedding):
-        nn.init.normal_(module.weight, mean=0.0, std=0.02)
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.diffusion.decoder import Decoder
+from eco_planner.models.diffusion.encoder import Encoder
+from eco_planner.models.diffusion.initialization import initialize_module
 
 
 class DiffusionPlannerEncoder(nn.Module):
     def __init__(self, config: OfficialDiffusionPlannerConfig) -> None:
         super().__init__()
         self.encoder = Encoder(config)
-        self.apply(_initialize_module)
+        self.apply(initialize_module)
         nn.init.normal_(self.encoder.pos_emb.weight, std=0.02)
         nn.init.normal_(self.encoder.neighbor_encoder.type_emb.weight, std=0.02)
         nn.init.normal_(self.encoder.lane_encoder.speed_limit_emb.weight, std=0.02)
@@ -42,7 +31,7 @@ class DiffusionPlannerDecoder(nn.Module):
     def __init__(self, config: OfficialDiffusionPlannerConfig) -> None:
         super().__init__()
         self.decoder = Decoder(config)
-        self.apply(_initialize_module)
+        self.apply(initialize_module)
         nn.init.normal_(self.decoder.dit.t_embedder.mlp[0].weight, std=0.02)
         nn.init.normal_(self.decoder.dit.t_embedder.mlp[2].weight, std=0.02)
         for block in self.decoder.dit.blocks:
@@ -64,6 +53,20 @@ class DiffusionPlanner(nn.Module):
 
     def encode(self, inputs: Mapping[str, torch.Tensor]) -> torch.Tensor:
         return self.encoder(inputs)["encoding"]
+
+    def encode_policy_features(self, inputs: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Encode frozen scene and navigation context once for an exploration policy."""
+
+        scene = self.encoder(inputs)
+        navigation, navigation_padding_mask = (
+            self.decoder.decoder.dit.route_encoder.encode_with_mask(inputs["route_lanes"])
+        )
+        return {
+            "scene_tokens": scene["encoding"],
+            "scene_padding_mask": scene["padding_mask"],
+            "navigation_tokens": navigation[:, None, :],
+            "navigation_padding_mask": navigation_padding_mask[:, None],
+        }
 
     def denoise(
         self,

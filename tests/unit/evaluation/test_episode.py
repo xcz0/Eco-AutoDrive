@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import zipfile
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from eco_planner.envs import TrafficFrame
-from eco_planner.evaluation import episode, parse_evaluation_config
-from eco_planner.evaluation.config import ScenarioConfig
+from eco_planner.evaluation import episode
+from eco_planner.evaluation.config import ScenarioConfig, parse_evaluation_config
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
 
 
@@ -30,8 +31,13 @@ def test_run_scenario_replans_and_persists_trace(
     )
     with np.load(tmp_path / "fake" / "trace.npz") as trace:
         assert trace["initial_noise"].shape == (2, 11, 80, 4)
+        assert trace["initial_noise"].dtype == np.float32
+        assert trace["predictions_local"].dtype == np.float32
+        assert trace["observation_ego_current_state"].dtype == np.float32
         assert trace["executed_states"].shape == (10, 7)
         assert trace["traffic_selected_ids"].shape == (2, 32)
+    with zipfile.ZipFile(tmp_path / "fake" / "trace.npz") as archive:
+        assert {entry.compress_type for entry in archive.infolist()} == {zipfile.ZIP_STORED}
     assert summary.map_input_audit.speed_limit_mps_min == pytest.approx(50.0 / 3.6)
 
 
@@ -94,7 +100,9 @@ def test_traffic_warmup_records_stationary_history() -> None:
             self.frames.extend(frames)
 
     adapter = WarmupAdapter()
-    trace = EpisodeTraceRecorder.from_initial_state(np.zeros(7))
+    trace = EpisodeTraceRecorder.from_initial_state(
+        np.zeros(7), max_plan_cycles=0, max_warmup_steps=20, guided=False
+    )
     episode.run_traffic_warmup(WarmupEnv(), adapter, trace, 20)  # type: ignore[arg-type]
     assert len(adapter.frames) == 20
     assert np.concatenate(trace.warmup_state_arrays).shape == (20, 7)

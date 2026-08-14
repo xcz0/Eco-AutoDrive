@@ -1,0 +1,13 @@
+name: exploration_beta
+hidden_dim: 192
+reference_horizon: 80
+reference_state_dim: 4
+reference_mixer_depth: 2
+reference_token_mlp_hidden_dim: 128
+reference_channel_mlp_hidden_dim: 384
+cross_attention_heads: 6
+cross_attention_dropout: 0.0
+fusion_mlp_depth: 2
+fusion_hidden_dim: 256
+initial_concentration: 2.0
+minimum_concentration: 0.0001

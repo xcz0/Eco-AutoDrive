@@ -12,7 +12,7 @@ from shapely.strtree import STRtree
 
 from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
 from eco_planner.envs.lane_speed import model_lane_speed_limit_mps
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
 
 _LANE_FEATURE_DIM = 12
 _TRAFFIC_LIGHT_UNKNOWN = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)

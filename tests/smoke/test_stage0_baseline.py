@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pytest
 import torch
 
@@ -15,9 +16,9 @@ def test_official_ema_checkpoint_cpu_smoke(
 ) -> None:
     generator = stage0_runtime.new_noise_generator()
 
-    _, noise, first_result = stage0_runtime.infer(stage0_observation, generator)
+    first_result = stage0_runtime.infer(stage0_observation, generator)
     replay_generator = stage0_runtime.new_noise_generator()
-    _, replay_noise, second_result = stage0_runtime.infer(stage0_observation, replay_generator)
+    second_result = stage0_runtime.infer(stage0_observation, replay_generator)
     first = first_result.prediction
     second = second_result.prediction
 
@@ -25,9 +26,9 @@ def test_official_ema_checkpoint_cpu_smoke(
     assert report.ema_tensor_count == 276
     assert report.parameter_count == 6_042_628
     assert tuple(first.shape) == (1, 11, 80, 4)
-    assert torch.isfinite(first).all()
-    assert torch.equal(noise, replay_noise)
-    assert torch.equal(first, second)
+    assert np.isfinite(first).all()
+    assert np.array_equal(first_result.initial_noise, second_result.initial_noise)
+    assert np.array_equal(first, second)
 
     payload = {
         "ema_tensor_count": report.ema_tensor_count,

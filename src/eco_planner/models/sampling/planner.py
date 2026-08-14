@@ -7,10 +7,14 @@ from dataclasses import dataclass
 
 import torch
 
-from eco_planner.models.diffusers_sampler import DiffusersDdimSampler, DiffusersDpmSampler
-from eco_planner.models.guidance import GuidanceGradientResult
-from eco_planner.models.sampling_config import Ddim5SamplerConfig, SamplerConfig
-from eco_planner.models.sampling_contracts import DdimGuidedSampleResult
+from eco_planner.models.guidance.contracts import GuidanceGradientResult
+from eco_planner.models.sampling.backends.diffusers import DiffusersDdimSampler, DiffusersDpmSampler
+from eco_planner.models.sampling.config import (
+    Ddim5SamplerConfig,
+    SamplerConfig,
+    validate_sampler_config,
+)
+from eco_planner.models.sampling.contracts import DdimGuidedSampleResult
 
 
 @dataclass(frozen=True)
@@ -24,6 +28,7 @@ class PlanningSampler:
     """Select and invoke one configured sampler without exposing its backend API."""
 
     def __init__(self, config: SamplerConfig) -> None:
+        validate_sampler_config(config)
         self.config = config
         self._sampler = self._new_implementation(config)
 
@@ -31,15 +36,13 @@ class PlanningSampler:
     def initial_noise_scale(self) -> float:
         """Return the fixed initial future-noise scale for this sampler profile."""
 
-        return (
-            self.config.initial_noise_scale if isinstance(self.config, Ddim5SamplerConfig) else 0.5
-        )
+        return self.config.initial_noise_scale
 
     @property
     def num_steps(self) -> int:
         """Return the number of denoising transitions represented by this profile."""
 
-        return self.config.num_steps if isinstance(self.config, Ddim5SamplerConfig) else 10
+        return self.config.num_steps
 
     def prepare_guidance_randomness(
         self,

@@ -16,7 +16,7 @@ from eco_planner.envs.traffic_state import (
     TrafficFrame,
     TrafficParticipantState,
 )
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
 
 
 def _map_observation(config: OfficialDiffusionPlannerConfig) -> dict[str, torch.Tensor]:
