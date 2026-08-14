@@ -6,10 +6,11 @@
 
 | 专题 | 状态 | 入口 |
 | --- | --- | --- |
-| PlannerRFT PPO-only 论文级复现 | 候选方案，尚未形成系统决定或 active task | [范围与路线](plannerrft-ppo/README.md) |
+| PlannerRFT PPO-only 论文级复现 | 阶段 4 的 10 Hz rollout 契约已实现；G-07 reward 仍开放，PPO 训练仍是候选工作 | [范围与路线](plannerrft-ppo/README.md) |
 
 专题文档用于细化候选方案，不改变本文、本仓库 ADR 或 system contract 的权威性。某一阶段进入
-开发前，必须把可交付物和验收标准转入 GitHub Issue；不得把专题路线图当作实施状态。
+开发前，必须把可交付物和验收标准转入 GitHub Issue；已实现阶段的事实必须同步回 ADR 和 system
+contract，不得把其余路线图当作实施状态。
 
 ## 研究目标
 
@@ -42,7 +43,8 @@
 当前已细化一个不含 GRPO 的 PlannerRFT 候选路线：冻结预训练 Diffusion Planner，仅用 PPO
 训练输出横向/纵向 guidance scale 的 Exploration Policy。该路线的论文事实、仓库适配和分阶段
 门槛见 [PlannerRFT PPO-only 研究](plannerrft-ppo/README.md)。专题中列出的 5-step DDIM、
-reference planner、奖励和 PPO 超参数均是该复现假设下的候选条件，不是当前系统配置。
+reference planner 的既有实现与 10 Hz rollout 契约已成为当前系统事实；奖励和 PPO 超参数仍是该复现
+假设下的候选条件，不是当前系统配置。
 
 ### 精细能耗复核
 
@@ -61,8 +63,6 @@ MetaDrive 代理指标可与 FASTSim 或其他车辆模型形成候选的两阶�
 - 道路预瞄应包含哪些信息、覆盖多远、采用何种表示和注入位置？
 - 如何定义与实际执行轨迹一致的策略动作和概率？
 - 是否需要强化学习；若需要，应更新完整模型、新增模块还是参数高效子集？
-- PlannerRFT PPO-only 复现应把一个 MDP step 定义为当前 0.5 s 规划周期，还是论文所述的
-  “执行第一个动作后重规划”？
 - PlannerRFT 奖励如何映射到 MetaDrive 可观测、单位明确且不会掩盖失败的逐步量？
 - 如何在能耗、安全、有效进度、旅行时间和舒适性之间形成不鼓励停车或任务失败的比较口径？
 - 主能耗指标应使用总能耗、单位距离能耗、单位有效进度能耗还是其他定义？

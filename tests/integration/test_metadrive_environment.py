@@ -126,6 +126,25 @@ def test_trajectory_environment_executes_five_simulator_steps() -> None:
 
 
 @pytest.mark.simulator
+def test_trajectory_environment_executes_one_rollout_substep() -> None:
+    config = _environment_config("S")
+    config["trajectory_execution_steps"] = 1
+    env = TrajectoryMetaDriveEnv(config)
+    try:
+        env.reset(seed=0)
+        _, _, terminated, truncated, info = env.step(_straight_trajectory(5.0))
+        execution = TrajectoryExecutionRecord.from_info(info)
+
+        assert env.engine.episode_step == 1
+        assert info["trajectory_execution_steps"] == 1
+        assert execution.substep_states.shape == (1, 7)
+        assert not terminated
+        assert not truncated
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
 def test_trajectory_environment_rejects_non_planner_observations() -> None:
     image_config = _environment_config("S")
     image_config["image_observation"] = True

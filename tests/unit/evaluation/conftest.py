@@ -166,7 +166,7 @@ def evaluation_config() -> object:
                     "deterministic": False,
                 },
             },
-            "env": {"traffic_density": 0.0, "horizon": 10},
+            "env": {"traffic_density": 0.0, "trajectory_execution_steps": 5, "horizon": 10},
             "map_query_radius_m": 100.0,
             "model": {"args_path": "args.json", "checkpoint_path": "model.pth"},
             "runtime": {

@@ -44,7 +44,27 @@ class OrthogonalReferenceGuidanceConfig:
         return (self.lateral_scale, self.longitudinal_scale)
 
 
-GuidanceConfig = NoGuidanceConfig | OrthogonalReferenceGuidanceConfig
+@dataclass(frozen=True)
+class OrthogonalPolicyGuidanceConfig:
+    """Stage-4 learned-action profile sharing the stage-2 geometric guidance contract."""
+
+    name: Literal["orthogonal_policy"]
+    formula_label: Literal["centered_energy_gradient_delta_v1"]
+    lateral_max_offset_m: float
+    longitudinal_max_speed_fraction: float
+    trajectory_dt_s: float
+    gradient_step_coefficient: float
+    reference_refresh_cycles: int
+    share_scene_encoding: bool
+    share_initial_noise: bool
+    share_transition_noise: bool
+    heading_norm_epsilon: float
+    zero_speed_tolerance_mps: float
+
+
+GuidanceConfig = (
+    NoGuidanceConfig | OrthogonalReferenceGuidanceConfig | OrthogonalPolicyGuidanceConfig
+)
 
 
 def parse_guidance_config(config: DictConfig) -> GuidanceConfig:
@@ -59,14 +79,14 @@ def parse_guidance_config(config: DictConfig) -> GuidanceConfig:
     if name == "none":
         _require_exact_keys(raw, {"name"}, "none")
         return NoGuidanceConfig()
-    if name != "orthogonal_reference":
-        raise ValueError("guidance.name must be either 'none' or 'orthogonal_reference'")
+    if name not in {"orthogonal_reference", "orthogonal_policy"}:
+        raise ValueError(
+            "guidance.name must be 'none', 'orthogonal_reference', or 'orthogonal_policy'"
+        )
 
     required = {
         "name",
         "formula_label",
-        "lateral_scale",
-        "longitudinal_scale",
         "lateral_max_offset_m",
         "longitudinal_max_speed_fraction",
         "trajectory_dt_s",
@@ -78,11 +98,12 @@ def parse_guidance_config(config: DictConfig) -> GuidanceConfig:
         "heading_norm_epsilon",
         "zero_speed_tolerance_mps",
     }
-    _require_exact_keys(raw, required, "orthogonal_reference")
+    if name == "orthogonal_reference":
+        required.add("lateral_scale")
+        required.add("longitudinal_scale")
+    _require_exact_keys(raw, required, str(name))
     if raw["formula_label"] != _FORMULA_LABEL:
         raise ValueError(f"formula_label must equal {_FORMULA_LABEL!r}")
-    lateral_scale = _bounded_scale(raw["lateral_scale"], "lateral_scale")
-    longitudinal_scale = _bounded_scale(raw["longitudinal_scale"], "longitudinal_scale")
     lateral_max_offset_m = _positive_float(raw["lateral_max_offset_m"], "lateral_max_offset_m")
     longitudinal_max_speed_fraction = _positive_float(
         raw["longitudinal_max_speed_fraction"], "longitudinal_max_speed_fraction"
@@ -103,11 +124,8 @@ def parse_guidance_config(config: DictConfig) -> GuidanceConfig:
     zero_speed_tolerance_mps = _positive_float(
         raw["zero_speed_tolerance_mps"], "zero_speed_tolerance_mps"
     )
-    return OrthogonalReferenceGuidanceConfig(
-        name="orthogonal_reference",
+    common = dict(
         formula_label=_FORMULA_LABEL,
-        lateral_scale=lateral_scale,
-        longitudinal_scale=longitudinal_scale,
         lateral_max_offset_m=lateral_max_offset_m,
         longitudinal_max_speed_fraction=longitudinal_max_speed_fraction,
         trajectory_dt_s=trajectory_dt_s,
@@ -118,6 +136,14 @@ def parse_guidance_config(config: DictConfig) -> GuidanceConfig:
         share_transition_noise=True,
         heading_norm_epsilon=heading_norm_epsilon,
         zero_speed_tolerance_mps=zero_speed_tolerance_mps,
+    )
+    if name == "orthogonal_policy":
+        return OrthogonalPolicyGuidanceConfig(name="orthogonal_policy", **common)
+    return OrthogonalReferenceGuidanceConfig(
+        name="orthogonal_reference",
+        lateral_scale=_bounded_scale(raw["lateral_scale"], "lateral_scale"),
+        longitudinal_scale=_bounded_scale(raw["longitudinal_scale"], "longitudinal_scale"),
+        **common,
     )
 
 

@@ -1,6 +1,7 @@
 # System Contract
 
-本文是当前已实现系统行为的规范性 reference。它不规定尚未实现的强化学习、道路预瞄扩展、低层控制器或最终能耗模型。
+本文是当前已实现系统行为的规范性 reference。它只规定 Stage 4 rollout 数据契约，不规定尚未实现的
+GAE/PPO 训练、道路预瞄扩展、低层控制器或最终能耗模型。
 
 ## 系统边界
 
@@ -65,7 +66,8 @@ preflight。smoke、no-traffic 和普通 full 运行保持串行，多 GPU 调�
 - MetaDrive vehicle center 与后轴中心的偏移必须按车辆 heading 显式转换；地图、目标轨迹和实际车辆状态使用同一车辆中心约定。
 - heading 使用 `[cos(h), sin(h)]`，角差使用最短有向角。
 - 模型轨迹为 10 Hz 的 80 个未来点，共 8 s；MetaDrive 物理步长为 0.02 s，`decision_repeat=5`，对外子步为 0.1 s。
-- 每个规划周期只执行前 5 点，即 0.5 s，规划频率为 2 Hz。
+- evaluation 每个规划周期只执行前 5 点，即 0.5 s，规划频率为 2 Hz；Stage 4 PPO rollout 只执行第
+  1 点，即 0.1 s，规划频率为 10 Hz。两条入口不得混用 transition、reward、done 或 bootstrap 语义。
 - 程序化地图限速配置使用 km/h，模型限速使用 m/s；单位转换只在地图适配边界执行一次。
 - 能耗、距离、速度、加速度和角速度字段名必须显式标出单位。
 - 场景全局平移或旋转后，等价状态应产生等价的局部模型输入。
@@ -158,8 +160,9 @@ objective delta、应用梯度 L2/max、原始 neighbor gradient L2 和零速计
 
 ## Exploration Policy（forward-only）
 
-阶段 3 的 Exploration Policy 是独立模块，尚未接入 evaluation runner、closed-loop rollout 或
-training。它的输入固定为：冻结 scene tokens `[B,N,H]` 及 bool padding mask、冻结
+阶段 3 的 Exploration Policy 现由 Stage 4 serial rollout collector 接入 learned-guidance closed loop；
+它仍不接入既有 evaluation runner 或训练/PPO optimizer。它的输入固定为：冻结 scene tokens `[B,N,H]`
+及 bool padding mask、冻结
 route/navigation token `[B,1,H]` 及 bool validity/padding mask，以及 ego-local physical reference
 trajectory `float [B,80,4]`。reference 使用 10 Hz、米和 `[cos(h),sin(h)]`。所有 feature 必须同
 batch、dtype 和 device，且有限；每个 batch item 至少有一个有效 context token。
@@ -192,6 +195,24 @@ policy action generator 不得改变 PyTorch 全局 RNG，且与 map/noise seed 
 只包含严格 format version 与 Exploration Policy 自身的 trainable state dict；不保存 planner、
 optimizer、rollout 或 RNG state。网络结构、Beta 参数化、仿射映射和初始化见 ADR 0016，均为本项目
 复现决定，不得描述为 PlannerRFT 作者公开实现。
+
+## Stage 4 rollout
+
+Stage 4 使用独立的 serial Fabric rollout runtime 和 `guidance=orthogonal_policy`。一个 transition
+先准备一次冻结 scene/navigation encoding 与 DDIM reference，以独立 policy generator 抽取 `rsample`，
+再用同一份 encoding、initial noise 与 DDIM transition randomness 完成 guided pass。planner 保持
+eval/frozen；普通 evaluation 和固定 action guidance 路径不变。
+
+collector 保存 CPU `float32` 冻结 policy context（包括 mask/reference）、base 与 transformed action、
+old transformed joint log-prob/value、initial noise、消费前 diffusion/policy RNG state、map/noise/policy
+seed、planning-cycle index、executed count、reward、terminated/truncated 与 bootstrap mask。严格 Stage 4
+profile 只允许 `trajectory_execution_steps=1`；evaluation config 要求 5。不保存 DDIM denoise chain，也
+不创建持久化 rollout artifact。
+
+`MetaDriveRolloutReward` 严格传输一次 MetaDrive substep，source 为 `metadrive_builtin_v1`，unit 为
+`dimensionless_score`；它不是 PPO parity reward。`bootstrap_mask` 等于 `not terminated`。纯 truncation
+与 rollout-limit tail 保存最终状态的冻结 critic value；terminal tail 保存零。未来 GAE 必须在 terminated
+或 truncated 边界停止递归，且尚未实现。
 
 ## 轨迹执行
 

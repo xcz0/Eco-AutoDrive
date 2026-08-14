@@ -18,7 +18,11 @@ from eco_planner.models.checkpoint.loader import (
 )
 from eco_planner.models.diffusion.model import DiffusionPlanner
 from eco_planner.models.guidance import GuidanceConfig, NoGuidanceConfig, validate_guidance_sampler
-from eco_planner.models.runtime.inference import DiffusionInferenceEngine, PlannerInferenceResult
+from eco_planner.models.runtime.inference import (
+    DiffusionInferenceEngine,
+    PlannerInferenceResult,
+    PreparedPolicyGuidance,
+)
 from eco_planner.models.sampling.config import SamplerConfig
 
 
@@ -70,6 +74,27 @@ class PretrainedDiffusionPlanner(nn.Module):
             transition_generator,
             guidance_action,
         )
+
+    def prepare_policy_guidance(
+        self,
+        observation: Mapping[str, torch.Tensor],
+        standard_normal_noise: torch.Tensor,
+        transition_generator: torch.Generator | None,
+    ) -> PreparedPolicyGuidance:
+        """Prepare a learned-guidance reference pass while retaining shared planner features."""
+
+        return self._engine.prepare_policy_guidance(
+            observation, standard_normal_noise, transition_generator
+        )
+
+    def complete_policy_guidance(
+        self,
+        prepared: PreparedPolicyGuidance,
+        guidance_action: torch.Tensor,
+    ) -> PlannerInferenceResult:
+        """Complete a prepared learned-guidance pass with the policy action."""
+
+        return self._engine.complete_policy_guidance(prepared, guidance_action)
 
 
 def load_official_diffusion_planner(

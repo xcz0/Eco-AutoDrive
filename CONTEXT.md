@@ -6,6 +6,10 @@
 
 **规划周期（planning cycle）**：规划器基于当前观测生成一次联合未来预测，并由闭环执行其中一段后再次规划的高层决策单位。
 
+**rollout transition（rollout 转移）**：PPO-only Stage 4 中以 10 Hz 定义的一个高层 MDP 转移：在当前状态生成 reference、抽样一个 guidance action、执行预测轨迹第一个 0.1 s 点并记录 reward、done 与可重放随机状态。它不同于现有 0.5 s evaluation planning cycle。
+
+**bootstrap mask（bootstrap 掩码）**：transition 是否可以将最终状态 value 用于 TD target 的显式 bool。它严格等于 `not terminated`；纯 time-limit truncation 可 bootstrap，但 GAE 递归仍在任意 terminated 或 truncated 边界停止。
+
 **评测作业（evaluation job）**：由一份 resolved config、一个推理运行时和一个独立产物目录组成的评测执行单位；一个作业可以依次包含多个回合。
 
 **作业级并行（job-level parallel evaluation）**：在相互隔离的进程中并发运行多个评测作业。它不表示在同一评测作业内启动多个 MetaDrive 引擎，也不表示对多个回合进行集中式 batch inference。

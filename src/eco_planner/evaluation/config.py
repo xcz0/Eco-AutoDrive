@@ -126,6 +126,8 @@ class EvaluationJobConfig(_StrictModel):
     @model_validator(mode="after")
     def validate_job(self) -> EvaluationJobConfig:
         evaluation = self.evaluation
+        if self.env.get("trajectory_execution_steps") != 5:
+            raise ValueError("evaluation env.trajectory_execution_steps must equal 5")
         horizon = self.env.get("horizon")
         if type(horizon) is not int:
             raise TypeError("env.horizon must be an integer")

@@ -10,14 +10,14 @@ system contract。
 
 | ID | 问题 | 当前证据/约束 | 候选选择 | 关闭 gate 所需产物 |
 | --- | --- | --- | --- | --- |
-| G-01 | 一个 PPO MDP step 多长？ | 当前环境固定执行 `5 x 0.1 s`；论文描述执行第一个动作后重规划 | 保留 0.5 s 的项目变体；改为 0.1 s 的论文口径 | ADR；env/action/reward/discount/time-limit 测试；system contract 更新 |
+| G-01 | 一个 PPO MDP step 多长？ | **已关闭**：Stage 4 rollout 每次执行 `1 x 0.1 s` 并重规划；既有 evaluation 继续执行 `5 x 0.1 s` | 见 ADR 0017 | Issue #18；single-substep simulator、时间轴和 evaluation 隔离测试 |
 | G-02 | reference trajectory 如何生成？ | **已关闭**：同一冻结 checkpoint、每周期一次 scene encoding；标准高斯 DDIM-5 reference 每周期刷新并与 guided pass 共享 initial noise 和 transition draws | 见 ADR 0013 | Issue #6；随机流重放、单 encoder、冻结范围和 reference trace 测试 |
 | G-03 | orthogonal guidance 的离散定义和 neutral action 是什么？ | **已关闭**：heading 定义切/左法向，当前点加未来点作 10 Hz 差分；零速合法；centered gradient delta 使 `(0,0)` 精确 neutral | 见 ADR 0013；这是项目复现决定 | Issue #6；手算方向/量纲、零速/退化边界和 rigid-transform 测试 |
 | G-04 | policy 的完整 observation 是什么？ | **已关闭**：一次冻结 scene encoding 及 padding mask、一次冻结 route/navigation encoding 及 validity mask、ego-local physical reference `[B,80,4]` | 见 ADR 0016 | Issue #16；shape/dtype/device/mask、单次编码和冻结反向测试 |
 | G-05 | Beta action 如何映射和记概率？ | **已关闭**：保存严格位于 `(0,1)^2` 的 base action `u`；guidance 为 `2u-1`；joint transformed log-prob 减 `2 log 2`，entropy 加 `2 log 2` | 见 ADR 0016；这是项目复现决定 | Issue #16；sample/rsample/mean、support、log-prob、entropy 和 old/new 重算测试 |
 | G-06 | 多候选 `K` 如何进入 PPO 概率？ | **已关闭**：阶段 3--5 固定单候选 `K=1`，不定义额外候选选择概率 | 见 ADR 0016 | Issue #16；单 action 概率接口；未来若改变 `K` 必须重开 gate |
 | G-07 | PPO reward 如何在 MetaDrive 定义？ | 当前只有 MetaDrive 内置 reward/substep；系统未定义优化 reward | 论文 parity reward；加入能耗的项目扩展 reward | 每组件数据源、单位、频率、范围、terminal gate、失败语义和反停驶测试 |
-| G-08 | terminal 与 truncation 如何 bootstrap？ | 当前同时记录 terminated/truncated，env step 可能提前结束 | terminal mask；time-limit bootstrap 或不 bootstrap | 明确公式、rollout-tail contract 和手算 GAE 测试 |
+| G-08 | terminal 与 truncation 如何 bootstrap？ | **已关闭**：`bootstrap_mask = not terminated`；纯 time-limit truncation 与 rollout tail 保存 final-state old value，GAE 递归仍在 done 边界停止 | 见 ADR 0017 | Issue #18；terminal/truncation/tail buffer 测试；GAE 手算测试留给阶段 5 |
 | G-09 | 训练 runtime 如何扩展？ | 当前 ADR 0010 限定单进程单设备 evaluation | 独立同步向量环境；多进程收集；其他训练编排 | ADR；seed 派生、设备、异常传播、资源释放和产物聚合测试 |
 | G-10 | parity 与项目扩展如何分开？ | 本项目目标包含道路预瞄与能耗，PlannerRFT 原目标不同 | 先 parity 后扩展；直接项目 reward | 两套命名独立的 config/实验矩阵和结论边界 |
 | G-11 | DDIM 初始分布和五步时间表是什么？ | **已关闭**：默认论文文字 profile 使用标准高斯；本项目选择 `t=[1.0,0.8,0.6,0.4,0.2] -> [0.8,0.6,0.4,0.2,0.0]`；`0.5` 倍噪声仅作隔离变体 | 见 ADR 0011；时间表不得描述为作者事实 | Issue #4；严格 sampler 配置、数学/随机性测试和配对闭环证据 |

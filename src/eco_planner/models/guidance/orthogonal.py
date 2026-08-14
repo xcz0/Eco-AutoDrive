@@ -5,7 +5,10 @@ from __future__ import annotations
 import torch
 
 from eco_planner.models.checkpoint.normalization import StateNormalizer
-from eco_planner.models.guidance.config import OrthogonalReferenceGuidanceConfig
+from eco_planner.models.guidance.config import (
+    OrthogonalPolicyGuidanceConfig,
+    OrthogonalReferenceGuidanceConfig,
+)
 from eco_planner.models.guidance.contracts import GuidanceGradientResult, validate_guidance_action
 
 
@@ -14,7 +17,7 @@ class OrthogonalGuidance:
 
     def __init__(
         self,
-        config: OrthogonalReferenceGuidanceConfig,
+        config: OrthogonalReferenceGuidanceConfig | OrthogonalPolicyGuidanceConfig,
         state_normalizer: StateNormalizer,
     ) -> None:
         self.config = config

@@ -30,6 +30,8 @@ from eco_planner.envs.traffic_state import TrafficFrame, capture_traffic_frame
 
 TRAJECTORY_HORIZON = 80
 TRAJECTORY_EXECUTION_STEPS = 5
+ROLLOUT_EXECUTION_STEPS = 1
+_ALLOWED_EXECUTION_STEPS = frozenset({ROLLOUT_EXECUTION_STEPS, TRAJECTORY_EXECUTION_STEPS})
 TRAJECTORY_TIMESTEP_S = 0.1
 _MIN_HEADING_NORM = 1e-6
 _PLANNER_ONLY_OBSERVATION = np.zeros(1, dtype=np.float32)
@@ -71,12 +73,16 @@ class _TrajectoryStepRecord:
     count: int
 
     @classmethod
-    def empty(cls) -> _TrajectoryStepRecord:
+    def empty(cls, execution_steps: int) -> _TrajectoryStepRecord:
+        if execution_steps not in _ALLOWED_EXECUTION_STEPS:
+            raise ValueError(
+                f"trajectory_execution_steps must be one of {sorted(_ALLOWED_EXECUTION_STEPS)}"
+            )
         return cls(
-            states=np.empty((TRAJECTORY_EXECUTION_STEPS, 7), dtype=np.float64),
-            rewards=np.empty(TRAJECTORY_EXECUTION_STEPS, dtype=np.float64),
-            terminated=np.empty(TRAJECTORY_EXECUTION_STEPS, dtype=np.bool_),
-            truncated=np.empty(TRAJECTORY_EXECUTION_STEPS, dtype=np.bool_),
+            states=np.empty((execution_steps, 7), dtype=np.float64),
+            rewards=np.empty(execution_steps, dtype=np.float64),
+            terminated=np.empty(execution_steps, dtype=np.bool_),
+            truncated=np.empty(execution_steps, dtype=np.bool_),
             traffic_frames=[],
             count=0,
         )
@@ -270,7 +276,7 @@ class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
 
 
 class TrajectoryMetaDriveEnv(MetaDriveEnv):
-    """Single-agent MetaDrive environment with a 0.5 s trajectory action."""
+    """Single-agent MetaDrive environment with an explicit 0.1 s or 0.5 s trajectory prefix."""
 
     @classmethod
     def default_config(cls) -> Config:
@@ -317,8 +323,11 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         execution_steps = _require_positive_int(self.config, "trajectory_execution_steps")
         if horizon != TRAJECTORY_HORIZON:
             raise ValueError(f"trajectory_horizon must be {TRAJECTORY_HORIZON}")
-        if execution_steps != TRAJECTORY_EXECUTION_STEPS:
-            raise ValueError(f"trajectory_execution_steps must be {TRAJECTORY_EXECUTION_STEPS}")
+        if execution_steps not in _ALLOWED_EXECUTION_STEPS:
+            raise ValueError(
+                f"trajectory_execution_steps must be one of {sorted(_ALLOWED_EXECUTION_STEPS)}"
+            )
+        self._execution_steps = execution_steps
         _validated_timestep(self.config)
         self._programmatic_lane_speed_limit_kmh = validated_programmatic_speed_limit_kmh(
             self.config["programmatic_lane_speed_limit_kmh"]
@@ -463,8 +472,8 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         prepared = _PreparedTrajectory(local=validated, world=world_trajectory)
         total_reward = 0.0
         final_result: tuple[Any, float, bool, bool, dict[str, Any]] | None = None
-        step_record = _TrajectoryStepRecord.empty()
-        for index in range(TRAJECTORY_EXECUTION_STEPS):
+        step_record = _TrajectoryStepRecord.empty(self._execution_steps)
+        for index in range(self._execution_steps):
             action = prepared if index == 0 else None
             # KinematicTrajectoryPolicy applies the exact waypoint in MetaDrive's after_step
             # phase. Prevent the previous waypoint's velocity from moving the vehicle during

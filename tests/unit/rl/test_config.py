@@ -6,7 +6,7 @@ import pytest
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
-from eco_planner.rl import parse_exploration_policy_config
+from eco_planner.rl import parse_exploration_policy_config, parse_rollout_config
 
 
 def _policy_mapping() -> dict[str, object]:
@@ -61,3 +61,14 @@ def test_policy_config_rejects_missing_and_extra_fields() -> None:
     raw["undocumented_default"] = 1
     with pytest.raises(ValueError, match="keys mismatch"):
         parse_exploration_policy_config(OmegaConf.create(raw))
+
+
+def test_stage4_rollout_profile_is_explicit_and_uses_one_substep() -> None:
+    config_dir = Path(__file__).resolve().parents[3] / "configs"
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
+        config = compose(config_name="rollout/stage4_smoke")
+
+    parsed = parse_rollout_config(config)
+    assert parsed.rollout.transition_dt_s == 0.1
+    assert parsed.rollout.bootstrap_time_limit
+    assert parsed.env["trajectory_execution_steps"] == 1

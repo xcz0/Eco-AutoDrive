@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,6 +15,7 @@ from eco_planner.models.guidance import (
     GuidanceDiagnostics,
     NoGuidanceConfig,
     OrthogonalGuidance,
+    OrthogonalPolicyGuidanceConfig,
     OrthogonalReferenceGuidanceConfig,
     validate_guidance_action,
 )
@@ -40,6 +41,31 @@ class PlannerInferenceResult:
     reference_prediction: torch.Tensor | None = None
     guidance_action: torch.Tensor | None = None
     guidance_diagnostics: GuidanceDiagnostics | None = None
+
+
+@dataclass(frozen=True)
+class PlannerPolicyContext:
+    """Frozen planner features and the physical ego reference for one policy decision."""
+
+    scene_tokens: torch.Tensor
+    scene_padding_mask: torch.Tensor
+    navigation_tokens: torch.Tensor
+    navigation_padding_mask: torch.Tensor
+    reference_trajectory: torch.Tensor
+
+
+@dataclass
+class PreparedPolicyGuidance:
+    """One-use DDIM reference pass retained until the policy selects an action."""
+
+    initial: torch.Tensor
+    denoiser: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+    constrain: Callable[[torch.Tensor], torch.Tensor]
+    transition_generator: torch.Generator | None
+    guidance_randomness: Any
+    reference_prediction: torch.Tensor
+    current_states: torch.Tensor
+    policy_context: PlannerPolicyContext
 
 
 class DiffusionInferenceEngine:
@@ -115,7 +141,10 @@ class DiffusionInferenceEngine:
 
         guidance_randomness = (
             self._sampler.prepare_guidance_randomness(initial, transition_generator)
-            if isinstance(self._guidance_config, OrthogonalReferenceGuidanceConfig)
+            if isinstance(
+                self._guidance_config,
+                (OrthogonalReferenceGuidanceConfig, OrthogonalPolicyGuidanceConfig),
+            )
             else None
         )
         normalized_sample = self._sampler.sample(
@@ -138,6 +167,112 @@ class DiffusionInferenceEngine:
             guidance_randomness,
             prediction,
             current_states,
+            guidance_action,
+        )
+
+    def prepare_policy_guidance(
+        self,
+        observation: Mapping[str, torch.Tensor],
+        standard_normal_noise: torch.Tensor,
+        transition_generator: torch.Generator | None,
+    ) -> PreparedPolicyGuidance:
+        """Prepare one shared-encoding reference pass for a learned guidance action."""
+
+        if not isinstance(self._guidance_config, OrthogonalPolicyGuidanceConfig):
+            raise RuntimeError("policy-guided rollout requires orthogonal_policy guidance")
+        device = self.runtime_device
+        batch = validate_official_observation(
+            observation,
+            device,
+            self._config,
+            allowed_float_dtypes=_FABRIC_FLOAT_DTYPES,
+            require_finite=False,
+        )
+        participants = 1 + self._config.predicted_neighbor_num
+        validate_standard_normal_noise(
+            standard_normal_noise,
+            batch=batch,
+            participants=participants,
+            future_len=self._config.future_len,
+            device=device,
+            allowed_float_dtypes=_FABRIC_FLOAT_DTYPES,
+            require_finite=False,
+        )
+        inputs = self._config.observation_normalizer(observation)
+        features = self._model.encode_policy_features(inputs)
+        encoding = features["scene_tokens"]
+        ego_current = inputs["ego_current_state"][:, None, :4]
+        neighbors_current = inputs["neighbor_agents_past"][
+            :, : self._config.predicted_neighbor_num, -1, :4
+        ]
+        neighbor_current_mask = torch.sum(torch.ne(neighbors_current, 0), dim=-1) == 0
+        current_states = torch.cat([ego_current, neighbors_current], dim=1)
+        initial = torch.cat(
+            [current_states[:, :, None], self._sampler.initial_noise_scale * standard_normal_noise],
+            dim=2,
+        ).reshape(batch, participants, -1)
+
+        def denoiser(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
+            prediction = self._model.denoise(
+                sample, timestep, encoding, inputs["route_lanes"], neighbor_current_mask
+            )
+            return prediction.to(dtype=sample.dtype)
+
+        def constrain(sample: torch.Tensor) -> torch.Tensor:
+            constrained = sample.reshape(
+                batch, participants, self._config.future_len + 1, 4
+            ).clone()
+            constrained[:, :, 0] = current_states
+            return constrained.reshape(batch, participants, -1)
+
+        guidance_randomness = self._sampler.prepare_guidance_randomness(
+            initial, transition_generator
+        )
+        reference_prediction = self._prediction(
+            self._sampler.sample(
+                initial,
+                denoiser,
+                constrain,
+                transition_generator,
+                guidance_randomness=guidance_randomness,
+            ),
+            batch,
+            participants,
+        )
+        return PreparedPolicyGuidance(
+            initial=initial,
+            denoiser=denoiser,
+            constrain=constrain,
+            transition_generator=transition_generator,
+            guidance_randomness=guidance_randomness,
+            reference_prediction=reference_prediction,
+            current_states=current_states,
+            policy_context=PlannerPolicyContext(
+                scene_tokens=features["scene_tokens"],
+                scene_padding_mask=features["scene_padding_mask"],
+                navigation_tokens=features["navigation_tokens"],
+                navigation_padding_mask=features["navigation_padding_mask"],
+                reference_trajectory=reference_prediction[:, 0],
+            ),
+        )
+
+    def complete_policy_guidance(
+        self,
+        prepared: PreparedPolicyGuidance,
+        guidance_action: torch.Tensor,
+    ) -> PlannerInferenceResult:
+        """Finish a prepared learned-guidance pass with the sampled policy action."""
+
+        if not isinstance(prepared, PreparedPolicyGuidance):
+            raise TypeError("prepared policy guidance has an invalid type")
+        return self._run_guided(
+            prepared.initial,
+            prepared.denoiser,
+            prepared.constrain,
+            prepared.transition_generator,
+            prepared.guidance_randomness,
+            prepared.reference_prediction,
+            prepared.current_states,
             guidance_action,
         )
 
@@ -164,17 +299,22 @@ class DiffusionInferenceEngine:
         guidance_action: torch.Tensor | None,
     ) -> PlannerInferenceResult:
         config = self._guidance_config
-        if not isinstance(config, OrthogonalReferenceGuidanceConfig):
+        if not isinstance(
+            config, (OrthogonalReferenceGuidanceConfig, OrthogonalPolicyGuidanceConfig)
+        ):
             raise RuntimeError("unsupported guidance configuration")
         batch, participants, _ = initial.shape
         device = initial.device
-        action = (
-            torch.tensor(config.fixed_action, dtype=torch.float32, device=device)
-            .expand(batch, -1)
-            .clone()
-            if guidance_action is None
-            else guidance_action
-        )
+        if guidance_action is None:
+            if not isinstance(config, OrthogonalReferenceGuidanceConfig):
+                raise ValueError("orthogonal_policy guidance requires an explicit policy action")
+            action = (
+                torch.tensor(config.fixed_action, dtype=torch.float32, device=device)
+                .expand(batch, -1)
+                .clone()
+            )
+        else:
+            action = guidance_action
         validate_guidance_action(action, batch=batch, device=device)
         if torch.count_nonzero(action).item() == 0:
             return PlannerInferenceResult(

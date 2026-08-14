@@ -7,7 +7,12 @@ from typing import Any
 
 import torch
 
-from eco_planner.models.guidance.config import OrthogonalReferenceGuidanceConfig
+from eco_planner.models.guidance.config import (
+    OrthogonalPolicyGuidanceConfig,
+    OrthogonalReferenceGuidanceConfig,
+)
+
+_OrthogonalGuidanceConfig = OrthogonalReferenceGuidanceConfig | OrthogonalPolicyGuidanceConfig
 
 
 @dataclass
@@ -26,7 +31,7 @@ class GuidanceDiagnostics:
 
 
 def zero_guidance_diagnostics(
-    config: OrthogonalReferenceGuidanceConfig,
+    config: _OrthogonalGuidanceConfig,
     action: torch.Tensor,
     *,
     future_len: int,
@@ -52,7 +57,7 @@ def zero_guidance_diagnostics(
 
 
 def stack_guidance_diagnostics(
-    config: OrthogonalReferenceGuidanceConfig,
+    config: _OrthogonalGuidanceConfig,
     action: torch.Tensor,
     steps: tuple[Any, ...],
     longitudinal_target_speed_delta_mps: torch.Tensor,

@@ -43,6 +43,7 @@ def _config(*, accelerator: str = "cpu", video: bool = False, threads: int = 2):
             },
             "env": {
                 "horizon": 25,
+                "trajectory_execution_steps": 5,
                 "traffic_mode": "trigger",
                 "traffic_density": 0.05,
                 "random_traffic": False,

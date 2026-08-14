@@ -3,6 +3,7 @@
 from eco_planner.models.guidance.config import (
     GuidanceConfig,
     NoGuidanceConfig,
+    OrthogonalPolicyGuidanceConfig,
     OrthogonalReferenceGuidanceConfig,
     parse_guidance_config,
     validate_guidance_sampler,
@@ -17,6 +18,7 @@ __all__ = [
     "GuidanceGradientResult",
     "NoGuidanceConfig",
     "OrthogonalGuidance",
+    "OrthogonalPolicyGuidanceConfig",
     "OrthogonalReferenceGuidanceConfig",
     "parse_guidance_config",
     "validate_guidance_action",

@@ -25,7 +25,7 @@ def _config() -> object:
                     "deterministic": False,
                 },
             },
-            "env": {"horizon": 5, "traffic_density": 0.0},
+            "env": {"horizon": 5, "traffic_density": 0.0, "trajectory_execution_steps": 5},
             "model": {"args_path": "args.json", "checkpoint_path": "model.pth"},
             "runtime": {
                 "accelerator": "cpu",

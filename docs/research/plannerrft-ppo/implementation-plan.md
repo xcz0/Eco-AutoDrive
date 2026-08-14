@@ -138,9 +138,9 @@ policy 输入候选为冻结 scene tokens `[B, N, H]` 和 ego reference trajecto
 
 ### MDP 时间步先决条件
 
-当前 `env.step()` 聚合五个 0.1 s 子步，论文描述则是执行所选轨迹第一个动作后重规划。必须先在
-[design-gates.md](design-gates.md) 关闭 G-01：选择 0.5 s 规划周期 MDP，或修改为 0.1 s
-论文口径。两者的 reward、discount、终止和 rollout length 不能混用。
+**已关闭（ADR 0017 / Issue #18）**：PPO rollout MDP step 为 0.1 s，只执行所选轨迹第一个点后
+重规划；既有 evaluation 保留 0.5 s、五子步行为。两条路径的 reward、discount、终止和 rollout
+length 不能混用。
 
 ### 每个 transition 的最低字段
 
@@ -164,7 +164,7 @@ old log-prob 完全一致。
 - 固定小回合逐项对齐 observation/action/reward/next observation；
 - terminal 不 bootstrap，time-limit truncation 是否 bootstrap 由显式决定控制；
 - rollout 在回合边界不会泄漏 GAE；
-- 5 个 substep 中提前终止时，executed step count 与 reward 累计一致；
+- rollout transition 必须只执行一个 substep；既有 5-substep evaluation 的提前终止累计回归保持；
 - policy action RNG 与 diffusion noise/map seed 分离且都可重放；
 - buffer 拒绝缺字段、错误 shape、非有限值和混合 device。
 
