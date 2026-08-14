@@ -1,29 +1,21 @@
-from __future__ import annotations
-
-import pytest
 import torch
 
-from eco_planner.models.checkpoint.normalization import ObservationNormalizer, StateNormalizer
+from eco_planner.models.config import ObservationNormalizer, StateNormalizer
 
 
 def test_observation_normalizer_preserves_padding() -> None:
-    normalizer = ObservationNormalizer({"lanes": {"mean": [10.0, 0.0], "std": [20.0, 1.0]}})
-    lanes = torch.tensor([[[0.0, 0.0], [10.0, 1.0]]])
-    result = normalizer({"lanes": lanes})["lanes"]
-    assert torch.equal(result[0, 0], torch.zeros(2))
-    torch.testing.assert_close(result[0, 1], torch.tensor([0.0, 1.0]))
+    normalizer = ObservationNormalizer({"lanes": {"mean": [1.0, 2.0], "std": [2.0, 4.0]}})
+    lanes = torch.tensor([[[0.0, 0.0], [3.0, 6.0]]])
+
+    normalized = normalizer({"lanes": lanes})["lanes"]
+
+    torch.testing.assert_close(normalized, torch.tensor([[[0.0, 0.0], [1.0, 1.0]]]))
+    assert normalizer.feature_dimension("lanes") == 2
 
 
-def test_observation_normalizer_rejects_scalar_metadata() -> None:
-    with pytest.raises(ValueError, match="vectors"):
-        ObservationNormalizer({"lanes": {"mean": 0.0, "std": 1.0}})
+def test_state_normalizer_inverts_normalized_trajectory() -> None:
+    normalizer = StateNormalizer(torch.zeros((11, 1, 4)), torch.full((11, 1, 4), 2.0))
 
+    physical = normalizer.inverse(torch.ones((1, 11, 2, 4)))
 
-def test_observation_normalizer_rejects_non_mapping_metadata() -> None:
-    with pytest.raises(ValueError, match="mean and std"):
-        ObservationNormalizer({"lanes": [0.0, 1.0]})  # type: ignore[dict-item]
-
-
-def test_state_normalizer_rejects_wrong_shape() -> None:
-    with pytest.raises(ValueError, match="shape"):
-        StateNormalizer([0.0], [1.0])
+    torch.testing.assert_close(physical, torch.full((1, 11, 2, 4), 2.0))

@@ -1,15 +1,98 @@
-"""Orthogonal reference-guidance gradient calculation."""
+"""Orthogonal guidance math and inference diagnostics."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
+
 import torch
 
-from eco_planner.models.checkpoint.normalization import StateNormalizer
-from eco_planner.models.guidance.config import (
+from eco_planner.models.config import (
     OrthogonalPolicyGuidanceConfig,
     OrthogonalReferenceGuidanceConfig,
+    StateNormalizer,
 )
-from eco_planner.models.guidance.contracts import GuidanceGradientResult, validate_guidance_action
+
+
+@dataclass(frozen=True)
+class GuidanceGradientResult:
+    """One audited physical-energy gradient in normalized joint-sample space."""
+
+    applied_gradient: torch.Tensor
+    lateral_objective_delta: torch.Tensor
+    longitudinal_objective_delta: torch.Tensor
+    applied_gradient_l2: torch.Tensor
+    applied_gradient_max_abs: torch.Tensor
+    raw_neighbor_gradient_l2: torch.Tensor
+    zero_speed_count: torch.Tensor
+
+
+_OrthogonalGuidanceConfig = OrthogonalReferenceGuidanceConfig | OrthogonalPolicyGuidanceConfig
+
+
+@dataclass
+class GuidanceDiagnostics:
+    """Planning-cycle guidance targets and one column per DDIM transition."""
+
+    lateral_target_offset_m: torch.Tensor
+    longitudinal_target_speed_fraction: torch.Tensor
+    longitudinal_target_speed_delta_mps: torch.Tensor
+    lateral_objective_delta: torch.Tensor
+    longitudinal_objective_delta: torch.Tensor
+    applied_gradient_l2: torch.Tensor
+    applied_gradient_max_abs: torch.Tensor
+    raw_neighbor_gradient_l2: torch.Tensor
+    zero_speed_count: torch.Tensor
+
+
+def zero_guidance_diagnostics(
+    config: _OrthogonalGuidanceConfig,
+    action: torch.Tensor,
+    *,
+    future_len: int,
+    num_steps: int,
+) -> GuidanceDiagnostics:
+    """Build auditable zero-gradient diagnostics for a zero action."""
+
+    batch = action.shape[0]
+    zeros = torch.zeros((batch, num_steps), dtype=torch.float32, device=action.device)
+    return GuidanceDiagnostics(
+        lateral_target_offset_m=config.lateral_max_offset_m * action[:, 0],
+        longitudinal_target_speed_fraction=config.longitudinal_max_speed_fraction * action[:, 1],
+        longitudinal_target_speed_delta_mps=torch.zeros(
+            (batch, future_len), dtype=torch.float32, device=action.device
+        ),
+        lateral_objective_delta=zeros,
+        longitudinal_objective_delta=zeros.clone(),
+        applied_gradient_l2=zeros.clone(),
+        applied_gradient_max_abs=zeros.clone(),
+        raw_neighbor_gradient_l2=zeros.clone(),
+        zero_speed_count=torch.zeros((batch, num_steps), dtype=torch.int64, device=action.device),
+    )
+
+
+def stack_guidance_diagnostics(
+    config: _OrthogonalGuidanceConfig,
+    action: torch.Tensor,
+    steps: tuple[Any, ...],
+    longitudinal_target_speed_delta_mps: torch.Tensor,
+) -> GuidanceDiagnostics:
+    """Combine transition diagnostics with the planning-cycle physical targets."""
+
+    def stack(name: str) -> torch.Tensor:
+        return torch.stack([getattr(step, name) for step in steps], dim=1)
+
+    return GuidanceDiagnostics(
+        lateral_target_offset_m=config.lateral_max_offset_m * action[:, 0],
+        longitudinal_target_speed_fraction=config.longitudinal_max_speed_fraction * action[:, 1],
+        longitudinal_target_speed_delta_mps=longitudinal_target_speed_delta_mps,
+        lateral_objective_delta=stack("lateral_objective_delta"),
+        longitudinal_objective_delta=stack("longitudinal_objective_delta"),
+        applied_gradient_l2=stack("applied_gradient_l2"),
+        applied_gradient_max_abs=stack("applied_gradient_max_abs"),
+        raw_neighbor_gradient_l2=stack("raw_neighbor_gradient_l2"),
+        zero_speed_count=stack("zero_speed_count"),
+    )
 
 
 class OrthogonalGuidance:
@@ -33,21 +116,14 @@ class OrthogonalGuidance:
     ) -> GuidanceGradientResult:
         """Return the masked noisy-sample gradient and per-batch diagnostics."""
 
-        batch, participants, future_len = self._validate_inputs(
-            sample,
-            predicted_x_start,
-            reference_prediction,
-            current_states,
-            action,
-        )
+        batch, participants, flattened = sample.shape
+        future_len = flattened // 4 - 1
         predicted = predicted_x_start.reshape(batch, participants, future_len + 1, 4)
         predicted_physical = self._state_normalizer.inverse(predicted)
         current_physical = self._state_normalizer.inverse(current_states[:, :, None])[:, :, 0]
         ego_reference = reference_prediction[:, 0]
         heading = ego_reference[..., 2:4]
         heading_norm = torch.linalg.vector_norm(heading, dim=-1)
-        if torch.any(heading_norm <= self.config.heading_norm_epsilon):
-            raise ValueError("reference heading is degenerate")
         tangent = heading / heading_norm[..., None]
         normal = torch.stack((-tangent[..., 1], tangent[..., 0]), dim=-1)
 
@@ -114,58 +190,15 @@ class OrthogonalGuidance:
     ) -> torch.Tensor:
         """Return the physical 10 Hz longitudinal speed target for artifact auditing."""
 
-        if reference_prediction.ndim != 4 or reference_prediction.shape[-1] != 4:
-            raise ValueError("reference_prediction must have shape [B, A, T, 4]")
-        batch, participants, future_len, _ = reference_prediction.shape
-        if tuple(current_states.shape) != (batch, participants, 4):
-            raise ValueError("current_states must have shape [B, A, 4]")
-        validate_guidance_action(action, batch=batch, device=reference_prediction.device)
+        batch, _, _, _ = reference_prediction.shape
         current_physical = self._state_normalizer.inverse(current_states[:, :, None])[:, 0, 0]
         ego_reference = reference_prediction[:, 0]
         heading = ego_reference[..., 2:4]
         heading_norm = torch.linalg.vector_norm(heading, dim=-1)
-        if torch.any(heading_norm <= self.config.heading_norm_epsilon):
-            raise ValueError("reference heading is degenerate")
         tangent = heading / heading_norm[..., None]
         points = torch.cat([current_physical[:, None, :2], ego_reference[..., :2]], dim=1)
         velocity = torch.diff(points, dim=1) / self.config.trajectory_dt_s
         along_track_speed = torch.sum(tangent * velocity, dim=-1)
-        if along_track_speed.shape != (batch, future_len):
-            raise RuntimeError("longitudinal target speed must preserve the reference horizon")
         return (
             self.config.longitudinal_max_speed_fraction * action[:, 1, None] * along_track_speed
         ).detach()
-
-    @staticmethod
-    def _validate_inputs(
-        sample: torch.Tensor,
-        predicted_x_start: torch.Tensor,
-        reference_prediction: torch.Tensor,
-        current_states: torch.Tensor,
-        action: torch.Tensor,
-    ) -> tuple[int, int, int]:
-        if not isinstance(sample, torch.Tensor) or sample.ndim != 3:
-            raise ValueError("sample must have shape [B, A, (T + 1) * 4]")
-        if sample.shape[2] % 4 != 0 or sample.shape[2] <= 4:
-            raise ValueError("sample must have shape [B, A, (T + 1) * 4]")
-        if not sample.dtype.is_floating_point or not sample.requires_grad:
-            raise ValueError("sample must be a floating tensor requiring gradients")
-        if predicted_x_start.shape != sample.shape:
-            raise ValueError("predicted_x_start must preserve sample shape")
-        if predicted_x_start.dtype != sample.dtype or predicted_x_start.device != sample.device:
-            raise ValueError("predicted_x_start must preserve sample dtype and device")
-        batch, participants, flattened = sample.shape
-        future_len = flattened // 4 - 1
-        expected_reference = (batch, participants, future_len, 4)
-        if tuple(reference_prediction.shape) != expected_reference:
-            raise ValueError(f"reference_prediction must have shape {expected_reference}")
-        if tuple(current_states.shape) != (batch, participants, 4):
-            raise ValueError("current_states must have shape [B, A, 4]")
-        for name, value in (
-            ("reference_prediction", reference_prediction),
-            ("current_states", current_states),
-        ):
-            if value.dtype != sample.dtype or value.device != sample.device:
-                raise ValueError(f"{name} must preserve sample dtype and device")
-        validate_guidance_action(action, batch=batch, device=sample.device)
-        return batch, participants, future_len

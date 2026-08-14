@@ -4,10 +4,9 @@ from unittest.mock import patch
 
 import torch
 
-from eco_planner.models.diffusion.model import DiffusionPlanner
-from eco_planner.models.guidance import OrthogonalPolicyGuidanceConfig
-from eco_planner.models.runtime import PretrainedDiffusionPlanner
-from eco_planner.models.sampling import Ddim5SamplerConfig
+from eco_planner.models.config import Ddim5SamplerConfig, OrthogonalPolicyGuidanceConfig
+from eco_planner.models.network import DiffusionPlanner
+from eco_planner.models.planner import PretrainedDiffusionPlanner
 
 
 def test_policy_guidance_prepares_one_frozen_encoding_and_reuses_the_reference(

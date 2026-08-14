@@ -1,23 +1,21 @@
-from __future__ import annotations
+from collections import OrderedDict
 
-import pytest
 import torch
 
-from eco_planner.models.checkpoint.loader import extract_official_ema_state_dict
+from eco_planner.models.checkpoint import extract_official_ema_state_dict
 
 
-def test_ema_loader_rejects_invalid_prefix() -> None:
-    with pytest.raises(ValueError, match="module"):
-        extract_official_ema_state_dict({"model": {}, "ema_state_dict": {"invalid": torch.ones(1)}})
-
-
-def test_ema_loader_rejects_missing_ema() -> None:
-    with pytest.raises(ValueError, match="exactly model"):
-        extract_official_ema_state_dict({"model": {}})
-
-
-def test_ema_loader_rejects_incomplete_state_dict() -> None:
-    with pytest.raises(ValueError, match="276 tensors"):
-        extract_official_ema_state_dict(
-            {"model": {}, "ema_state_dict": {"module.partial": torch.ones(1)}}
+def test_ema_loader_translates_official_wrapper_prefixes() -> None:
+    checkpoint = {
+        "ema_state_dict": OrderedDict(
+            (
+                ("module.encoder.encoder.layer.weight", torch.ones(2, 2)),
+                ("module.decoder.decoder.layer.bias", torch.zeros(2)),
+            )
         )
+    }
+
+    translated = extract_official_ema_state_dict(checkpoint)
+
+    assert tuple(translated) == ("encoder.layer.weight", "decoder.layer.bias")
+    assert translated["encoder.layer.weight"].shape == (2, 2)

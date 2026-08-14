@@ -11,12 +11,13 @@ from eco_planner.evaluation.runtime import (
     FabricInferenceRuntime,
     create_fabric_inference_runtime,
 )
-from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.guidance import (
+from eco_planner.models import (
+    Ddim5SamplerConfig,
+    Dpm10SamplerConfig,
     NoGuidanceConfig,
+    OfficialDiffusionPlannerConfig,
     OrthogonalReferenceGuidanceConfig,
 )
-from eco_planner.models.sampling.config import Ddim5SamplerConfig, Dpm10SamplerConfig
 
 
 @pytest.fixture

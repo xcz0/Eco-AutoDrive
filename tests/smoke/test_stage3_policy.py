@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from eco_planner.models.runtime import load_official_diffusion_planner
-from eco_planner.models.sampling import Ddim5SamplerConfig
+from eco_planner.models import Ddim5SamplerConfig
+from eco_planner.models.planner import load_official_diffusion_planner
 from eco_planner.rl import (
     ExplorationPolicy,
     ExplorationPolicyConfig,

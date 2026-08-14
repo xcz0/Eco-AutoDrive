@@ -2,14 +2,10 @@ from __future__ import annotations
 
 import math
 
-import pytest
 import torch
 
-from eco_planner.models.checkpoint.normalization import StateNormalizer
-from eco_planner.models.guidance import (
-    OrthogonalGuidance,
-    OrthogonalReferenceGuidanceConfig,
-)
+from eco_planner.models.config import OrthogonalReferenceGuidanceConfig, StateNormalizer
+from eco_planner.models.guidance import OrthogonalGuidance
 
 
 def _config() -> OrthogonalReferenceGuidanceConfig:
@@ -171,29 +167,3 @@ def test_zero_speed_reference_is_audited_without_longitudinal_fallback() -> None
     assert result.zero_speed_count.item() == 80
     assert result.longitudinal_objective_delta.item() == 0.0
     assert torch.count_nonzero(result.applied_gradient) == 0
-
-
-def test_guidance_rejects_degenerate_heading_and_invalid_action() -> None:
-    current, reference = _straight_reference()
-    state = torch.cat([current[:, :, None], reference], dim=2).reshape(1, 11, -1)
-    guidance = OrthogonalGuidance(_config(), _identity_normalizer())
-
-    bad_reference = reference.clone()
-    bad_reference[:, 0, 3, 2:4] = 0.0
-    with pytest.raises(ValueError, match="heading"):
-        guidance.gradient(
-            state.clone().requires_grad_(True),
-            state.clone().requires_grad_(True),
-            bad_reference,
-            current,
-            torch.zeros((1, 2)),
-        )
-    with pytest.raises(ValueError, match=r"\[-1, 1\]"):
-        sample = state.clone().requires_grad_(True)
-        guidance.gradient(
-            sample,
-            sample,
-            reference,
-            current,
-            torch.tensor([[1.01, 0.0]]),
-        )

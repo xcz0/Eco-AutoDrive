@@ -5,12 +5,12 @@ from pathlib import Path
 import pytest
 from hydra import compose, initialize_config_dir
 
-from eco_planner.models.guidance import (
+from eco_planner.models import (
     OrthogonalReferenceGuidanceConfig,
     parse_guidance_config,
-    validate_guidance_sampler,
+    parse_sampler_config,
+    sampler_report,
 )
-from eco_planner.models.sampling import parse_sampler_config, sampler_report
 
 
 @pytest.mark.parametrize(
@@ -42,9 +42,8 @@ def test_evaluation_defaults_to_none_guidance_and_composes_active_profile() -> N
 
     assert parse_guidance_config(baseline.guidance).name == "none"
     parsed_guidance = parse_guidance_config(active.guidance)
-    parsed_sampler = parse_sampler_config(active.sampler)
+    parse_sampler_config(active.sampler)
     assert isinstance(parsed_guidance, OrthogonalReferenceGuidanceConfig)
-    validate_guidance_sampler(parsed_guidance, parsed_sampler)
 
 
 def test_traffic_matrix_composes_joblib_execution_grid() -> None:

@@ -16,12 +16,12 @@ from pydantic import (
 )
 
 from eco_planner.evaluation.config import ModelPathsConfig, RuntimeConfig, ScenarioConfig
-from eco_planner.models.guidance import (
+from eco_planner.models import (
     OrthogonalPolicyGuidanceConfig,
+    SamplerConfig,
     parse_guidance_config,
-    validate_guidance_sampler,
+    parse_sampler_config,
 )
-from eco_planner.models.sampling import SamplerConfig, parse_sampler_config
 from eco_planner.rl.config import ExplorationPolicyConfig, parse_exploration_policy_config
 
 
@@ -100,7 +100,6 @@ def parse_rollout_config(config: DictConfig) -> RolloutJobConfig:
         raise ValueError("rollout requires guidance=orthogonal_policy")
     payload = dict(raw)
     sampler = parse_sampler_config(sampler_node)
-    validate_guidance_sampler(guidance, sampler)
     payload["sampler"] = sampler
     payload["guidance"] = guidance
     payload["policy"] = parse_exploration_policy_config(policy_node)

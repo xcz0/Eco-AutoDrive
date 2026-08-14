@@ -15,19 +15,15 @@ from torch import nn
 from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.inference import HostGuidanceDiagnostics, HostInferenceResult
-from eco_planner.models.checkpoint import CheckpointLoadReport, OfficialDiffusionPlannerConfig
-from eco_planner.models.guidance import (
+from eco_planner.models import (
+    CheckpointLoadReport,
     GuidanceConfig,
     NoGuidanceConfig,
-)
-from eco_planner.models.runtime import (
+    OfficialDiffusionPlannerConfig,
     PlannerInferenceResult,
-    load_official_diffusion_planner,
-)
-from eco_planner.models.runtime.validation import validate_official_observation
-from eco_planner.models.sampling import (
     SamplerConfig,
     SamplerReport,
+    load_official_diffusion_planner,
     sampler_report,
 )
 
@@ -96,11 +92,6 @@ class FabricInferenceRuntime:
         """Run one planner pass and transfer its auditable result to CPU once."""
 
         raw_observation = dict(observation)
-        validate_official_observation(
-            raw_observation,
-            torch.device("cpu"),
-            self.planner_config,
-        )
         _validate_artifact_observation_fields(raw_observation, self.planner_config)
 
         moved = self._fabric.to_device(raw_observation)

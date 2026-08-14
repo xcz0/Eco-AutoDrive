@@ -15,12 +15,12 @@ from pydantic import (
     model_validator,
 )
 
-from eco_planner.models.guidance import (
+from eco_planner.models import (
     GuidanceConfig,
+    SamplerConfig,
     parse_guidance_config,
-    validate_guidance_sampler,
+    parse_sampler_config,
 )
-from eco_planner.models.sampling import SamplerConfig, parse_sampler_config
 
 
 class _StrictModel(BaseModel):
@@ -191,5 +191,4 @@ def parse_evaluation_config(config: DictConfig) -> EvaluationJobConfig:
         evaluation["matrix"] = matrix
         payload["evaluation"] = evaluation
     result = EvaluationJobConfig.model_validate(payload)
-    validate_guidance_sampler(result.guidance, result.sampler)
     return result

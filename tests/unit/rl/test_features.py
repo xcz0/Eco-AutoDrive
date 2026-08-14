@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 import torch
 
-from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.diffusion.model import DiffusionPlanner
+from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.network import DiffusionPlanner
 from eco_planner.rl import (
     ExplorationPolicy,
     ExplorationPolicyConfig,

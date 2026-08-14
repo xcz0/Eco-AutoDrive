@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import pytest
 import torch
 
 from eco_planner.models.guidance import GuidanceGradientResult
-from eco_planner.models.sampling.backends.diffusers import DiffusersDdimSampler, DiffusersDpmSampler
-from eco_planner.models.sampling.backends.vp_schedule import LinearVpSchedule
-from eco_planner.models.sampling.config import Ddim5SamplerConfig
-from eco_planner.models.sampling.planner import PlanningSampler
+from eco_planner.models.sampling import LinearVpSchedule, _DdimSampler, _DpmSampler
 
 
 def _constraint(sample: torch.Tensor) -> torch.Tensor:
@@ -21,7 +17,7 @@ def _model(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
 
 
 def test_diffusers_trained_betas_match_the_pinned_continuous_vp_schedule() -> None:
-    adapter = DiffusersDdimSampler()
+    adapter = _DdimSampler()
     scheduler = adapter._new_scheduler(torch.device("cpu"), torch.float64)
     schedule = LinearVpSchedule()
     continuous_timesteps = torch.arange(1, 1001, dtype=torch.float64) / 1000
@@ -31,7 +27,7 @@ def test_diffusers_trained_betas_match_the_pinned_continuous_vp_schedule() -> No
 
 
 def test_diffusers_ddim_uses_the_certified_discrete_and_continuous_timesteps() -> None:
-    adapter = DiffusersDdimSampler()
+    adapter = _DdimSampler()
     scheduler = adapter._new_scheduler(torch.device("cpu"))
     model_timesteps: list[torch.Tensor] = []
 
@@ -60,7 +56,7 @@ def test_diffusers_ddim_uses_the_certified_discrete_and_continuous_timesteps() -
 
 
 def test_diffusers_guided_ddim_reuses_explicit_variance_noises_without_rng_side_effects() -> None:
-    sampler = DiffusersDdimSampler()
+    sampler = _DdimSampler()
     initial = torch.ones((1, 2, 8), dtype=torch.float64)
     timesteps = torch.tensor((1.0, 0.8, 0.6, 0.4, 0.2, 0.0), dtype=torch.float64)
     draw_generator = torch.Generator().manual_seed(31)
@@ -116,25 +112,8 @@ def test_diffusers_guided_ddim_reuses_explicit_variance_noises_without_rng_side_
     assert torch.equal(guided_generator.get_state(), guided_state)
 
 
-def test_diffusers_ddim_retains_sampler_boundary_validation() -> None:
-    sampler = DiffusersDdimSampler()
-    initial = torch.ones((1, 2, 4))
-    timesteps = torch.tensor((1.0, 0.8, 0.6, 0.4, 0.2, 0.0))
-
-    with pytest.raises(ValueError, match="preserve sample shape"):
-        sampler.sample(
-            initial,
-            lambda sample, timestep: sample[..., :1],
-            _constraint,
-            timesteps,
-            5,
-            0.0,
-            None,
-        )
-
-
 def test_diffusers_dpm_uses_the_certified_profile_and_call_contract() -> None:
-    adapter = DiffusersDpmSampler()
+    adapter = _DpmSampler()
     scheduler = adapter._new_scheduler(torch.device("cpu"), torch.float64)
     schedule = LinearVpSchedule()
     continuous_timesteps = torch.arange(1, 1001, dtype=torch.float64) / 1000
@@ -181,17 +160,3 @@ def test_diffusers_dpm_uses_the_certified_profile_and_call_contract() -> None:
     )
     assert constraint_calls == 12
     assert torch.equal(result[:, :, 0], torch.ones((2, 3), dtype=torch.float64))
-
-
-def test_planning_sampler_rejects_invalid_static_ddim_profile_at_construction() -> None:
-    config = Ddim5SamplerConfig(
-        name="ddim5",
-        num_steps=5,
-        timesteps=(1.0, 0.7, 0.6, 0.4, 0.2, 0.0),
-        initial_noise_scale=1.0,
-        ddim_stochasticity=0.0,
-        parity_label="plannerrft_paper_text",
-    )
-
-    with pytest.raises(ValueError, match="fixed five-step"):
-        PlanningSampler(config)

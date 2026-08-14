@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import torch
 
-from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.checkpoint.loader import OFFICIAL_EMA_TENSOR_COUNT, OFFICIAL_PARAMETER_COUNT
-from eco_planner.models.diffusion.model import DiffusionPlanner
+from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.network import DiffusionPlanner
 
 
 def test_model_hierarchy_matches_official_checkpoint(
@@ -13,11 +12,11 @@ def test_model_hierarchy_matches_official_checkpoint(
     model = DiffusionPlanner(official_model_config)
     state_dict = model.state_dict()
 
-    assert len(state_dict) == OFFICIAL_EMA_TENSOR_COUNT
-    assert sum(value.numel() for value in state_dict.values()) == OFFICIAL_PARAMETER_COUNT
-    assert "encoder.encoder.neighbor_encoder.type_emb.weight" in state_dict
-    assert "decoder.decoder.dit.route_encoder.Mixer.norm1.weight" in state_dict
-    assert "decoder.decoder.dit.final_layer.proj.4.weight" in state_dict
+    assert len(state_dict) == 276
+    assert sum(value.numel() for value in state_dict.values()) == 6_042_628
+    assert "encoder.neighbor_encoder.type_emb.weight" in state_dict
+    assert "decoder.dit.route_encoder.Mixer.norm1.weight" in state_dict
+    assert "decoder.dit.final_layer.proj.4.weight" in state_dict
 
 
 def test_model_encode_and_denoise_shapes(

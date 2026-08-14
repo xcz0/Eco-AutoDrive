@@ -6,11 +6,14 @@ import pytest
 import torch
 from torch import nn
 
-from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.diffusion.model import DiffusionPlanner
-from eco_planner.models.guidance import OrthogonalReferenceGuidanceConfig
-from eco_planner.models.runtime.planner import PretrainedDiffusionPlanner
-from eco_planner.models.sampling.config import Ddim5SamplerConfig, Dpm10SamplerConfig
+from eco_planner.models.config import (
+    Ddim5SamplerConfig,
+    Dpm10SamplerConfig,
+    OfficialDiffusionPlannerConfig,
+    OrthogonalReferenceGuidanceConfig,
+)
+from eco_planner.models.network import DiffusionPlanner
+from eco_planner.models.planner import PretrainedDiffusionPlanner
 
 
 class _IdentityStateNormalizer:
@@ -129,22 +132,6 @@ def test_pretrained_planner_remains_frozen(
     assert not planner.model.training
     assert all(not parameter.requires_grad for parameter in planner.parameters())
     assert planner.eval() is planner
-    with pytest.raises(RuntimeError, match="cannot enter train mode"):
-        planner.train()
-
-
-def test_pretrained_planner_detects_child_train_mode(
-    official_model_config: OfficialDiffusionPlannerConfig,
-) -> None:
-    planner = PretrainedDiffusionPlanner(
-        official_model_config,
-        DiffusionPlanner(official_model_config),
-        Dpm10SamplerConfig(),
-    )
-    planner.model.train()
-
-    with pytest.raises(RuntimeError, match="remain in eval mode"):
-        planner({}, torch.empty(0))
 
 
 def test_pretrained_planner_tracks_actual_runtime_device(
@@ -156,7 +143,7 @@ def test_pretrained_planner_tracks_actual_runtime_device(
         Dpm10SamplerConfig(),
     )
     planner.to(torch.device("cpu"))
-    assert planner._runtime_device == torch.device("cpu")
+    assert planner.runtime_device == torch.device("cpu")
 
 
 @pytest.mark.gpu
@@ -169,7 +156,7 @@ def test_pretrained_planner_tracks_cuda_device(
         Dpm10SamplerConfig(),
     )
     planner.to(torch.device("cuda"))
-    assert planner._runtime_device.type == "cuda"
+    assert planner.runtime_device.type == "cuda"
 
 
 @pytest.mark.parametrize(

@@ -9,7 +9,7 @@ import torch
 
 from eco_planner.envs.lane_speed import model_lane_speed_limit_mps
 from eco_planner.envs.map_adapter import MetaDriveMapAdapter
-from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 
 class _StubLane:

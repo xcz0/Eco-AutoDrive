@@ -22,7 +22,7 @@ from eco_planner.evaluation.runtime import FabricInferenceRuntime
 from eco_planner.evaluation.schema import CompletedEpisodeSummary, FailedEpisodeSummary
 from eco_planner.evaluation.summary import build_episode_summary, build_failed_episode_summary
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
-from eco_planner.models.guidance import NoGuidanceConfig
+from eco_planner.models import NoGuidanceConfig
 
 
 def run_scenario(

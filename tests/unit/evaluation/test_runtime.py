@@ -9,13 +9,13 @@ from torch import nn
 
 from eco_planner.evaluation import runtime
 from eco_planner.evaluation.config import RuntimeConfig
-from eco_planner.models.checkpoint import (
+from eco_planner.models import (
     CheckpointLoadReport,
+    Dpm10SamplerConfig,
+    NoGuidanceConfig,
     OfficialDiffusionPlannerConfig,
 )
-from eco_planner.models.guidance import NoGuidanceConfig
-from eco_planner.models.runtime import PlannerInferenceResult
-from eco_planner.models.sampling import Dpm10SamplerConfig
+from eco_planner.models.planner import PlannerInferenceResult
 
 
 def _config(**overrides: object) -> RuntimeConfig:

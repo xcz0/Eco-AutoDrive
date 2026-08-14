@@ -7,8 +7,7 @@ import torch
 from hydra import compose, initialize_config_dir
 
 from eco_planner.evaluation.config import RuntimeConfig
-from eco_planner.models.guidance import OrthogonalPolicyGuidanceConfig
-from eco_planner.models.sampling import Ddim5SamplerConfig
+from eco_planner.models import Ddim5SamplerConfig, OrthogonalPolicyGuidanceConfig
 from eco_planner.rl import (
     ExplorationPolicyConfig,
     collect_rollout_episode,

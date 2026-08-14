@@ -17,9 +17,8 @@ from eco_planner.evaluation.runtime import (
     FabricInferenceRuntime,
     create_fabric_inference_runtime,
 )
-from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.guidance import NoGuidanceConfig
-from eco_planner.models.sampling import Dpm10SamplerConfig
+from eco_planner.models import Dpm10SamplerConfig, NoGuidanceConfig
+from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 
 class _LegacyPhysicsTrajectoryMetaDriveEnv(TrajectoryMetaDriveEnv):

@@ -14,11 +14,15 @@ from lightning.fabric import Fabric
 from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.runtime import InferenceRuntimeReport, resolve_runtime_settings
-from eco_planner.models.checkpoint import CheckpointLoadReport, OfficialDiffusionPlannerConfig
-from eco_planner.models.guidance import OrthogonalPolicyGuidanceConfig
-from eco_planner.models.runtime import load_official_diffusion_planner
-from eco_planner.models.runtime.validation import validate_official_observation
-from eco_planner.models.sampling import SamplerConfig, SamplerReport, sampler_report
+from eco_planner.models import (
+    CheckpointLoadReport,
+    OfficialDiffusionPlannerConfig,
+    OrthogonalPolicyGuidanceConfig,
+    SamplerConfig,
+    SamplerReport,
+    load_official_diffusion_planner,
+    sampler_report,
+)
 from eco_planner.rl.config import ExplorationPolicyConfig
 from eco_planner.rl.policy import (
     ExplorationPolicy,
@@ -119,7 +123,6 @@ class FabricRolloutRuntime:
 
         raw_observation = dict(observation)
         planner_config = self._planner.config
-        validate_official_observation(raw_observation, torch.device("cpu"), planner_config)
         moved = self._fabric.to_device(raw_observation)
         if not isinstance(moved, dict):
             raise TypeError("Fabric must move rollout observations as a dictionary")
@@ -194,7 +197,6 @@ class FabricRolloutRuntime:
 
         raw_observation = dict(observation)
         planner_config = self._planner.config
-        validate_official_observation(raw_observation, torch.device("cpu"), planner_config)
         moved = self._fabric.to_device(raw_observation)
         if not isinstance(moved, dict):
             raise TypeError("Fabric must move rollout observations as a dictionary")

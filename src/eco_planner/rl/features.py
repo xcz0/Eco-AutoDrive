@@ -7,7 +7,7 @@ from collections.abc import Mapping
 import torch
 from torch import nn
 
-from eco_planner.models.diffusion.model import DiffusionPlanner
+from eco_planner.models.network import DiffusionPlanner
 from eco_planner.rl.policy import ExplorationPolicyContext
 
 

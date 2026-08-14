@@ -1,36 +1,32 @@
-"""Sampling orchestration for a loaded Diffusion Planner network."""
+"""Frozen checkpoint-backed diffusion planner."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import torch
+from torch import nn
 
-from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.diffusion.model import DiffusionPlanner
-from eco_planner.models.guidance import (
+from eco_planner.models.checkpoint import CheckpointLoadReport, extract_official_ema_state_dict
+from eco_planner.models.config import (
     GuidanceConfig,
-    GuidanceDiagnostics,
     NoGuidanceConfig,
-    OrthogonalGuidance,
+    OfficialDiffusionPlannerConfig,
     OrthogonalPolicyGuidanceConfig,
     OrthogonalReferenceGuidanceConfig,
-    validate_guidance_action,
+    SamplerConfig,
 )
-from eco_planner.models.guidance.diagnostics import (
+from eco_planner.models.guidance import (
+    GuidanceDiagnostics,
+    OrthogonalGuidance,
     stack_guidance_diagnostics,
     zero_guidance_diagnostics,
 )
-from eco_planner.models.runtime.validation import (
-    validate_official_observation,
-    validate_standard_normal_noise,
-)
-from eco_planner.models.sampling.config import SamplerConfig
-from eco_planner.models.sampling.planner import PlanningSampler
-
-_FABRIC_FLOAT_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
+from eco_planner.models.network import DiffusionPlanner
+from eco_planner.models.sampling import DiffusionSampler
 
 
 @dataclass
@@ -68,7 +64,7 @@ class PreparedPolicyGuidance:
     policy_context: PlannerPolicyContext
 
 
-class DiffusionInferenceEngine:
+class PretrainedDiffusionPlanner(nn.Module):
     """Assemble model encoding, sampling, and optional reference guidance."""
 
     def __init__(
@@ -76,41 +72,34 @@ class DiffusionInferenceEngine:
         config: OfficialDiffusionPlannerConfig,
         model: DiffusionPlanner,
         sampler_config: SamplerConfig,
-        guidance_config: GuidanceConfig,
+        guidance_config: GuidanceConfig | None = None,
     ) -> None:
+        super().__init__()
+        selected_guidance = guidance_config or NoGuidanceConfig()
+        self.config = config
+        self.model = model
+        self.sampler_config = sampler_config
+        self.guidance_config = selected_guidance
         self._config = config
         self._model = model
         self._sampler_config = sampler_config
-        self._guidance_config = guidance_config
-        self._sampler = PlanningSampler(sampler_config)
+        self._guidance_config = selected_guidance
+        self._sampler = DiffusionSampler(sampler_config)
+        for parameter in self.model.parameters():
+            parameter.requires_grad_(False)
+        self.train(False)
 
-    def run(
+    def forward(
         self,
         observation: Mapping[str, torch.Tensor],
         standard_normal_noise: torch.Tensor,
-        transition_generator: torch.Generator | None,
-        guidance_action: torch.Tensor | None,
+        transition_generator: torch.Generator | None = None,
+        guidance_action: torch.Tensor | None = None,
     ) -> PlannerInferenceResult:
         """Generate the reference trajectory and, when configured, a guided trajectory."""
 
-        device = self.runtime_device
-        batch = validate_official_observation(
-            observation,
-            device,
-            self._config,
-            allowed_float_dtypes=_FABRIC_FLOAT_DTYPES,
-            require_finite=False,
-        )
+        batch = observation["ego_current_state"].shape[0]
         participants = 1 + self._config.predicted_neighbor_num
-        validate_standard_normal_noise(
-            standard_normal_noise,
-            batch=batch,
-            participants=participants,
-            future_len=self._config.future_len,
-            device=device,
-            allowed_float_dtypes=_FABRIC_FLOAT_DTYPES,
-            require_finite=False,
-        )
         inputs = self._config.observation_normalizer(observation)
         encoding = self._model.encode(inputs)
         ego_current = inputs["ego_current_state"][:, None, :4]
@@ -156,8 +145,6 @@ class DiffusionInferenceEngine:
         )
         prediction = self._prediction(normalized_sample, batch, participants)
         if isinstance(self._guidance_config, NoGuidanceConfig):
-            if guidance_action is not None:
-                raise ValueError("guidance_action requires active guidance configuration")
             return PlannerInferenceResult(prediction=prediction)
         return self._run_guided(
             initial,
@@ -178,26 +165,8 @@ class DiffusionInferenceEngine:
     ) -> PreparedPolicyGuidance:
         """Prepare one shared-encoding reference pass for a learned guidance action."""
 
-        if not isinstance(self._guidance_config, OrthogonalPolicyGuidanceConfig):
-            raise RuntimeError("policy-guided rollout requires orthogonal_policy guidance")
-        device = self.runtime_device
-        batch = validate_official_observation(
-            observation,
-            device,
-            self._config,
-            allowed_float_dtypes=_FABRIC_FLOAT_DTYPES,
-            require_finite=False,
-        )
+        batch = observation["ego_current_state"].shape[0]
         participants = 1 + self._config.predicted_neighbor_num
-        validate_standard_normal_noise(
-            standard_normal_noise,
-            batch=batch,
-            participants=participants,
-            future_len=self._config.future_len,
-            device=device,
-            allowed_float_dtypes=_FABRIC_FLOAT_DTYPES,
-            require_finite=False,
-        )
         inputs = self._config.observation_normalizer(observation)
         features = self._model.encode_policy_features(inputs)
         encoding = features["scene_tokens"]
@@ -263,8 +232,6 @@ class DiffusionInferenceEngine:
     ) -> PlannerInferenceResult:
         """Finish a prepared learned-guidance pass with the sampled policy action."""
 
-        if not isinstance(prepared, PreparedPolicyGuidance):
-            raise TypeError("prepared policy guidance has an invalid type")
         return self._run_guided(
             prepared.initial,
             prepared.denoiser,
@@ -278,10 +245,7 @@ class DiffusionInferenceEngine:
 
     @property
     def runtime_device(self) -> torch.device:
-        try:
-            return next(self._model.parameters()).device
-        except StopIteration as error:
-            raise RuntimeError("Diffusion Planner must contain parameters") from error
+        return next(self._model.parameters()).device
 
     def _prediction(self, sample: torch.Tensor, batch: int, participants: int) -> torch.Tensor:
         normalized = sample.reshape(batch, participants, self._config.future_len + 1, 4)
@@ -299,15 +263,9 @@ class DiffusionInferenceEngine:
         guidance_action: torch.Tensor | None,
     ) -> PlannerInferenceResult:
         config = self._guidance_config
-        if not isinstance(
-            config, (OrthogonalReferenceGuidanceConfig, OrthogonalPolicyGuidanceConfig)
-        ):
-            raise RuntimeError("unsupported guidance configuration")
         batch, participants, _ = initial.shape
         device = initial.device
         if guidance_action is None:
-            if not isinstance(config, OrthogonalReferenceGuidanceConfig):
-                raise ValueError("orthogonal_policy guidance requires an explicit policy action")
             action = (
                 torch.tensor(config.fixed_action, dtype=torch.float32, device=device)
                 .expand(batch, -1)
@@ -315,7 +273,6 @@ class DiffusionInferenceEngine:
             )
         else:
             action = guidance_action
-        validate_guidance_action(action, batch=batch, device=device)
         if torch.count_nonzero(action).item() == 0:
             return PlannerInferenceResult(
                 prediction=reference_prediction,
@@ -339,8 +296,6 @@ class DiffusionInferenceEngine:
                 action,
             )
 
-        if guidance_randomness is None:
-            raise RuntimeError("active guidance did not prepare shared DDIM randomness")
         guided_result = self._sampler.sample_guided(
             initial,
             denoiser,
@@ -364,3 +319,26 @@ class DiffusionInferenceEngine:
                 ),
             ),
         )
+
+
+def load_official_diffusion_planner(
+    args_path: Path,
+    checkpoint_path: Path,
+    sampler_config: SamplerConfig,
+    guidance_config: GuidanceConfig | None = None,
+) -> tuple[PretrainedDiffusionPlanner, CheckpointLoadReport]:
+    config = OfficialDiffusionPlannerConfig.from_json(args_path)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    state_dict = extract_official_ema_state_dict(checkpoint)
+    model = DiffusionPlanner(config)
+    model.load_state_dict(state_dict, strict=True)
+    planner = PretrainedDiffusionPlanner(
+        config,
+        model,
+        sampler_config,
+        guidance_config or NoGuidanceConfig(),
+    )
+    return planner, CheckpointLoadReport(
+        ema_tensor_count=len(state_dict),
+        parameter_count=sum(value.numel() for value in state_dict.values()),
+    )

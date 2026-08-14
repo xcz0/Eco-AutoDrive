@@ -8,12 +8,12 @@ from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 
 from eco_planner.evaluation.config import ModelPathsConfig, RuntimeConfig, ScenarioConfig
-from eco_planner.models.guidance import (
+from eco_planner.models import (
     OrthogonalPolicyGuidanceConfig,
+    SamplerConfig,
     parse_guidance_config,
-    validate_guidance_sampler,
+    parse_sampler_config,
 )
-from eco_planner.models.sampling import SamplerConfig, parse_sampler_config
 from eco_planner.rl.config import ExplorationPolicyConfig, parse_exploration_policy_config
 from eco_planner.rl.ppo_config import PPOOptimizationConfig, parse_ppo_optimization_config
 
@@ -124,7 +124,6 @@ def parse_stage6_training_config(config: DictConfig) -> Stage6TrainingJobConfig:
     guidance = parse_guidance_config(nodes["guidance"])
     if not isinstance(guidance, OrthogonalPolicyGuidanceConfig):
         raise ValueError("Stage-6 training requires orthogonal policy guidance")
-    validate_guidance_sampler(guidance, sampler)
     payload = dict(raw)
     payload["sampler"] = sampler
     payload["guidance"] = guidance

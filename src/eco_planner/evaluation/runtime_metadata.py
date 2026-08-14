@@ -16,8 +16,7 @@ from eco_planner.evaluation.artifact_writer import write_json
 from eco_planner.evaluation.execution import ExecutionReport
 from eco_planner.evaluation.runtime import InferenceRuntimeReport
 from eco_planner.evaluation.schema import ARTIFACT_SCHEMA_VERSION, RuntimeMetadata
-from eco_planner.models.guidance import GuidanceConfig
-from eco_planner.models.sampling import SamplerReport
+from eco_planner.models import GuidanceConfig, SamplerReport
 
 
 def write_runtime_metadata(
