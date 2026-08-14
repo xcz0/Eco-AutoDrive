@@ -1,4 +1,4 @@
-"""Artifact v3 episode summary construction."""
+"""Artifact v4 episode summary construction."""
 
 from __future__ import annotations
 
@@ -7,10 +7,11 @@ from typing import Any
 import numpy as np
 
 from eco_planner.envs import TrajectoryExecutionRecord
-from eco_planner.evaluation.schema import (
+from eco_planner.evaluation.artifacts.models import (
     ARTIFACT_SCHEMA_VERSION,
     CompletedEpisodeSummary,
     FailedEpisodeSummary,
+    FailurePhase,
 )
 
 
@@ -23,11 +24,11 @@ def build_failed_episode_summary(
     sampler: dict[str, Any],
     guidance: dict[str, Any],
     trace_status: str,
-    stage: str,
+    phase: FailurePhase,
     cause: Exception,
     traceback_text: str,
 ) -> FailedEpisodeSummary:
-    """Build a v3 failure summary without inventing unavailable episode metrics."""
+    """Build a v4 failure summary without inventing unavailable episode metrics."""
 
     return FailedEpisodeSummary.model_validate(
         {
@@ -40,9 +41,9 @@ def build_failed_episode_summary(
             "sampler": sampler,
             "guidance": guidance,
             "trace_status": trace_status,
-            "termination": {"type": "runtime_error", "detail": stage},
+            "termination": {"type": "runtime_error", "detail": phase.value},
             "failure": {
-                "stage": stage,
+                "phase": phase,
                 "exception_type": type(cause).__name__,
                 "message": str(cause),
                 "traceback": traceback_text,

@@ -12,9 +12,10 @@ import torch
 from lightning.fabric import Fabric
 from torch import nn
 
+from eco_planner.evaluation.artifacts.models import FailurePhase
 from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.failures import EpisodeFailure
-from eco_planner.evaluation.inference import HostGuidanceDiagnostics, HostInferenceResult
+from eco_planner.evaluation.runtime.contracts import HostGuidanceDiagnostics, HostInferenceResult
 from eco_planner.models import (
     CheckpointLoadReport,
     GuidanceConfig,
@@ -280,7 +281,7 @@ def _to_host_result(
     for name, value in arrays.items():
         if value.dtype.kind in "fc" and not np.isfinite(value).all():
             raise EpisodeFailure(
-                "inference",
+                FailurePhase.INFERENCE,
                 RuntimeError(f"Diffusion Planner result {name!r} contains non-finite values"),
             )
     host_diagnostics = (

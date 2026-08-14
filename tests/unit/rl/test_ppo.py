@@ -30,7 +30,7 @@ from eco_planner.rl.ppo import _AffineBetaDistribution, _normalize_full_batch_ad
 
 def _ppo_config(**updates: object) -> PPOOptimizationConfig:
     config = PPOOptimizationConfig(
-        name="ppo_stage5_smoke",
+        name="ppo_smoke",
         gamma=0.99,
         gae_lambda=0.95,
         normalize_advantage=True,

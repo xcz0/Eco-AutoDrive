@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from eco_planner.evaluation.matrix import summarize_matrix as _summarize_matrix
+from eco_planner.evaluation.analysis.matrix import summarize_matrix as _summarize_matrix
 
 
 def _parse_args() -> argparse.Namespace:

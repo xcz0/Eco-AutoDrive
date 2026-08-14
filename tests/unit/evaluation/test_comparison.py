@@ -6,9 +6,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from eco_planner.evaluation.comparison import compare_artifact_trees
-from eco_planner.evaluation.schema import ARTIFACT_SCHEMA_VERSION
-from eco_planner.evaluation.trace import EpisodeTraceRecorder
+from eco_planner.evaluation.analysis.comparison import compare_artifact_trees
+from eco_planner.evaluation.artifacts.models import ARTIFACT_SCHEMA_VERSION
+from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
 
 
 def _runtime() -> dict[str, object]:
@@ -51,7 +51,7 @@ def _write_tree(root: Path, *, changed: bool = False) -> None:
         "trace_status": "empty",
         "termination": {"type": "runtime_error", "detail": "reset"},
         "failure": {
-            "stage": "reset",
+            "phase": "reset",
             "exception_type": "RuntimeError",
             "message": "fixture",
             "traceback": "RuntimeError: fixture",

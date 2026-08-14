@@ -63,10 +63,10 @@ def test_policy_config_rejects_missing_and_extra_fields() -> None:
         parse_exploration_policy_config(OmegaConf.create(raw))
 
 
-def test_stage4_rollout_profile_is_explicit_and_uses_one_substep() -> None:
+def test_rollout_profile_is_explicit_and_uses_one_substep() -> None:
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        config = compose(config_name="rollout/stage4_smoke")
+        config = compose(config_name="rollout/smoke")
 
     parsed = parse_rollout_config(config)
     assert parsed.rollout.transition_dt_s == 0.1

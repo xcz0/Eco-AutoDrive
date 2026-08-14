@@ -53,12 +53,12 @@ class RolloutCollectionFailure(RuntimeError):
     """Recoverable episode failure plus every transition collected before it."""
 
     def __init__(
-        self, stage: str, cause: Exception, transitions: tuple[RolloutTransition, ...]
+        self, phase: str, cause: Exception, transitions: tuple[RolloutTransition, ...]
     ) -> None:
-        self.stage = stage
+        self.phase = phase
         self.cause = cause
         self.transitions = transitions
-        super().__init__(f"{stage}: {cause}")
+        super().__init__(f"{phase}: {cause}")
 
 
 def collect_rollout_episode(
@@ -190,7 +190,7 @@ def collect_rollout_episode(
         )
     except EpisodeFailure as failure:
         raise RolloutCollectionFailure(
-            failure.stage, failure.cause, buffer.transitions
+            failure.phase.value, failure.cause, buffer.transitions
         ) from failure
     finally:
         env.close()

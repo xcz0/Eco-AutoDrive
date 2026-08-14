@@ -167,7 +167,7 @@ def test_pretrained_planner_tracks_cuda_device(
     ],
 )
 def test_pretrained_ddim_applies_explicit_noise_scale_and_sampler_dtype_boundary(
-    stage0_observation: dict[str, torch.Tensor],
+    baseline_observation: dict[str, torch.Tensor],
     scale: float,
     label: str,
 ) -> None:
@@ -178,7 +178,7 @@ def test_pretrained_ddim_applies_explicit_noise_scale_and_sampler_dtype_boundary
         _ddim_config(scale=scale, label=label),
     )
 
-    result = planner(stage0_observation, torch.ones((1, 11, 80, 4)))
+    result = planner(baseline_observation, torch.ones((1, 11, 80, 4)))
 
     first_sample = model.samples[0].reshape(1, 11, 81, 4)
     assert first_sample.dtype == torch.float32
@@ -189,7 +189,7 @@ def test_pretrained_ddim_applies_explicit_noise_scale_and_sampler_dtype_boundary
 
 
 def test_neutral_reference_guidance_reuses_one_encoding_and_returns_reference_exactly(
-    stage0_observation: dict[str, torch.Tensor],
+    baseline_observation: dict[str, torch.Tensor],
 ) -> None:
     model = _IdentityDenoiser()
     planner = PretrainedDiffusionPlanner(  # type: ignore[arg-type]
@@ -202,7 +202,7 @@ def test_neutral_reference_guidance_reuses_one_encoding_and_returns_reference_ex
     noise[..., 0] = torch.arange(1, 81, dtype=torch.float32)
     noise[..., 2] = 1.0
 
-    result = planner(stage0_observation, noise)
+    result = planner(baseline_observation, noise)
 
     assert model.encode_calls == 1
     assert result.reference_prediction is not None
@@ -214,7 +214,7 @@ def test_neutral_reference_guidance_reuses_one_encoding_and_returns_reference_ex
 
 
 def test_signed_reference_guidance_moves_ego_left_and_right_without_parameter_gradients(
-    stage0_observation: dict[str, torch.Tensor],
+    baseline_observation: dict[str, torch.Tensor],
 ) -> None:
     config = _planner_config()
     sampler_config = _ddim_config()
@@ -227,7 +227,7 @@ def test_signed_reference_guidance_moves_ego_left_and_right_without_parameter_gr
         config, left_model, sampler_config, _guidance_config()
     )
     left = left_planner(
-        stage0_observation,
+        baseline_observation,
         noise,
         torch.Generator().manual_seed(11),
         guidance_action=torch.tensor([[1.0, 0.0]]),
@@ -237,7 +237,7 @@ def test_signed_reference_guidance_moves_ego_left_and_right_without_parameter_gr
         config, right_model, sampler_config, _guidance_config()
     )
     right = right_planner(
-        stage0_observation,
+        baseline_observation,
         noise,
         torch.Generator().manual_seed(11),
         guidance_action=torch.tensor([[-1.0, 0.0]]),
@@ -261,7 +261,7 @@ def test_signed_reference_guidance_moves_ego_left_and_right_without_parameter_gr
 
 
 def test_guided_reference_consumes_one_shared_stochastic_ddim_stream(
-    stage0_observation: dict[str, torch.Tensor],
+    baseline_observation: dict[str, torch.Tensor],
 ) -> None:
     config = _planner_config()
     sampler_config = _ddim_config(stochasticity=1.0)
@@ -277,9 +277,9 @@ def test_guided_reference_consumes_one_shared_stochastic_ddim_stream(
     unguided_generator = torch.Generator().manual_seed(37)
     guided_generator = torch.Generator().manual_seed(37)
 
-    baseline = unguided(stage0_observation, noise, unguided_generator)
+    baseline = unguided(baseline_observation, noise, unguided_generator)
     result = guided(
-        stage0_observation,
+        baseline_observation,
         noise,
         guided_generator,
         torch.tensor([[1.0, 0.0]]),

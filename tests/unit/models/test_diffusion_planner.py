@@ -21,10 +21,10 @@ def test_model_hierarchy_matches_official_checkpoint(
 
 def test_model_encode_and_denoise_shapes(
     official_model_config: OfficialDiffusionPlannerConfig,
-    stage0_observation: dict[str, torch.Tensor],
+    baseline_observation: dict[str, torch.Tensor],
 ) -> None:
     model = DiffusionPlanner(official_model_config).eval()
-    inputs = official_model_config.observation_normalizer(stage0_observation)
+    inputs = official_model_config.observation_normalizer(baseline_observation)
 
     with torch.no_grad():
         encoding = model.encode(inputs)

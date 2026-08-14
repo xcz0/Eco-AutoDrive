@@ -11,9 +11,9 @@ from omegaconf import OmegaConf
 from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
 from eco_planner.envs.observation_adapter import TrafficObservationAudit
 from eco_planner.evaluation import episode
-from eco_planner.evaluation.inference import HostInferenceResult
-from eco_planner.evaluation.runtime import InferenceRuntimeReport
-from eco_planner.evaluation.trace import EpisodeTraceRecorder
+from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
+from eco_planner.evaluation.runtime.contracts import HostInferenceResult
+from eco_planner.evaluation.runtime.engine import InferenceRuntimeReport
 from eco_planner.models import CheckpointLoadReport, NoGuidanceConfig, SamplerReport
 
 

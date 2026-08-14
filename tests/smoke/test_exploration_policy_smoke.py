@@ -13,9 +13,9 @@ from eco_planner.rl import (
 
 
 @pytest.mark.slow
-def test_stage3_real_checkpoint_features_feed_policy(
-    stage0_checkpoint_dir,
-    stage0_observation: dict[str, torch.Tensor],
+def test_real_checkpoint_features_feed_exploration_policy(
+    baseline_checkpoint_dir,
+    baseline_observation: dict[str, torch.Tensor],
 ) -> None:
     sampler = Ddim5SamplerConfig(
         name="ddim5",
@@ -26,11 +26,11 @@ def test_stage3_real_checkpoint_features_feed_policy(
         parity_label="plannerrft_paper_text",
     )
     planner, _ = load_official_diffusion_planner(
-        stage0_checkpoint_dir / "args.json",
-        stage0_checkpoint_dir / "model.pth",
+        baseline_checkpoint_dir / "args.json",
+        baseline_checkpoint_dir / "model.pth",
         sampler,
     )
-    normalized = planner.config.observation_normalizer(stage0_observation)
+    normalized = planner.config.observation_normalizer(baseline_observation)
     reference = torch.zeros((1, 80, 4), dtype=torch.float32)
     reference[..., 0] = torch.arange(1, 81, dtype=torch.float32)
     reference[..., 2] = 1.0

@@ -16,7 +16,7 @@ Hydra/OmegaConf 只存在于 CLI 配置边界。入口必须通过 `parse_evalua
 
 推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。`runtime.devices` 必须为 1，不得在同一评测作业内启动多进程闭环。
 
-raw observation 在 CPU 边界按 Artifact v3 的 shape、dtype 和有限性完整校验并原值写入 trace；
+raw observation 在 CPU 边界按 Artifact v4 的 shape、dtype 和有限性完整校验并原值写入 trace；
 Fabric 设备副本只供计算使用，可按 resolved mixed precision 转为 FP16/BF16。每个规划周期的初始噪声、
 prediction、reference 与 guidance diagnostics 在同一 stream 排队转回主机并只同步一次，统一转换为
 Artifact dtype 后检查有限性；ego 执行直接使用 host prediction 的 batch-zero ego 视图。
@@ -254,7 +254,7 @@ GAE 不跨 episode。它不是同步向量环境或规模化训练 runtime。
 固定 SeedSequence namespace 和 training seed 确定性派生并落盘；诊断抽样使用第三条独立 seed，
 不得改变训练 RNG。训练 seed 同时控制 policy 初始化和 minibatch 排列。
 
-Training Artifact v1 与 evaluation Artifact v3 独立。每个 episode 的 NPZ 保存冻结 policy context、
+Training Artifact v1 与 evaluation Artifact v4 独立。每个 episode 的 NPZ 保存冻结 policy context、
 Beta 参数、base/guidance action、old log-prob/value、initial noise、两条 RNG state、reward/audit、
 done 和 seed；不保存 DDIM denoise chain。每次运行保存 resolved config、runtime metadata、tracked
 diff、初始/逐 update/最终 policy-only checkpoint 和严格 summary。分类的 episode failure 保存
@@ -292,7 +292,7 @@ MetaDrive `step` 返回的轨迹数组、交通快照和终止字段必须在环
 
 每个回合至少保存 `summary.json` 和 `trace.npz`；开启视频时保存闭环 GIF。trace 必须包含 raw observation、初始噪声、完整联合预测、规划锚点、目标与实际状态、逐点误差、奖励、终止标志；交通回合还保存预热、对象 ID、交通数量、最近交通距离和历史有效性。
 
-trace recorder 必须在回合开始时按最大 planning/warmup 容量预分配 Artifact v3 数组并直接写入槽位；
+trace recorder 必须在回合开始时按最大 planning/warmup 容量预分配 Artifact v4 数组并直接写入槽位；
 `finalize()` 只暴露已记录切片。`trace.npz` 使用标准未压缩 NPZ，以降低长程写盘墙钟。
 
 当前唯一支持的产物 schema version 为 3。job summary、episode summary 和 runtime metadata

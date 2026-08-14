@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from eco_planner.evaluation.config import RuntimeConfig
-from eco_planner.evaluation.runtime import (
+from eco_planner.evaluation.runtime.engine import (
     FabricInferenceRuntime,
     create_fabric_inference_runtime,
 )
@@ -77,7 +77,7 @@ def official_model_config(
 
 
 @pytest.fixture
-def stage0_observation() -> dict[str, torch.Tensor]:
+def baseline_observation() -> dict[str, torch.Tensor]:
     device = torch.device("cpu")
     observation = {
         "ego_current_state": torch.zeros((1, 10), dtype=torch.float32, device=device),
@@ -117,7 +117,7 @@ def stage0_observation() -> dict[str, torch.Tensor]:
 
 
 @pytest.fixture(scope="session")
-def stage0_checkpoint_dir() -> Path:
+def baseline_checkpoint_dir() -> Path:
     checkpoint_dir = Path(__file__).resolve().parents[1] / "checkpoints" / "DP-Origin"
     required_assets = (checkpoint_dir / "args.json", checkpoint_dir / "model.pth")
     missing_assets = [str(path) for path in required_assets if not path.is_file()]
@@ -127,19 +127,19 @@ def stage0_checkpoint_dir() -> Path:
 
 
 @pytest.fixture(scope="session")
-def stage0_runtime(stage0_checkpoint_dir: Path) -> FabricInferenceRuntime:
+def baseline_runtime(baseline_checkpoint_dir: Path) -> FabricInferenceRuntime:
     runtime_config = RuntimeConfig(accelerator="cpu", devices=1, precision="32-true", seed=0)
     return create_fabric_inference_runtime(
         runtime_config,
         Dpm10SamplerConfig(),
         NoGuidanceConfig(),
-        stage0_checkpoint_dir / "args.json",
-        stage0_checkpoint_dir / "model.pth",
+        baseline_checkpoint_dir / "args.json",
+        baseline_checkpoint_dir / "model.pth",
     )
 
 
 @pytest.fixture(scope="session")
-def stage1_ddim_runtime(stage0_checkpoint_dir: Path) -> FabricInferenceRuntime:
+def ddim_runtime(baseline_checkpoint_dir: Path) -> FabricInferenceRuntime:
     runtime_config = RuntimeConfig(accelerator="cpu", devices=1, precision="32-true", seed=0)
     sampler_config = Ddim5SamplerConfig(
         name="ddim5",
@@ -153,13 +153,13 @@ def stage1_ddim_runtime(stage0_checkpoint_dir: Path) -> FabricInferenceRuntime:
         runtime_config,
         sampler_config,
         NoGuidanceConfig(),
-        stage0_checkpoint_dir / "args.json",
-        stage0_checkpoint_dir / "model.pth",
+        baseline_checkpoint_dir / "args.json",
+        baseline_checkpoint_dir / "model.pth",
     )
 
 
 @pytest.fixture(scope="session")
-def stage2_guided_runtime(stage0_checkpoint_dir: Path) -> FabricInferenceRuntime:
+def guided_runtime(baseline_checkpoint_dir: Path) -> FabricInferenceRuntime:
     runtime_config = RuntimeConfig(accelerator="cpu", devices=1, precision="32-true", seed=0)
     sampler_config = Ddim5SamplerConfig(
         name="ddim5",
@@ -189,6 +189,6 @@ def stage2_guided_runtime(stage0_checkpoint_dir: Path) -> FabricInferenceRuntime
         runtime_config,
         sampler_config,
         guidance_config,
-        stage0_checkpoint_dir / "args.json",
-        stage0_checkpoint_dir / "model.pth",
+        baseline_checkpoint_dir / "args.json",
+        baseline_checkpoint_dir / "model.pth",
     )

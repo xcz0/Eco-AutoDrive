@@ -14,14 +14,18 @@ from eco_planner.envs import (
     TrajectoryExecutionRecord,
     TrajectoryMetaDriveEnv,
 )
-from eco_planner.evaluation.artifact_writer import write_episode_artifacts
+from eco_planner.evaluation.artifacts.io import write_episode_artifacts
+from eco_planner.evaluation.artifacts.models import (
+    CompletedEpisodeSummary,
+    FailedEpisodeSummary,
+    FailurePhase,
+)
+from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
 from eco_planner.evaluation.config import EvaluationJobConfig, ScenarioConfig
 from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.rendering import render_cycle_frame
-from eco_planner.evaluation.runtime import FabricInferenceRuntime
-from eco_planner.evaluation.schema import CompletedEpisodeSummary, FailedEpisodeSummary
-from eco_planner.evaluation.summary import build_episode_summary, build_failed_episode_summary
-from eco_planner.evaluation.trace import EpisodeTraceRecorder
+from eco_planner.evaluation.runtime.engine import FabricInferenceRuntime
+from eco_planner.evaluation.summaries import build_episode_summary, build_failed_episode_summary
 from eco_planner.models import NoGuidanceConfig
 
 
@@ -54,7 +58,7 @@ def run_scenario(
         episode_route_length_m = route_length_m(env)
         if mode == "traffic" and not 2_000.0 <= episode_route_length_m <= 5_000.0:
             raise EpisodeFailure(
-                "reset",
+                FailurePhase.RESET,
                 RuntimeError(
                     f"traffic evaluation route length {episode_route_length_m} m "
                     "is outside [2000, 5000]"
@@ -115,12 +119,13 @@ def run_scenario(
             plan_index += 1
         if final_execution is None:
             raise EpisodeFailure(
-                "execution", RuntimeError("closed-loop episode ended without a simulator result")
+                FailurePhase.EXECUTION,
+                RuntimeError("closed-loop episode ended without a simulator result"),
             )
         trace_arrays = trace.finalize()
         if mode == "traffic" and not np.any(trace_arrays["traffic_participant_counts"] > 0):
             raise EpisodeFailure(
-                "observation",
+                FailurePhase.OBSERVATION,
                 RuntimeError("traffic evaluation never observed a participant within radius"),
             )
         summary = build_episode_summary(
@@ -154,7 +159,7 @@ def run_scenario(
             sampler=asdict(runtime.sampler_report),
             guidance=asdict(runtime.guidance_config),
             trace_status=trace_status,
-            stage=failure.stage,
+            phase=failure.phase,
             cause=failure.cause,
             traceback_text=traceback.format_exc(),
         )
@@ -188,17 +193,19 @@ def run_traffic_warmup(
         )
         if terminated or truncated:
             raise EpisodeFailure(
-                "warmup",
+                FailurePhase.WARMUP,
                 RuntimeError("traffic history warmup terminated before 20 simulator steps"),
             )
     states = np.concatenate(trace.warmup_state_arrays, axis=0)
     if states.shape != (warmup_steps, 7):
         raise EpisodeFailure(
-            "warmup", RuntimeError("traffic warmup did not produce the required number of states")
+            FailurePhase.WARMUP,
+            RuntimeError("traffic warmup did not produce the required number of states"),
         )
     if float(np.linalg.norm(states[:, :2] - initial_position, axis=1).max()) >= 1e-3:
         raise EpisodeFailure(
-            "warmup", RuntimeError("ego moved during stationary traffic history warmup")
+            FailurePhase.WARMUP,
+            RuntimeError("ego moved during stationary traffic history warmup"),
         )
     trace.replace_initial_state(vehicle_state(env))
 

@@ -16,14 +16,14 @@ from eco_planner.rl import (
 
 def test_frozen_planner_features_encode_once_and_remain_unchanged_after_backward(
     official_model_config: OfficialDiffusionPlannerConfig,
-    stage0_observation: dict[str, torch.Tensor],
+    baseline_observation: dict[str, torch.Tensor],
     exploration_policy_config: ExplorationPolicyConfig,
 ) -> None:
     planner = DiffusionPlanner(official_model_config).eval()
     planner.requires_grad_(False)
     before = {name: value.detach().clone() for name, value in planner.state_dict().items()}
     extractor = FrozenPlannerPolicyFeatureExtractor(planner)
-    normalized = official_model_config.observation_normalizer(stage0_observation)
+    normalized = official_model_config.observation_normalizer(baseline_observation)
     reference = torch.zeros((1, 80, 4), dtype=torch.float32)
     reference[..., 0] = torch.arange(1, 81, dtype=torch.float32)
     reference[..., 2] = 1.0

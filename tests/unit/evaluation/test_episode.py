@@ -8,8 +8,8 @@ import pytest
 
 from eco_planner.envs import TrafficFrame
 from eco_planner.evaluation import episode
+from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
 from eco_planner.evaluation.config import ScenarioConfig, parse_evaluation_config
-from eco_planner.evaluation.trace import EpisodeTraceRecorder
 
 
 def test_run_scenario_replans_and_persists_trace(

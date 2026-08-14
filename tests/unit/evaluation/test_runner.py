@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from eco_planner.evaluation import runner
+from eco_planner.evaluation.artifacts.models import FailurePhase
 from eco_planner.evaluation.config import parse_evaluation_config
 from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.runner import run_evaluation
@@ -18,9 +19,9 @@ def _patch_runtime(monkeypatch: pytest.MonkeyPatch, fake_runtime: object) -> Non
 
 def test_episode_failure_preserves_original_cause() -> None:
     cause = RuntimeError("planner produced a non-finite trajectory")
-    failure = EpisodeFailure("inference", cause)
+    failure = EpisodeFailure(FailurePhase.INFERENCE, cause)
 
-    assert failure.stage == "inference"
+    assert failure.phase is FailurePhase.INFERENCE
     assert failure.cause is cause
     assert str(failure) == "inference: planner produced a non-finite trajectory"
 
@@ -53,7 +54,7 @@ def test_run_evaluation_persists_episode_failure_and_continues(
 ) -> None:
     class FailureEnv(fake_env_class):  # type: ignore[misc, valid-type]
         def reset(self, seed: int) -> tuple[None, dict[str, object]]:
-            raise EpisodeFailure("reset", RuntimeError("injected episode failure"))
+            raise EpisodeFailure(FailurePhase.RESET, RuntimeError("injected episode failure"))
 
     def environment(config: dict[str, object]) -> object:
         return FailureEnv(config) if config["map"] == "FAIL" else fake_env_class(config)

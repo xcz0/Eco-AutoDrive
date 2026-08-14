@@ -9,7 +9,7 @@ defaults:
   - /policy: exploration_beta
   - _self_
 
-name: plannerrft_stage4_rollout_smoke
+name: plannerrft_rollout_smoke
 map_query_radius_m: 100.0
 
 rollout:

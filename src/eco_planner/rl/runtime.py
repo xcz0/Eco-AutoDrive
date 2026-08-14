@@ -11,9 +11,10 @@ import numpy as np
 import torch
 from lightning.fabric import Fabric
 
+from eco_planner.evaluation.artifacts.models import FailurePhase
 from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.failures import EpisodeFailure
-from eco_planner.evaluation.runtime import InferenceRuntimeReport, resolve_runtime_settings
+from eco_planner.evaluation.runtime.engine import InferenceRuntimeReport, resolve_runtime_settings
 from eco_planner.models import (
     CheckpointLoadReport,
     OfficialDiffusionPlannerConfig,
@@ -294,7 +295,7 @@ def _validate_finite(tensors: Mapping[str, torch.Tensor]) -> None:
     for name, value in tensors.items():
         if value.dtype.is_floating_point and not torch.isfinite(value).all():
             raise EpisodeFailure(
-                "inference",
+                FailurePhase.INFERENCE,
                 RuntimeError(f"rollout host tensor {name!r} contains non-finite values"),
             )
 

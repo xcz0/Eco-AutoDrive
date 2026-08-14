@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from eco_planner.evaluation.comparison import compare_artifact_trees
+from eco_planner.evaluation.analysis.comparison import compare_artifact_trees
 
 
 def main() -> None:

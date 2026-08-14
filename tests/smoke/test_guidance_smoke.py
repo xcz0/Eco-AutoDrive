@@ -4,19 +4,19 @@ import numpy as np
 import pytest
 import torch
 
-from eco_planner.evaluation.runtime import FabricInferenceRuntime
+from eco_planner.evaluation.runtime.engine import FabricInferenceRuntime
 
 
 @pytest.mark.slow
-def test_stage2_guidance_reuses_real_ddim_reference_and_returns_finite_diagnostics(
-    stage1_ddim_runtime: FabricInferenceRuntime,
-    stage2_guided_runtime: FabricInferenceRuntime,
-    stage0_observation: dict[str, torch.Tensor],
+def test_guidance_reuses_real_ddim_reference_and_returns_finite_diagnostics(
+    ddim_runtime: FabricInferenceRuntime,
+    guided_runtime: FabricInferenceRuntime,
+    baseline_observation: dict[str, torch.Tensor],
 ) -> None:
-    baseline_generator = stage1_ddim_runtime.new_noise_generator()
-    baseline = stage1_ddim_runtime.infer(stage0_observation, baseline_generator)
-    guided_generator = stage2_guided_runtime.new_noise_generator()
-    guided = stage2_guided_runtime.infer(stage0_observation, guided_generator)
+    baseline_generator = ddim_runtime.new_noise_generator()
+    baseline = ddim_runtime.infer(baseline_observation, baseline_generator)
+    guided_generator = guided_runtime.new_noise_generator()
+    guided = guided_runtime.infer(baseline_observation, guided_generator)
 
     assert np.array_equal(guided.initial_noise, baseline.initial_noise)
     assert guided.reference_prediction is not None

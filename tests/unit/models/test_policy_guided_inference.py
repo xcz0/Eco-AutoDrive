@@ -10,7 +10,7 @@ from eco_planner.models.planner import PretrainedDiffusionPlanner
 
 
 def test_policy_guidance_prepares_one_frozen_encoding_and_reuses_the_reference(
-    official_model_config, stage0_observation
+    official_model_config, baseline_observation
 ) -> None:
     model = DiffusionPlanner(official_model_config)
     planner = PretrainedDiffusionPlanner(
@@ -46,7 +46,7 @@ def test_policy_guidance_prepares_one_frozen_encoding_and_reuses_the_reference(
     with patch.object(
         planner.model, "encode_policy_features", wraps=planner.model.encode_policy_features
     ) as encode:
-        prepared = planner.prepare_policy_guidance(stage0_observation, noise, generator)
+        prepared = planner.prepare_policy_guidance(baseline_observation, noise, generator)
         result = planner.complete_policy_guidance(
             prepared, torch.zeros((1, 2), dtype=torch.float32)
         )

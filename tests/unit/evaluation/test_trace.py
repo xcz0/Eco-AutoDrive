@@ -5,8 +5,9 @@ import pytest
 import torch
 
 from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
-from eco_planner.evaluation.inference import HostGuidanceDiagnostics, HostInferenceResult
-from eco_planner.evaluation.trace import EpisodeTraceRecorder, validate_trace_arrays
+from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
+from eco_planner.evaluation.artifacts.trace_schema import validate_trace_arrays
+from eco_planner.evaluation.runtime.contracts import HostGuidanceDiagnostics, HostInferenceResult
 
 
 def _observation() -> dict[str, torch.Tensor]:

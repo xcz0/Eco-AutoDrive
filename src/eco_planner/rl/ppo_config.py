@@ -13,7 +13,7 @@ from omegaconf import DictConfig, OmegaConf
 class PPOOptimizationConfig:
     """All explicitly selected GAE, PPO, optimizer, and scheduler parameters."""
 
-    name: Literal["ppo_stage5_smoke", "ppo_stage6_smoke"]
+    name: Literal["ppo_smoke", "ppo_stage6_smoke"]
     gamma: float
     gae_lambda: float
     normalize_advantage: bool
@@ -78,7 +78,7 @@ def parse_ppo_optimization_config(config: DictConfig) -> PPOOptimizationConfig:
             f"missing={sorted(expected - keys)}, "
             f"unexpected={sorted(str(key) for key in keys - expected)}"
         )
-    if raw["name"] not in {"ppo_stage5_smoke", "ppo_stage6_smoke"}:
+    if raw["name"] not in {"ppo_smoke", "ppo_stage6_smoke"}:
         raise ValueError("train.name must select a supported PPO smoke profile")
     for name, expected_value in (
         ("value_loss", "l2"),

@@ -7,8 +7,8 @@ import pytest
 import torch
 from torch import nn
 
-from eco_planner.evaluation import runtime
 from eco_planner.evaluation.config import RuntimeConfig
+from eco_planner.evaluation.runtime import engine as runtime
 from eco_planner.models import (
     CheckpointLoadReport,
     Dpm10SamplerConfig,
@@ -115,7 +115,7 @@ def test_cpu_fabric_runtime_assembles_model_and_replays_noise(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     official_model_config: OfficialDiffusionPlannerConfig,
-    stage0_observation: dict[str, torch.Tensor],
+    baseline_observation: dict[str, torch.Tensor],
 ) -> None:
     planner = _TinyPlanner(official_model_config)
     checkpoint_report = CheckpointLoadReport(276, 6_042_628)
@@ -137,9 +137,9 @@ def test_cpu_fabric_runtime_assembles_model_and_replays_noise(
         tmp_path,
     )
     first_generator = fabric_runtime.new_noise_generator()
-    first_result = fabric_runtime.infer(stage0_observation, first_generator)
+    first_result = fabric_runtime.infer(baseline_observation, first_generator)
     second_generator = fabric_runtime.new_noise_generator()
-    second_result = fabric_runtime.infer(stage0_observation, second_generator)
+    second_result = fabric_runtime.infer(baseline_observation, second_generator)
 
     assert fabric_runtime.device == torch.device("cpu")
     assert fabric_runtime.report.resolved_precision == "32-true"

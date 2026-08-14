@@ -1,7 +1,8 @@
-"""Artifact v3 JSON models shared by producers and consumers."""
+"""Artifact v4 JSON models shared by producers and consumers."""
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -14,7 +15,7 @@ from pydantic import (
     model_validator,
 )
 
-ARTIFACT_SCHEMA_VERSION = 3
+ARTIFACT_SCHEMA_VERSION = 4
 
 
 class ArtifactModel(BaseModel):
@@ -43,8 +44,16 @@ class TerminationSummary(ArtifactModel):
     detail: str = Field(min_length=1)
 
 
+class FailurePhase(str, Enum):
+    RESET = "reset"
+    WARMUP = "warmup"
+    OBSERVATION = "observation"
+    INFERENCE = "inference"
+    EXECUTION = "execution"
+
+
 class FailureSummary(ArtifactModel):
-    stage: str = Field(min_length=1)
+    phase: FailurePhase
     exception_type: str = Field(min_length=1)
     message: str
     traceback: str = Field(min_length=1)
@@ -167,7 +176,7 @@ class TrafficObservationSummary(ArtifactModel):
 
 
 class CompletedEpisodeSummary(ArtifactModel):
-    schema_version: Literal[3] = ARTIFACT_SCHEMA_VERSION
+    schema_version: Literal[4] = ARTIFACT_SCHEMA_VERSION
     status: Literal["completed"] = "completed"
     trace_status: Literal["complete"] = "complete"
     scenario: ScenarioSummary
@@ -202,7 +211,7 @@ class CompletedEpisodeSummary(ArtifactModel):
 
 
 class FailedEpisodeSummary(ArtifactModel):
-    schema_version: Literal[3] = ARTIFACT_SCHEMA_VERSION
+    schema_version: Literal[4] = ARTIFACT_SCHEMA_VERSION
     status: Literal["failed"] = "failed"
     scenario: ScenarioSummary
     evaluation_mode: Literal["no_traffic", "traffic"]
@@ -222,7 +231,7 @@ EpisodeSummary = Annotated[
 
 
 class JobSummary(ArtifactModel):
-    schema_version: Literal[3] = ARTIFACT_SCHEMA_VERSION
+    schema_version: Literal[4] = ARTIFACT_SCHEMA_VERSION
     status: Literal["completed", "failed"]
     runtime: InferenceRuntimeSummary
     checkpoint: CheckpointSummary
@@ -243,7 +252,7 @@ class JobSummary(ArtifactModel):
 
 
 class RuntimeMetadata(ArtifactModel):
-    schema_version: Literal[3] = ARTIFACT_SCHEMA_VERSION
+    schema_version: Literal[4] = ARTIFACT_SCHEMA_VERSION
     git_head: str = Field(min_length=1)
     git_status_short: tuple[str, ...]
     platform: str = Field(min_length=1)

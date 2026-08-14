@@ -18,10 +18,10 @@ from eco_planner.rl import (
 )
 
 
-def test_stage5_smoke_profile_completes_one_torchrl_ppo_update() -> None:
+def test_ppo_smoke_profile_completes_one_torchrl_ppo_update() -> None:
     root = Path(__file__).parents[2]
     config = parse_ppo_optimization_config(
-        OmegaConf.load(root / "configs" / "train" / "ppo_stage5_smoke.yaml")
+        OmegaConf.load(root / "configs" / "train" / "ppo_smoke.yaml")
     )
     policy = ExplorationPolicy(
         ExplorationPolicyConfig(

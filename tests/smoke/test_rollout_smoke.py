@@ -17,8 +17,8 @@ from eco_planner.rl import (
 
 
 @pytest.mark.slow
-def test_stage4_real_checkpoint_policy_guided_decision_is_finite_and_replayable(
-    stage0_checkpoint_dir, stage0_observation: dict[str, torch.Tensor]
+def test_real_checkpoint_policy_guided_decision_is_finite_and_replayable(
+    baseline_checkpoint_dir, baseline_observation: dict[str, torch.Tensor]
 ) -> None:
     def runtime():
         return create_fabric_rollout_runtime(
@@ -60,21 +60,21 @@ def test_stage4_real_checkpoint_policy_guided_decision_is_finite_and_replayable(
                 initial_concentration=2.0,
                 minimum_concentration=1e-4,
             ),
-            stage0_checkpoint_dir / "args.json",
-            stage0_checkpoint_dir / "model.pth",
+            baseline_checkpoint_dir / "args.json",
+            baseline_checkpoint_dir / "model.pth",
             policy_action_seed=17,
         )
 
     first_runtime = runtime()
     global_state = torch.random.get_rng_state().clone()
     first = first_runtime.decide(
-        stage0_observation,
+        baseline_observation,
         first_runtime.new_noise_generator(),
         first_runtime.new_policy_generator(),
     )
     replay_runtime = runtime()
     replay = replay_runtime.decide(
-        stage0_observation,
+        baseline_observation,
         replay_runtime.new_noise_generator(),
         replay_runtime.new_policy_generator(),
     )
@@ -91,18 +91,18 @@ def test_stage4_real_checkpoint_policy_guided_decision_is_finite_and_replayable(
 
 @pytest.mark.simulator
 @pytest.mark.slow
-def test_stage4_collects_one_real_10hz_transition_without_artifacts(stage0_checkpoint_dir) -> None:
+def test_collects_one_real_10hz_transition_without_artifacts(baseline_checkpoint_dir) -> None:
     config_dir = Path(__file__).resolve().parents[2] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        config = compose(config_name="rollout/stage4_smoke")
+        config = compose(config_name="rollout/smoke")
     parsed = parse_rollout_config(config)
     runtime = create_fabric_rollout_runtime(
         parsed.runtime,
         parsed.sampler,
         parsed.guidance,
         parsed.policy,
-        stage0_checkpoint_dir / "args.json",
-        stage0_checkpoint_dir / "model.pth",
+        baseline_checkpoint_dir / "args.json",
+        baseline_checkpoint_dir / "model.pth",
         parsed.rollout.policy_action_seed,
     )
 

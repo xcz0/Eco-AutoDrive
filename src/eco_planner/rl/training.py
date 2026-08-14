@@ -95,7 +95,7 @@ def run_stage6_training(config: Stage6TrainingJobConfig, output_dir: Path) -> St
                     write_json(
                         failure_dir / "failure.json",
                         {
-                            "stage": failure.stage,
+                            "phase": failure.phase,
                             "exception_type": type(failure.cause).__name__,
                             "message": str(failure.cause),
                             "traceback": traceback.format_exc(),

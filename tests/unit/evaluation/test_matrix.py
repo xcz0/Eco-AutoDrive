@@ -6,9 +6,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from eco_planner.evaluation.matrix import build_matrix_report, summarize_matrix
-from eco_planner.evaluation.schema import ARTIFACT_SCHEMA_VERSION
-from eco_planner.evaluation.trace import EpisodeTraceRecorder
+from eco_planner.evaluation.analysis.matrix import build_matrix_report, summarize_matrix
+from eco_planner.evaluation.artifacts.models import ARTIFACT_SCHEMA_VERSION
+from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
 
 
 def _sampler() -> dict[str, object]:
@@ -313,7 +313,7 @@ video:
         "trace_status": "empty",
         "termination": {"type": "runtime_error", "detail": "reset"},
         "failure": {
-            "stage": "reset",
+            "phase": "reset",
             "exception_type": "RuntimeError",
             "message": "injected",
             "traceback": "RuntimeError: injected",

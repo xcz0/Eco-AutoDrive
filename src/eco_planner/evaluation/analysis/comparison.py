@@ -7,7 +7,8 @@ from typing import Any
 
 import numpy as np
 
-from eco_planner.evaluation.artifact_reader import load_json_artifact, load_trace_artifact
+from eco_planner.evaluation.artifacts.io import load_job_summary, load_trace_artifact
+from eco_planner.evaluation.artifacts.models import EpisodeSummary, JobSummary
 
 _IGNORED_METADATA_FIELDS = frozenset(
     {
@@ -30,9 +31,11 @@ def compare_artifact_trees(serial_root: Path, parallel_root: Path) -> dict[str, 
     for key in sorted(serial_jobs):
         serial_job = serial_jobs[key]
         parallel_job = parallel_jobs[key]
-        serial_summary = load_json_artifact(serial_job / "summary.json")
-        parallel_summary = load_json_artifact(parallel_job / "summary.json")
-        if _stable_json(serial_summary) != _stable_json(parallel_summary):
+        serial_summary = load_job_summary(serial_job / "summary.json")
+        parallel_summary = load_job_summary(parallel_job / "summary.json")
+        if _stable_json(serial_summary.model_dump(mode="json")) != _stable_json(
+            parallel_summary.model_dump(mode="json")
+        ):
             raise ValueError(f"job summary mismatch for seed={key[0]}, density={key[1]}")
         serial_episodes = _episodes_by_name(serial_summary)
         parallel_episodes = _episodes_by_name(parallel_summary)
@@ -62,16 +65,8 @@ def _indexed_jobs(root: Path) -> dict[tuple[int, float], Path]:
         (path for path in root.iterdir() if path.is_dir() and path.name.isdigit()),
         key=lambda path: int(path.name),
     ):
-        summary = load_json_artifact(job / "summary.json")
-        runtime = summary.get("runtime")
-        episodes = summary.get("episodes")
-        if not isinstance(runtime, dict) or not isinstance(episodes, list) or not episodes:
-            raise ValueError(f"invalid job summary: {job}")
-        seed = runtime.get("seed")
-        density = episodes[0].get("traffic_density")
-        if type(seed) is not int or type(density) not in {int, float}:
-            raise ValueError(f"job summary does not expose a matrix key: {job}")
-        key = (seed, float(density))
+        summary = load_job_summary(job / "summary.json")
+        key = (summary.runtime.seed, summary.episodes[0].traffic_density)
         if key in result:
             raise ValueError(f"duplicate matrix job key: {key}")
         result[key] = job
@@ -80,13 +75,11 @@ def _indexed_jobs(root: Path) -> dict[tuple[int, float], Path]:
     return result
 
 
-def _episodes_by_name(summary: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    result: dict[str, dict[str, Any]] = {}
-    for episode in summary["episodes"]:
-        if not isinstance(episode, dict) or not isinstance(episode.get("scenario"), dict):
-            raise ValueError("job summary contains an invalid episode")
-        name = episode["scenario"].get("name")
-        if not isinstance(name, str) or not name or name in result:
+def _episodes_by_name(summary: JobSummary) -> dict[str, EpisodeSummary]:
+    result: dict[str, EpisodeSummary] = {}
+    for episode in summary.episodes:
+        name = episode.scenario.name
+        if name in result:
             raise ValueError("job summary contains an invalid episode name")
         result[name] = episode
     return result

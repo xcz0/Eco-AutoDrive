@@ -9,11 +9,11 @@ from eco_planner.rl import parse_ppo_optimization_config
 
 
 def _config() -> object:
-    path = Path(__file__).parents[3] / "configs" / "train" / "ppo_stage5_smoke.yaml"
+    path = Path(__file__).parents[3] / "configs" / "train" / "ppo_smoke.yaml"
     return OmegaConf.load(path)
 
 
-def test_stage5_smoke_config_is_strict_and_complete() -> None:
+def test_ppo_smoke_config_is_strict_and_complete() -> None:
     parsed = parse_ppo_optimization_config(_config())  # type: ignore[arg-type]
     assert parsed.gamma == pytest.approx(0.99)
     assert parsed.gae_lambda == pytest.approx(0.95)
@@ -33,7 +33,7 @@ def test_stage5_smoke_config_is_strict_and_complete() -> None:
         ("adam_epsilon", 0.0, "positive"),
     ],
 )
-def test_stage5_config_rejects_unsupported_or_inconsistent_values(
+def test_ppo_config_rejects_unsupported_or_inconsistent_values(
     field: str,
     value: object,
     message: str,
@@ -44,7 +44,7 @@ def test_stage5_config_rejects_unsupported_or_inconsistent_values(
         parse_ppo_optimization_config(config)  # type: ignore[arg-type]
 
 
-def test_stage5_config_rejects_extra_keys() -> None:
+def test_ppo_config_rejects_extra_keys() -> None:
     config = _config()
     config["unknown"] = 1  # type: ignore[index]
     with pytest.raises(ValueError, match="unexpected"):

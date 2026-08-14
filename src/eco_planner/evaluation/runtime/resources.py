@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import torch
 
 from eco_planner.evaluation.config import EvaluationJobConfig
-from eco_planner.evaluation.runtime import resolve_runtime_settings
+from eco_planner.evaluation.runtime.engine import resolve_runtime_settings
 
 
 @dataclass(frozen=True)
