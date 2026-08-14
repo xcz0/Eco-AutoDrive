@@ -156,6 +156,43 @@ guided trace 额外保存完整 reference joint prediction、action、横向目�
 objective delta、应用梯度 L2/max、原始 neighbor gradient L2 和零速计数。上述 centered energy、
 单位系数、离散速度与 ego-only scope 是项目复现决定，不得描述为 PlannerRFT 作者公开实现。
 
+## Exploration Policy（forward-only）
+
+阶段 3 的 Exploration Policy 是独立模块，尚未接入 evaluation runner、closed-loop rollout 或
+training。它的输入固定为：冻结 scene tokens `[B,N,H]` 及 bool padding mask、冻结
+route/navigation token `[B,1,H]` 及 bool validity/padding mask，以及 ego-local physical reference
+trajectory `float [B,80,4]`。reference 使用 10 Hz、米和 `[cos(h),sin(h)]`。所有 feature 必须同
+batch、dtype 和 device，且有限；每个 batch item 至少有一个有效 context token。
+
+planner feature extractor 在 eval-mode、所有参数 `requires_grad=False` 的官方模型上，以
+`no_grad` 各调用现有 scene encoder 和 route encoder 一次。输出 detach 后才进入 policy；policy
+backward 不得为 planner 产生 `.grad` 或改变 planner 权重。普通 planner `encode()`、fixed-guidance
+evaluation runner 和官方 checkpoint state-dict 层级保持不变。
+
+reference 先经配置化 MLP-Mixer 编码，再作为 query 对拼接后的 scene/navigation tokens 做 masked
+cross-attention；actor 与 value 共享融合 trunk。actor 产生 lateral/longitudinal 的严格正
+`alpha,beta [B,2]`，value 严格为 `[B]`。所有层数、维度、attention heads、dropout、初始
+concentration 和最小 concentration 都是 Hydra 必需字段。concentration 使用
+`softplus(raw)+minimum_concentration`；actor head 对称初始化为 `alpha=beta`，所以初始 guidance
+均值为零，但 Beta 方差非零。
+
+每个 planning cycle 只定义单候选 `K=1`。base action `u` 严格位于 `(0,1)^2`，未来 rollout 保存
+`u`；audited guidance action 为 `g=2u-1`，严格位于 `(-1,1)^2`。training sampling 使用调用者提供
+的独立 policy `torch.Generator` 和 `rsample`；普通 `sample` 也只消费该 generator；deterministic
+evaluation 使用 mean，不公开 mode。边界 action、非有限参数或非法 shape/dtype/device 立即失败，
+不得 clamp。两个维度独立时：
+
+```text
+joint_log_prob_u = sum_i log Beta(u_i; alpha_i, beta_i)
+joint_log_prob_g = joint_log_prob_u - 2 * log(2)
+joint_entropy_g = sum_i H(Beta_i) + 2 * log(2)
+```
+
+policy action generator 不得改变 PyTorch 全局 RNG，且与 map/noise seed 分离。policy checkpoint
+只包含严格 format version 与 Exploration Policy 自身的 trainable state dict；不保存 planner、
+optimizer、rollout 或 RNG state。网络结构、Beta 参数化、仿射映射和初始化见 ADR 0016，均为本项目
+复现决定，不得描述为 PlannerRFT 作者公开实现。
+
 ## 轨迹执行
 
 运动学接口只接收有限的 `float32 [80,4]` ego 后轴局部轨迹。混合精度 forward 的完整预测必须在保存 trace 和进入环境前原值转换为 `float32`。每次 action 只校验并转换一次，环境与运动学 policy 共享同一份已准备的世界轨迹。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。

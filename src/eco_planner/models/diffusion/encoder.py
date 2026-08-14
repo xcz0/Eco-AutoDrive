@@ -212,8 +212,8 @@ class Encoder(nn.Module):
         projected = self.pos_emb(positions[~mask])
         position_result = projected.new_zeros((batch * self.token_num, self.hidden_dim))
         position_result[~mask] = projected
-        return {
-            "encoding": self.fusion(
-                value + position_result.view(batch, self.token_num, -1), mask.view(batch, -1)
-            )
-        }
+        padding_mask = mask.view(batch, -1)
+        encoding = self.fusion(
+            value + position_result.view(batch, self.token_num, -1), padding_mask
+        )
+        return {"encoding": encoding, "padding_mask": padding_mask}

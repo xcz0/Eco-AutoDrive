@@ -18,6 +18,15 @@
 
 **噪声 seed（noise seed）**：决定规划周期扩散初始噪声序列的随机种子。比较策略时，配对的运行使用相同噪声 seed。
 
+**policy action seed（策略动作 seed）**：只决定 Exploration Policy 的 Beta base action 抽样序列。
+它与地图 seed、扩散噪声 seed 和 PyTorch 全局 RNG 分离；相同 seed 在相同设备和策略参数下应可重放。
+
+**base action（基础动作）**：Exploration Policy 从两个独立 Beta distributions 抽取并供未来 PPO
+rollout 保存的 `u in (0,1)^2`。它不等于 DDIM transition，也不包含候选选择概率。
+
+**guidance action（引导动作）**：由 `2u-1` 得到的横向、纵向 scale，严格位于 `(-1,1)^2`。
+该仿射映射及其概率记账是本项目复现决定；边界值不得用 clamp 伪造为有效策略动作。
+
 **参考轨迹（reference trajectory）**：同一规划周期内，由冻结 planner 在共享观测、scene encoding
 和扩散随机流下先生成的完整联合未来预测。它是 guidance 的审计基准，不是道路中心线、专家轨迹
 或回退控制器。

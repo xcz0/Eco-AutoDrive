@@ -54,6 +54,20 @@ class DiffusionPlanner(nn.Module):
     def encode(self, inputs: Mapping[str, torch.Tensor]) -> torch.Tensor:
         return self.encoder(inputs)["encoding"]
 
+    def encode_policy_features(self, inputs: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Encode frozen scene and navigation context once for an exploration policy."""
+
+        scene = self.encoder(inputs)
+        navigation, navigation_padding_mask = (
+            self.decoder.decoder.dit.route_encoder.encode_with_mask(inputs["route_lanes"])
+        )
+        return {
+            "scene_tokens": scene["encoding"],
+            "scene_padding_mask": scene["padding_mask"],
+            "navigation_tokens": navigation[:, None, :],
+            "navigation_padding_mask": navigation_padding_mask[:, None],
+        }
+
     def denoise(
         self,
         sample: torch.Tensor,

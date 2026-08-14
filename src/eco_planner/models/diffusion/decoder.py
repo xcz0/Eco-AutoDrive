@@ -30,6 +30,9 @@ class RouteEncoder(nn.Module):
         )
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
+        return self.encode_with_mask(value)[0]
+
+    def encode_with_mask(self, value: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         states = value[..., :4]
         batch, routes, horizon, _ = states.shape
         mask_time = torch.sum(torch.ne(states, 0), dim=-1) == 0
@@ -44,7 +47,7 @@ class RouteEncoder(nn.Module):
         encoded = self.emb_project(self.norm(encoded))
         result = encoded.new_zeros((batch, encoded.shape[-1]))
         result[valid] = encoded
-        return result
+        return result, mask_batch
 
 
 class DiT(nn.Module):
