@@ -237,8 +237,29 @@ advantage 和 value target 在全部 epoch 中不可变。policy 在 rollout 与
 update 保留 autograd。非有限 loss 或 gradient 在 optimizer step 前失败。
 
 此接口不保存 optimizer/scheduler/batch/RNG checkpoint，不定义训练编排或 parity profile，也不关闭
-G-07。`metadrive_builtin_v1` 仍只是一项非 parity rollout score，不能据此声称可进行 PlannerRFT
-闭环训练。
+G-07。Stage 5 本身不选择训练 reward，也不提供闭环训练入口。
+
+## Stage 6 小规模闭环训练
+
+Stage 6 提供独立 Hydra 训练入口，将 Stage 4 collector 和 Stage 5 updater 串联。固定 profile 使用
+单设备 CUDA BF16、无交通 `S`/`SC` 两个串行逻辑环境、每环境每轮 16 个 0.1 s transition 和
+四次 PPO update。每轮 PPO batch 严格为 32；正常 terminal 后重置同一逻辑 slot 并补足配额，
+GAE 不跨 episode。它不是同步向量环境或规模化训练 runtime。
+
+训练 objective 为 ADR 0019 的 `metadrive_builtin_v1` 原始维度无关分数。返回总分、MetaDrive
+`step_reward` 和 terminal overwrite delta 分开保存；路线完成度增量、实际位移、速度、停驶、
+碰撞、出界和轨迹执行误差只作审计。该 profile 不定义 PlannerRFT parity reward 或能耗 reward。
+
+每个逻辑 slot 拥有独立、持久的 diffusion noise 与 policy action generator。四条实际 seed 由
+固定 SeedSequence namespace 和 training seed 确定性派生并落盘；诊断抽样使用第三条独立 seed，
+不得改变训练 RNG。训练 seed 同时控制 policy 初始化和 minibatch 排列。
+
+Training Artifact v1 与 evaluation Artifact v3 独立。每个 episode 的 NPZ 保存冻结 policy context、
+Beta 参数、base/guidance action、old log-prob/value、initial noise、两条 RNG state、reward/audit、
+done 和 seed；不保存 DDIM denoise chain。每次运行保存 resolved config、runtime metadata、tracked
+diff、初始/逐 update/最终 policy-only checkpoint 和严格 summary。分类的 episode failure 保存
+partial 或 empty trace 后令作业失败，不跳过。训练前后冻结 planner 参数 hash 必须相同，只有
+Exploration Policy 可被 optimizer 更新。
 
 ## 轨迹执行
 

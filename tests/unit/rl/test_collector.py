@@ -28,6 +28,10 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
             assert seed == 9
             return None, {}
 
+        @property
+        def route_completion(self) -> float:
+            return self.step_count * 0.01
+
         def step(self, trajectory: np.ndarray):
             self.trajectories.append(trajectory.copy())
             self.step_count += 1
@@ -76,6 +80,8 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
                 guidance_action=2.0 * base - 1.0,
                 old_joint_guidance_log_prob=torch.tensor([0.5], dtype=torch.float32),
                 old_value=torch.tensor([float(marker)], dtype=torch.float32),
+                beta_alpha=torch.full((1, 2), 2.0),
+                beta_beta=torch.full((1, 2), 2.0),
                 diffusion_rng_state=diffusion_generator.get_state(),
                 policy_rng_state=policy_generator.get_state(),
             )
@@ -122,12 +128,15 @@ def _info() -> dict[str, object]:
     return {
         "trajectory_world_centers": np.zeros((80, 2)),
         "trajectory_world_headings": np.zeros(80),
+        "trajectory_start_center": np.zeros(2),
+        "trajectory_start_heading": 0.0,
         "trajectory_substep_states": np.zeros((1, 7)),
         "trajectory_target_centers": np.zeros((1, 2)),
         "trajectory_target_headings": np.zeros(1),
         "trajectory_position_errors_m": np.zeros(1),
         "trajectory_heading_errors_rad": np.zeros(1),
         "trajectory_substep_rewards": np.asarray([0.25]),
+        "trajectory_substep_dense_rewards": np.asarray([0.25]),
         "trajectory_substep_terminated": np.asarray([False]),
         "trajectory_substep_truncated": np.asarray([False]),
         "traffic_substep_frames": (TrafficFrame(1, (0.0, 0.0), 0.0, 1.0, (), ()),),

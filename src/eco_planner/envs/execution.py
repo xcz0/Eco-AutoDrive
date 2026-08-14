@@ -13,6 +13,8 @@ from eco_planner.envs.traffic_state import TrafficFrame
 
 @dataclass(frozen=True)
 class TrajectoryExecutionRecord:
+    start_center: np.ndarray
+    start_heading: float
     world_centers: np.ndarray
     world_headings: np.ndarray
     substep_states: np.ndarray
@@ -21,6 +23,7 @@ class TrajectoryExecutionRecord:
     position_errors_m: np.ndarray
     heading_errors_rad: np.ndarray
     substep_rewards: np.ndarray
+    substep_dense_rewards: np.ndarray
     substep_terminated: np.ndarray
     substep_truncated: np.ndarray
     traffic_frames: tuple[TrafficFrame, ...]
@@ -42,6 +45,8 @@ class TrajectoryExecutionRecord:
         if not 1 <= steps <= 5:
             raise ValueError("trajectory execution must contain between one and five substeps")
         return cls(
+            start_center=_array(info, "trajectory_start_center", np.float64, shape=(2,)),
+            start_heading=_finite_scalar(info, "trajectory_start_heading"),
             world_centers=_array(info, "trajectory_world_centers", np.float64, shape=(80, 2)),
             world_headings=_array(info, "trajectory_world_headings", np.float64, shape=(80,)),
             substep_states=states,
@@ -54,6 +59,9 @@ class TrajectoryExecutionRecord:
                 info, "trajectory_heading_errors_rad", np.float64, shape=(steps,)
             ),
             substep_rewards=_array(info, "trajectory_substep_rewards", np.float64, shape=(steps,)),
+            substep_dense_rewards=_array(
+                info, "trajectory_substep_dense_rewards", np.float64, shape=(steps,)
+            ),
             substep_terminated=_array(
                 info, "trajectory_substep_terminated", np.bool_, shape=(steps,)
             ),

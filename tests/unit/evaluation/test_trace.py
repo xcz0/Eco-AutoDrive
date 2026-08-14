@@ -26,10 +26,13 @@ def _observation() -> dict[str, torch.Tensor]:
 def _step_info() -> dict[str, object]:
     states = np.zeros((5, 7), dtype=np.float64)
     return {
+        "trajectory_start_center": np.zeros(2, dtype=np.float64),
+        "trajectory_start_heading": 0.0,
         "trajectory_world_centers": np.zeros((80, 2), dtype=np.float64),
         "trajectory_world_headings": np.zeros(80),
         "trajectory_substep_states": states,
         "trajectory_substep_rewards": np.ones(5),
+        "trajectory_substep_dense_rewards": np.ones(5),
         "trajectory_substep_terminated": np.array([False, False, False, False, True]),
         "trajectory_substep_truncated": np.zeros(5, dtype=np.bool_),
         "trajectory_target_centers": states[:, :2],

@@ -20,16 +20,71 @@ class MetaDriveRolloutReward:
 
     substep_scores: torch.Tensor
     total_score: torch.Tensor
+    dense_step_scores: torch.Tensor
+    terminal_override_deltas: torch.Tensor
     source: Literal["metadrive_builtin_v1"] = _REWARD_SOURCE
     unit: Literal["dimensionless_score"] = _REWARD_UNIT
 
     def __post_init__(self) -> None:
         _cpu_float(self.substep_scores, "reward substep scores", ndim=1)
         _cpu_float(self.total_score, "reward total score", shape=(1,))
+        _cpu_float(self.dense_step_scores, "dense reward scores", shape=(1,))
+        _cpu_float(self.terminal_override_deltas, "terminal reward overrides", shape=(1,))
         if self.substep_scores.shape != (1,):
             raise ValueError("Stage-4 reward must contain exactly one executed substep score")
         if not torch.equal(self.total_score, self.substep_scores.sum().reshape(1)):
             raise ValueError("reward total score must equal the executed substep score sum")
+        torch.testing.assert_close(
+            self.substep_scores,
+            self.dense_step_scores + self.terminal_override_deltas,
+            rtol=0.0,
+            atol=1e-6,
+        )
+
+
+@dataclass(frozen=True)
+class MetaDriveTransitionAudit:
+    """Physical and termination diagnostics for one executed 0.1 s transition."""
+
+    route_completion_delta: float
+    distance_m: float
+    speed_mps: float
+    stopped: bool
+    position_error_m: float
+    heading_error_rad: float
+    arrive_dest: bool
+    out_of_road: bool
+    crash_vehicle: bool
+    crash_object: bool
+    crash_building: bool
+    crash_human: bool
+
+    def __post_init__(self) -> None:
+        for name in (
+            "route_completion_delta",
+            "distance_m",
+            "speed_mps",
+            "position_error_m",
+            "heading_error_rad",
+        ):
+            value = getattr(self, name)
+            if type(value) is not float or not torch.isfinite(torch.tensor(value)):
+                raise TypeError(f"audit {name} must be a finite float")
+        if self.distance_m < 0.0 or self.speed_mps < 0.0:
+            raise ValueError("audit distance and speed must be non-negative")
+        if self.position_error_m < 0.0 or self.heading_error_rad < 0.0:
+            raise ValueError("audit execution errors must be non-negative")
+        for name in (
+            "stopped",
+            "arrive_dest",
+            "out_of_road",
+            "crash_vehicle",
+            "crash_object",
+            "crash_building",
+            "crash_human",
+        ):
+            if type(getattr(self, name)) is not bool:
+                raise TypeError(f"audit {name} must be bool")
 
 
 @dataclass(frozen=True)
@@ -41,10 +96,13 @@ class RolloutTransition:
     guidance_action: torch.Tensor
     old_joint_guidance_log_prob: torch.Tensor
     old_value: torch.Tensor
+    beta_alpha: torch.Tensor
+    beta_beta: torch.Tensor
     initial_noise: torch.Tensor
     diffusion_rng_state: torch.Tensor
     policy_rng_state: torch.Tensor
     reward: MetaDriveRolloutReward
+    audit: MetaDriveTransitionAudit
     terminated: bool
     truncated: bool
     bootstrap_mask: bool
@@ -67,9 +125,17 @@ class RolloutTransition:
         torch.testing.assert_close(self.guidance_action, 2.0 * self.base_action - 1.0)
         _cpu_float(self.old_joint_guidance_log_prob, "old guidance log-prob", shape=(1,))
         _cpu_float(self.old_value, "old value", shape=(1,))
+        _cpu_float(self.beta_alpha, "Beta alpha", shape=(1, 2))
+        _cpu_float(self.beta_beta, "Beta beta", shape=(1, 2))
+        if torch.any(self.beta_alpha <= 0.0) or torch.any(self.beta_beta <= 0.0):
+            raise ValueError("Beta parameters must be strictly positive")
         _cpu_float(self.initial_noise, "initial noise", shape=(1, 11, 80, 4))
         _rng_state(self.diffusion_rng_state, "diffusion RNG state")
         _rng_state(self.policy_rng_state, "policy RNG state")
+        if not isinstance(self.reward, MetaDriveRolloutReward):
+            raise TypeError("reward must be MetaDriveRolloutReward")
+        if not isinstance(self.audit, MetaDriveTransitionAudit):
+            raise TypeError("audit must be MetaDriveTransitionAudit")
         if type(self.terminated) is not bool or type(self.truncated) is not bool:
             raise TypeError("terminated and truncated must be bool")
         if type(self.bootstrap_mask) is not bool:
@@ -132,6 +198,10 @@ class RolloutBuffer:
     """Append-only validator used by a single Stage-4 collector episode."""
 
     _transitions: list[RolloutTransition] = field(default_factory=list)
+
+    @property
+    def transitions(self) -> tuple[RolloutTransition, ...]:
+        return tuple(self._transitions)
 
     def append(self, transition: RolloutTransition) -> None:
         if not isinstance(transition, RolloutTransition):

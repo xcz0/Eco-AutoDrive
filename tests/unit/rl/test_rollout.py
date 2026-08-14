@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import numpy as np
 import pytest
 import torch
 
 from eco_planner.rl import (
     ExplorationPolicyContext,
     MetaDriveRolloutReward,
+    MetaDriveTransitionAudit,
     RolloutBuffer,
     RolloutTransition,
 )
+from eco_planner.rl.training_artifact import write_partial_rollout
 
 
 def _context() -> ExplorationPolicyContext:
@@ -36,12 +39,30 @@ def _transition(
         guidance_action=2.0 * base - 1.0,
         old_joint_guidance_log_prob=torch.tensor([0.5], dtype=torch.float32),
         old_value=torch.tensor([1.0], dtype=torch.float32),
+        beta_alpha=torch.full((1, 2), 2.0),
+        beta_beta=torch.full((1, 2), 2.0),
         initial_noise=torch.zeros((1, 11, 80, 4), dtype=torch.float32),
         diffusion_rng_state=torch.Generator().manual_seed(3).get_state(),
         policy_rng_state=torch.Generator().manual_seed(4).get_state(),
         reward=MetaDriveRolloutReward(
             substep_scores=torch.tensor([0.25], dtype=torch.float32),
             total_score=torch.tensor([0.25], dtype=torch.float32),
+            dense_step_scores=torch.tensor([0.25], dtype=torch.float32),
+            terminal_override_deltas=torch.tensor([0.0], dtype=torch.float32),
+        ),
+        audit=MetaDriveTransitionAudit(
+            route_completion_delta=0.01,
+            distance_m=1.0,
+            speed_mps=10.0,
+            stopped=False,
+            position_error_m=0.0,
+            heading_error_rad=0.0,
+            arrive_dest=False,
+            out_of_road=False,
+            crash_vehicle=False,
+            crash_object=False,
+            crash_building=False,
+            crash_human=False,
         ),
         terminated=terminated,
         truncated=truncated,
@@ -86,6 +107,27 @@ def test_rollout_limit_bootstraps_without_crossing_episode_boundary() -> None:
     with pytest.raises(ValueError, match="episode boundary"):
         buffer.append(_transition(index=2, terminated=True))
         buffer.append(_transition(index=3))
+
+
+def test_metadrive_reward_preserves_terminal_override_decomposition() -> None:
+    reward = MetaDriveRolloutReward(
+        substep_scores=torch.tensor([-5.0]),
+        total_score=torch.tensor([-5.0]),
+        dense_step_scores=torch.tensor([0.25]),
+        terminal_override_deltas=torch.tensor([-5.25]),
+    )
+    assert reward.source == "metadrive_builtin_v1"
+
+
+def test_partial_rollout_artifact_retains_collected_prefix(tmp_path) -> None:
+    path = tmp_path / "trace.npz"
+    write_partial_rollout(path, (_transition(),))
+
+    with np.load(path, allow_pickle=False) as arrays:
+        assert arrays["trace_status"].item() == "partial"
+        assert arrays["base_action"].shape == (1, 2)
+        assert arrays["initial_noise"].shape == (1, 11, 80, 4)
+        assert arrays["reward"].tolist() == pytest.approx([0.25])
 
 
 @pytest.mark.parametrize(

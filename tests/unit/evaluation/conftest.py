@@ -59,10 +59,13 @@ class FakeEnv:
             (positions, np.zeros(5), np.full(5, 10.0), np.zeros(5), np.full(5, 10.0), np.zeros(5))
         )
         info: dict[str, object] = {
+            "trajectory_start_center": np.array([start, 0.0]),
+            "trajectory_start_heading": 0.0,
             "trajectory_world_centers": np.column_stack((np.arange(1, 81) + start, np.zeros(80))),
             "trajectory_world_headings": np.zeros(80),
             "trajectory_substep_states": states,
             "trajectory_substep_rewards": np.ones(5),
+            "trajectory_substep_dense_rewards": np.ones(5),
             "trajectory_substep_terminated": np.array([False, False, False, False, terminated]),
             "trajectory_substep_truncated": np.zeros(5, dtype=np.bool_),
             "trajectory_target_centers": positions,

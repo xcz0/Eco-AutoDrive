@@ -115,6 +115,7 @@ def test_stage4_collects_one_real_10hz_transition_without_artifacts(stage0_check
         map_query_radius_m=parsed.map_query_radius_m,
         history_warmup_steps=parsed.rollout.history_warmup_steps,
         max_transitions=1,
+        stopped_speed_threshold_mps=parsed.rollout.stopped_speed_threshold_mps,
     )
 
     assert len(episode.transitions) == 1

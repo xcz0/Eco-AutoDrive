@@ -4,9 +4,10 @@
 
 本文描述 PlannerRFT PPO-only 的分阶段复现路线。阶段 1--3 已分别加入可选 DDIM-5、固定正交
 guidance 和 forward-only Exploration Policy；阶段 4 已加入 10 Hz closed-loop rollout 数据契约，
-阶段 5 已加入基于 TorchRL 的 GAE/PPO 数学更新器与 synthetic smoke profile。
+阶段 5 已加入基于 TorchRL 的 GAE/PPO 数学更新器；阶段 6 已加入并验收小规模 closed-loop
+smoke training。
 默认评测仍是冻结官方 EMA、10-step DPM-Solver++、每个规划周期执行前 0.5 s 轨迹的 MetaDrive
-运动学闭环。闭环训练、optimizer state 持久化和论文 parity reward 仍是候选工作，不是已实现能力。当前不变量详见
+运动学闭环。optimizer state 持久化和论文 parity reward 仍是候选工作，不是已实现能力。当前不变量详见
 [`system-contract.md`](../../agents/system-contract.md)。
 
 ## 目标边界
@@ -59,7 +60,7 @@ actor/value 参数。若未来加入 GRPO，必须另立专题和设计决定。
 | guidance | 已有可选的固定 reference-centered orthogonal guidance；默认仍关闭 | 阶段 2 的 neutral、离散几何与注入系数是 ADR 0013 的项目复现决定，不是作者实现 parity；learned action 只接入 Stage 4 rollout |
 | 环境动作 | evaluation 每次执行 5 个 0.1 s 点；Stage 4 rollout 明确执行 1 点 | 2 Hz baseline 与 10 Hz PPO MDP 不混用 |
 | reward | rollout 严格保存单子步 MetaDrive built-in score，标为 `metadrive_builtin_v1` | 它不是最终优化奖励；不得称为 PlannerRFT parity reward |
-| RL | `src/eco_planner/rl/` 已实现 policy、严格 rollout contract、TorchRL GAE/ClipPPOLoss 与 synthetic smoke updater | 没有 closed-loop training、optimizer checkpoint、持久化 rollout artifact 或 learned-policy evaluation 入口 |
+| RL | `src/eco_planner/rl/` 已实现 policy、严格 rollout contract、TorchRL GAE/ClipPPOLoss 与 Stage-6 serial smoke trainer | Training Artifact v1 只服务小规模正确性；没有 optimizer resume、learned-policy evaluation 或规模化 runtime |
 | 运行时 | 每个 evaluation job 是单进程、单设备 Fabric；traffic matrix 可做隔离作业并行 | 论文规模的并行环境仍需要独立 training orchestrator 和相应 ADR |
 
 ## 文档导航
@@ -105,6 +106,8 @@ baseline 可复现
   定位；G-07 仍阻止进入 closed-loop 优化训练。
 - ADR 0018 固定 Stage 5 的 TorchRL GAE/PPO 数学、完整 batch advantage normalization、
   transformed Beta loss、unclipped value loss 与 per-optimizer-step cosine；它不选择 reward。
+- ADR 0019 选择 MetaDrive 原始 score 作为 Stage-6 smoke objective，并固定 2x16x4 串行训练和
+  Training Artifact v1；该决定不定义论文 parity 或能耗 reward。
 
 论文训练使用 nuMax、nuPlan/PDM-Closed LQR tracker、运动学自行车模型和 log-replay traffic；
 本项目使用 MetaDrive 运动学轨迹点执行与不同场景分布。论文分数、40M environment steps 和

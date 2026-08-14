@@ -21,6 +21,7 @@ rollout:
   reward_source: metadrive_builtin_v1
   bootstrap_time_limit: true
   candidate_count: 1
+  stopped_speed_threshold_mps: 0.1
 
 env:
   num_scenarios: 1

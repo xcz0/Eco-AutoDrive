@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,12 +12,13 @@ import torch
 from lightning.fabric import Fabric
 
 from eco_planner.evaluation.config import RuntimeConfig
+from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.runtime import InferenceRuntimeReport, resolve_runtime_settings
-from eco_planner.models.checkpoint import OfficialDiffusionPlannerConfig
+from eco_planner.models.checkpoint import CheckpointLoadReport, OfficialDiffusionPlannerConfig
 from eco_planner.models.guidance import OrthogonalPolicyGuidanceConfig
 from eco_planner.models.runtime import load_official_diffusion_planner
 from eco_planner.models.runtime.validation import validate_official_observation
-from eco_planner.models.sampling import SamplerConfig
+from eco_planner.models.sampling import SamplerConfig, SamplerReport, sampler_report
 from eco_planner.rl.config import ExplorationPolicyConfig
 from eco_planner.rl.policy import (
     ExplorationPolicy,
@@ -35,6 +37,8 @@ class HostRolloutDecision:
     guidance_action: torch.Tensor
     old_joint_guidance_log_prob: torch.Tensor
     old_value: torch.Tensor
+    beta_alpha: torch.Tensor
+    beta_beta: torch.Tensor
     diffusion_rng_state: torch.Tensor
     policy_rng_state: torch.Tensor
 
@@ -54,6 +58,9 @@ class FabricRolloutRuntime:
         report: InferenceRuntimeReport,
         noise_seed: int,
         policy_action_seed: int,
+        checkpoint_report: CheckpointLoadReport,
+        sampler: SamplerReport,
+        guidance_config: OrthogonalPolicyGuidanceConfig,
     ) -> None:
         self._fabric = fabric
         self._planner = planner
@@ -62,6 +69,9 @@ class FabricRolloutRuntime:
         self.report = report
         self.noise_seed = noise_seed
         self.policy_action_seed = policy_action_seed
+        self.checkpoint_report = checkpoint_report
+        self.sampler_report = sampler
+        self.guidance_config = guidance_config
 
     @property
     def device(self) -> torch.device:
@@ -73,11 +83,31 @@ class FabricRolloutRuntime:
 
         return self._planner.config
 
-    def new_noise_generator(self) -> torch.Generator:
-        return torch.Generator(device=self.device).manual_seed(self.noise_seed)
+    @property
+    def policy(self) -> ExplorationPolicy:
+        """Expose the single trainable parameter owner to the Stage-6 updater."""
 
-    def new_policy_generator(self) -> torch.Generator:
-        return torch.Generator(device=self.device).manual_seed(self.policy_action_seed)
+        return self._policy
+
+    def frozen_planner_hash(self) -> str:
+        """Hash the frozen planner parameters in stable name order."""
+
+        digest = hashlib.sha256()
+        for name, parameter in sorted(self._planner.named_parameters()):
+            if parameter.requires_grad:
+                raise RuntimeError(f"planner parameter {name!r} is unexpectedly trainable")
+            value = parameter.detach().to(device="cpu").contiguous()
+            digest.update(name.encode("utf-8"))
+            digest.update(value.numpy().tobytes())
+        return digest.hexdigest()
+
+    def new_noise_generator(self, seed: int | None = None) -> torch.Generator:
+        selected = self.noise_seed if seed is None else _seed(seed, "noise seed")
+        return torch.Generator(device=self.device).manual_seed(selected)
+
+    def new_policy_generator(self, seed: int | None = None) -> torch.Generator:
+        selected = self.policy_action_seed if seed is None else _seed(seed, "policy action seed")
+        return torch.Generator(device=self.device).manual_seed(selected)
 
     def decide(
         self,
@@ -129,6 +159,8 @@ class FabricRolloutRuntime:
                 "guidance_action": (action.guidance_action, torch.float32),
                 "old_joint_guidance_log_prob": (action.joint_guidance_log_prob, torch.float32),
                 "old_value": (output.value, torch.float32),
+                "beta_alpha": (output.parameters.alpha, torch.float32),
+                "beta_beta": (output.parameters.beta, torch.float32),
             },
             self.device,
         )
@@ -147,6 +179,8 @@ class FabricRolloutRuntime:
             guidance_action=host["guidance_action"],
             old_joint_guidance_log_prob=host["old_joint_guidance_log_prob"],
             old_value=host["old_value"],
+            beta_alpha=host["beta_alpha"],
+            beta_beta=host["beta_beta"],
             diffusion_rng_state=diffusion_rng_state,
             policy_rng_state=policy_rng_state,
         )
@@ -207,7 +241,7 @@ def create_fabric_rollout_runtime(
         precision=settings.resolved_precision,
     )
     fabric.seed_everything(settings.seed, workers=True, verbose=False)
-    planner, _ = load_official_diffusion_planner(
+    planner, checkpoint_report = load_official_diffusion_planner(
         args_path, checkpoint_path, sampler_config, guidance_config
     )
     policy = ExplorationPolicy(policy_config)
@@ -231,6 +265,9 @@ def create_fabric_rollout_runtime(
         report,
         noise_seed=settings.seed,
         policy_action_seed=policy_action_seed,
+        checkpoint_report=checkpoint_report,
+        sampler=sampler_report(sampler_config),
+        guidance_config=guidance_config,
     )
 
 
@@ -254,4 +291,13 @@ def _copy_to_host(
 def _validate_finite(tensors: Mapping[str, torch.Tensor]) -> None:
     for name, value in tensors.items():
         if value.dtype.is_floating_point and not torch.isfinite(value).all():
-            raise RuntimeError(f"rollout host tensor {name!r} contains non-finite values")
+            raise EpisodeFailure(
+                "inference",
+                RuntimeError(f"rollout host tensor {name!r} contains non-finite values"),
+            )
+
+
+def _seed(value: int, name: str) -> int:
+    if type(value) is not int or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
+    return value

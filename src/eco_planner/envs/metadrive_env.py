@@ -67,6 +67,7 @@ class _PreparedTrajectory:
 class _TrajectoryStepRecord:
     states: np.ndarray
     rewards: np.ndarray
+    dense_rewards: np.ndarray
     terminated: np.ndarray
     truncated: np.ndarray
     traffic_frames: list[TrafficFrame]
@@ -81,6 +82,7 @@ class _TrajectoryStepRecord:
         return cls(
             states=np.empty((execution_steps, 7), dtype=np.float64),
             rewards=np.empty(execution_steps, dtype=np.float64),
+            dense_rewards=np.empty(execution_steps, dtype=np.float64),
             terminated=np.empty(execution_steps, dtype=np.bool_),
             truncated=np.empty(execution_steps, dtype=np.bool_),
             traffic_frames=[],
@@ -91,6 +93,7 @@ class _TrajectoryStepRecord:
         self,
         agent: Any,
         reward: float,
+        dense_reward: float,
         terminated: bool,
         truncated: bool,
         angular_velocity: float,
@@ -106,6 +109,7 @@ class _TrajectoryStepRecord:
         self.states[index, 5] = float(agent.speed)
         self.states[index, 6] = angular_velocity
         self.rewards[index] = reward
+        self.dense_rewards[index] = dense_reward
         self.terminated[index] = terminated
         self.truncated[index] = truncated
         self.traffic_frames.append(traffic_frame)
@@ -126,6 +130,8 @@ class _TrajectoryStepRecord:
         result = dict(final_info)
         result["trajectory_execution_steps"] = executed_steps
         result["trajectory_reward_sum"] = total_reward
+        result["trajectory_start_center"] = world_trajectory.centers[0].copy()
+        result["trajectory_start_heading"] = float(world_trajectory.headings[0])
         result["trajectory_world_centers"] = world_trajectory.centers[1:].copy()
         result["trajectory_world_headings"] = world_trajectory.headings[1:].copy()
         result["trajectory_substep_states"] = state_array
@@ -138,6 +144,7 @@ class _TrajectoryStepRecord:
             shortest_angle_delta(state_array[:, 2] - target_headings)
         )
         result["trajectory_substep_rewards"] = self.rewards[:executed_steps].copy()
+        result["trajectory_substep_dense_rewards"] = self.dense_rewards[:executed_steps].copy()
         result["trajectory_substep_terminated"] = self.terminated[:executed_steps].copy()
         result["trajectory_substep_truncated"] = self.truncated[:executed_steps].copy()
         result["traffic_substep_frames"] = tuple(self.traffic_frames)
@@ -363,6 +370,15 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             raise RuntimeError("initial traffic frame is unavailable before reset")
         return self._initial_traffic_frame
 
+    @property
+    def route_completion(self) -> float:
+        """Return the current finite route-completion fraction."""
+
+        value = float(self.agent.navigation.route_completion)
+        if not np.isfinite(value):
+            raise RuntimeError("MetaDrive returned non-finite route completion")
+        return value
+
     def reset(self, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
         self._initial_traffic_frame = None
         self._programmatic_lane_speed_limit_audit = None
@@ -485,6 +501,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             step_record.append(
                 self.agent,
                 float(reward),
+                _finite_info_scalar(info, "step_reward"),
                 terminated,
                 truncated,
                 float(world_trajectory.angular_velocities[index]),
@@ -568,3 +585,15 @@ def _validated_timestep(config: Any) -> float:
             f"physics_world_step_size * decision_repeat must equal {TRAJECTORY_TIMESTEP_S} seconds"
         )
     return timestep
+
+
+def _finite_info_scalar(info: dict[str, Any], name: str) -> float:
+    value = info.get(name)
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value, (int, float, np.integer, np.floating)
+    ):
+        raise TypeError(f"{name} must be a finite numeric scalar")
+    result = float(value)
+    if not np.isfinite(result):
+        raise ValueError(f"{name} must be finite")
+    return result

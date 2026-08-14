@@ -38,6 +38,7 @@ class RolloutCollectionConfig(_StrictModel):
     reward_source: Literal["metadrive_builtin_v1"]
     bootstrap_time_limit: StrictBool
     candidate_count: StrictInt
+    stopped_speed_threshold_mps: StrictFloat = Field(gt=0.0)
 
     @model_validator(mode="after")
     def validate_contract(self) -> RolloutCollectionConfig:

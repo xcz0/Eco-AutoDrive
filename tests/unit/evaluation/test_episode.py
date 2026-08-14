@@ -70,10 +70,13 @@ def test_traffic_warmup_records_stationary_history() -> None:
                 False,
                 False,
                 {
+                    "trajectory_start_center": np.zeros(2),
+                    "trajectory_start_heading": 0.0,
                     "trajectory_world_centers": np.zeros((80, 2)),
                     "trajectory_world_headings": np.zeros(80),
                     "trajectory_substep_states": np.zeros((5, 7)),
                     "trajectory_substep_rewards": np.zeros(5),
+                    "trajectory_substep_dense_rewards": np.zeros(5),
                     "trajectory_substep_terminated": np.zeros(5, dtype=np.bool_),
                     "trajectory_substep_truncated": np.zeros(5, dtype=np.bool_),
                     "traffic_substep_frames": frames,

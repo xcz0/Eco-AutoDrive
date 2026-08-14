@@ -78,6 +78,17 @@ traffic matrix 默认使用两个 Joblib `loky` 进程；可用 `-ExecutionMode 
 
 具体 horizon、warmup、Artifact、终止类型、实验元数据和其他执行契约以 [system-contract.md](docs/agents/system-contract.md) 与 [docs/experiments/README.md](docs/experiments/README.md) 为准。
 
+## Stage 6 PPO smoke training
+
+小规模训练入口固定使用 CUDA BF16、无交通 `S`/`SC` 和 `2 x 16 x 4` profile：
+
+```powershell
+.venv\Scripts\python.exe scripts\train_stage6.py runtime.seed=0 training.replay_id=0
+```
+
+`metadrive_builtin_v1` 只验证闭环 PPO 数据流，不是 PlannerRFT parity 或能耗 reward。训练产物使用
+独立 Training Artifact v1；规模化、optimizer resume 和 learned-policy evaluation 不属于该入口。
+
 ### 评测代码接口
 
 `scripts/evaluate.py` 是 Hydra 配置入口，先调用

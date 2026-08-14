@@ -1,0 +1,75 @@
+# @package _global_
+
+defaults:
+  - /env: metadrive
+  - /model: diffusion_planner
+  - /runtime: fabric
+  - /sampler: ddim5
+  - /guidance: orthogonal_policy
+  - /policy: exploration_beta
+  - /reward: metadrive_builtin_v1
+  - /train: ppo_stage6_smoke
+  - _self_
+
+name: plannerrft_stage6_closed_loop_smoke
+map_query_radius_m: 100.0
+
+training:
+  profile: smoke
+  update_count: 4
+  transitions_per_environment: 16
+  replay_id: ???
+  deterministic: true
+  stopped_speed_threshold_mps: 0.1
+  boundary_distance: 0.05
+  boundary_sample_count: 4096
+  diagnostic_seed: 300000
+
+env:
+  num_scenarios: 1
+  use_render: false
+  image_observation: false
+  traffic_density: 0.0
+  random_traffic: false
+  random_spawn_lane_index: false
+  accident_prob: 0.0
+  physics_world_step_size: 0.02
+  decision_repeat: 5
+  trajectory_horizon: 80
+  trajectory_execution_steps: 1
+  programmatic_lane_speed_limit_kmh: 50.0
+  horizon: 16
+  driving_reward: ${reward.driving_reward}
+  speed_reward: ${reward.speed_reward}
+  success_reward: ${reward.success_reward}
+  out_of_road_penalty: ${reward.out_of_road_penalty}
+  crash_vehicle_penalty: ${reward.crash_vehicle_penalty}
+  crash_object_penalty: ${reward.crash_object_penalty}
+  crash_sidewalk_penalty: ${reward.crash_sidewalk_penalty}
+  use_lateral_reward: ${reward.use_lateral_reward}
+
+model:
+  args_path: checkpoints/DP-Origin/args.json
+  checkpoint_path: checkpoints/DP-Origin/model.pth
+
+runtime:
+  accelerator: cuda
+  precision: bf16-mixed
+  seed: ???
+
+scenarios:
+  - name: straight
+    map: S
+    seed: 0
+  - name: gentle_curve
+    map: SC
+    seed: 0
+
+hydra:
+  run:
+    dir: outputs/training/stage6/${now:%Y-%m-%d}/${now:%H-%M-%S}-seed-${runtime.seed}-replay-${training.replay_id}
+  sweep:
+    dir: outputs/training/stage6/${now:%Y-%m-%d}/${now:%H-%M-%S}-acceptance
+    subdir: seed-${runtime.seed}-replay-${training.replay_id}
+  job:
+    chdir: false
