@@ -8,12 +8,9 @@ from hydra import compose, initialize_config_dir
 
 from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.models import Ddim5SamplerConfig, OrthogonalPolicyGuidanceConfig
-from eco_planner.rl import (
-    ExplorationPolicyConfig,
-    collect_rollout_episode,
-    create_fabric_rollout_runtime,
-    parse_rollout_config,
-)
+from eco_planner.rl.collector import collect_rollout_episode
+from eco_planner.rl.config import ExplorationPolicyConfig, parse_rollout_config
+from eco_planner.rl.runtime import create_fabric_rollout_runtime
 
 
 @pytest.mark.slow
@@ -117,7 +114,7 @@ def test_collects_one_real_10hz_transition_without_artifacts(baseline_checkpoint
         stopped_speed_threshold_mps=parsed.rollout.stopped_speed_threshold_mps,
     )
 
-    assert len(episode.transitions) == 1
-    assert episode.transitions[0].executed_substep_count == 1
+    assert episode.transition_count == 1
+    assert episode.trajectory["guidance_action"].shape == (1, 2)
     assert episode.tail_kind == "rollout_limit"
-    assert episode.transitions[0].reward.source == "metadrive_builtin_v1"
+    assert episode.trajectory["reward"].shape == (1, 1)

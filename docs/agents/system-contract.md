@@ -1,7 +1,7 @@
 # System Contract
 
-本文是当前已实现系统行为的规范性 reference。它只规定 Stage 4 rollout 数据契约，不规定尚未实现的
-GAE/PPO 训练、道路预瞄扩展、低层控制器或最终能耗模型。
+本文是当前已实现系统行为的规范性 reference。它规定 evaluation 以及 policy-guided rollout、GAE、
+PPO training 的数据和执行契约；不规定低层控制器或最终能耗模型。
 
 ## 系统边界
 
@@ -66,7 +66,7 @@ preflight。smoke、no-traffic 和普通 full 运行保持串行，多 GPU 调�
 - MetaDrive vehicle center 与后轴中心的偏移必须按车辆 heading 显式转换；地图、目标轨迹和实际车辆状态使用同一车辆中心约定。
 - heading 使用 `[cos(h), sin(h)]`，角差使用最短有向角。
 - 模型轨迹为 10 Hz 的 80 个未来点，共 8 s；MetaDrive 物理步长为 0.02 s，`decision_repeat=5`，对外子步为 0.1 s。
-- evaluation 每个规划周期只执行前 5 点，即 0.5 s，规划频率为 2 Hz；Stage 4 PPO rollout 只执行第
+- evaluation 每个规划周期只执行前 5 点，即 0.5 s，规划频率为 2 Hz；PPO rollout 只执行第
   1 点，即 0.1 s，规划频率为 10 Hz。两条入口不得混用 transition、reward、done 或 bootstrap 语义。
 - 程序化地图限速配置使用 km/h，模型限速使用 m/s；单位转换只在地图适配边界执行一次。
 - 能耗、距离、速度、加速度和角速度字段名必须显式标出单位。
@@ -146,7 +146,7 @@ reference 切向由其有限、非退化的 `[cos(h), sin(h)]` 归一化得到�
 固定 guidance action 为有限 `float32 [B,2]`，与 sample 同设备且逐值位于 `[-1,1]`；不得裁剪。
 正 lateral 表示左移，正 longitudinal 表示沿 reference heading 加速。横向目标为
 `2.5 m * lateral_scale`，纵向目标为
-`0.25 * longitudinal_scale * reference_along_track_speed`。阶段 2 使用 ADR 0013 的
+`0.25 * longitudinal_scale * reference_along_track_speed`。该实现使用 ADR 0013 的
 reference-centered energy-gradient delta，使 `(0,0)` 精确退化为同次 unguided reference。
 
 每个 DDIM denoise step 对 physical ego objective 经 state normalizer 和冻结 DiT 链式求 normalized
@@ -158,19 +158,19 @@ guided trace 额外保存完整 reference joint prediction、action、横向目�
 objective delta、应用梯度 L2/max、原始 neighbor gradient L2 和零速计数。上述 centered energy、
 单位系数、离散速度与 ego-only scope 是项目复现决定，不得描述为 PlannerRFT 作者公开实现。
 
-## Exploration Policy（forward-only）
+## Exploration Policy
 
-阶段 3 的 Exploration Policy 现由 Stage 4 serial rollout collector 接入 learned-guidance closed loop；
-它仍不接入既有 evaluation runner 或训练/PPO optimizer。它的输入固定为：冻结 scene tokens `[B,N,H]`
+Exploration Policy 由 serial rollout collector 接入 learned-guidance closed loop，并由 PPO optimizer
+更新；它不接入既有 evaluation runner。它的输入固定为：冻结 scene tokens `[B,N,H]`
 及 bool padding mask、冻结
 route/navigation token `[B,1,H]` 及 bool validity/padding mask，以及 ego-local physical reference
 trajectory `float [B,80,4]`。reference 使用 10 Hz、米和 `[cos(h),sin(h)]`。所有 feature 必须同
 batch、dtype 和 device，且有限；每个 batch item 至少有一个有效 context token。
 
-planner feature extractor 在 eval-mode、所有参数 `requires_grad=False` 的官方模型上，以
-`no_grad` 各调用现有 scene encoder 和 route encoder 一次。输出 detach 后才进入 policy；policy
-backward 不得为 planner 产生 `.grad` 或改变 planner 权重。普通 planner `encode()`、fixed-guidance
-evaluation runner 和官方 checkpoint state-dict 层级保持不变。
+rollout runtime 在 eval-mode、所有参数 `requires_grad=False` 的官方模型上，通过
+`prepare_policy_guidance()` 一次准备 scene/navigation encoding 和 reference。输出 detach 后才进入
+policy；policy backward 不得为 planner 产生 `.grad` 或改变 planner 权重。普通 planner `encode()`、
+fixed-guidance evaluation runner 和官方 checkpoint state-dict 层级保持不变。
 
 reference 先经配置化 MLP-Mixer 编码，再作为 query 对拼接后的 scene/navigation tokens 做 masked
 cross-attention；actor 与 value 共享融合 trunk。actor 产生 lateral/longitudinal 的严格正
@@ -191,75 +191,47 @@ joint_log_prob_g = joint_log_prob_u - 2 * log(2)
 joint_entropy_g = sum_i H(Beta_i) + 2 * log(2)
 ```
 
-policy action generator 不得改变 PyTorch 全局 RNG，且与 map/noise seed 分离。policy checkpoint
-只包含严格 format version 与 Exploration Policy 自身的 trainable state dict；不保存 planner、
-optimizer、rollout 或 RNG state。网络结构、Beta 参数化、仿射映射和初始化见 ADR 0016，均为本项目
-复现决定，不得描述为 PlannerRFT 作者公开实现。
+policy action generator 不得改变 PyTorch 全局 RNG，且与 map/noise seed 分离。policy export
+checkpoint 只包含严格 format version 与 Exploration Policy 自身的 trainable state dict。网络结构、
+Beta 参数化、仿射映射和初始化见 ADR 0016，均为本项目复现决定，不得描述为 PlannerRFT 作者公开实现。
 
-## Stage 4 rollout
+## Policy-guided rollout
 
-Stage 4 使用独立的 serial Fabric rollout runtime 和 `guidance=orthogonal_policy`。一个 transition
-先准备一次冻结 scene/navigation encoding 与 DDIM reference，以独立 policy generator 抽取 `rsample`，
-再用同一份 encoding、initial noise 与 DDIM transition randomness 完成 guided pass。planner 保持
-eval/frozen；普通 evaluation 和固定 action guidance 路径不变。
+rollout 使用独立的 serial Fabric runtime 和 `guidance=orthogonal_policy`。一个 transition 先准备
+冻结 scene/navigation encoding 与 DDIM reference，以独立 policy generator 抽取 `rsample`，再用同一份
+encoding、initial noise 与 DDIM transition randomness 完成 guided pass。planner 保持 eval/frozen；
+普通 evaluation 和固定 action guidance 路径不变。
 
-collector 保存 CPU `float32` 冻结 policy context（包括 mask/reference）、base 与 transformed action、
-old transformed joint log-prob/value、initial noise、消费前 diffusion/policy RNG state、map/noise/policy
-seed、planning-cycle index、executed count、reward、terminated/truncated 与 bootstrap mask。严格 Stage 4
-profile 只允许 `trajectory_execution_steps=1`；evaluation config 要求 5。不保存 DDIM denoise chain，也
-不创建持久化 rollout artifact。
-
-`MetaDriveRolloutReward` 严格传输一次 MetaDrive substep，source 为 `metadrive_builtin_v1`，unit 为
-`dimensionless_score`；它不是 PPO parity reward。`bootstrap_mask` 等于 `not terminated`。纯 truncation
+collector 原生保存按时间维组织的 CPU TensorDict：policy context、base/guidance action、old transformed
+joint log-prob/value、Beta 参数、initial noise、消费前 diffusion/policy RNG state、map/noise/policy seed、
+planning-cycle index、reward/audit 以及 terminated/truncated。rollout 必须设置
+`trajectory_execution_steps=1`；evaluation config 要求 5。不保存 DDIM denoise chain。纯 truncation
 与 rollout-limit tail 保存最终状态的冻结 critic value；terminal tail 保存零。
 
-## Stage 5 GAE 与 PPO 数学更新器
+## GAE、PPO 与训练
 
-Stage 5 提供独立的 TorchRL 0.12 数学路径，不提供 closed-loop training runner。每个
-`RolloutEpisode` 先独立构造时间维 TensorDict：当前 value 来自 transition，后继 value 由下一
-transition 或显式 `tail_bootstrap_value` 给出；episode 最后一项总是 GAE recursion boundary，只有
-真实 terminal 同时设置 terminated。因此 terminal 不 bootstrap，纯 truncation 与 rollout-limit tail
-bootstrap，但 advantage 不跨 episode 泄漏。
+每个 `RolloutEpisode` 的 TensorDict 直接包含当前 value 和 `next` 的 reward、done、terminated、
+state value。episode 最后一项总是 GAE recursion boundary；真实 terminal 不 bootstrap，纯 truncation
+与 rollout-limit tail bootstrap，advantage 不跨 episode 泄漏。
 
-TorchRL `GAE` 产生未标准化 advantage 与 value target。多个 episode 仅在 GAE 后展平，advantage
+TorchRL `GAE` 产生未标准化 advantage 与 value target。多个 episode 仅在 GAE 后拼接，advantage
 只在完整 PPO batch 上使用 sample standard deviation 标准化一次；少于两个样本、零方差或非有限
-统计立即失败。value target 不随 advantage 标准化改变。
+统计立即失败。TorchRL `ClipPPOLoss` 通过共享同一个 `ExplorationPolicy` 的 actor/critic TensorDict
+adapter 重算当前 value 与 `AffineBeta` guidance distribution；PPO ratio 使用保存的 old transformed
+joint log-prob，entropy 含仿射 Jacobian，不使用 DDIM transition probability。value loss 为 unclipped
+L2，policy、value 与 entropy loss 共同更新 policy actor head、value head 和共享 trunk。
 
-TorchRL `ClipPPOLoss` 通过共享同一个 `ExplorationPolicy` 的 actor/critic TensorDict adapter 重算
-当前 value 与 transformed guidance distribution。概率分布严格实现 `u -> 2u - 1`，PPO ratio 使用
-保存的 old transformed joint log-prob 与当前 transformed joint log-prob；entropy 含仿射 Jacobian，
-不使用 DDIM transition probability。value loss 为 unclipped L2；policy、value 与 entropy loss 共同
-更新 policy actor head、value head 和共享 trunk。
+训练参数由 `RLTrainingJobConfig` 和 YAML profile 决定，不由代码中的固定 update、batch 或 scenario
+限制决定。每个逻辑 slot 拥有独立、持久的 diffusion noise 与 policy action generator；实际 seeds 由
+固定 SeedSequence namespace 和 training seed 确定性派生。训练状态 checkpoint 使用 Fabric 保存 policy、
+optimizer、scheduler、PPO minibatch RNG、CPU/CUDA RNG 以及已完成 update 的 loop state，可从 checkpoint
+恢复。训练前后冻结 planner 参数 hash 必须相同，只有 Exploration Policy 可被 optimizer 更新。
 
-Stage 5 smoke updater 使用显式配置的 Adam、梯度范数和 per-optimizer-step cosine scheduler。
-minibatch 每 epoch 由独立 seed 无放回排列，batch 必须整除 minibatch；old log-prob、old value、
-advantage 和 value target 在全部 epoch 中不可变。policy 在 rollout 与 update 均保持 eval mode，但
-update 保留 autograd。非有限 loss 或 gradient 在 optimizer step 前失败。
-
-此接口不保存 optimizer/scheduler/batch/RNG checkpoint，不定义训练编排或 parity profile，也不关闭
-G-07。Stage 5 本身不选择训练 reward，也不提供闭环训练入口。
-
-## Stage 6 小规模闭环训练
-
-Stage 6 提供独立 Hydra 训练入口，将 Stage 4 collector 和 Stage 5 updater 串联。固定 profile 使用
-单设备 CUDA BF16、无交通 `S`/`SC` 两个串行逻辑环境、每环境每轮 16 个 0.1 s transition 和
-四次 PPO update。每轮 PPO batch 严格为 32；正常 terminal 后重置同一逻辑 slot 并补足配额，
-GAE 不跨 episode。它不是同步向量环境或规模化训练 runtime。
-
-训练 objective 为 ADR 0019 的 `metadrive_builtin_v1` 原始维度无关分数。返回总分、MetaDrive
-`step_reward` 和 terminal overwrite delta 分开保存；路线完成度增量、实际位移、速度、停驶、
-碰撞、出界和轨迹执行误差只作审计。该 profile 不定义 PlannerRFT parity reward 或能耗 reward。
-
-每个逻辑 slot 拥有独立、持久的 diffusion noise 与 policy action generator。四条实际 seed 由
-固定 SeedSequence namespace 和 training seed 确定性派生并落盘；诊断抽样使用第三条独立 seed，
-不得改变训练 RNG。训练 seed 同时控制 policy 初始化和 minibatch 排列。
-
-Training Artifact v1 与 evaluation Artifact v4 独立。每个 episode 的 NPZ 保存冻结 policy context、
-Beta 参数、base/guidance action、old log-prob/value、initial noise、两条 RNG state、reward/audit、
-done 和 seed；不保存 DDIM denoise chain。每次运行保存 resolved config、runtime metadata、tracked
-diff、初始/逐 update/最终 policy-only checkpoint 和严格 summary。分类的 episode failure 保存
-partial 或 empty trace 后令作业失败，不跳过。训练前后冻结 planner 参数 hash 必须相同，只有
-Exploration Policy 可被 optimizer 更新。
+Training Artifact v1 与 evaluation Artifact v4 独立。每个 episode 的 NPZ 在输出边界由 TensorDict
+转换，保存 policy context、Beta 参数、base/guidance action、old log-prob/value、initial noise、两条
+RNG state、reward/audit、done 和 seed；不保存 DDIM denoise chain。每次运行保存 resolved config、
+runtime metadata、tracked diff、policy export checkpoints、training-state checkpoint 和严格 summary。
+分类的 episode failure 保存 partial 或 empty trace 后令作业失败，不跳过。
 
 ## 轨迹执行
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from eco_planner.rl import ExplorationPolicyConfig, ExplorationPolicyContext
+from eco_planner.rl.config import ExplorationPolicyConfig
+from eco_planner.rl.policy import ExplorationPolicyContext
 
 
 @pytest.fixture

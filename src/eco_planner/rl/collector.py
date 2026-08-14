@@ -7,6 +7,7 @@ from typing import Literal, Protocol
 
 import numpy as np
 import torch
+from tensordict import TensorDictBase
 
 from eco_planner.envs import (
     MetaDriveObservationAdapter,
@@ -17,11 +18,9 @@ from eco_planner.envs import (
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.rl.rollout import (
-    MetaDriveRolloutReward,
-    MetaDriveTransitionAudit,
-    RolloutBuffer,
     RolloutEpisode,
-    RolloutTransition,
+    build_rollout_transition,
+    finalize_rollout_episode,
 )
 from eco_planner.rl.runtime import HostRolloutDecision
 
@@ -52,12 +51,10 @@ class _RolloutRuntime(Protocol):
 class RolloutCollectionFailure(RuntimeError):
     """Recoverable episode failure plus every transition collected before it."""
 
-    def __init__(
-        self, phase: str, cause: Exception, transitions: tuple[RolloutTransition, ...]
-    ) -> None:
+    def __init__(self, phase: str, cause: Exception, trajectory: TensorDictBase | None) -> None:
         self.phase = phase
         self.cause = cause
-        self.transitions = transitions
+        self.trajectory = trajectory
         super().__init__(f"{phase}: {cause}")
 
 
@@ -91,7 +88,7 @@ def collect_rollout_episode(
     configured = dict(env_config)
     configured["map"] = spec.map
     if configured.get("trajectory_execution_steps") != 1:
-        raise ValueError("Stage-4 rollout requires env.trajectory_execution_steps=1")
+        raise ValueError("rollout requires env.trajectory_execution_steps=1")
     env = TrajectoryMetaDriveEnv(configured)
     resolved_noise_seed = runtime.noise_seed if noise_seed is None else _seed(noise_seed, "noise")
     resolved_policy_seed = (
@@ -113,7 +110,7 @@ def collect_rollout_episode(
         if mode == "no_traffic"
         else None
     )
-    buffer = RolloutBuffer()
+    transitions = []
     try:
         env.reset(seed=spec.seed)
         if traffic_adapter is not None:
@@ -131,67 +128,59 @@ def collect_rollout_episode(
             _, _, terminated, truncated, info = env.step(decision.ego_trajectory)
             execution = TrajectoryExecutionRecord.from_info(info)
             if execution.substep_states.shape[0] != 1:
-                raise RuntimeError("Stage-4 rollout environment executed more than one substep")
+                raise RuntimeError("rollout transition must execute exactly one substep")
             if traffic_adapter is not None:
                 traffic_adapter.append_frames(execution.traffic_frames)
-            buffer.append(
-                RolloutTransition(
+            audit = _transition_audit(
+                execution,
+                previous_route_completion,
+                stopped_speed_threshold_mps,
+            )
+            transitions.append(
+                build_rollout_transition(
                     policy_context=decision.policy_context,
                     base_action=decision.base_action,
                     guidance_action=decision.guidance_action,
                     old_joint_guidance_log_prob=decision.old_joint_guidance_log_prob,
-                    old_value=decision.old_value,
+                    state_value=decision.old_value,
                     beta_alpha=decision.beta_alpha,
                     beta_beta=decision.beta_beta,
                     initial_noise=decision.initial_noise,
                     diffusion_rng_state=decision.diffusion_rng_state,
                     policy_rng_state=decision.policy_rng_state,
-                    reward=MetaDriveRolloutReward(
-                        substep_scores=torch.tensor(execution.substep_rewards, dtype=torch.float32),
-                        total_score=torch.tensor(
-                            [float(execution.substep_rewards.sum())], dtype=torch.float32
-                        ),
-                        dense_step_scores=torch.tensor(
-                            execution.substep_dense_rewards, dtype=torch.float32
-                        ),
-                        terminal_override_deltas=torch.tensor(
-                            execution.substep_rewards - execution.substep_dense_rewards,
-                            dtype=torch.float32,
-                        ),
-                    ),
-                    audit=_transition_audit(
-                        execution,
-                        previous_route_completion,
-                        stopped_speed_threshold_mps,
+                    reward=float(execution.substep_rewards.sum()),
+                    dense_reward=float(execution.substep_dense_rewards.sum()),
+                    terminal_override=float(
+                        (execution.substep_rewards - execution.substep_dense_rewards).sum()
                     ),
                     terminated=terminated,
                     truncated=truncated,
-                    bootstrap_mask=not terminated,
-                    scenario_name=spec.name,
-                    map_sequence=spec.map,
                     map_seed=spec.seed,
                     noise_seed=resolved_noise_seed,
                     policy_action_seed=resolved_policy_seed,
                     planning_cycle_index=cycle,
-                    executed_substep_count=execution.substep_states.shape[0],
+                    **audit,
                 )
             )
             previous_route_completion = execution.route_completion
             if terminated:
-                return buffer.finalize("terminated", torch.zeros(1, dtype=torch.float32))
+                return finalize_rollout_episode(transitions, "terminated", torch.zeros(1))
             if truncated:
                 next_observation = _build_observation(traffic_adapter, no_traffic_adapter, env)
-                return buffer.finalize(
-                    "truncated", runtime.bootstrap_value(next_observation, diffusion_generator)
+                return finalize_rollout_episode(
+                    transitions,
+                    "truncated",
+                    runtime.bootstrap_value(next_observation, diffusion_generator),
                 )
         next_observation = _build_observation(traffic_adapter, no_traffic_adapter, env)
-        return buffer.finalize(
-            "rollout_limit", runtime.bootstrap_value(next_observation, diffusion_generator)
+        return finalize_rollout_episode(
+            transitions,
+            "rollout_limit",
+            runtime.bootstrap_value(next_observation, diffusion_generator),
         )
     except EpisodeFailure as failure:
-        raise RolloutCollectionFailure(
-            failure.phase.value, failure.cause, buffer.transitions
-        ) from failure
+        partial = torch.cat(transitions, dim=0) if transitions else None
+        raise RolloutCollectionFailure(failure.phase.value, failure.cause, partial) from failure
     finally:
         env.close()
 
@@ -235,24 +224,24 @@ def _transition_audit(
     execution: TrajectoryExecutionRecord,
     previous_route_completion: float,
     stopped_speed_threshold_mps: float,
-) -> MetaDriveTransitionAudit:
+) -> dict[str, float | bool]:
     state = execution.substep_states[0]
     distance_m = float(np.linalg.norm(state[:2] - execution.start_center))
     speed_mps = float(state[5])
-    return MetaDriveTransitionAudit(
-        route_completion_delta=float(execution.route_completion - previous_route_completion),
-        distance_m=distance_m,
-        speed_mps=speed_mps,
-        stopped=speed_mps < stopped_speed_threshold_mps,
-        position_error_m=float(execution.position_errors_m[0]),
-        heading_error_rad=float(execution.heading_errors_rad[0]),
-        arrive_dest=execution.arrive_dest,
-        out_of_road=execution.out_of_road,
-        crash_vehicle=execution.crash_vehicle,
-        crash_object=execution.crash_object,
-        crash_building=execution.crash_building,
-        crash_human=execution.crash_human,
-    )
+    return {
+        "route_completion_delta": float(execution.route_completion - previous_route_completion),
+        "distance_m": distance_m,
+        "speed_mps": speed_mps,
+        "stopped": speed_mps < stopped_speed_threshold_mps,
+        "position_error_m": float(execution.position_errors_m[0]),
+        "heading_error_rad": float(execution.heading_errors_rad[0]),
+        "arrive_dest": execution.arrive_dest,
+        "out_of_road": execution.out_of_road,
+        "crash_vehicle": execution.crash_vehicle,
+        "crash_object": execution.crash_object,
+        "crash_building": execution.crash_building,
+        "crash_human": execution.crash_human,
+    }
 
 
 def _seed(value: int, name: str) -> int:

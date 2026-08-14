@@ -23,6 +23,7 @@ dependencies = [
     "shapely",
     "timm",
     "torch==2.12.1",
+    "tensordict",
     "torchrl",
 ]
 

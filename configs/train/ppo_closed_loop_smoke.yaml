@@ -1,4 +1,4 @@
-name: ppo_stage6_smoke
+name: ppo_closed_loop_smoke
 gamma: 0.99
 gae_lambda: 0.95
 normalize_advantage: true

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from omegaconf import OmegaConf
 
-from eco_planner.rl import parse_ppo_optimization_config
+from eco_planner.rl.config import parse_ppo_config
 
 
 def _config() -> object:
@@ -14,7 +14,7 @@ def _config() -> object:
 
 
 def test_ppo_smoke_config_is_strict_and_complete() -> None:
-    parsed = parse_ppo_optimization_config(_config())  # type: ignore[arg-type]
+    parsed = parse_ppo_config(_config())  # type: ignore[arg-type]
     assert parsed.gamma == pytest.approx(0.99)
     assert parsed.gae_lambda == pytest.approx(0.95)
     assert parsed.optimizer_steps_per_update == 4
@@ -28,9 +28,9 @@ def test_ppo_smoke_config_is_strict_and_complete() -> None:
     [
         ("minibatch_size", 3, "divisible"),
         ("scheduler_total_optimizer_steps", 3, "horizon"),
-        ("clip_value", True, "clip_value=false"),
-        ("normalize_advantage", False, "normalize_advantage=true"),
-        ("adam_epsilon", 0.0, "positive"),
+        ("clip_value", True, "Input should be False"),
+        ("normalize_advantage", False, "Input should be True"),
+        ("adam_epsilon", 0.0, "greater than 0"),
     ],
 )
 def test_ppo_config_rejects_unsupported_or_inconsistent_values(
@@ -41,11 +41,11 @@ def test_ppo_config_rejects_unsupported_or_inconsistent_values(
     config = _config()
     config[field] = value  # type: ignore[index]
     with pytest.raises((TypeError, ValueError), match=message):
-        parse_ppo_optimization_config(config)  # type: ignore[arg-type]
+        parse_ppo_config(config)  # type: ignore[arg-type]
 
 
 def test_ppo_config_rejects_extra_keys() -> None:
     config = _config()
     config["unknown"] = 1  # type: ignore[index]
-    with pytest.raises(ValueError, match="unexpected"):
-        parse_ppo_optimization_config(config)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="Extra inputs"):
+        parse_ppo_config(config)  # type: ignore[arg-type]

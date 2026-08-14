@@ -6,7 +6,7 @@ import pytest
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
-from eco_planner.rl import parse_exploration_policy_config, parse_rollout_config
+from eco_planner.rl.config import parse_exploration_policy_config, parse_rollout_config
 
 
 def _policy_mapping() -> dict[str, object]:
@@ -43,9 +43,9 @@ def test_hydra_policy_profile_is_complete_and_strict() -> None:
     [
         ({"hidden_dim": 191}, "divisible"),
         ({"reference_horizon": 79}, r"\[B, 80, 4\]"),
-        ({"cross_attention_dropout": 1.0}, r"\[0, 1\)"),
+        ({"cross_attention_dropout": 1.0}, "less than 1"),
         ({"initial_concentration": 0.0001}, "exceed"),
-        ({"fusion_mlp_depth": 0}, "positive"),
+        ({"fusion_mlp_depth": 0}, "greater than 0"),
     ],
 )
 def test_policy_config_rejects_invalid_values(update: dict[str, object], error: str) -> None:
@@ -59,7 +59,7 @@ def test_policy_config_rejects_missing_and_extra_fields() -> None:
     raw = _policy_mapping()
     del raw["fusion_hidden_dim"]
     raw["undocumented_default"] = 1
-    with pytest.raises(ValueError, match="keys mismatch"):
+    with pytest.raises(ValueError, match="Field required|Extra inputs"):
         parse_exploration_policy_config(OmegaConf.create(raw))
 
 

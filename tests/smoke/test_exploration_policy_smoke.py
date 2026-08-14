@@ -5,11 +5,8 @@ import torch
 
 from eco_planner.models import Ddim5SamplerConfig
 from eco_planner.models.planner import load_official_diffusion_planner
-from eco_planner.rl import (
-    ExplorationPolicy,
-    ExplorationPolicyConfig,
-    FrozenPlannerPolicyFeatureExtractor,
-)
+from eco_planner.rl import ExplorationPolicy, ExplorationPolicyConfig
+from eco_planner.rl.policy import ExplorationPolicyContext
 
 
 @pytest.mark.slow
@@ -31,10 +28,18 @@ def test_real_checkpoint_features_feed_exploration_policy(
         sampler,
     )
     normalized = planner.config.observation_normalizer(baseline_observation)
-    reference = torch.zeros((1, 80, 4), dtype=torch.float32)
-    reference[..., 0] = torch.arange(1, 81, dtype=torch.float32)
-    reference[..., 2] = 1.0
-    context = FrozenPlannerPolicyFeatureExtractor(planner.model)(normalized, reference)
+    noise = torch.randn((1, 11, 80, 4), generator=torch.Generator().manual_seed(0))
+    with torch.no_grad():
+        prepared = planner.model.prepare_policy_guidance(
+            normalized, noise, torch.Generator().manual_seed(1)
+        )
+    context = ExplorationPolicyContext(
+        scene_tokens=prepared.policy_context.scene_tokens,
+        scene_padding_mask=prepared.policy_context.scene_padding_mask,
+        navigation_tokens=prepared.policy_context.navigation_tokens,
+        navigation_padding_mask=prepared.policy_context.navigation_padding_mask,
+        reference_trajectory=prepared.policy_context.reference_trajectory,
+    )
     config = ExplorationPolicyConfig(
         name="exploration_beta",
         hidden_dim=planner.config.hidden_dim,

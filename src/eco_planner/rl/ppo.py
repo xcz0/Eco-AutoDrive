@@ -1,26 +1,26 @@
-"""TorchRL-backed GAE and clipped PPO updates for Stage 5."""
+"""TorchRL-backed GAE and clipped PPO updates over canonical trajectories."""
 
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import torch
-from tensordict import TensorDict, TensorDictBase
+from tensordict import TensorDictBase
 from tensordict.nn import (
     ProbabilisticTensorDictModule,
     ProbabilisticTensorDictSequential,
     TensorDictModule,
 )
 from torch import nn
-from torch.distributions import AffineTransform, Beta, Independent, TransformedDistribution
 from torch.nn.utils import clip_grad_norm_
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 
+from eco_planner.rl.config import PPOConfig
+from eco_planner.rl.distributions import AffineBeta
 from eco_planner.rl.policy import ExplorationPolicy, ExplorationPolicyContext
-from eco_planner.rl.ppo_config import PPOOptimizationConfig
 from eco_planner.rl.rollout import RolloutEpisode
 
 _CONTEXT_KEYS = (
@@ -67,54 +67,6 @@ class PPOUpdateReport:
     mean_explained_variance: float
     maximum_pre_clip_gradient_norm: float
     final_learning_rate: float
-
-
-class _AffineBetaDistribution(TransformedDistribution):
-    """Two independent Betas transformed to the strict guidance interval (-1, 1)."""
-
-    arg_constraints: dict[str, object] = {}
-    has_rsample = True
-
-    def __init__(self, alpha: torch.Tensor, beta: torch.Tensor) -> None:
-        if alpha.ndim != 2 or alpha.shape[-1] != 2 or beta.shape != alpha.shape:
-            raise ValueError("affine Beta parameters must both have shape [B, 2]")
-        if alpha.dtype != beta.dtype or alpha.device != beta.device:
-            raise ValueError("affine Beta parameters must share dtype and device")
-        if not torch.isfinite(alpha).all() or not torch.isfinite(beta).all():
-            raise ValueError("affine Beta parameters must be finite")
-        self.alpha = alpha
-        self.beta = beta
-        base = Independent(Beta(alpha, beta, validate_args=True), 1)
-        super().__init__(
-            base,
-            [AffineTransform(loc=-1.0, scale=2.0)],
-            validate_args=True,
-        )
-
-    @property
-    def mean(self) -> torch.Tensor:
-        return 2.0 * self.alpha / (self.alpha + self.beta) - 1.0
-
-    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
-        self._validate_guidance_action(value)
-        result = super().log_prob(value)
-        if result.ndim != 1 or not torch.isfinite(result).all():
-            raise ValueError("affine Beta joint log-probability must be finite with shape [B]")
-        return result
-
-    def entropy(self) -> torch.Tensor:
-        result = self.base_dist.entropy() + 2.0 * math.log(2.0)
-        if result.ndim != 1 or not torch.isfinite(result).all():
-            raise ValueError("affine Beta joint entropy must be finite with shape [B]")
-        return result
-
-    def _validate_guidance_action(self, value: torch.Tensor) -> None:
-        if value.shape != self.alpha.shape or value.dtype != self.alpha.dtype:
-            raise ValueError("guidance action must match affine Beta parameter shape and dtype")
-        if value.device != self.alpha.device:
-            raise ValueError("guidance action must use the affine Beta parameter device")
-        if not torch.isfinite(value).all() or torch.any((value <= -1.0) | (value >= 1.0)):
-            raise ValueError("guidance action must be finite and strictly inside (-1, 1)")
 
 
 class _PolicyParameterAdapter(nn.Module):
@@ -167,38 +119,14 @@ class _PolicyValueAdapter(nn.Module):
         return value.unsqueeze(-1)
 
 
-def estimate_episode_gae(
-    episode: RolloutEpisode,
-    config: PPOOptimizationConfig,
-) -> GAEEstimate:
-    """Use TorchRL GAE on one explicit episode boundary without normalization."""
+def estimate_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> GAEEstimate:
+    """Use TorchRL GAE directly on one trajectory TensorDict."""
 
     if not isinstance(episode, RolloutEpisode):
         raise TypeError("GAE input must be a RolloutEpisode")
-    if not isinstance(config, PPOOptimizationConfig):
-        raise TypeError("GAE config must be PPOOptimizationConfig")
-    transition_count = len(episode.transitions)
-    values = torch.stack([step.old_value for step in episode.transitions], dim=0)
-    rewards = torch.stack([step.reward.total_score for step in episode.transitions], dim=0)
-    next_values = torch.cat([values[1:], episode.tail_bootstrap_value.reshape(1, 1)], dim=0)
-    done = torch.zeros((transition_count, 1), dtype=torch.bool)
-    done[-1] = True
-    terminated = torch.tensor([[step.terminated] for step in episode.transitions], dtype=torch.bool)
-    tensordict = TensorDict(
-        {
-            "state_value": values,
-            "next": TensorDict(
-                {
-                    "state_value": next_values,
-                    "reward": rewards,
-                    "done": done,
-                    "terminated": terminated,
-                },
-                batch_size=[transition_count],
-            ),
-        },
-        batch_size=[transition_count],
-    )
+    if not isinstance(config, PPOConfig):
+        raise TypeError("GAE config must be PPOConfig")
+    tensordict = episode.trajectory.select("state_value", "next").clone()
     estimator = GAE(
         gamma=config.gamma,
         lmbda=config.gae_lambda,
@@ -218,19 +146,19 @@ def estimate_episode_gae(
 
 
 class PPOUpdater:
-    """Own TorchRL ClipPPOLoss plus the Stage-5 Adam/cosine update state."""
+    """Own TorchRL ClipPPOLoss plus Adam/cosine update and resume state."""
 
-    def __init__(self, policy: ExplorationPolicy, config: PPOOptimizationConfig) -> None:
+    def __init__(self, policy: ExplorationPolicy, config: PPOConfig) -> None:
         if not isinstance(policy, ExplorationPolicy):
             raise TypeError("PPO updater policy must be ExplorationPolicy")
-        if not isinstance(config, PPOOptimizationConfig):
-            raise TypeError("PPO updater config must be PPOOptimizationConfig")
+        if not isinstance(config, PPOConfig):
+            raise TypeError("PPO updater config must be PPOConfig")
         parameters = tuple(policy.parameters())
         if not parameters or any(not parameter.requires_grad for parameter in parameters):
-            raise ValueError("all Exploration Policy parameters must be trainable")
+            raise ValueError("all ExplorationPolicy parameters must be trainable")
         devices = {parameter.device for parameter in parameters}
         if len(devices) != 1:
-            raise ValueError("Exploration Policy parameters must use one device")
+            raise ValueError("ExplorationPolicy parameters must use one device")
         self.policy = policy
         self.policy.eval()
         self.config = config
@@ -277,19 +205,48 @@ class PPOUpdater:
         self._minibatch_generator = torch.Generator(device="cpu").manual_seed(config.minibatch_seed)
         self._completed_optimizer_steps = 0
 
+    @property
+    def completed_optimizer_steps(self) -> int:
+        return self._completed_optimizer_steps
+
+    def checkpoint_state(self) -> dict[str, object]:
+        """Return non-module state required to reproduce future minibatches."""
+
+        return {
+            "completed_optimizer_steps": self._completed_optimizer_steps,
+            "minibatch_generator_state": self._minibatch_generator.get_state(),
+        }
+
+    def restore_checkpoint_state(self, state: Mapping[str, object]) -> None:
+        expected = {"completed_optimizer_steps", "minibatch_generator_state"}
+        if set(state) != expected:
+            raise ValueError("PPO checkpoint state has unexpected fields")
+        completed = state["completed_optimizer_steps"]
+        generator_state = state["minibatch_generator_state"]
+        if (
+            type(completed) is not int
+            or not 0 <= completed <= self.config.scheduler_total_optimizer_steps
+        ):
+            raise ValueError("PPO checkpoint optimizer step count is invalid")
+        if not isinstance(generator_state, torch.Tensor) or generator_state.dtype != torch.uint8:
+            raise TypeError("PPO checkpoint minibatch generator state must be uint8")
+        self._completed_optimizer_steps = completed
+        self._minibatch_generator.set_state(generator_state)
+
     def update(self, episodes: Sequence[RolloutEpisode]) -> PPOUpdateReport:
         """Perform all configured PPO epochs over one immutable rollout batch."""
 
         self.policy.eval()
-        batch = _prepare_ppo_batch(episodes, self.config)
+        batch = _batch_trajectories(episodes, self.config)
         sample_count = batch.batch_size[0]
         if sample_count != self.config.batch_size:
             raise ValueError(
                 f"PPO batch contains {sample_count} samples, expected {self.config.batch_size}"
             )
         required_steps = self.config.optimizer_steps_per_update
-        if self._completed_optimizer_steps + required_steps > (
-            self.config.scheduler_total_optimizer_steps
+        if (
+            self._completed_optimizer_steps + required_steps
+            > self.config.scheduler_total_optimizer_steps
         ):
             raise RuntimeError("PPO update would exceed the configured scheduler horizon")
         _normalize_full_batch_advantage(batch)
@@ -311,8 +268,7 @@ class PPOUpdater:
         }
         for _epoch in range(self.config.epochs):
             for host_indices in self._epoch_minibatch_indices(sample_count):
-                indices = host_indices.to(self.device)
-                minibatch = batch[indices]
+                minibatch = batch[host_indices.to(self.device)]
                 losses = self.loss_module(minibatch)
                 total_loss = (
                     losses["loss_objective"] + losses["loss_critic"] + losses["loss_entropy"]
@@ -375,91 +331,33 @@ def _build_torchrl_policy_adapters(
     policy: ExplorationPolicy,
 ) -> tuple[ProbabilisticTensorDictSequential, TensorDictModule]:
     parameter_module = TensorDictModule(
-        _PolicyParameterAdapter(policy),
-        in_keys=list(_CONTEXT_KEYS),
-        out_keys=["alpha", "beta"],
+        _PolicyParameterAdapter(policy), in_keys=list(_CONTEXT_KEYS), out_keys=["alpha", "beta"]
     )
     distribution_module = ProbabilisticTensorDictModule(
         in_keys={"alpha": "alpha", "beta": "beta"},
         out_keys=["guidance_action"],
-        distribution_class=_AffineBetaDistribution,
+        distribution_class=AffineBeta,
         return_log_prob=True,
         log_prob_key="joint_guidance_log_prob",
     )
     actor = ProbabilisticTensorDictSequential(parameter_module, distribution_module)
     critic = TensorDictModule(
-        _PolicyValueAdapter(policy),
-        in_keys=list(_CONTEXT_KEYS),
-        out_keys=["state_value"],
+        _PolicyValueAdapter(policy), in_keys=list(_CONTEXT_KEYS), out_keys=["state_value"]
     )
     return actor, critic
 
 
-def _prepare_ppo_batch(
-    episodes: Sequence[RolloutEpisode],
-    config: PPOOptimizationConfig,
-) -> TensorDictBase:
+def _batch_trajectories(episodes: Sequence[RolloutEpisode], config: PPOConfig) -> TensorDictBase:
     if isinstance(episodes, (str, bytes)) or not isinstance(episodes, Sequence):
         raise TypeError("PPO update episodes must be a sequence")
     episode_tuple = tuple(episodes)
     if not episode_tuple:
         raise ValueError("PPO update requires at least one rollout episode")
-    estimates = [estimate_episode_gae(episode, config) for episode in episode_tuple]
-    transitions = [step for episode in episode_tuple for step in episode.transitions]
-    sample_count = len(transitions)
-    contexts = [step.policy_context for step in transitions]
-    next_payload = TensorDict(
-        {
-            "reward": torch.cat([step.reward.total_score for step in transitions], dim=0).reshape(
-                sample_count, 1
-            ),
-            "done": torch.cat(
-                [
-                    torch.tensor(
-                        [
-                            [index == len(episode.transitions) - 1]
-                            for index in range(len(episode.transitions))
-                        ],
-                        dtype=torch.bool,
-                    )
-                    for episode in episode_tuple
-                ],
-                dim=0,
-            ),
-            "terminated": torch.tensor(
-                [[step.terminated] for step in transitions], dtype=torch.bool
-            ),
-        },
-        batch_size=[sample_count],
-    )
-    return TensorDict(
-        {
-            "scene_tokens": torch.cat([context.scene_tokens for context in contexts], dim=0),
-            "scene_padding_mask": torch.cat(
-                [context.scene_padding_mask for context in contexts], dim=0
-            ),
-            "navigation_tokens": torch.cat(
-                [context.navigation_tokens for context in contexts], dim=0
-            ),
-            "navigation_padding_mask": torch.cat(
-                [context.navigation_padding_mask for context in contexts], dim=0
-            ),
-            "reference_trajectory": torch.cat(
-                [context.reference_trajectory for context in contexts], dim=0
-            ),
-            "guidance_action": torch.cat([step.guidance_action for step in transitions], dim=0),
-            "old_joint_guidance_log_prob": torch.cat(
-                [step.old_joint_guidance_log_prob for step in transitions], dim=0
-            ),
-            "state_value": torch.cat([step.old_value for step in transitions], dim=0).reshape(
-                sample_count, 1
-            ),
-            "advantage": torch.cat([estimate.advantage for estimate in estimates], dim=0),
-            "value_target": torch.cat([estimate.value_target for estimate in estimates], dim=0),
-            "next": next_payload,
-        },
-        batch_size=[sample_count],
-    )
+    trajectories = []
+    for episode in episode_tuple:
+        estimate = estimate_episode_gae(episode, config)
+        trajectories.append(episode.with_gae(estimate.advantage, estimate.value_target))
+    return torch.cat(trajectories, dim=0)
 
 
 def _normalize_full_batch_advantage(batch: TensorDictBase) -> None:

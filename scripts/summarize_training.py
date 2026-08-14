@@ -1,4 +1,4 @@
-"""Validate the four pre-registered Stage-6 training runs."""
+"""Validate the four pre-registered closed-loop training runs."""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
-from eco_planner.rl.training_artifact import Stage6RunSummary, write_json
+from eco_planner.artifacts import write_json
+from eco_planner.rl.artifacts import TrainingRunSummary
 
 
 def main() -> None:
@@ -16,21 +17,21 @@ def main() -> None:
     parser.add_argument("root", type=Path)
     args = parser.parse_args()
     report = summarize(args.root)
-    write_json(args.root / "stage6_report.json", report)
+    write_json(args.root / "training_report.json", report)
     print(json.dumps(report, indent=2, sort_keys=True))
 
 
 def summarize(root: Path) -> dict[str, object]:
-    runs: dict[tuple[int, int], tuple[Path, Stage6RunSummary]] = {}
+    runs: dict[tuple[int, int], tuple[Path, TrainingRunSummary]] = {}
     for summary_path in sorted(root.glob("seed-*-replay-*/summary.json")):
-        summary = Stage6RunSummary.model_validate_json(summary_path.read_text(encoding="utf-8"))
+        summary = TrainingRunSummary.model_validate_json(summary_path.read_text(encoding="utf-8"))
         key = (summary.training_seed, summary.replay_id)
         if key in runs:
-            raise ValueError(f"duplicate Stage-6 run {key}")
+            raise ValueError(f"duplicate training run {key}")
         runs[key] = (summary_path.parent, summary)
     expected = {(seed, replay) for seed in (0, 1) for replay in (0, 1)}
     if set(runs) != expected:
-        raise ValueError(f"Stage-6 runs mismatch: missing={sorted(expected - set(runs))}")
+        raise ValueError(f"training runs mismatch: missing={sorted(expected - set(runs))}")
 
     replay_checks = []
     for seed in (0, 1):
@@ -72,16 +73,16 @@ def summarize(root: Path) -> dict[str, object]:
     }
 
 
-def _validate_run_acceptance(summary: Stage6RunSummary) -> None:
+def _validate_run_acceptance(summary: TrainingRunSummary) -> None:
     if summary.initial_policy_hash == summary.final_policy_hash:
         raise ValueError("PPO did not change the Exploration Policy")
     if summary.frozen_planner_hash_before != summary.frozen_planner_hash_after:
         raise ValueError("PPO changed the frozen planner")
     rewards = [item.total_reward for item in summary.updates]
     if max(rewards) - min(rewards) <= 1e-6:
-        raise ValueError("Stage-6 reward sequence did not change")
+        raise ValueError("training reward sequence did not change")
     if any(item.maximum_pre_clip_gradient_norm <= 0.0 for item in summary.updates):
-        raise ValueError("Stage-6 update has a zero gradient norm")
+        raise ValueError("training update has a zero gradient norm")
     if any(
         item.collision_count
         or item.out_of_road_count
@@ -89,7 +90,7 @@ def _validate_run_acceptance(summary: Stage6RunSummary) -> None:
         or item.route_completion_delta <= 0.0
         for item in summary.updates
     ):
-        raise ValueError("Stage-6 run failed the safety/progress anti-degeneracy gate")
+        raise ValueError("training run failed the safety/progress anti-degeneracy gate")
     before = np.asarray(summary.probe_before.alpha + summary.probe_before.beta)
     after = np.asarray(summary.probe_after.alpha + summary.probe_after.beta)
     if float(np.max(np.abs(after - before))) <= 1e-6:

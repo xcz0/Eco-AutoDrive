@@ -83,6 +83,12 @@ class FabricRolloutRuntime:
         return self._fabric.device
 
     @property
+    def fabric(self) -> Fabric:
+        """Expose the single-device Fabric owner for training checkpoint persistence."""
+
+        return self._fabric
+
+    @property
     def planner_config(self) -> OfficialDiffusionPlannerConfig:
         """Expose the immutable planner architecture for observation adapters."""
 
@@ -90,7 +96,7 @@ class FabricRolloutRuntime:
 
     @property
     def policy(self) -> ExplorationPolicy:
-        """Expose the single trainable parameter owner to the Stage-6 updater."""
+        """Expose the single trainable parameter owner to the PPO updater."""
 
         return self._policy
 
@@ -249,7 +255,8 @@ def create_fabric_rollout_runtime(
     )
     policy = ExplorationPolicy(policy_config)
     wrapped_planner = fabric.setup_module(planner)
-    fabric.setup_module(policy)
+    wrapped_policy = fabric.setup_module(policy)
+    policy = _unwrap_exploration_policy(wrapped_policy)
     report = InferenceRuntimeReport(
         requested_accelerator=settings.requested_accelerator,
         resolved_accelerator=settings.resolved_accelerator,
@@ -260,7 +267,7 @@ def create_fabric_rollout_runtime(
         world_size=int(fabric.world_size),
     )
     if report.world_size != 1:
-        raise RuntimeError("Stage-4 rollout requires Fabric world_size=1")
+        raise RuntimeError("rollout runtime requires Fabric world_size=1")
     return FabricRolloutRuntime(
         fabric,
         wrapped_planner,
@@ -289,6 +296,15 @@ def _copy_to_host(
         copied[name] = destination
     torch.cuda.current_stream(device).synchronize()
     return copied
+
+
+def _unwrap_exploration_policy(module: torch.nn.Module) -> ExplorationPolicy:
+    if isinstance(module, ExplorationPolicy):
+        return module
+    unwrapped = getattr(module, "module", None)
+    if not isinstance(unwrapped, ExplorationPolicy):
+        raise TypeError("Fabric did not preserve the ExplorationPolicy module")
+    return unwrapped
 
 
 def _validate_finite(tensors: Mapping[str, torch.Tensor]) -> None:

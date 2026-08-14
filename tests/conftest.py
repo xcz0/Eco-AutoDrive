@@ -122,7 +122,7 @@ def baseline_checkpoint_dir() -> Path:
     required_assets = (checkpoint_dir / "args.json", checkpoint_dir / "model.pth")
     missing_assets = [str(path) for path in required_assets if not path.is_file()]
     if missing_assets:
-        pytest.fail(f"stage 0 checkpoint assets are required: {', '.join(missing_assets)}")
+        pytest.fail(f"checkpoint assets are required: {', '.join(missing_assets)}")
     return checkpoint_dir
 
 

@@ -1,121 +1,286 @@
-"""Strict Hydra-facing configuration for the exploration policy."""
+"""Strict, typed Hydra boundaries for one PPO-guided RL job."""
 
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from omegaconf import DictConfig, OmegaConf
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    model_validator,
+)
+
+from eco_planner.evaluation.config import ModelPathsConfig, RuntimeConfig, ScenarioConfig
+from eco_planner.models import (
+    OrthogonalPolicyGuidanceConfig,
+    SamplerConfig,
+    parse_guidance_config,
+    parse_sampler_config,
+)
 
 
-@dataclass(frozen=True)
-class ExplorationPolicyConfig:
-    """All reproduction-chosen architecture and Beta initialization parameters."""
-
-    name: Literal["exploration_beta"]
-    hidden_dim: int
-    reference_horizon: int
-    reference_state_dim: int
-    reference_mixer_depth: int
-    reference_token_mlp_hidden_dim: int
-    reference_channel_mlp_hidden_dim: int
-    cross_attention_heads: int
-    cross_attention_dropout: float
-    fusion_mlp_depth: int
-    fusion_hidden_dim: int
-    initial_concentration: float
-    minimum_concentration: float
-
-
-def parse_exploration_policy_config(config: DictConfig) -> ExplorationPolicyConfig:
-    """Resolve one policy profile without defaults or ignored fields."""
-
-    if not isinstance(config, DictConfig):
-        raise TypeError("policy configuration must be a DictConfig")
-    raw = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
-    if not isinstance(raw, dict):
-        raise TypeError("policy configuration must resolve to a dictionary")
-    expected = {
-        "name",
-        "hidden_dim",
-        "reference_horizon",
-        "reference_state_dim",
-        "reference_mixer_depth",
-        "reference_token_mlp_hidden_dim",
-        "reference_channel_mlp_hidden_dim",
-        "cross_attention_heads",
-        "cross_attention_dropout",
-        "fusion_mlp_depth",
-        "fusion_hidden_dim",
-        "initial_concentration",
-        "minimum_concentration",
-    }
-    keys = set(raw)
-    if keys != expected:
-        raise ValueError(
-            "exploration policy keys mismatch; "
-            f"missing={sorted(expected - keys)}, "
-            f"unexpected={sorted(str(key) for key in keys - expected)}"
-        )
-    if raw["name"] != "exploration_beta":
-        raise ValueError("policy.name must equal 'exploration_beta'")
-
-    integer_fields = expected - {
-        "name",
-        "cross_attention_dropout",
-        "initial_concentration",
-        "minimum_concentration",
-    }
-    values: dict[str, int] = {}
-    for name in integer_fields:
-        value = raw[name]
-        if type(value) is not int:
-            raise TypeError(f"policy.{name} must be an integer")
-        if value <= 0:
-            raise ValueError(f"policy.{name} must be positive")
-        values[name] = value
-    if values["reference_horizon"] != 80 or values["reference_state_dim"] != 4:
-        raise ValueError("policy reference trajectory contract must be [B, 80, 4]")
-    if values["hidden_dim"] % values["cross_attention_heads"] != 0:
-        raise ValueError("policy.hidden_dim must be divisible by cross_attention_heads")
-
-    dropout = _finite_float(raw["cross_attention_dropout"], "cross_attention_dropout")
-    if not 0.0 <= dropout < 1.0:
-        raise ValueError("policy.cross_attention_dropout must be in [0, 1)")
-    minimum = _positive_float(raw["minimum_concentration"], "minimum_concentration")
-    initial = _positive_float(raw["initial_concentration"], "initial_concentration")
-    if initial <= minimum:
-        raise ValueError("policy.initial_concentration must exceed minimum_concentration")
-
-    return ExplorationPolicyConfig(
-        name="exploration_beta",
-        hidden_dim=values["hidden_dim"],
-        reference_horizon=values["reference_horizon"],
-        reference_state_dim=values["reference_state_dim"],
-        reference_mixer_depth=values["reference_mixer_depth"],
-        reference_token_mlp_hidden_dim=values["reference_token_mlp_hidden_dim"],
-        reference_channel_mlp_hidden_dim=values["reference_channel_mlp_hidden_dim"],
-        cross_attention_heads=values["cross_attention_heads"],
-        cross_attention_dropout=dropout,
-        fusion_mlp_depth=values["fusion_mlp_depth"],
-        fusion_hidden_dim=values["fusion_hidden_dim"],
-        initial_concentration=initial,
-        minimum_concentration=minimum,
+class _StrictModel(BaseModel):
+    model_config = ConfigDict(
+        strict=True,
+        frozen=True,
+        extra="forbid",
+        allow_inf_nan=False,
+        arbitrary_types_allowed=True,
     )
 
 
-def _finite_float(value: object, name: str) -> float:
-    if type(value) not in {int, float}:
-        raise TypeError(f"policy.{name} must be numeric")
-    result = float(value)
-    if not math.isfinite(result):
-        raise ValueError(f"policy.{name} must be finite")
-    return result
+class ExplorationPolicyConfig(_StrictModel):
+    """Architecture and affine-Beta initialization parameters."""
+
+    name: Literal["exploration_beta"]
+    hidden_dim: StrictInt = Field(gt=0)
+    reference_horizon: StrictInt = Field(gt=0)
+    reference_state_dim: StrictInt = Field(gt=0)
+    reference_mixer_depth: StrictInt = Field(gt=0)
+    reference_token_mlp_hidden_dim: StrictInt = Field(gt=0)
+    reference_channel_mlp_hidden_dim: StrictInt = Field(gt=0)
+    cross_attention_heads: StrictInt = Field(gt=0)
+    cross_attention_dropout: StrictFloat = Field(ge=0.0, lt=1.0)
+    fusion_mlp_depth: StrictInt = Field(gt=0)
+    fusion_hidden_dim: StrictInt = Field(gt=0)
+    initial_concentration: StrictFloat = Field(gt=0.0)
+    minimum_concentration: StrictFloat = Field(gt=0.0)
+
+    @model_validator(mode="after")
+    def validate_policy_contract(self) -> ExplorationPolicyConfig:
+        if (self.reference_horizon, self.reference_state_dim) != (80, 4):
+            raise ValueError("policy reference trajectory contract must be [B, 80, 4]")
+        if self.hidden_dim % self.cross_attention_heads:
+            raise ValueError("policy.hidden_dim must be divisible by cross_attention_heads")
+        if self.initial_concentration <= self.minimum_concentration:
+            raise ValueError("policy.initial_concentration must exceed minimum_concentration")
+        return self
 
 
-def _positive_float(value: object, name: str) -> float:
-    result = _finite_float(value, name)
-    if result <= 0.0:
-        raise ValueError(f"policy.{name} must be positive")
-    return result
+class PPOConfig(_StrictModel):
+    """GAE, PPO, optimizer, and scheduler parameters for one update profile."""
+
+    name: str = Field(min_length=1)
+    gamma: StrictFloat = Field(gt=0.0, lt=1.0)
+    gae_lambda: StrictFloat = Field(gt=0.0, lt=1.0)
+    normalize_advantage: Literal[True]
+    clip_epsilon: StrictFloat = Field(gt=0.0, lt=1.0)
+    value_loss: Literal["l2"]
+    clip_value: Literal[False]
+    value_coefficient: StrictFloat = Field(ge=0.0)
+    entropy_coefficient: StrictFloat = Field(ge=0.0)
+    optimizer: Literal["adam"]
+    learning_rate: StrictFloat = Field(gt=0.0)
+    adam_epsilon: StrictFloat = Field(gt=0.0)
+    weight_decay: StrictFloat = Field(ge=0.0)
+    max_gradient_norm: StrictFloat = Field(gt=0.0)
+    epochs: StrictInt = Field(gt=0)
+    batch_size: StrictInt = Field(gt=0)
+    minibatch_size: StrictInt = Field(gt=0)
+    minibatch_seed: StrictInt = Field(ge=0)
+    scheduler: Literal["cosine"]
+    scheduler_total_optimizer_steps: StrictInt = Field(gt=0)
+    scheduler_minimum_learning_rate: StrictFloat = Field(ge=0.0)
+
+    @property
+    def optimizer_steps_per_update(self) -> int:
+        return self.epochs * (self.batch_size // self.minibatch_size)
+
+    @model_validator(mode="after")
+    def validate_optimization_contract(self) -> PPOConfig:
+        if self.batch_size % self.minibatch_size:
+            raise ValueError("train.batch_size must be divisible by train.minibatch_size")
+        if self.scheduler_minimum_learning_rate >= self.learning_rate:
+            raise ValueError("scheduler minimum learning rate must be below the initial rate")
+        if self.scheduler_total_optimizer_steps < self.optimizer_steps_per_update:
+            raise ValueError("scheduler horizon must cover at least one complete PPO update")
+        return self
+
+
+class RolloutConfig(_StrictModel):
+    """One serial policy-guided MetaDrive collection profile."""
+
+    mode: Literal["no_traffic", "traffic"]
+    max_transitions: StrictInt = Field(gt=0)
+    history_warmup_steps: StrictInt = Field(ge=0)
+    transition_dt_s: StrictFloat
+    policy_action_seed: StrictInt = Field(ge=0)
+    reward_source: Literal["metadrive_builtin_v1"]
+    bootstrap_time_limit: StrictBool
+    candidate_count: StrictInt
+    stopped_speed_threshold_mps: StrictFloat = Field(gt=0.0)
+
+    @model_validator(mode="after")
+    def validate_rollout_contract(self) -> RolloutConfig:
+        if self.transition_dt_s != 0.1:
+            raise ValueError("rollout transition_dt_s must be exactly 0.1")
+        if not self.bootstrap_time_limit:
+            raise ValueError("rollout requires bootstrap_time_limit=true")
+        if self.candidate_count != 1:
+            raise ValueError("rollout requires candidate_count=1")
+        if self.mode == "no_traffic" and self.history_warmup_steps != 0:
+            raise ValueError("no-traffic rollout requires zero history warmup steps")
+        if self.mode == "traffic" and self.history_warmup_steps != 20:
+            raise ValueError("traffic rollout requires exactly 20 history warmup steps")
+        return self
+
+
+class RolloutJobConfig(_StrictModel):
+    name: str = Field(min_length=1)
+    map_query_radius_m: StrictFloat = Field(gt=0.0)
+    rollout: RolloutConfig
+    env: dict[str, Any]
+    model: ModelPathsConfig
+    runtime: RuntimeConfig
+    sampler: SamplerConfig
+    guidance: OrthogonalPolicyGuidanceConfig
+    policy: ExplorationPolicyConfig
+    scenario: ScenarioConfig
+
+    @model_validator(mode="after")
+    def validate_job(self) -> RolloutJobConfig:
+        _validate_rollout_environment(
+            self.env, self.rollout.history_warmup_steps, self.rollout.max_transitions
+        )
+        return self
+
+
+class MetaDriveBuiltinRewardConfig(_StrictModel):
+    name: Literal["metadrive_builtin_v1"]
+    unit: Literal["dimensionless_score"]
+    driving_reward: Literal[1.0]
+    speed_reward: Literal[0.1]
+    success_reward: Literal[10.0]
+    out_of_road_penalty: Literal[5.0]
+    crash_vehicle_penalty: Literal[5.0]
+    crash_object_penalty: Literal[5.0]
+    crash_sidewalk_penalty: Literal[0.0]
+    use_lateral_reward: Literal[False]
+
+
+class TrainingConfig(_StrictModel):
+    """General closed-loop PPO run controls; smoke values live in YAML."""
+
+    update_count: StrictInt = Field(gt=0)
+    transitions_per_environment: StrictInt = Field(gt=0)
+    replay_id: StrictInt = Field(ge=0)
+    deterministic: StrictBool
+    stopped_speed_threshold_mps: StrictFloat = Field(gt=0.0)
+    boundary_distance: StrictFloat = Field(gt=0.0, lt=0.5)
+    boundary_sample_count: StrictInt = Field(gt=0)
+    diagnostic_seed: StrictInt = Field(ge=0)
+    resume_checkpoint_path: str | None = None
+
+
+class RLTrainingJobConfig(_StrictModel):
+    name: str = Field(min_length=1)
+    map_query_radius_m: StrictFloat = Field(gt=0.0)
+    training: TrainingConfig
+    env: dict[str, Any]
+    model: ModelPathsConfig
+    runtime: RuntimeConfig
+    sampler: SamplerConfig
+    guidance: OrthogonalPolicyGuidanceConfig
+    policy: ExplorationPolicyConfig
+    reward: MetaDriveBuiltinRewardConfig
+    train: PPOConfig
+    scenarios: tuple[ScenarioConfig, ...]
+
+    @model_validator(mode="after")
+    def validate_training_job(self) -> RLTrainingJobConfig:
+        if not self.scenarios:
+            raise ValueError("training requires at least one scenario")
+        _validate_rollout_environment(self.env, 0, self.training.transitions_per_environment)
+        for name in (
+            "driving_reward",
+            "speed_reward",
+            "success_reward",
+            "out_of_road_penalty",
+            "crash_vehicle_penalty",
+            "crash_object_penalty",
+            "crash_sidewalk_penalty",
+            "use_lateral_reward",
+        ):
+            if self.env.get(name) != getattr(self.reward, name):
+                raise ValueError(f"env.{name} must equal the selected reward profile")
+        sample_count = len(self.scenarios) * self.training.transitions_per_environment
+        if self.train.batch_size != sample_count:
+            raise ValueError("train.batch_size must equal all closed-loop transitions per update")
+        required_steps = self.training.update_count * self.train.optimizer_steps_per_update
+        if self.train.scheduler_total_optimizer_steps < required_steps:
+            raise ValueError("scheduler horizon must cover every configured PPO update")
+        return self
+
+
+def parse_exploration_policy_config(config: DictConfig) -> ExplorationPolicyConfig:
+    return ExplorationPolicyConfig.model_validate(_resolve_dict(config, "policy"))
+
+
+def parse_ppo_config(config: DictConfig) -> PPOConfig:
+    return PPOConfig.model_validate(_resolve_dict(config, "PPO optimization"))
+
+
+def parse_rollout_config(config: DictConfig) -> RolloutJobConfig:
+    raw = _resolve_dict(config, "rollout")
+    nodes = _profile_nodes(config, ("sampler", "guidance", "policy"), "rollout")
+    guidance = parse_guidance_config(nodes["guidance"])
+    if not isinstance(guidance, OrthogonalPolicyGuidanceConfig):
+        raise ValueError("rollout requires guidance=orthogonal_policy")
+    raw["sampler"] = parse_sampler_config(nodes["sampler"])
+    raw["guidance"] = guidance
+    raw["policy"] = parse_exploration_policy_config(nodes["policy"])
+    return RolloutJobConfig.model_validate(raw)
+
+
+def parse_training_config(config: DictConfig) -> RLTrainingJobConfig:
+    raw = _resolve_dict(config, "training")
+    nodes = _profile_nodes(config, ("sampler", "guidance", "policy", "train"), "training")
+    guidance = parse_guidance_config(nodes["guidance"])
+    if not isinstance(guidance, OrthogonalPolicyGuidanceConfig):
+        raise ValueError("training requires guidance=orthogonal_policy")
+    raw["sampler"] = parse_sampler_config(nodes["sampler"])
+    raw["guidance"] = guidance
+    raw["policy"] = parse_exploration_policy_config(nodes["policy"])
+    raw["train"] = parse_ppo_config(nodes["train"])
+    if isinstance(raw.get("scenarios"), list):
+        raw["scenarios"] = tuple(raw["scenarios"])
+    return RLTrainingJobConfig.model_validate(raw)
+
+
+def _resolve_dict(config: DictConfig, name: str) -> dict[str, Any]:
+    if not isinstance(config, DictConfig):
+        raise TypeError(f"{name} configuration must be a DictConfig")
+    raw = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+    if not isinstance(raw, dict):
+        raise TypeError(f"{name} configuration must resolve to a dictionary")
+    return raw
+
+
+def _profile_nodes(
+    config: DictConfig, names: tuple[str, ...], boundary: str
+) -> dict[str, DictConfig]:
+    nodes = {name: config.get(name) for name in names}
+    if not all(isinstance(node, DictConfig) for node in nodes.values()):
+        required = ", ".join(names)
+        raise ValueError(f"{boundary} must select {required} profiles")
+    return {name: node for name, node in nodes.items() if isinstance(node, DictConfig)}
+
+
+def _validate_rollout_environment(
+    env: dict[str, Any], history_warmup_steps: int, transition_count: int
+) -> None:
+    if env.get("trajectory_execution_steps") != 1:
+        raise ValueError("rollout requires env.trajectory_execution_steps=1")
+    if env.get("trajectory_horizon") != 80:
+        raise ValueError("rollout requires env.trajectory_horizon=80")
+    if env.get("decision_repeat") != 5:
+        raise ValueError("rollout requires env.decision_repeat=5")
+    horizon = env.get("horizon")
+    required_horizon = history_warmup_steps + transition_count
+    if type(horizon) is not int or horizon < required_horizon:
+        raise ValueError("rollout env.horizon must cover warmup plus requested transitions")

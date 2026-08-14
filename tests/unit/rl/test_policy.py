@@ -7,13 +7,9 @@ import pytest
 import torch
 from torch.distributions import Beta
 
-from eco_planner.rl import (
-    BetaGuidanceDistribution,
-    BetaGuidanceParameters,
-    ExplorationPolicy,
-    ExplorationPolicyConfig,
-    ExplorationPolicyContext,
-)
+from eco_planner.rl import ExplorationPolicy, ExplorationPolicyConfig
+from eco_planner.rl.distributions import AffineBeta
+from eco_planner.rl.policy import ExplorationPolicyContext
 
 
 def test_forward_returns_positive_finite_parameters_and_exact_value_shape(
@@ -41,7 +37,7 @@ def test_symmetric_initialization_has_zero_guidance_mean_and_nonzero_variance(
     exploration_policy_context: ExplorationPolicyContext,
 ) -> None:
     output = ExplorationPolicy(exploration_policy_config)(exploration_policy_context)
-    action = output.distribution.mean()
+    action = output.distribution.action_mean()
     alpha = output.parameters.alpha
     beta = output.parameters.beta
     guidance_variance = 4.0 * alpha * beta / ((alpha + beta).square() * (alpha + beta + 1.0))
@@ -56,7 +52,7 @@ def test_symmetric_initialization_has_zero_guidance_mean_and_nonzero_variance(
 def test_joint_log_prob_and_entropy_include_exact_affine_jacobian() -> None:
     alpha = torch.tensor([[2.0, 3.0], [4.0, 5.0]])
     beta = torch.tensor([[5.0, 4.0], [3.0, 2.0]])
-    distribution = BetaGuidanceDistribution(BetaGuidanceParameters(alpha, beta))
+    distribution = AffineBeta(alpha, beta)
     base_action = torch.tensor([[0.25, 0.75], [0.4, 0.6]])
     action = distribution.evaluate_base_action(base_action)
     expected_base_log_prob = Beta(alpha, beta).log_prob(base_action).sum(dim=-1)
@@ -118,23 +114,25 @@ def test_old_new_policy_can_recompute_the_same_stored_base_action(
 
 @pytest.mark.parametrize("boundary", [0.0, 1.0])
 def test_base_action_boundaries_are_rejected_without_clamping(boundary: float) -> None:
-    parameters = BetaGuidanceParameters(torch.full((1, 2), 2.0), torch.full((1, 2), 2.0))
     with pytest.raises(ValueError, match="strictly inside"):
-        BetaGuidanceDistribution(parameters).evaluate_base_action(torch.full((1, 2), boundary))
+        AffineBeta(torch.full((1, 2), 2.0), torch.full((1, 2), 2.0)).evaluate_base_action(
+            torch.full((1, 2), boundary)
+        )
 
 
 @pytest.mark.parametrize("boundary", [-1.0, 1.0])
 def test_guidance_action_boundaries_are_rejected_without_clamping(boundary: float) -> None:
-    parameters = BetaGuidanceParameters(torch.full((1, 2), 2.0), torch.full((1, 2), 2.0))
     with pytest.raises(ValueError, match="strictly inside"):
-        BetaGuidanceDistribution(parameters).evaluate_guidance_action(torch.full((1, 2), boundary))
+        AffineBeta(torch.full((1, 2), 2.0), torch.full((1, 2), 2.0)).evaluate_guidance_action(
+            torch.full((1, 2), boundary)
+        )
 
 
 def test_beta_parameters_reject_nonpositive_or_nonfinite_values() -> None:
     valid = torch.full((1, 2), 2.0)
     for invalid in (torch.tensor([[0.0, 1.0]]), torch.tensor([[float("nan"), 1.0]])):
         with pytest.raises(ValueError):
-            BetaGuidanceDistribution(BetaGuidanceParameters(invalid, valid))
+            AffineBeta(invalid, valid)
 
 
 @pytest.mark.parametrize(
