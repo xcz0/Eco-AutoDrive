@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from omegaconf import OmegaConf
@@ -22,7 +22,6 @@ PROFILE_ACTIONS = {
     "longitudinal_negative": (0.0, -1.0),
 }
 EXPECTED_SCENARIOS = frozenset({"straight", "gentle_curve"})
-EXPECTED_SEEDS = frozenset(range(5))
 POSITION_ERROR_LIMIT_M = 1e-3
 HEADING_ERROR_LIMIT_RAD = 1e-4
 
@@ -76,34 +75,55 @@ def measure_first_cycle_guidance_trend(
     )
 
 
-def summarize_stage2_matrix(matrix_root: Path, stage1_ddim_root: Path) -> dict[str, Any]:
-    """Validate all 60 episodes and write a non-overwriting stage-2 report."""
+def summarize_stage2_matrix(
+    matrix_root: Path,
+    stage1_ddim_root: Path,
+    *,
+    expected_seeds: tuple[int, ...],
+    expected_accelerator: Literal["cpu", "cuda"],
+    expected_precision: Literal["32-true", "16-mixed", "bf16-mixed"],
+) -> dict[str, Any]:
+    """Validate one explicit stage-2 matrix and write a non-overwriting report."""
 
     matrix_root = matrix_root.resolve()
     report_path = matrix_root / "matrix_report.json"
     if report_path.exists():
         raise FileExistsError(f"refusing to overwrite existing report: {report_path}")
-    report = build_stage2_matrix_report(matrix_root, stage1_ddim_root.resolve())
+    report = build_stage2_matrix_report(
+        matrix_root,
+        stage1_ddim_root.resolve(),
+        expected_seeds=expected_seeds,
+        expected_accelerator=expected_accelerator,
+        expected_precision=expected_precision,
+    )
     report_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
     )
     return report
 
 
-def build_stage2_matrix_report(matrix_root: Path, stage1_ddim_root: Path) -> dict[str, Any]:
+def build_stage2_matrix_report(
+    matrix_root: Path,
+    stage1_ddim_root: Path,
+    *,
+    expected_seeds: tuple[int, ...],
+    expected_accelerator: Literal["cpu", "cuda"],
+    expected_precision: Literal["32-true", "16-mixed", "bf16-mixed"],
+) -> dict[str, Any]:
     """Validate the pre-registered profile/seed/scenario grid without writing."""
 
     if not matrix_root.is_dir():
         raise NotADirectoryError(f"stage-2 matrix root does not exist: {matrix_root}")
     if not stage1_ddim_root.is_dir():
         raise NotADirectoryError(f"stage-1 DDIM root does not exist: {stage1_ddim_root}")
+    seed_set = _validate_expected_seeds(expected_seeds)
     traces: dict[tuple[str, int, str], Path] = {}
     rows: list[dict[str, Any]] = []
     for profile, expected_action in PROFILE_ACTIONS.items():
         profile_root = matrix_root / profile
         jobs = _numbered_jobs(profile_root)
-        if {int(job.name) for job in jobs} != EXPECTED_SEEDS:
-            raise ValueError(f"profile {profile!r} must contain jobs 0..4")
+        if {int(job.name) for job in jobs} != seed_set:
+            raise ValueError(f"profile {profile!r} has unexpected job seeds")
         for job in jobs:
             seed = int(job.name)
             _require_nonempty(job / "resolved_config.yaml")
@@ -113,10 +133,26 @@ def build_stage2_matrix_report(matrix_root: Path, stage1_ddim_root: Path) -> dic
             config = OmegaConf.load(job / "resolved_config.yaml")
             if int(config.runtime.seed) != seed:
                 raise ValueError(f"profile {profile!r} job {seed} has an unexpected runtime seed")
+            if config.runtime.accelerator != expected_accelerator:
+                raise ValueError(f"profile {profile!r} job {seed} has an unexpected accelerator")
+            if config.runtime.precision != expected_precision:
+                raise ValueError(f"profile {profile!r} job {seed} has an unexpected precision")
             if config.sampler.name != "ddim5" or float(config.sampler.initial_noise_scale) != 1.0:
                 raise ValueError(f"profile {profile!r} job {seed} is not standard-Gaussian DDIM-5")
             _validate_profile_config(profile, expected_action, config.guidance)
             summary = _read_json(job / "summary.json")
+            runtime = summary.get("runtime")
+            if not isinstance(runtime, dict):
+                raise TypeError(f"profile {profile!r} job {seed} has no runtime summary")
+            _validate_runtime(
+                runtime,
+                expected_accelerator=expected_accelerator,
+                expected_precision=expected_precision,
+            )
+            metadata = _read_json(job / "runtime_metadata.json")
+            metadata_runtime = metadata.get("inference_runtime")
+            if metadata_runtime != runtime:
+                raise ValueError(f"profile {profile!r} job {seed} runtime metadata disagrees")
             episodes = summary.get("episodes")
             if not isinstance(episodes, list) or len(episodes) != 2:
                 raise ValueError(f"profile {profile!r} job {seed} must contain two episodes")
@@ -161,16 +197,23 @@ def build_stage2_matrix_report(matrix_root: Path, stage1_ddim_root: Path) -> dic
                     )
                 rows.append(row)
 
-    comparisons = _validate_paired_predictions(traces, stage1_ddim_root)
+    comparisons = _validate_paired_predictions(traces, stage1_ddim_root, seed_set)
     _validate_direction_signs(rows)
-    if len(rows) != 60:
-        raise RuntimeError(f"expected 60 validated episodes, found {len(rows)}")
+    expected_episode_count = len(PROFILE_ACTIONS) * len(seed_set) * len(EXPECTED_SCENARIOS)
+    if len(rows) != expected_episode_count:
+        raise RuntimeError(
+            f"expected {expected_episode_count} validated episodes, found {len(rows)}"
+        )
     return {
         "matrix_root": str(matrix_root),
         "stage1_ddim_root": str(stage1_ddim_root),
         "validated_episode_count": len(rows),
         "profiles": list(PROFILE_ACTIONS),
-        "seeds": sorted(EXPECTED_SEEDS),
+        "seeds": sorted(seed_set),
+        "runtime": {
+            "accelerator": expected_accelerator,
+            "precision": expected_precision,
+        },
         "scenarios": sorted(EXPECTED_SCENARIOS),
         "interface_limits": {
             "trajectory_position_error_m": POSITION_ERROR_LIMIT_M,
@@ -182,11 +225,11 @@ def build_stage2_matrix_report(matrix_root: Path, stage1_ddim_root: Path) -> dic
 
 
 def _validate_paired_predictions(
-    traces: dict[tuple[str, int, str], Path], stage1_root: Path
+    traces: dict[tuple[str, int, str], Path], stage1_root: Path, expected_seeds: frozenset[int]
 ) -> dict[str, int]:
     stage1_matches = 0
     neutral_matches = 0
-    for seed in EXPECTED_SEEDS:
+    for seed in expected_seeds:
         for scenario in EXPECTED_SCENARIOS:
             unguided = _load_trace(traces[("unguided", seed, scenario)])
             neutral = _load_trace(traces[("neutral", seed, scenario)])
@@ -206,9 +249,37 @@ def _validate_paired_predictions(
             stage1_matches += 1
             neutral_matches += 1
     return {
-        "unguided_episode_matches_with_e007": stage1_matches,
+        "unguided_episode_matches_with_stage1_anchor": stage1_matches,
         "neutral_episode_matches_with_unguided": neutral_matches,
     }
+
+
+def _validate_expected_seeds(expected_seeds: tuple[int, ...]) -> frozenset[int]:
+    if not isinstance(expected_seeds, tuple) or not expected_seeds:
+        raise ValueError("expected seeds must be a non-empty tuple")
+    if any(type(seed) is not int or seed < 0 for seed in expected_seeds):
+        raise TypeError("expected seeds must be non-negative integers")
+    result = frozenset(expected_seeds)
+    if len(result) != len(expected_seeds):
+        raise ValueError("expected seeds must be unique")
+    return result
+
+
+def _validate_runtime(
+    runtime: dict[str, Any],
+    *,
+    expected_accelerator: Literal["cpu", "cuda"],
+    expected_precision: Literal["32-true", "16-mixed", "bf16-mixed"],
+) -> None:
+    expected = {
+        "requested_accelerator": expected_accelerator,
+        "resolved_accelerator": expected_accelerator,
+        "requested_precision": expected_precision,
+        "resolved_precision": expected_precision,
+    }
+    for name, value in expected.items():
+        if runtime.get(name) != value:
+            raise ValueError(f"runtime {name} must equal {value!r}")
 
 
 def _validate_direction_signs(rows: list[dict[str, Any]]) -> None:
