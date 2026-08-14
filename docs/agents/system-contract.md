@@ -211,8 +211,34 @@ profile 只允许 `trajectory_execution_steps=1`；evaluation config 要求 5。
 
 `MetaDriveRolloutReward` 严格传输一次 MetaDrive substep，source 为 `metadrive_builtin_v1`，unit 为
 `dimensionless_score`；它不是 PPO parity reward。`bootstrap_mask` 等于 `not terminated`。纯 truncation
-与 rollout-limit tail 保存最终状态的冻结 critic value；terminal tail 保存零。未来 GAE 必须在 terminated
-或 truncated 边界停止递归，且尚未实现。
+与 rollout-limit tail 保存最终状态的冻结 critic value；terminal tail 保存零。
+
+## Stage 5 GAE 与 PPO 数学更新器
+
+Stage 5 提供独立的 TorchRL 0.12 数学路径，不提供 closed-loop training runner。每个
+`RolloutEpisode` 先独立构造时间维 TensorDict：当前 value 来自 transition，后继 value 由下一
+transition 或显式 `tail_bootstrap_value` 给出；episode 最后一项总是 GAE recursion boundary，只有
+真实 terminal 同时设置 terminated。因此 terminal 不 bootstrap，纯 truncation 与 rollout-limit tail
+bootstrap，但 advantage 不跨 episode 泄漏。
+
+TorchRL `GAE` 产生未标准化 advantage 与 value target。多个 episode 仅在 GAE 后展平，advantage
+只在完整 PPO batch 上使用 sample standard deviation 标准化一次；少于两个样本、零方差或非有限
+统计立即失败。value target 不随 advantage 标准化改变。
+
+TorchRL `ClipPPOLoss` 通过共享同一个 `ExplorationPolicy` 的 actor/critic TensorDict adapter 重算
+当前 value 与 transformed guidance distribution。概率分布严格实现 `u -> 2u - 1`，PPO ratio 使用
+保存的 old transformed joint log-prob 与当前 transformed joint log-prob；entropy 含仿射 Jacobian，
+不使用 DDIM transition probability。value loss 为 unclipped L2；policy、value 与 entropy loss 共同
+更新 policy actor head、value head 和共享 trunk。
+
+Stage 5 smoke updater 使用显式配置的 Adam、梯度范数和 per-optimizer-step cosine scheduler。
+minibatch 每 epoch 由独立 seed 无放回排列，batch 必须整除 minibatch；old log-prob、old value、
+advantage 和 value target 在全部 epoch 中不可变。policy 在 rollout 与 update 均保持 eval mode，但
+update 保留 autograd。非有限 loss 或 gradient 在 optimizer step 前失败。
+
+此接口不保存 optimizer/scheduler/batch/RNG checkpoint，不定义训练编排或 parity profile，也不关闭
+G-07。`metadrive_builtin_v1` 仍只是一项非 parity rollout score，不能据此声称可进行 PlannerRFT
+闭环训练。
 
 ## 轨迹执行
 

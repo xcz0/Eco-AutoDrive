@@ -58,6 +58,7 @@ class FabricRolloutRuntime:
         self._fabric = fabric
         self._planner = planner
         self._policy = policy
+        self._policy.eval()
         self.report = report
         self.noise_seed = noise_seed
         self.policy_action_seed = policy_action_seed

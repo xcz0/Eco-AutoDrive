@@ -16,6 +16,8 @@ from eco_planner.rl.policy import (
     ExplorationPolicyContext,
     ExplorationPolicyOutput,
 )
+from eco_planner.rl.ppo import GAEEstimate, PPOUpdater, PPOUpdateReport, estimate_episode_gae
+from eco_planner.rl.ppo_config import PPOOptimizationConfig, parse_ppo_optimization_config
 from eco_planner.rl.rollout import (
     MetaDriveRolloutReward,
     RolloutBuffer,
@@ -39,17 +41,23 @@ __all__ = [
     "ExplorationPolicyOutput",
     "FrozenPlannerPolicyFeatureExtractor",
     "FabricRolloutRuntime",
+    "GAEEstimate",
     "HostRolloutDecision",
     "MetaDriveRolloutReward",
+    "PPOOptimizationConfig",
+    "PPOUpdater",
+    "PPOUpdateReport",
     "PolicyCheckpointReport",
     "RolloutBuffer",
     "RolloutEpisode",
+    "RolloutJobConfig",
     "RolloutTransition",
-    "create_fabric_rollout_runtime",
     "collect_rollout_episode",
+    "create_fabric_rollout_runtime",
+    "estimate_episode_gae",
     "load_exploration_policy_checkpoint",
     "parse_exploration_policy_config",
+    "parse_ppo_optimization_config",
     "parse_rollout_config",
-    "RolloutJobConfig",
     "save_exploration_policy_checkpoint",
 ]

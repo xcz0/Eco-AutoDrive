@@ -17,7 +17,7 @@ system contract。
 | G-05 | Beta action 如何映射和记概率？ | **已关闭**：保存严格位于 `(0,1)^2` 的 base action `u`；guidance 为 `2u-1`；joint transformed log-prob 减 `2 log 2`，entropy 加 `2 log 2` | 见 ADR 0016；这是项目复现决定 | Issue #16；sample/rsample/mean、support、log-prob、entropy 和 old/new 重算测试 |
 | G-06 | 多候选 `K` 如何进入 PPO 概率？ | **已关闭**：阶段 3--5 固定单候选 `K=1`，不定义额外候选选择概率 | 见 ADR 0016 | Issue #16；单 action 概率接口；未来若改变 `K` 必须重开 gate |
 | G-07 | PPO reward 如何在 MetaDrive 定义？ | 当前只有 MetaDrive 内置 reward/substep；系统未定义优化 reward | 论文 parity reward；加入能耗的项目扩展 reward | 每组件数据源、单位、频率、范围、terminal gate、失败语义和反停驶测试 |
-| G-08 | terminal 与 truncation 如何 bootstrap？ | **已关闭**：`bootstrap_mask = not terminated`；纯 time-limit truncation 与 rollout tail 保存 final-state old value，GAE 递归仍在 done 边界停止 | 见 ADR 0017 | Issue #18；terminal/truncation/tail buffer 测试；GAE 手算测试留给阶段 5 |
+| G-08 | terminal 与 truncation 如何 bootstrap？ | **已关闭**：`bootstrap_mask = not terminated`；纯 time-limit truncation 与 rollout tail 保存 final-state old value，GAE 递归仍在 done 边界停止 | 见 ADR 0017/0018 | Issue #18/#19；terminal/truncation/tail buffer 与 GAE 手算测试 |
 | G-09 | 训练 runtime 如何扩展？ | 当前 ADR 0010 限定单进程单设备 evaluation | 独立同步向量环境；多进程收集；其他训练编排 | ADR；seed 派生、设备、异常传播、资源释放和产物聚合测试 |
 | G-10 | parity 与项目扩展如何分开？ | 本项目目标包含道路预瞄与能耗，PlannerRFT 原目标不同 | 先 parity 后扩展；直接项目 reward | 两套命名独立的 config/实验矩阵和结论边界 |
 | G-11 | DDIM 初始分布和五步时间表是什么？ | **已关闭**：默认论文文字 profile 使用标准高斯；本项目选择 `t=[1.0,0.8,0.6,0.4,0.2] -> [0.8,0.6,0.4,0.2,0.0]`；`0.5` 倍噪声仅作隔离变体 | 见 ADR 0011；时间表不得描述为作者事实 | Issue #4；严格 sampler 配置、数学/随机性测试和配对闭环证据 |

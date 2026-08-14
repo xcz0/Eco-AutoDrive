@@ -6,7 +6,7 @@
 
 | 专题 | 状态 | 入口 |
 | --- | --- | --- |
-| PlannerRFT PPO-only 论文级复现 | 阶段 4 的 10 Hz rollout 契约已实现；G-07 reward 仍开放，PPO 训练仍是候选工作 | [范围与路线](plannerrft-ppo/README.md) |
+| PlannerRFT PPO-only 论文级复现 | 阶段 5 的 GAE/PPO 数学更新器已实现；G-07 reward 与闭环训练仍是候选工作 | [范围与路线](plannerrft-ppo/README.md) |
 
 专题文档用于细化候选方案，不改变本文、本仓库 ADR 或 system contract 的权威性。某一阶段进入
 开发前，必须把可交付物和验收标准转入 GitHub Issue；已实现阶段的事实必须同步回 ADR 和 system
