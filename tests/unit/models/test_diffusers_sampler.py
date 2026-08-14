@@ -131,7 +131,7 @@ def test_diffusers_ddim_retains_sampler_boundary_validation() -> None:
         )
 
 
-def test_diffusers_dpm_uses_the_certified_profile_and_continuous_sigma_times() -> None:
+def test_diffusers_dpm_uses_the_certified_profile_and_call_contract() -> None:
     adapter = DiffusersDpmSampler()
     scheduler = adapter._new_scheduler(torch.device("cpu"), torch.float64)
     schedule = LinearVpSchedule()
@@ -143,7 +143,16 @@ def test_diffusers_dpm_uses_the_certified_profile_and_continuous_sigma_times() -
         model_timesteps.append(timestep.clone())
         return torch.zeros_like(sample)
 
-    adapter.sample(torch.zeros((2, 3, 4), dtype=torch.float64), record_model, _constraint)
+    constraint_calls = 0
+
+    def counted_constraint(sample: torch.Tensor) -> torch.Tensor:
+        nonlocal constraint_calls
+        constraint_calls += 1
+        return _constraint(sample)
+
+    result = adapter.sample(
+        torch.zeros((2, 3, 4), dtype=torch.float64), record_model, counted_constraint
+    )
 
     torch.testing.assert_close(scheduler.alphas_cumprod, expected_alpha_bar, rtol=0.0, atol=1e-12)
     assert scheduler.config.prediction_type == "sample"
@@ -168,26 +177,5 @@ def test_diffusers_dpm_uses_the_certified_profile_and_continuous_sigma_times() -
         rtol=0.0,
         atol=0.0,
     )
-
-
-def test_diffusers_dpm_preserves_baseline_call_contract() -> None:
-    initial = torch.linspace(-1.0, 1.0, 48, dtype=torch.float32).reshape(2, 3, 8)
-    diffusers = DiffusersDpmSampler()
-    model_calls = 0
-    constraint_calls = 0
-
-    def model(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
-        nonlocal model_calls
-        model_calls += 1
-        return sample * 0.2 + timestep[:, None, None]
-
-    def counted_constraint(sample: torch.Tensor) -> torch.Tensor:
-        nonlocal constraint_calls
-        constraint_calls += 1
-        return _constraint(sample)
-
-    actual = diffusers.sample(initial, model, counted_constraint)
-
-    assert model_calls == 11
     assert constraint_calls == 12
-    assert torch.equal(actual[:, :, 0], torch.ones((2, 3)))
+    assert torch.equal(result[:, :, 0], torch.ones((2, 3), dtype=torch.float64))

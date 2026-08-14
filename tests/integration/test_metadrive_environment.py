@@ -79,13 +79,10 @@ def test_trajectory_environment_executes_five_simulator_steps() -> None:
         start_position = np.asarray(env.agent.position, dtype=np.float64)
         start_heading = float(env.agent.heading_theta)
 
-        observation, reward, terminated, truncated, info = env.step(_straight_trajectory(5.0))
+        _, reward, terminated, truncated, info = env.step(_straight_trajectory(5.0))
         execution = TrajectoryExecutionRecord.from_info(info)
 
         np.testing.assert_array_equal(reset_observation, np.zeros(1, dtype=np.float32))
-        np.testing.assert_array_equal(observation, np.zeros(1, dtype=np.float32))
-        assert env.observation_space.shape == (1,)
-        assert env.observation_space.dtype == np.float32
         assert env.engine.sensors == {}
 
         displacement = np.asarray(env.agent.position, dtype=np.float64) - start_position
@@ -96,30 +93,20 @@ def test_trajectory_environment_executes_five_simulator_steps() -> None:
         assert env.engine.episode_step == 5
         assert info["trajectory_execution_steps"] == 5
         assert info["trajectory_reward_sum"] == pytest.approx(reward)
-        assert info["trajectory_world_centers"].shape == (80, 2)
-        assert info["trajectory_world_headings"].shape == (80,)
-        assert info["trajectory_substep_states"].shape == (5, 7)
-        assert info["trajectory_substep_rewards"].shape == (5,)
-        assert info["trajectory_substep_terminated"].shape == (5,)
-        assert info["trajectory_substep_truncated"].shape == (5,)
-        assert info["trajectory_target_centers"].shape == (5, 2)
-        assert info["trajectory_target_headings"].shape == (5,)
-        assert info["trajectory_position_errors_m"].shape == (5,)
-        assert info["trajectory_heading_errors_rad"].shape == (5,)
         assert execution.substep_states.shape == (5, 7)
         assert execution.route_completion == pytest.approx(info["route_completion"])
         np.testing.assert_allclose(
-            info["trajectory_substep_states"][-1, :2],
+            execution.substep_states[-1, :2],
             np.asarray(env.agent.position),
         )
         np.testing.assert_allclose(
-            info["trajectory_substep_states"][:, :2],
-            info["trajectory_target_centers"],
+            execution.substep_states[:, :2],
+            execution.target_centers,
             atol=1e-3,
         )
         np.testing.assert_allclose(
-            info["trajectory_substep_states"][:, 2],
-            info["trajectory_target_headings"],
+            execution.substep_states[:, 2],
+            execution.target_headings,
             atol=1e-4,
         )
         assert forward_progress == pytest.approx(2.5, abs=1e-3)

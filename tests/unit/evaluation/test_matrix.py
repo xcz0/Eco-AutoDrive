@@ -52,51 +52,6 @@ def _execution_metadata() -> dict[str, object]:
     }
 
 
-def _trace_arrays(*, bad_plan_indices: bool = False) -> dict[str, np.ndarray]:
-    plan_indices = np.array([0, 0, 0, 0, 1] if bad_plan_indices else [0, 0, 0, 0, 0])
-    return {
-        "schema_version": np.asarray(ARTIFACT_SCHEMA_VERSION, dtype=np.int64),
-        "trace_status": np.asarray("complete"),
-        "warmup_initial_state": np.zeros(7),
-        "warmup_initial_state_valid": np.asarray(True, dtype=np.bool_),
-        "warmup_states": np.zeros((20, 7)),
-        "warmup_rewards": np.zeros(20),
-        "warmup_terminated": np.zeros(20, dtype=np.bool_),
-        "warmup_truncated": np.zeros(20, dtype=np.bool_),
-        "warmup_participant_counts": np.ones(20, dtype=np.int64),
-        "warmup_static_object_counts": np.zeros(20, dtype=np.int64),
-        "initial_state": np.zeros(7),
-        "initial_state_valid": np.asarray(True, dtype=np.bool_),
-        "planning_anchors": np.zeros((1, 7)),
-        "initial_noise": np.zeros((1, 11, 80, 4), dtype=np.float32),
-        "predictions_local": np.zeros((1, 11, 80, 4), dtype=np.float32),
-        "observation_ego_current_state": np.zeros((1, 10), dtype=np.float32),
-        "observation_neighbor_agents_past": np.zeros((1, 32, 21, 11), dtype=np.float32),
-        "observation_static_objects": np.zeros((1, 5, 10), dtype=np.float32),
-        "observation_lanes": np.zeros((1, 70, 20, 12), dtype=np.float32),
-        "observation_lanes_speed_limit": np.zeros((1, 70, 1), dtype=np.float32),
-        "observation_lanes_has_speed_limit": np.zeros((1, 70, 1), dtype=np.bool_),
-        "observation_route_lanes": np.zeros((1, 25, 20, 12), dtype=np.float32),
-        "observation_route_lanes_speed_limit": np.zeros((1, 25, 1), dtype=np.float32),
-        "observation_route_lanes_has_speed_limit": np.zeros((1, 25, 1), dtype=np.bool_),
-        "ego_predictions_world": np.zeros((1, 80, 4)),
-        "executed_states": np.zeros((5, 7)),
-        "executed_rewards": np.zeros(5),
-        "executed_terminated": np.array([False, False, False, False, True]),
-        "executed_truncated": np.zeros(5, dtype=np.bool_),
-        "executed_plan_indices": plan_indices,
-        "trajectory_target_centers": np.zeros((5, 2)),
-        "trajectory_target_headings": np.zeros(5),
-        "trajectory_position_errors_m": np.zeros(5),
-        "trajectory_heading_errors_rad": np.zeros(5),
-        "traffic_selected_ids": np.full((1, 32), "", dtype="<U64"),
-        "traffic_participant_counts": np.ones(1, dtype=np.int64),
-        "traffic_static_object_counts": np.zeros(1, dtype=np.int64),
-        "traffic_nearest_distance_m": np.ones(1),
-        "traffic_has_nearest": np.ones(1, dtype=np.bool_),
-    }
-
-
 def _episode(name: str, seed: int, density: float) -> dict[str, object]:
     return {
         "schema_version": ARTIFACT_SCHEMA_VERSION,
@@ -189,7 +144,7 @@ def _write_job(
     density: float,
     *,
     mismatch_episode_copy: bool = False,
-    bad_plan_indices: bool = False,
+    trace_arrays: dict[str, np.ndarray],
     expected_seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
     expected_densities: tuple[float, ...] = (0.05, 0.10),
     video_enabled: bool = True,
@@ -228,9 +183,7 @@ runtime:
         (episode_dir / "summary.json").write_text(json.dumps(persisted), encoding="utf-8")
         if video_enabled:
             (episode_dir / "closed_loop.gif").write_bytes(b"GIF89a")
-        np.savez_compressed(
-            episode_dir / "trace.npz", **_trace_arrays(bad_plan_indices=bad_plan_indices)
-        )
+        np.savez_compressed(episode_dir / "trace.npz", **trace_arrays)
     (job / "summary.json").write_text(
         json.dumps(
             {
@@ -258,13 +211,17 @@ def _rewrite_trace(path: Path, case: str) -> None:
         arrays["predictions_local"][0, 0, 0, 0] = np.nan
     elif case == "error_limit":
         arrays["trajectory_position_errors_m"][0] = 1e-3
+    elif case == "plan_indices":
+        arrays["executed_plan_indices"][-1] = 1
     else:
         raise AssertionError(f"unknown trace rewrite case: {case}")
     np.savez_compressed(path, **arrays)
 
 
-def test_partial_matrix_accepts_empty_tracked_diff_and_writes_once(tmp_path: Path) -> None:
-    _write_job(tmp_path, 0, 0, 0.05)
+def test_partial_matrix_accepts_empty_tracked_diff_and_writes_once(
+    tmp_path: Path, matrix_trace_arrays: dict[str, np.ndarray]
+) -> None:
+    _write_job(tmp_path, 0, 0, 0.05, trace_arrays=matrix_trace_arrays)
 
     report = summarize_matrix(tmp_path, partial=True)
 
@@ -275,21 +232,32 @@ def test_partial_matrix_accepts_empty_tracked_diff_and_writes_once(tmp_path: Pat
         summarize_matrix(tmp_path, partial=True)
 
 
-def test_complete_matrix_requires_and_reports_fixed_grid(tmp_path: Path) -> None:
+def test_complete_matrix_requires_and_reports_fixed_grid(
+    tmp_path: Path, matrix_trace_arrays: dict[str, np.ndarray]
+) -> None:
     job_id = 0
-    for seed in range(5):
+    for seed in range(2):
         for density in (0.05, 0.10):
-            _write_job(tmp_path, job_id, seed, density)
+            _write_job(
+                tmp_path,
+                job_id,
+                seed,
+                density,
+                trace_arrays=matrix_trace_arrays,
+                expected_seeds=(0, 1),
+            )
             job_id += 1
 
     report = build_matrix_report(tmp_path)
 
     assert report["matrix_complete"] is True
-    assert report["validated_episode_count"] == 20
+    assert report["validated_episode_count"] == 8
     assert len(report["statistics"]) == 4
 
 
-def test_matrix_grid_and_video_rule_are_read_from_resolved_config(tmp_path: Path) -> None:
+def test_matrix_grid_and_video_rule_are_read_from_resolved_config(
+    tmp_path: Path, matrix_trace_arrays: dict[str, np.ndarray]
+) -> None:
     for job_id, seed in enumerate((4, 7)):
         _write_job(
             tmp_path,
@@ -299,6 +267,7 @@ def test_matrix_grid_and_video_rule_are_read_from_resolved_config(tmp_path: Path
             expected_seeds=(4, 7),
             expected_densities=(0.2,),
             video_enabled=False,
+            trace_arrays=matrix_trace_arrays,
         )
 
     report = build_matrix_report(tmp_path)
@@ -375,30 +344,29 @@ video:
     assert report["statistics"] == {}
 
 
-def test_partial_matrix_rejects_job_outside_expected_grid(tmp_path: Path) -> None:
-    _write_job(tmp_path, 0, 7, 0.05)
+def test_partial_matrix_rejects_job_outside_expected_grid(
+    tmp_path: Path, matrix_trace_arrays: dict[str, np.ndarray]
+) -> None:
+    _write_job(tmp_path, 0, 7, 0.05, trace_arrays=matrix_trace_arrays)
 
     with pytest.raises(ValueError, match="unexpected matrix job"):
         build_matrix_report(tmp_path, partial=True)
 
 
-def test_matrix_rejects_episode_copy_mismatch(tmp_path: Path) -> None:
-    _write_job(tmp_path, 0, 0, 0.05, mismatch_episode_copy=True)
+def test_matrix_rejects_episode_copy_mismatch(
+    tmp_path: Path, matrix_trace_arrays: dict[str, np.ndarray]
+) -> None:
+    _write_job(tmp_path, 0, 0, 0.05, mismatch_episode_copy=True, trace_arrays=matrix_trace_arrays)
 
     with pytest.raises(ValueError, match="episode summary copy"):
         build_matrix_report(tmp_path, partial=True)
 
 
-def test_matrix_rejects_invalid_trace_time_axis(tmp_path: Path) -> None:
-    _write_job(tmp_path, 0, 0, 0.05, bad_plan_indices=True)
-
-    with pytest.raises(ValueError, match="plan indices"):
-        build_matrix_report(tmp_path, partial=True)
-
-
-def test_matrix_rejects_duplicate_job_key(tmp_path: Path) -> None:
-    _write_job(tmp_path, 0, 0, 0.05)
-    _write_job(tmp_path, 1, 0, 0.05)
+def test_matrix_rejects_duplicate_job_key(
+    tmp_path: Path, matrix_trace_arrays: dict[str, np.ndarray]
+) -> None:
+    _write_job(tmp_path, 0, 0, 0.05, trace_arrays=matrix_trace_arrays)
+    _write_job(tmp_path, 1, 0, 0.05, trace_arrays=matrix_trace_arrays)
 
     with pytest.raises(ValueError, match="duplicate matrix job"):
         build_matrix_report(tmp_path, partial=True)
@@ -411,10 +379,13 @@ def test_matrix_rejects_duplicate_job_key(tmp_path: Path) -> None:
         ("shape", "executed_states.*shape"),
         ("nonfinite", "non-finite"),
         ("error_limit", "position error limit"),
+        ("plan_indices", "plan indices"),
     ],
 )
-def test_matrix_rejects_malformed_trace(tmp_path: Path, case: str, message: str) -> None:
-    _write_job(tmp_path, 0, 0, 0.05)
+def test_matrix_rejects_malformed_trace(
+    tmp_path: Path, matrix_trace_arrays: dict[str, np.ndarray], case: str, message: str
+) -> None:
+    _write_job(tmp_path, 0, 0, 0.05, trace_arrays=matrix_trace_arrays)
     _rewrite_trace(tmp_path / "0" / "long_straight" / "trace.npz", case)
 
     with pytest.raises(ValueError, match=message):

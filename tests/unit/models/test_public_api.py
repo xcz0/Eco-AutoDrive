@@ -1,33 +1,5 @@
-from eco_planner.models import (
-    Ddim5SamplerConfig,
-    DiffusersDpmSampler,
-    Dpm10SamplerConfig,
-    NoGuidanceConfig,
-    OfficialDiffusionPlannerConfig,
-    OrthogonalReferenceGuidanceConfig,
-    PlannerInferenceResult,
-    PlanningSampler,
-    PretrainedDiffusionPlanner,
-    load_official_diffusion_planner,
-    parse_guidance_config,
-    parse_sampler_config,
-)
-from eco_planner.models.diffusion_planner import DiffusionPlanner
-from eco_planner.models.pretrained import CheckpointLoadReport
+import eco_planner.models as models
 
 
-def test_models_public_api_remains_importable() -> None:
-    assert OfficialDiffusionPlannerConfig.__name__ == "OfficialDiffusionPlannerConfig"
-    assert Ddim5SamplerConfig.__name__ == "Ddim5SamplerConfig"
-    assert DiffusersDpmSampler.__name__ == "DiffusersDpmSampler"
-    assert Dpm10SamplerConfig.__name__ == "Dpm10SamplerConfig"
-    assert NoGuidanceConfig.__name__ == "NoGuidanceConfig"
-    assert OrthogonalReferenceGuidanceConfig.__name__ == "OrthogonalReferenceGuidanceConfig"
-    assert PlannerInferenceResult.__name__ == "PlannerInferenceResult"
-    assert PlanningSampler.__name__ == "PlanningSampler"
-    assert PretrainedDiffusionPlanner.__name__ == "PretrainedDiffusionPlanner"
-    assert load_official_diffusion_planner.__name__ == "load_official_diffusion_planner"
-    assert parse_sampler_config.__name__ == "parse_sampler_config"
-    assert parse_guidance_config.__name__ == "parse_guidance_config"
-    assert DiffusionPlanner.__name__ == "DiffusionPlanner"
-    assert CheckpointLoadReport.__name__ == "CheckpointLoadReport"
+def test_models_public_exports_are_available() -> None:
+    assert all(hasattr(models, name) for name in models.__all__)

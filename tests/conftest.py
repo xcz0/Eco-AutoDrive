@@ -16,11 +16,6 @@ from eco_planner.models.guidance import (
     NoGuidanceConfig,
     OrthogonalReferenceGuidanceConfig,
 )
-from eco_planner.models.pretrained import (
-    CheckpointLoadReport,
-    PretrainedDiffusionPlanner,
-    load_official_diffusion_planner,
-)
 from eco_planner.models.sampling_config import Ddim5SamplerConfig, Dpm10SamplerConfig
 
 
@@ -124,17 +119,6 @@ def stage0_checkpoint_dir() -> Path:
     if missing_assets:
         pytest.fail(f"stage 0 checkpoint assets are required: {', '.join(missing_assets)}")
     return checkpoint_dir
-
-
-@pytest.fixture(scope="session")
-def stage0_planner(
-    stage0_checkpoint_dir: Path,
-) -> tuple[PretrainedDiffusionPlanner, CheckpointLoadReport]:
-    return load_official_diffusion_planner(
-        stage0_checkpoint_dir / "args.json",
-        stage0_checkpoint_dir / "model.pth",
-        Dpm10SamplerConfig(),
-    )
 
 
 @pytest.fixture(scope="session")

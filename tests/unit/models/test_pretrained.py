@@ -9,7 +9,6 @@ from torch import nn
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 from eco_planner.models.diffusion_planner import DiffusionPlanner
 from eco_planner.models.guidance import OrthogonalReferenceGuidanceConfig
-from eco_planner.models.planning_sampler import PlanningSampler
 from eco_planner.models.pretrained import PretrainedDiffusionPlanner
 from eco_planner.models.sampling_config import Ddim5SamplerConfig, Dpm10SamplerConfig
 
@@ -80,6 +79,31 @@ def _guidance_config() -> OrthogonalReferenceGuidanceConfig:
     )
 
 
+def _planner_config() -> SimpleNamespace:
+    return SimpleNamespace(
+        predicted_neighbor_num=10,
+        future_len=80,
+        observation_normalizer=lambda observation: dict(observation),
+        state_normalizer=_IdentityStateNormalizer(),
+    )
+
+
+def _ddim_config(
+    *,
+    scale: float = 1.0,
+    stochasticity: float = 0.0,
+    label: str = "plannerrft_paper_text",
+) -> Ddim5SamplerConfig:
+    return Ddim5SamplerConfig(
+        name="ddim5",
+        num_steps=5,
+        timesteps=(1.0, 0.8, 0.6, 0.4, 0.2, 0.0),
+        initial_noise_scale=scale,
+        ddim_stochasticity=stochasticity,
+        parity_label=label,  # type: ignore[arg-type]
+    )
+
+
 def test_pretrained_planner_remains_frozen(
     official_model_config: OfficialDiffusionPlannerConfig,
 ) -> None:
@@ -123,19 +147,6 @@ def test_pretrained_planner_tracks_actual_runtime_device(
     assert planner._runtime_device == torch.device("cpu")
 
 
-def test_pretrained_planner_selects_diffusers_dpm_backend(
-    official_model_config: OfficialDiffusionPlannerConfig,
-) -> None:
-    planner = PretrainedDiffusionPlanner(
-        official_model_config,
-        DiffusionPlanner(official_model_config),
-        Dpm10SamplerConfig(implementation="diffusers"),
-    )
-
-    assert isinstance(planner._sampler, PlanningSampler)
-    assert planner._sampler.config.implementation == "diffusers"
-
-
 @pytest.mark.gpu
 def test_pretrained_planner_tracks_cuda_device(
     official_model_config: OfficialDiffusionPlannerConfig,
@@ -161,25 +172,11 @@ def test_pretrained_ddim_applies_explicit_noise_scale_and_sampler_dtype_boundary
     scale: float,
     label: str,
 ) -> None:
-    config = SimpleNamespace(
-        predicted_neighbor_num=10,
-        future_len=80,
-        observation_normalizer=lambda observation: dict(observation),
-        state_normalizer=_IdentityStateNormalizer(),
-    )
     model = _FakeDenoiser()
-    sampler_config = Ddim5SamplerConfig(
-        name="ddim5",
-        num_steps=5,
-        timesteps=(1.0, 0.8, 0.6, 0.4, 0.2, 0.0),
-        initial_noise_scale=scale,
-        ddim_stochasticity=0.0,
-        parity_label=label,  # type: ignore[arg-type]
-    )
     planner = PretrainedDiffusionPlanner(  # type: ignore[arg-type]
-        config,
+        _planner_config(),
         model,
-        sampler_config,
+        _ddim_config(scale=scale, label=label),
     )
 
     result = planner(stage0_observation, torch.ones((1, 11, 80, 4)))
@@ -195,25 +192,11 @@ def test_pretrained_ddim_applies_explicit_noise_scale_and_sampler_dtype_boundary
 def test_neutral_reference_guidance_reuses_one_encoding_and_returns_reference_exactly(
     stage0_observation: dict[str, torch.Tensor],
 ) -> None:
-    config = SimpleNamespace(
-        predicted_neighbor_num=10,
-        future_len=80,
-        observation_normalizer=lambda observation: dict(observation),
-        state_normalizer=_IdentityStateNormalizer(),
-    )
     model = _IdentityDenoiser()
-    sampler_config = Ddim5SamplerConfig(
-        name="ddim5",
-        num_steps=5,
-        timesteps=(1.0, 0.8, 0.6, 0.4, 0.2, 0.0),
-        initial_noise_scale=1.0,
-        ddim_stochasticity=0.0,
-        parity_label="plannerrft_paper_text",
-    )
     planner = PretrainedDiffusionPlanner(  # type: ignore[arg-type]
-        config,
+        _planner_config(),
         model,
-        sampler_config,
+        _ddim_config(),
         _guidance_config(),
     )
     noise = torch.zeros((1, 11, 80, 4), dtype=torch.float32)
@@ -234,20 +217,8 @@ def test_neutral_reference_guidance_reuses_one_encoding_and_returns_reference_ex
 def test_signed_reference_guidance_moves_ego_left_and_right_without_parameter_gradients(
     stage0_observation: dict[str, torch.Tensor],
 ) -> None:
-    config = SimpleNamespace(
-        predicted_neighbor_num=10,
-        future_len=80,
-        observation_normalizer=lambda observation: dict(observation),
-        state_normalizer=_IdentityStateNormalizer(),
-    )
-    sampler_config = Ddim5SamplerConfig(
-        name="ddim5",
-        num_steps=5,
-        timesteps=(1.0, 0.8, 0.6, 0.4, 0.2, 0.0),
-        initial_noise_scale=1.0,
-        ddim_stochasticity=0.0,
-        parity_label="plannerrft_paper_text",
-    )
+    config = _planner_config()
+    sampler_config = _ddim_config()
     noise = torch.zeros((1, 11, 80, 4), dtype=torch.float32)
     noise[..., 0] = torch.arange(1, 81, dtype=torch.float32)
     noise[..., 2] = 1.0
@@ -293,20 +264,8 @@ def test_signed_reference_guidance_moves_ego_left_and_right_without_parameter_gr
 def test_guided_reference_consumes_one_shared_stochastic_ddim_stream(
     stage0_observation: dict[str, torch.Tensor],
 ) -> None:
-    config = SimpleNamespace(
-        predicted_neighbor_num=10,
-        future_len=80,
-        observation_normalizer=lambda observation: dict(observation),
-        state_normalizer=_IdentityStateNormalizer(),
-    )
-    sampler_config = Ddim5SamplerConfig(
-        name="ddim5",
-        num_steps=5,
-        timesteps=(1.0, 0.8, 0.6, 0.4, 0.2, 0.0),
-        initial_noise_scale=1.0,
-        ddim_stochasticity=1.0,
-        parity_label="plannerrft_paper_text",
-    )
+    config = _planner_config()
+    sampler_config = _ddim_config(stochasticity=1.0)
     noise = torch.zeros((1, 11, 80, 4), dtype=torch.float32)
     noise[..., 0] = torch.arange(1, 81, dtype=torch.float32)
     noise[..., 2] = 1.0

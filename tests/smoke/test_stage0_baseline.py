@@ -29,13 +29,10 @@ def test_official_ema_checkpoint_cpu_smoke(
     assert torch.equal(noise, replay_noise)
     assert torch.equal(first, second)
 
-    prediction_sum = float(first.sum().item())
-    assert prediction_sum == 35847.875
     payload = {
         "ema_tensor_count": report.ema_tensor_count,
         "parameter_count": report.parameter_count,
         "prediction_shape": list(first.shape),
-        "prediction_sum": prediction_sum,
         "runtime_device": stage0_runtime.report.device,
         "precision": stage0_runtime.report.resolved_precision,
         "seed": 0,

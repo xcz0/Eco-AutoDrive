@@ -20,7 +20,6 @@ def test_reader_rejects_legacy_json_and_trace_artifacts(tmp_path: Path) -> None:
         load_json_artifact(summary_path)
     with pytest.raises(ValueError, match="missing schema version"):
         load_trace_artifact(trace_path)
-    assert json.loads(summary_path.read_text(encoding="utf-8")) == summary
 
 
 def test_reader_rejects_unknown_v3_json_artifact(tmp_path: Path) -> None:

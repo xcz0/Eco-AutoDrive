@@ -81,6 +81,18 @@ def test_trace_recorder_finalizes_stable_schema_once() -> None:
         recorder.finalize()
 
 
+def test_empty_trace_records_explicit_invalid_initial_states() -> None:
+    arrays = EpisodeTraceRecorder.empty().finalize("empty")
+
+    assert arrays["trace_status"].item() == "empty"
+    assert not arrays["warmup_initial_state_valid"].item()
+    assert not arrays["initial_state_valid"].item()
+    validate_trace_arrays(arrays, expected_trace_status="empty")
+
+    with pytest.raises(RuntimeError, match="complete trace"):
+        EpisodeTraceRecorder.empty().finalize("complete")
+
+
 def test_trace_recorder_rejects_misaligned_step_arrays() -> None:
     info = _step_info()
     info["trajectory_target_centers"] = np.zeros((4, 2))

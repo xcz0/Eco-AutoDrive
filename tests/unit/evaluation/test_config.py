@@ -82,3 +82,18 @@ def test_parse_evaluation_config_rejects_extra_fields() -> None:
 
     with pytest.raises(ValidationError, match="video.unexpected"):
         parse_evaluation_config(config)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda config: setattr(config.env, "horizon", 4), "env.horizon"),
+        (lambda config: delattr(config, "sampler"), "select sampler"),
+    ],
+)
+def test_parse_evaluation_config_rejects_cross_boundary_mismatch(mutate, message: str) -> None:
+    config = _config()
+    mutate(config)
+
+    with pytest.raises(ValueError, match=message):
+        parse_evaluation_config(config)
