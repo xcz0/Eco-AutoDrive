@@ -29,6 +29,8 @@ from eco_planner.models.runtime.validation import (
 from eco_planner.models.sampling.config import SamplerConfig
 from eco_planner.models.sampling.planner import PlanningSampler
 
+_FABRIC_FLOAT_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
+
 
 @dataclass
 class PlannerInferenceResult:
@@ -66,7 +68,13 @@ class DiffusionInferenceEngine:
         """Generate the reference trajectory and, when configured, a guided trajectory."""
 
         device = self.runtime_device
-        batch = validate_official_observation(observation, device, self._config)
+        batch = validate_official_observation(
+            observation,
+            device,
+            self._config,
+            allowed_float_dtypes=_FABRIC_FLOAT_DTYPES,
+            require_finite=False,
+        )
         participants = 1 + self._config.predicted_neighbor_num
         validate_standard_normal_noise(
             standard_normal_noise,
@@ -74,6 +82,8 @@ class DiffusionInferenceEngine:
             participants=participants,
             future_len=self._config.future_len,
             device=device,
+            allowed_float_dtypes=_FABRIC_FLOAT_DTYPES,
+            require_finite=False,
         )
         inputs = self._config.observation_normalizer(observation)
         encoding = self._model.encode(inputs)

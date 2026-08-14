@@ -11,11 +11,11 @@ from omegaconf import OmegaConf
 from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
 from eco_planner.envs.observation_adapter import TrafficObservationAudit
 from eco_planner.evaluation import episode
+from eco_planner.evaluation.inference import HostInferenceResult
 from eco_planner.evaluation.runtime import InferenceRuntimeReport
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
 from eco_planner.models.checkpoint import CheckpointLoadReport
 from eco_planner.models.guidance import NoGuidanceConfig
-from eco_planner.models.runtime import PlannerInferenceResult
 from eco_planner.models.sampling import SamplerReport
 
 
@@ -138,11 +138,14 @@ class FakeRuntime:
 
     def infer(
         self, observation: dict[str, torch.Tensor], generator: torch.Generator
-    ) -> tuple[dict[str, torch.Tensor], torch.Tensor, PlannerInferenceResult]:
+    ) -> HostInferenceResult:
         noise = torch.randn((1, 11, 80, 4), generator=generator)
         prediction = torch.zeros_like(noise)
         prediction[..., 2] = 1.0
-        return observation, noise, PlannerInferenceResult(prediction=prediction)
+        return HostInferenceResult(
+            initial_noise=noise.numpy(),
+            prediction=prediction.numpy(),
+        )
 
 
 @pytest.fixture
@@ -215,7 +218,9 @@ def matrix_trace_arrays() -> dict[str, np.ndarray]:
     trajectory[:, 2] = 1.0
     _, _, _, _, info = environment.step(trajectory)
     execution = TrajectoryExecutionRecord.from_info(info)
-    recorder = EpisodeTraceRecorder.from_initial_state(np.zeros(7))
+    recorder = EpisodeTraceRecorder.from_initial_state(
+        np.zeros(7), max_plan_cycles=1, max_warmup_steps=20, guided=False
+    )
     for _ in range(4):
         recorder.append_warmup(
             execution,
@@ -223,12 +228,11 @@ def matrix_trace_arrays() -> dict[str, np.ndarray]:
             np.zeros(execution.substep_states.shape[0], dtype=np.int64),
         )
     observation = FakeAdapter(None, 100.0).build(environment)
-    prediction = torch.zeros((1, 11, 80, 4), dtype=torch.float32)
+    prediction = np.zeros((1, 11, 80, 4), dtype=np.float32)
     recorder.append_cycle(
         np.zeros(7),
         observation,
-        torch.zeros_like(prediction),
-        PlannerInferenceResult(prediction=prediction),
+        HostInferenceResult(initial_noise=np.zeros_like(prediction), prediction=prediction),
         execution,
         0,
         TrafficObservationAudit(("participant-000000",), 1, 0, 1.0),

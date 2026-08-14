@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
 from torch import nn
 
 from eco_planner.evaluation import runtime
 from eco_planner.evaluation.config import RuntimeConfig
-from eco_planner.models.checkpoint import CheckpointLoadReport
+from eco_planner.models.checkpoint import (
+    CheckpointLoadReport,
+    OfficialDiffusionPlannerConfig,
+)
 from eco_planner.models.guidance import NoGuidanceConfig
 from eco_planner.models.runtime import PlannerInferenceResult
 from eco_planner.models.sampling import Dpm10SamplerConfig
@@ -91,9 +94,9 @@ def test_runtime_rejects_unsupported_explicit_bf16(monkeypatch: pytest.MonkeyPat
 
 
 class _TinyPlanner(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, config: OfficialDiffusionPlannerConfig) -> None:
         super().__init__()
-        self.config = SimpleNamespace(predicted_neighbor_num=1, future_len=2)
+        self.config = config
         self.register_parameter("anchor", nn.Parameter(torch.ones(()), requires_grad=False))
         self.eval()
 
@@ -103,15 +106,18 @@ class _TinyPlanner(nn.Module):
         noise: torch.Tensor,
         generator: torch.Generator,
     ) -> PlannerInferenceResult:
-        assert observation["value"].device == self.anchor.device
+        assert observation["ego_current_state"].device == self.anchor.device
         assert generator.device == self.anchor.device
         return PlannerInferenceResult(prediction=noise * self.anchor)
 
 
 def test_cpu_fabric_runtime_assembles_model_and_replays_noise(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    official_model_config: OfficialDiffusionPlannerConfig,
+    stage0_observation: dict[str, torch.Tensor],
 ) -> None:
-    planner = _TinyPlanner()
+    planner = _TinyPlanner(official_model_config)
     checkpoint_report = CheckpointLoadReport(276, 6_042_628)
     monkeypatch.setattr(
         runtime,
@@ -131,18 +137,14 @@ def test_cpu_fabric_runtime_assembles_model_and_replays_noise(
         tmp_path,
     )
     first_generator = fabric_runtime.new_noise_generator()
-    observation, first_noise, first_result = fabric_runtime.infer(
-        {"value": torch.ones(1)}, first_generator
-    )
+    first_result = fabric_runtime.infer(stage0_observation, first_generator)
     second_generator = fabric_runtime.new_noise_generator()
-    _, second_noise, second_result = fabric_runtime.infer(
-        {"value": torch.ones(1)}, second_generator
-    )
+    second_result = fabric_runtime.infer(stage0_observation, second_generator)
 
     assert fabric_runtime.device == torch.device("cpu")
     assert fabric_runtime.report.resolved_precision == "32-true"
     assert fabric_runtime.report.world_size == 1
-    assert observation["value"].device == fabric_runtime.device
-    assert first_result.prediction.dtype == torch.float32
-    assert torch.equal(first_noise, second_noise)
-    assert torch.equal(first_result.prediction, second_result.prediction)
+    assert first_result.prediction.dtype == np.float32
+    assert np.array_equal(first_result.initial_noise, second_result.initial_noise)
+    assert np.array_equal(first_result.prediction, second_result.prediction)
+    assert np.shares_memory(first_result.ego_trajectory, first_result.prediction)

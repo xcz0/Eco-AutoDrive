@@ -42,7 +42,7 @@ class RouteEncoder(nn.Module):
         encoded = self.token_pre_project(encoded).permute(0, 2, 1)
         encoded = torch.mean(self.Mixer(encoded), dim=1)
         encoded = self.emb_project(self.norm(encoded))
-        result = torch.zeros((batch, encoded.shape[-1]), device=value.device)
+        result = encoded.new_zeros((batch, encoded.shape[-1]))
         result[valid] = encoded
         return result
 

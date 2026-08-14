@@ -9,16 +9,14 @@ from time import perf_counter
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
-from eco_planner.evaluation.artifacts import (
-    write_json,
-    write_runtime_metadata,
-)
+from eco_planner.evaluation.artifact_writer import write_json
 from eco_planner.evaluation.config import EvaluationJobConfig
 from eco_planner.evaluation.episode import run_scenario
 from eco_planner.evaluation.execution import configure_job_execution
 from eco_planner.evaluation.runtime import (
     create_fabric_inference_runtime,
 )
+from eco_planner.evaluation.runtime_metadata import write_runtime_metadata
 from eco_planner.evaluation.schema import (
     ARTIFACT_SCHEMA_VERSION,
     JobSummary,

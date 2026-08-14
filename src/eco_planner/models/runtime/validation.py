@@ -34,6 +34,9 @@ def validate_official_observation(
     observation: Mapping[str, torch.Tensor],
     device: torch.device,
     config: OfficialDiffusionPlannerConfig,
+    *,
+    allowed_float_dtypes: tuple[torch.dtype, ...] = (torch.float32,),
+    require_finite: bool = True,
 ) -> int:
     required_shapes = observation_shapes(config)
     missing = sorted(set(required_shapes) - set(observation))
@@ -60,9 +63,12 @@ def validate_official_observation(
             if value.dtype != torch.bool:
                 raise TypeError("lanes_has_speed_limit must use torch.bool")
         else:
-            if value.dtype != torch.float32:
-                raise TypeError(f"observation field {name!r} must use torch.float32")
-            if not torch.isfinite(value).all():
+            if value.dtype not in allowed_float_dtypes:
+                expected = ", ".join(
+                    str(dtype).removeprefix("torch.") for dtype in allowed_float_dtypes
+                )
+                raise TypeError(f"observation field {name!r} must use one of: {expected}")
+            if require_finite and not torch.isfinite(value).all():
                 raise ValueError(f"observation field {name!r} must be finite")
     if batch is None:
         raise RuntimeError("official observation contract has no required fields")
@@ -76,15 +82,18 @@ def validate_standard_normal_noise(
     participants: int,
     future_len: int,
     device: torch.device,
+    allowed_float_dtypes: tuple[torch.dtype, ...] = (torch.float32,),
+    require_finite: bool = True,
 ) -> None:
     if not isinstance(noise, torch.Tensor):
         raise TypeError("standard_normal_noise must be a torch.Tensor")
-    if noise.dtype != torch.float32:
-        raise TypeError("standard_normal_noise must use torch.float32")
+    if noise.dtype not in allowed_float_dtypes:
+        expected = ", ".join(str(dtype).removeprefix("torch.") for dtype in allowed_float_dtypes)
+        raise TypeError(f"standard_normal_noise must use one of: {expected}")
     if noise.device != device:
         raise ValueError(f"standard_normal_noise must be on the runtime device {device}")
     expected_shape = (batch, participants, future_len, 4)
     if tuple(noise.shape) != expected_shape:
         raise ValueError(f"standard_normal_noise must have shape {expected_shape}")
-    if not torch.isfinite(noise).all():
+    if require_finite and not torch.isfinite(noise).all():
         raise ValueError("standard_normal_noise must be finite")

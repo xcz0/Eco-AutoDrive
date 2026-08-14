@@ -15,6 +15,11 @@ Hydra/OmegaConf 只存在于 CLI 配置边界。入口必须通过 `parse_evalua
 
 推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。`runtime.devices` 必须为 1，不得在同一评测作业内启动多进程闭环。
 
+raw observation 在 CPU 边界按 Artifact v3 的 shape、dtype 和有限性完整校验并原值写入 trace；
+Fabric 设备副本只供计算使用，可按 resolved mixed precision 转为 FP16/BF16。每个规划周期的初始噪声、
+prediction、reference 与 guidance diagnostics 在同一 stream 排队转回主机并只同步一次，统一转换为
+Artifact dtype 后检查有限性；ego 执行直接使用 host prediction 的 batch-zero ego 视图。
+
 跨评测作业的进程并行由 ADR 0012 定义。traffic matrix 默认使用两个 Joblib `loky` worker；
 每个进程仍保持一个 MetaDrive、一个 `devices=1` Fabric runtime 和一个 artifact writer。CPU
 显式验证线程预算；CUDA 只允许两个进程共享一张可见 GPU，并要求确定性配置和正式运行前显存
@@ -116,6 +121,9 @@ backend 选择和 backend 专属参数，规划器不得按具体 sampler 类型
 
 `runtime.seed` 必须传给 `Fabric.seed_everything`，并作为每回合噪声 generator 的 seed；地图 seed 仍由 scenario 独立指定。自动设备解析只允许 CPU 或 CUDA。`runtime.precision=auto` 在 CPU 上解析为 `32-true`，在 CUDA 上优先解析为 `bf16-mixed`，不支持 BF16 时解析为 `16-mixed`。实际设备和解析后精度必须写入产物；只有显式 `32-true` 可作为严格 FP32 数值基线。相同 seed 不保证跨设备或跨精度逐位一致。
 
+CUDA 评测设置 `torch.set_float32_matmul_precision("high")`；该选择只影响允许浮点差异的性能路径，
+不得改变终止原因、planning-cycle 数或 simulator-step 数。
+
 ## Reference planner 与正交 guidance
 
 默认 `guidance=none`，DPM-10 与无 guidance DDIM-5 保持独立入口。可选
@@ -178,6 +186,9 @@ MetaDrive `step` 返回的轨迹数组、交通快照和终止字段必须在环
 每个评测作业必须保存 resolved config、Hydra overrides、runtime Git metadata、tracked diff、地图/场景 seed、噪声 seed、Fabric 请求与解析后的 accelerator/precision、实际设备、依赖环境和场景特征。`tracked_diff.patch` 必须存在，但干净工作区时允许为空。
 
 每个回合至少保存 `summary.json` 和 `trace.npz`；开启视频时保存闭环 GIF。trace 必须包含 raw observation、初始噪声、完整联合预测、规划锚点、目标与实际状态、逐点误差、奖励、终止标志；交通回合还保存预热、对象 ID、交通数量、最近交通距离和历史有效性。
+
+trace recorder 必须在回合开始时按最大 planning/warmup 容量预分配 Artifact v3 数组并直接写入槽位；
+`finalize()` 只暴露已记录切片。`trace.npz` 使用标准未压缩 NPZ，以降低长程写盘墙钟。
 
 当前唯一支持的产物 schema version 为 3。job summary、episode summary 和 runtime metadata
 使用 `extra=forbid` 的严格 Pydantic 模型；读取器拒绝缺失、额外或类型错误字段。trace 显式保存

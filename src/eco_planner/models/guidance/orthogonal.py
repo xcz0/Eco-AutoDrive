@@ -165,13 +165,4 @@ class OrthogonalGuidance:
             if value.dtype != sample.dtype or value.device != sample.device:
                 raise ValueError(f"{name} must preserve sample dtype and device")
         validate_guidance_action(action, batch=batch, device=sample.device)
-        for name, value in (
-            ("sample", sample),
-            ("predicted_x_start", predicted_x_start),
-            ("reference_prediction", reference_prediction),
-            ("current_states", current_states),
-            ("guidance action", action),
-        ):
-            if not torch.isfinite(value).all():
-                raise ValueError(f"{name} must be finite")
         return batch, participants, future_len

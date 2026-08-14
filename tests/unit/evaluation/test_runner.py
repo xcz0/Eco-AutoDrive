@@ -5,12 +5,10 @@ import json
 import numpy as np
 import pytest
 
-from eco_planner.evaluation import (
-    EpisodeFailure,
-    parse_evaluation_config,
-    run_evaluation,
-    runner,
-)
+from eco_planner.evaluation import runner
+from eco_planner.evaluation.config import parse_evaluation_config
+from eco_planner.evaluation.failures import EpisodeFailure
+from eco_planner.evaluation.runner import run_evaluation
 
 
 def _patch_runtime(monkeypatch: pytest.MonkeyPatch, fake_runtime: object) -> None:

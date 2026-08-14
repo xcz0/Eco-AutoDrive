@@ -12,8 +12,14 @@ from eco_planner.envs import (
     TrajectoryExecutionRecord,
     TrajectoryMetaDriveEnv,
 )
-from eco_planner.evaluation.runtime import FabricInferenceRuntime
+from eco_planner.evaluation.config import RuntimeConfig
+from eco_planner.evaluation.runtime import (
+    FabricInferenceRuntime,
+    create_fabric_inference_runtime,
+)
 from eco_planner.models.checkpoint.config import OfficialDiffusionPlannerConfig
+from eco_planner.models.guidance import NoGuidanceConfig
+from eco_planner.models.sampling import Dpm10SamplerConfig
 
 
 class _LegacyPhysicsTrajectoryMetaDriveEnv(TrajectoryMetaDriveEnv):
@@ -406,16 +412,55 @@ def test_official_planner_executes_no_traffic_closed_loop_cycle(
     try:
         env.reset(seed=0)
         observation = adapter.build(env)
-        _, _, planner_result = stage0_runtime.infer(observation, generator)
+        planner_result = stage0_runtime.infer(observation, generator)
         prediction = planner_result.prediction
-        ego_trajectory = prediction[0, 0].detach().cpu().numpy().astype(np.float32)
+        ego_trajectory = planner_result.ego_trajectory
         _, _, terminated, truncated, info = env.step(ego_trajectory)
 
         assert prediction.shape == (1, 11, 80, 4)
-        assert torch.isfinite(prediction).all()
+        assert np.isfinite(prediction).all()
         assert info["trajectory_execution_steps"] >= 1
         assert info["trajectory_substep_states"].shape[1] == 7
         assert isinstance(terminated, bool)
         assert isinstance(truncated, bool)
+    finally:
+        env.close()
+
+
+@pytest.mark.gpu
+@pytest.mark.simulator
+@pytest.mark.slow
+def test_cuda_bf16_completes_traffic_warmup_and_first_inference(
+    stage0_checkpoint_dir,
+) -> None:
+    runtime = create_fabric_inference_runtime(
+        RuntimeConfig(accelerator="cuda", devices=1, precision="bf16-mixed", seed=0),
+        Dpm10SamplerConfig(),
+        NoGuidanceConfig(),
+        stage0_checkpoint_dir / "args.json",
+        stage0_checkpoint_dir / "model.pth",
+    )
+    env_config = _environment_config("SSSS")
+    env_config.update({"traffic_density": 0.05, "traffic_mode": "trigger"})
+    env = TrajectoryMetaDriveEnv(env_config)
+    adapter = MetaDriveObservationAdapter(runtime.planner_config, 100.0)
+    try:
+        env.reset(seed=0)
+        adapter.reset(env.initial_traffic_frame, env=env)
+        for _ in range(4):
+            _, _, terminated, truncated, info = env.step(_stationary_trajectory())
+            assert not terminated and not truncated
+            adapter.append_frames(TrajectoryExecutionRecord.from_info(info).traffic_frames)
+        observation = adapter.build(env)
+
+        result = runtime.infer(observation, runtime.new_noise_generator())
+
+        assert all(
+            value.dtype in {torch.float32, torch.bool} and value.device.type == "cpu"
+            for value in observation.values()
+        )
+        assert result.initial_noise.dtype == np.float32
+        assert result.prediction.dtype == np.float32
+        assert result.prediction.shape == (1, 11, 80, 4)
     finally:
         env.close()

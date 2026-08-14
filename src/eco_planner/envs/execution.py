@@ -101,7 +101,11 @@ def _traffic_frames(info: Mapping[str, Any]) -> tuple[TrafficFrame, ...]:
 
 def _finite_scalar(info: Mapping[str, Any], name: str) -> float:
     value = info.get(name)
-    if type(value) not in {int, float} or not np.isfinite(value):
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value, (int, float, np.integer, np.floating)
+    ):
+        raise TypeError(f"{name} must be finite and numeric")
+    if not np.isfinite(value):
         raise TypeError(f"{name} must be finite and numeric")
     return float(value)
 

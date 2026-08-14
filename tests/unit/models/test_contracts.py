@@ -64,6 +64,29 @@ def test_observation_contract_rejects_wrong_dtype(
         )
 
 
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_device_observation_contract_accepts_fabric_mixed_precision(
+    stage0_observation: dict[str, torch.Tensor],
+    official_model_config: OfficialDiffusionPlannerConfig,
+    dtype: torch.dtype,
+) -> None:
+    mixed = {
+        name: value if value.dtype == torch.bool else value.to(dtype=dtype)
+        for name, value in stage0_observation.items()
+    }
+
+    assert (
+        validate_official_observation(
+            mixed,
+            torch.device("cpu"),
+            official_model_config,
+            allowed_float_dtypes=(dtype,),
+            require_finite=False,
+        )
+        == 1
+    )
+
+
 def test_noise_contract_rejects_wrong_shape() -> None:
     noise = torch.zeros((1, 11, 79, 4))
     with pytest.raises(ValueError, match="shape"):
@@ -79,3 +102,18 @@ def test_noise_contract_rejects_nonfinite_value() -> None:
         validate_standard_normal_noise(
             noise, batch=1, participants=11, future_len=80, device=torch.device("cpu")
         )
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_device_noise_contract_accepts_fabric_mixed_precision(dtype: torch.dtype) -> None:
+    noise = torch.zeros((1, 11, 80, 4), dtype=dtype)
+
+    validate_standard_normal_noise(
+        noise,
+        batch=1,
+        participants=11,
+        future_len=80,
+        device=torch.device("cpu"),
+        allowed_float_dtypes=(dtype,),
+        require_finite=False,
+    )

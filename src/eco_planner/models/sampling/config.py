@@ -58,6 +58,31 @@ class SamplerReport:
     implementation: str
 
 
+def validate_sampler_config(config: SamplerConfig) -> None:
+    """Validate immutable sampler values once when constructing a runtime sampler."""
+
+    if isinstance(config, Dpm10SamplerConfig):
+        expected = Dpm10SamplerConfig()
+        if config != expected:
+            raise ValueError("dpm10 configuration must equal the fixed official profile")
+        return
+    if not isinstance(config, Ddim5SamplerConfig):
+        raise TypeError("sampler configuration has an unsupported type")
+    if config.num_steps != 5 or config.timesteps != DDIM5_TIMESTEPS:
+        raise ValueError("ddim5 configuration must use the fixed five-step timestep profile")
+    if not math.isfinite(config.initial_noise_scale) or not math.isfinite(
+        config.ddim_stochasticity
+    ):
+        raise ValueError("ddim5 numeric configuration must be finite")
+    if not 0.0 <= config.ddim_stochasticity <= 1.0:
+        raise ValueError("ddim5 stochasticity must be in [0, 1]")
+    expected_scale = _DDIM_PARITY_SCALES.get(config.parity_label)
+    if expected_scale is None or config.initial_noise_scale != expected_scale:
+        raise ValueError("ddim5 noise scale must agree with its parity label")
+    if config.implementation != "diffusers":
+        raise ValueError("ddim5 implementation must be 'diffusers'")
+
+
 def parse_sampler_config(config: DictConfig) -> SamplerConfig:
     """Parse one strict Hydra sampler mapping without hidden defaults."""
 

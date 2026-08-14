@@ -5,9 +5,8 @@ import pytest
 import torch
 
 from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
+from eco_planner.evaluation.inference import HostGuidanceDiagnostics, HostInferenceResult
 from eco_planner.evaluation.trace import EpisodeTraceRecorder, validate_trace_arrays
-from eco_planner.models.guidance import GuidanceDiagnostics
-from eco_planner.models.runtime import PlannerInferenceResult
 
 
 def _observation() -> dict[str, torch.Tensor]:
@@ -56,13 +55,14 @@ def _execution() -> TrajectoryExecutionRecord:
 
 
 def test_trace_recorder_finalizes_stable_schema_once() -> None:
-    recorder = EpisodeTraceRecorder.from_initial_state(np.zeros(7))
-    noise = torch.zeros((1, 11, 80, 4))
+    recorder = EpisodeTraceRecorder.from_initial_state(
+        np.zeros(7), max_plan_cycles=1, max_warmup_steps=0, guided=False
+    )
+    noise = np.zeros((1, 11, 80, 4), dtype=np.float32)
     recorder.append_cycle(
         np.zeros(7),
         _observation(),
-        noise,
-        PlannerInferenceResult(prediction=noise),
+        HostInferenceResult(initial_noise=noise, prediction=noise),
         _execution(),
         0,
         None,
@@ -101,6 +101,25 @@ def test_trace_recorder_rejects_misaligned_step_arrays() -> None:
         TrajectoryExecutionRecord.from_info(info)
 
 
+@pytest.mark.parametrize("value", [np.float32(0.5), np.float64(0.5), np.int64(1)])
+def test_execution_record_accepts_finite_numpy_route_completion(value: np.generic) -> None:
+    info = _step_info()
+    info["route_completion"] = value
+
+    execution = TrajectoryExecutionRecord.from_info(info)
+
+    assert execution.route_completion == pytest.approx(float(value))
+
+
+@pytest.mark.parametrize("value", [True, np.bool_(False), np.array(0.5), np.nan, np.inf])
+def test_execution_record_rejects_invalid_route_completion(value: object) -> None:
+    info = _step_info()
+    info["route_completion"] = value
+
+    with pytest.raises(TypeError, match="route_completion"):
+        TrajectoryExecutionRecord.from_info(info)
+
+
 def test_trace_validator_rejects_unexpected_arrays() -> None:
     arrays = EpisodeTraceRecorder.empty().finalize("empty")
     arrays["legacy_field"] = np.zeros(1)
@@ -109,33 +128,43 @@ def test_trace_validator_rejects_unexpected_arrays() -> None:
         validate_trace_arrays(arrays)
 
 
+def test_trace_validator_rejects_artifact_v3_dtype_change() -> None:
+    arrays = EpisodeTraceRecorder.empty().finalize("empty")
+    arrays["initial_noise"] = arrays["initial_noise"].astype(np.float64)
+
+    with pytest.raises(TypeError, match="initial_noise.*float32"):
+        validate_trace_arrays(arrays)
+
+
 def test_guided_trace_requires_and_persists_reference_action_targets_and_step_diagnostics() -> None:
-    recorder = EpisodeTraceRecorder.from_initial_state(np.zeros(7))
-    prediction = torch.zeros((1, 11, 80, 4))
-    reference = torch.ones_like(prediction)
-    steps = torch.arange(5, dtype=torch.float32)[None]
-    diagnostics = GuidanceDiagnostics(
-        lateral_target_offset_m=torch.tensor([2.5]),
-        longitudinal_target_speed_fraction=torch.tensor([0.0]),
-        longitudinal_target_speed_delta_mps=torch.zeros((1, 80)),
+    recorder = EpisodeTraceRecorder.from_initial_state(
+        np.zeros(7), max_plan_cycles=1, max_warmup_steps=0, guided=True
+    )
+    prediction = np.zeros((1, 11, 80, 4), dtype=np.float32)
+    reference = np.ones_like(prediction)
+    steps = np.arange(5, dtype=np.float32)[None]
+    diagnostics = HostGuidanceDiagnostics(
+        lateral_target_offset_m=np.array([2.5], dtype=np.float32),
+        longitudinal_target_speed_fraction=np.array([0.0], dtype=np.float32),
+        longitudinal_target_speed_delta_mps=np.zeros((1, 80), dtype=np.float32),
         lateral_objective_delta=steps,
         longitudinal_objective_delta=steps + 1.0,
         applied_gradient_l2=steps + 2.0,
         applied_gradient_max_abs=steps + 3.0,
         raw_neighbor_gradient_l2=steps + 4.0,
-        zero_speed_count=torch.arange(5, dtype=torch.int64)[None],
+        zero_speed_count=np.arange(5, dtype=np.int64)[None],
     )
-    result = PlannerInferenceResult(
+    result = HostInferenceResult(
+        initial_noise=np.zeros_like(prediction),
         prediction=prediction,
         reference_prediction=reference,
-        guidance_action=torch.tensor([[1.0, 0.0]]),
+        guidance_action=np.array([[1.0, 0.0]], dtype=np.float32),
         guidance_diagnostics=diagnostics,
     )
 
     recorder.append_cycle(
         np.zeros(7),
         _observation(),
-        torch.zeros_like(prediction),
         result,
         _execution(),
         0,
@@ -147,3 +176,50 @@ def test_guided_trace_requires_and_persists_reference_action_targets_and_step_di
     assert arrays["guidance_actions"].shape == (1, 2)
     assert arrays["guidance_lateral_objective_delta"].shape == (1, 5)
     assert arrays["guidance_zero_speed_count"].dtype.kind in "iu"
+
+
+def test_partial_trace_returns_only_recorded_warmup_steps() -> None:
+    recorder = EpisodeTraceRecorder.from_initial_state(
+        np.zeros(7), max_plan_cycles=2, max_warmup_steps=10, guided=False
+    )
+    recorder.append_warmup(
+        _execution(),
+        np.ones(5, dtype=np.int64),
+        np.zeros(5, dtype=np.int64),
+    )
+
+    arrays = recorder.finalize("partial")
+
+    assert arrays["warmup_states"].shape == (5, 7)
+    assert arrays["initial_noise"].shape == (0, 11, 80, 4)
+    assert arrays["executed_states"].shape == (0, 7)
+
+
+def test_trace_recorder_rejects_planning_capacity_overflow() -> None:
+    recorder = EpisodeTraceRecorder.from_initial_state(
+        np.zeros(7), max_plan_cycles=0, max_warmup_steps=0, guided=False
+    )
+    prediction = np.zeros((1, 11, 80, 4), dtype=np.float32)
+
+    with pytest.raises(RuntimeError, match="planning trace capacity"):
+        recorder.append_cycle(
+            np.zeros(7),
+            _observation(),
+            HostInferenceResult(initial_noise=prediction, prediction=prediction),
+            _execution(),
+            0,
+            None,
+        )
+
+
+def test_trace_recorder_rejects_warmup_capacity_overflow() -> None:
+    recorder = EpisodeTraceRecorder.from_initial_state(
+        np.zeros(7), max_plan_cycles=0, max_warmup_steps=4, guided=False
+    )
+
+    with pytest.raises(RuntimeError, match="warmup trace capacity"):
+        recorder.append_warmup(
+            _execution(),
+            np.ones(5, dtype=np.int64),
+            np.zeros(5, dtype=np.int64),
+        )

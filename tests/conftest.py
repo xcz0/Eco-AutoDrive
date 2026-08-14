@@ -86,6 +86,8 @@ def stage0_observation() -> dict[str, torch.Tensor]:
         "lanes_speed_limit": torch.zeros((1, 70, 1), dtype=torch.float32, device=device),
         "lanes_has_speed_limit": torch.zeros((1, 70, 1), dtype=torch.bool, device=device),
         "route_lanes": torch.zeros((1, 25, 20, 12), dtype=torch.float32, device=device),
+        "route_lanes_speed_limit": torch.zeros((1, 25, 1), dtype=torch.float32, device=device),
+        "route_lanes_has_speed_limit": torch.zeros((1, 25, 1), dtype=torch.bool, device=device),
     }
     observation["ego_current_state"][0] = torch.tensor(
         [0.0, 0.0, 1.0, 0.0, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0], device=device
@@ -108,6 +110,8 @@ def stage0_observation() -> dict[str, torch.Tensor]:
         lane[:, 8] = 1.0
     observation["lanes_speed_limit"][0, 0, 0] = 13.89
     observation["lanes_has_speed_limit"][0, 0, 0] = True
+    observation["route_lanes_speed_limit"][0, 0, 0] = 13.89
+    observation["route_lanes_has_speed_limit"][0, 0, 0] = True
     return observation
 
 

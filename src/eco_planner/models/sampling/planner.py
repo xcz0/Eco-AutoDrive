@@ -9,7 +9,11 @@ import torch
 
 from eco_planner.models.guidance.contracts import GuidanceGradientResult
 from eco_planner.models.sampling.backends.diffusers import DiffusersDdimSampler, DiffusersDpmSampler
-from eco_planner.models.sampling.config import Ddim5SamplerConfig, SamplerConfig
+from eco_planner.models.sampling.config import (
+    Ddim5SamplerConfig,
+    SamplerConfig,
+    validate_sampler_config,
+)
 from eco_planner.models.sampling.contracts import DdimGuidedSampleResult
 
 
@@ -24,6 +28,7 @@ class PlanningSampler:
     """Select and invoke one configured sampler without exposing its backend API."""
 
     def __init__(self, config: SamplerConfig) -> None:
+        validate_sampler_config(config)
         self.config = config
         self._sampler = self._new_implementation(config)
 

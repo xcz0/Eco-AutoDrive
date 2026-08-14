@@ -1,34 +1,17 @@
-"""Evaluation summary, metadata, and artifact persistence."""
+"""Artifact v3 episode summary construction."""
 
 from __future__ import annotations
 
-import json
-import platform
-import subprocess
-import sys
-from dataclasses import asdict
-from importlib.metadata import version
-from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
-from hydra.utils import to_absolute_path
-from metadrive.utils.doc_utils import generate_gif
-from pydantic import BaseModel
 
 from eco_planner.envs import TrajectoryExecutionRecord
-from eco_planner.evaluation.config import VideoConfig
-from eco_planner.evaluation.execution import ExecutionReport
-from eco_planner.evaluation.runtime import InferenceRuntimeReport
 from eco_planner.evaluation.schema import (
     ARTIFACT_SCHEMA_VERSION,
     CompletedEpisodeSummary,
     FailedEpisodeSummary,
-    RuntimeMetadata,
 )
-from eco_planner.models.guidance import GuidanceConfig
-from eco_planner.models.sampling import SamplerReport
 
 
 def build_failed_episode_summary(
@@ -90,8 +73,6 @@ def build_episode_summary(
     )
     distance_m = float(np.linalg.norm(np.diff(positions, axis=0), axis=1).sum())
     speeds = trace_arrays["executed_states"][:, 5]
-    position_errors = trace_arrays["trajectory_position_errors_m"]
-    heading_errors = trace_arrays["trajectory_heading_errors_rad"]
     warmup_states = trace_arrays["warmup_states"]
     warmup_displacement = (
         np.linalg.norm(
@@ -101,8 +82,9 @@ def build_episode_summary(
         else np.empty(0, dtype=np.float64)
     )
     traffic_counts = trace_arrays["traffic_participant_counts"]
-    traffic_has_nearest = trace_arrays["traffic_has_nearest"]
-    nearest_distances = trace_arrays["traffic_nearest_distance_m"][traffic_has_nearest]
+    nearest_distances = trace_arrays["traffic_nearest_distance_m"][
+        trace_arrays["traffic_has_nearest"]
+    ]
     return CompletedEpisodeSummary.model_validate(
         {
             "schema_version": ARTIFACT_SCHEMA_VERSION,
@@ -164,98 +146,11 @@ def build_episode_summary(
                 else None,
             },
             "trajectory_execution_error": {
-                "position_m": _error_summary(position_errors),
-                "heading_rad": _error_summary(heading_errors),
+                "position_m": _error_summary(trace_arrays["trajectory_position_errors_m"]),
+                "heading_rad": _error_summary(trace_arrays["trajectory_heading_errors_rad"]),
             },
         }
     )
-
-
-def write_episode_artifacts(
-    output_dir: Path,
-    trace_arrays: dict[str, np.ndarray],
-    frames: list[np.ndarray],
-    summary: CompletedEpisodeSummary | FailedEpisodeSummary,
-    video_config: VideoConfig,
-) -> None:
-    """Persist one finalized episode without recomputing trace arrays."""
-
-    output_dir.mkdir(parents=True, exist_ok=False)
-    np.savez_compressed(output_dir / "trace.npz", **trace_arrays)
-    write_json(output_dir / "summary.json", summary)
-    if video_config.enabled:
-        if summary.status == "completed" and not frames:
-            raise RuntimeError("video output was enabled but no frames were rendered")
-        if frames:
-            duration_ms = round(1000 / video_config.fps)
-            generate_gif(frames, str(output_dir / "closed_loop.gif"), duration=duration_ms)
-
-
-def write_runtime_metadata(
-    output_dir: Path,
-    runtime_report: InferenceRuntimeReport,
-    sampler_report: SamplerReport,
-    guidance_config: GuidanceConfig,
-    execution_report: ExecutionReport,
-    elapsed_seconds: float,
-) -> None:
-    """Write reproducibility metadata and the possibly empty tracked diff."""
-
-    repository_root = Path(to_absolute_path("."))
-    metadata = RuntimeMetadata.model_validate(
-        {
-            "schema_version": ARTIFACT_SCHEMA_VERSION,
-            "git_head": _git_output(repository_root, "rev-parse", "HEAD").strip(),
-            "git_status_short": tuple(
-                _git_output(repository_root, "status", "--short").splitlines()
-            ),
-            "platform": platform.platform(),
-            "python": sys.version,
-            "torch": torch.__version__,
-            "lightning": version("lightning"),
-            "metadrive": version("metadrive-simulator"),
-            "pydantic": version("pydantic"),
-            "inference_runtime": asdict(runtime_report),
-            "sampler": asdict(sampler_report),
-            "guidance": asdict(guidance_config),
-            "execution": asdict(execution_report),
-            "elapsed_seconds": elapsed_seconds,
-            "cuda_memory": _cuda_memory_report(runtime_report),
-        }
-    )
-    write_json(output_dir / "runtime_metadata.json", metadata)
-    (output_dir / "tracked_diff.patch").write_text(
-        _git_output(repository_root, "diff", "--binary", "--no-ext-diff"), encoding="utf-8"
-    )
-
-
-def _cuda_memory_report(runtime_report: InferenceRuntimeReport) -> dict[str, int] | None:
-    if runtime_report.resolved_accelerator != "cuda":
-        return None
-    return {
-        "peak_allocated_bytes": int(torch.cuda.max_memory_allocated()),
-        "peak_reserved_bytes": int(torch.cuda.max_memory_reserved()),
-    }
-
-
-def write_json(path: Path, payload: Any) -> None:
-    if isinstance(payload, BaseModel):
-        payload = payload.model_dump(mode="json")
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
-    )
-
-
-def _git_output(repository_root: Path, *arguments: str) -> str:
-    result = subprocess.run(
-        ["git", *arguments],
-        cwd=repository_root,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    return result.stdout
 
 
 def _terminal_reason(
