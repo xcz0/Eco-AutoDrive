@@ -1,6 +1,6 @@
 # Eco-AutoDrive
 
-Eco-AutoDrive 研究如何在预训练 Diffusion Planner 中加入道路预瞄信息，并在 MetaDrive 闭环中分析和优化能耗表现。
+Eco-AutoDrive 研究如何通过强化学习微调预训练 Diffusion Planner 优化能耗表现，在 MetaDrive 闭环中训练和分析。
 
 ## 环境准备
 
@@ -76,7 +76,7 @@ traffic matrix 默认使用两个 Joblib `loky` 进程；可用 `-ExecutionMode 
 
 推理使用单设备 Lightning Fabric。默认 `-Accelerator auto -Precision auto`：CUDA 上优先 BF16 mixed precision，不支持 BF16 时使用 FP16；CPU 使用 FP32。严格复现 FP32 数值基线时传入 `-Precision 32-true`。
 
-具体 horizon、warmup、Artifact、终止类型、实验元数据和其他执行契约以 [system-contract.md](docs/agents/system-contract.md) 与 [docs/experiments/README.md](docs/experiments/README.md) 为准。
+具体 horizon、warmup、产物字段与数组契约、终止类型、实验元数据和其他执行契约以 [system-contract.md](docs/agents/system-contract.md) 与 [docs/experiments/README.md](docs/experiments/README.md) 为准。
 
 ## PPO smoke training
 
@@ -86,35 +86,34 @@ traffic matrix 默认使用两个 Joblib `loky` 进程；可用 `-ExecutionMode 
 .venv\Scripts\python.exe scripts\train.py runtime.seed=0 training.replay_id=0
 ```
 
-`metadrive_builtin_v1` 只验证闭环 PPO 数据流，不是 PlannerRFT parity 或能耗 reward。训练产物使用
-独立 Training Artifact v1；训练状态 checkpoint 可用于从已完成 update 恢复，规模化和 learned-policy evaluation 不属于该入口。
+`metadrive_builtin_v1` 只验证闭环 PPO 数据流，不是 PlannerRFT parity 或能耗 reward。RL 训练产物与 evaluation 产物使用各自的数据边界和写出路径。训练状态 checkpoint 可用于从已完成 update 恢复；规模化和 learned-policy evaluation 不属于该入口。
 
 ### 评测代码接口
 
 `scripts/evaluate.py` 是 Hydra 配置入口，先调用
-`eco_planner.evaluation.parse_evaluation_config`，得到不可变的
-字段冻结的 `EvaluationJobConfig`，再传给 `run_evaluation(config, output_dir)`。核心评测代码不接收
+`eco_planner.evaluation.parse_evaluation_config`，得到不可变的、字段冻结的
+`EvaluationJobConfig`，再传给 `run_evaluation(config, output_dir)`。核心评测代码不接收
 `DictConfig`，配置字段缺失、类型错误或互相矛盾时由 Pydantic 在入口一次性拒绝。
 
 环境每次执行轨迹后返回的动态 `info`，必须立即通过
 `TrajectoryExecutionRecord.from_info(info)` 转成已校验的执行记录；evaluation 层不直接读取
-MetaDrive 字典字段。对外产物只支持 Artifact v3：JSON 使用严格 Pydantic schema，NPZ 使用
-`validate_trace_arrays` 的显式数组 schema。`load_json_artifact` 和 `load_trace_artifact` 不读取
-v1/v2 产物，也不提供兼容或迁移层。
+MetaDrive 字典字段。
+
+评测 JSON 产物使用严格 Pydantic 模型；NPZ trace 使用 `validate_trace_arrays` 定义的显式数组契约。JSON 加载时检查当前模型要求的字段和类型，NPZ 加载时检查完整字段集合、数组类型、shape、dtype、有限性以及已实现的跨字段/跨数组不变量。产物契约本身不使用 `schema_version` 进行格式选择。
 
 ## 文档导航
 
-| 文件 | 内容 |
-| --- | --- |
-| [CONTEXT.md](CONTEXT.md) | 领域语言和规范术语 |
-| [system-contract.md](docs/agents/system-contract.md) | 当前已实现系统的数据与执行契约 |
-| [docs/adr/](docs/adr/) | 重要设计与实验方法决定 |
-| [GitHub Issues](https://github.com/xcz0/Eco-AutoDrive/issues) | active work |
-| [research/README.md](docs/research/README.md) | 未决假设、候选方法和开放问题 |
-| [docs/experiments/README.md](docs/experiments/README.md) | 实际评测配置、结果和产物索引 |
-| [AGENTS.md](AGENTS.md) | 编码智能体工作规则与验证要求 |
+| 文件                                                            | 内容              |
+| ------------------------------------------------------------- | --------------- |
+| [CONTEXT.md](CONTEXT.md)                                      | 领域语言和规范术语       |
+| [system-contract.md](docs/agents/system-contract.md)          | 当前已实现系统的数据与执行契约 |
+| [docs/adr/](docs/adr/)                                        | 重要设计与实验方法决定     |
+| [GitHub Issues](https://github.com/xcz0/Eco-AutoDrive/issues) | active work     |
+| [research/README.md](docs/research/README.md)                 | 未决假设、候选方法和开放问题  |
+| [docs/experiments/README.md](docs/experiments/README.md)      | 实际评测配置、结果和产物索引  |
+| [AGENTS.md](AGENTS.md)                                        | 编码智能体工作规则与验证要求  |
 
 ## 主要参考
 
-- [Diffusion Planner](https://github.com/ZhengYinan-AIR/Diffusion-Planner)：基础框架与初始权重
-- [MetaDrive](https://github.com/metadriverse/metadrive)：闭环仿真环境
+* [Diffusion Planner](https://github.com/ZhengYinan-AIR/Diffusion-Planner)：基础框架与初始权重
+* [MetaDrive](https://github.com/metadriverse/metadrive)：闭环仿真环境

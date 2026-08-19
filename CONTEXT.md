@@ -6,7 +6,7 @@
 
 **规划周期（planning cycle）**：规划器基于当前观测生成一次联合未来预测，并由闭环执行其中一段后再次规划的高层决策单位。
 
-**rollout transition（rollout 转移）**：PPO-only Stage 4 中以 10 Hz 定义的一个高层 MDP 转移：在当前状态生成 reference、抽样一个 guidance action、执行预测轨迹第一个 0.1 s 点并记录 reward、done 与可重放随机状态。它不同于现有 0.5 s evaluation planning cycle。
+**rollout transition（rollout 转移）**：policy-guided rollout 中以 10 Hz 定义的一个高层 MDP 转移：在当前状态生成 reference、抽样一个 guidance action、执行预测轨迹第一个 0.1 s 点并记录 reward、done 与可重放随机状态。它不同于现有 0.5 s evaluation planning cycle。
 
 **bootstrap mask（bootstrap 掩码）**：transition 是否可以将最终状态 value 用于 TD target 的显式 bool。它严格等于 `not terminated`；纯 time-limit truncation 可 bootstrap，但 GAE 递归仍在任意 terminated 或 truncated 边界停止。
 
@@ -25,8 +25,8 @@
 **policy action seed（策略动作 seed）**：只决定 Exploration Policy 的 Beta base action 抽样序列。
 它与地图 seed、扩散噪声 seed 和 PyTorch 全局 RNG 分离；相同 seed 在相同设备和策略参数下应可重放。
 
-**base action（基础动作）**：Exploration Policy 从两个独立 Beta distributions 抽取并供未来 PPO
-rollout 保存的 `u in (0,1)^2`。它不等于 DDIM transition，也不包含候选选择概率。
+**base action（基础动作）**：Exploration Policy 从两个独立 Beta distributions 抽取并由 rollout
+保存的 `u in (0,1)^2`。它不等于 DDIM transition，也不包含候选选择概率。
 
 **guidance action（引导动作）**：由 `2u-1` 得到的横向、纵向 scale，严格位于 `(-1,1)^2`。
 该仿射映射及其概率记账是本项目复现决定；边界值不得用 clamp 伪造为有效策略动作。
