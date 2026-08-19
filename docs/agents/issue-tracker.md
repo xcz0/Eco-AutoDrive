@@ -1,32 +1,36 @@
 # Issue tracker: GitHub
 
-Issues and specs for this repo live as GitHub issues. Use the authenticated local `gh` CLI for issue operations.
+GitHub Issues are the canonical tracker for active work and repository specifications. This file defines issue-tracker workflow only; general repository rules belong in `AGENTS.md`.
 
-## Codex sandbox access
+## Access
 
-Before running any `gh` command, Codex must send the user a sandbox approval request and run the command outside the sandbox. The sandbox identity cannot read the user's Windows credential manager and can otherwise report a misleading HTTP 401.
+Use the authenticated local `gh` CLI for issue operations.
 
-Never copy a token into repository files or diagnostic output, and do not use `gh auth status --show-token`. Only request re-authentication if an outside-sandbox `gh auth status --hostname github.com` also fails.
+When Codex runs `gh`, request sandbox approval and execute the command outside the sandbox. The sandbox identity cannot read the user's Windows credential manager and may otherwise report a misleading HTTP 401.
 
-## Conventions
+Never copy a token into repository files or diagnostic output, and do not use `gh auth status --show-token`. Only request re-authentication if an outside-sandbox
+
+```text
+gh auth status --hostname github.com
+```
+
+also fails.
+
+Infer the repository from `git remote -v`; `gh` resolves it automatically when run inside the clone.
+
+## Issue operations
 
 - **Create**: `gh issue create --title "..." --body-file <path>`.
-- **Read**: `gh issue view <number> --comments` and include labels in structured reads.
-- **List**: `gh issue list --state open --json number,title,body,labels,comments` with the required `--label` and `--state` filters.
+- **Read**: `gh issue view <number> --comments`; include labels when a structured read is needed.
+- **List**: `gh issue list --state open --json number,title,body,labels,comments` with the   required `--label` and `--state` filters.
 - **Comment**: `gh issue comment <number> --body-file <path>`.
-- **Apply / remove labels**: `gh issue edit <number> --add-label "..."` or `--remove-label "..."`.
+- **Apply / remove labels**: `gh issue edit <number> --add-label "..."` or   `--remove-label "..."`.
 - **Close**: `gh issue close <number> --comment "..."`.
 
-Infer the repository from `git remote -v`; `gh` does this automatically inside the clone.
+## Workflow conventions
 
-## Pull requests as a triage surface
+When a skill says **"publish to the issue tracker"**, create a GitHub issue.
 
-**PRs as a request surface: no.**
+When a skill says **"fetch the relevant ticket"**, read the corresponding GitHub issue, including comments and labels.
 
-## When a skill says "publish to the issue tracker"
-
-Create a GitHub issue.
-
-## When a skill says "fetch the relevant ticket"
-
-Run `gh issue view <number> --comments` and include its labels.
+Pull requests are not the repository's request or specification surface. A pull request may reference an issue, but it does not replace the issue as the tracker entry for active work.

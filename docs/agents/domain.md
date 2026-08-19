@@ -1,33 +1,30 @@
-# Domain Docs
+# Domain vocabulary
 
-How the engineering skills should consume this repo's domain documentation when exploring the codebase.
+This file defines how agent skills should consume stable domain and repository vocabulary. It is intentionally narrower than `AGENTS.md` and does not repeat general repository, implementation, validation, or Git workflow rules.
 
-## Before exploring, read these
+## Authoritative vocabulary
 
-- **`CONTEXT.md`** at the repo root.
-- **`docs/adr/`** — read ADRs that touch the area you're about to work in.
+- `CONTEXT.md` is the canonical glossary for project domain concepts.
+- `docs/agents/system-contract.md` defines stable data-flow, execution, timing, shape, unit, and runtime-semantics contracts.
+- `docs/adr/` records long-lived design decisions and their rationale.
 
-If these files don't exist, **proceed silently**. Don't flag their absence or suggest creating them upfront. Domain-modeling skills create them lazily when terms or decisions are resolved.
+Use the exact terms defined by these sources when naming domain concepts in issues, implementation plans, tests, experiments, or documentation.
 
-## File structure
+## Vocabulary rules
 
-This repository uses a single-context layout:
+Do not silently replace a defined term with a near-synonym that changes its meaning.
 
-```text
-/
-├── CONTEXT.md
-├── docs/adr/
-│   ├── 0001-example-decision.md
-│   └── 0002-another-decision.md
-└── src/
-```
+If a concept needed by the work is not defined in `CONTEXT.md`, do not invent a permanent repository definition here. Note the vocabulary gap so it can be resolved in the authoritative glossary when necessary.
 
-## Use the glossary's vocabulary
+Experiment IDs, issue-specific labels, temporary stage names, and historical artifact-format labels are not stable domain vocabulary unless an authoritative source explicitly defines them as such.
 
-When output names a domain concept—such as in an issue title, refactor proposal, hypothesis, or test name—use the term defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids.
+If proposed terminology or behavior conflicts with an existing ADR, surface the conflict explicitly rather than silently redefining the concept.
 
-If a needed concept isn't in the glossary, reconsider whether the language belongs to the project or note the gap for domain modeling.
+## Boundaries
 
-## Flag ADR conflicts
+This file is only a vocabulary-routing document.
 
-If output contradicts an existing ADR, surface the conflict explicitly rather than silently overriding it.
+- General repository rules belong in `AGENTS.md`.
+- GitHub issue workflow belongs in `docs/agents/issue-tracker.md`.
+- Active research questions belong in `docs/research/`.
+- Experiment provenance and run-specific terminology belong in `docs/experiments/`.
