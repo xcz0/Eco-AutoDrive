@@ -1,0 +1,22 @@
+tests/unit/evaluation/test_comparison.py
+  s_dd2daa4b09a11d::t_d184d39cd44fc1 80
+tests/unit/evaluation/test_artifact_reader.py
+  s_dd2daa4b09a11d::t_f7ad73d3cb601b 22
+  s_dd2daa4b09a11d::t_1316e9e96a337d 20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "d139f8fda9a341ecc1de718a87d3a901db78c8cb",
+  "prompts": {},
+  "sessions": {
+    "s_dd2daa4b09a11d": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fe723131affeZXLWsF34llOczi",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
