@@ -1,6 +1,18 @@
 # Eco-AutoDrive
 
-Eco-AutoDrive 研究如何通过强化学习微调预训练 Diffusion Planner 优化能耗表现，在 MetaDrive 闭环中训练和分析。
+Eco-AutoDrive 研究如何在 MetaDrive 闭环中利用预训练 Diffusion Planner，并进一步探索通过 guidance、强化学习和道路预瞄信息改善能耗表现。
+
+## 当前定位
+
+仓库当前已经包含：
+
+- 冻结官方 EMA Diffusion Planner 的 MetaDrive 闭环评测；
+- 无交通和有交通 observation / execution 路径；
+- DPM-10 baseline、DDIM-5 变体和 reference-centered orthogonal guidance；
+- Exploration Policy、policy-guided rollout、GAE/PPO update 与 closed-loop smoke training；
+- 严格的 evaluation / RL 产物契约和实验记录体系。
+
+这些能力不等于最终研究结论。道路预瞄应如何表示、是否最终采用 PPO、最终能耗 reward/指标以及精细车辆能耗模型仍属于研究问题，见 [docs/research/README.md](docs/research/README.md)。当前轨迹按运动学方式直接执行，也不代表低层 steering/throttle/brake 的动力学可执行性。
 
 ## 环境准备
 
@@ -15,19 +27,17 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-编码智能体的沙箱执行约定见 [AGENTS.md](AGENTS.md)。
+编码智能体使用已准备好的 `.venv`，其读取顺序、实现约束和验证命令见 [AGENTS.md](AGENTS.md)。
 
 ## 闭环评测
 
-无交通：
+最常用的 smoke 入口：
 
 ```powershell
+# 无交通
 .\scripts\run_evaluation.ps1 -Mode no-traffic -Profile smoke
-```
 
-有交通：
-
-```powershell
+# 有交通
 .\scripts\run_evaluation.ps1 -Mode traffic -Profile smoke
 ```
 
@@ -49,11 +59,11 @@ uv run ruff format --check .
   -Guidance orthogonal_reference -LateralScale 1 -LongitudinalScale 0
 ```
 
-scale 必须位于 `[-1,1]`；`(0,0)` 精确退化为同次 unguided reference。reference-centered energy、10 Hz 速度差分、单位梯度系数和 ego-only gradient scope 属于项目复现决定，详见 ADR 0013；guidance 不做中心线投影、平滑、裁剪或失败回退。
+scale 必须位于 `[-1,1]`；`(0,0)` 精确退化为同次 unguided reference。reference-centered energy、10 Hz 速度差分、单位梯度系数和 ego-only gradient scope 属于项目复现决定；guidance 不做中心线投影、平滑、裁剪或失败回退。完整数学与随机性契约见 [system-contract.md](docs/agents/system-contract.md) 和相关 ADR。
 
 ## 评测预设
 
-`scripts/run_evaluation.ps1` 编排已有 Hydra 配置，默认关闭视频；使用 `-Video` 生成 GIF。所有运行结果写入 `outputs/` 下的独立目录。
+`scripts/run_evaluation.ps1` 编排已有 Hydra 配置，默认关闭视频；使用 `-Video` 生成 GIF。每次运行写入 `outputs/` 下的独立目录。
 
 常用示例：
 
@@ -72,48 +82,40 @@ scale 必须位于 `[-1,1]`；`(0,0)` 精确退化为同次 unguided reference�
   -RuntimeSeeds 0,1,2 -TrafficDensities 0.05,0.10
 ```
 
-traffic matrix 默认使用两个 Joblib `loky` 进程；可用 `-ExecutionMode serial` 进行串行对照。CUDA 运行需显式传入 `-Extra cuda -Accelerator cuda`，CPU 对照使用 `-Extra cpu -Accelerator cpu`。多 GPU 分配不属于该入口。
+traffic matrix 默认使用两个 Joblib `loky` 进程；可用 `-ExecutionMode serial` 进行串行对照。CUDA 运行需显式传入 `-Extra cuda -Accelerator cuda`，CPU 对照使用 `-Extra cpu -Accelerator cpu`。多 GPU 调度不属于该入口。
 
 推理使用单设备 Lightning Fabric。默认 `-Accelerator auto -Precision auto`：CUDA 上优先 BF16 mixed precision，不支持 BF16 时使用 FP16；CPU 使用 FP32。严格复现 FP32 数值基线时传入 `-Precision 32-true`。
 
-具体 horizon、warmup、产物字段与数组契约、终止类型、实验元数据和其他执行契约以 [system-contract.md](docs/agents/system-contract.md) 与 [docs/experiments/README.md](docs/experiments/README.md) 为准。
+具体 horizon、warmup、产物字段与数组契约、终止类型以及其他运行不变量以 [system-contract.md](docs/agents/system-contract.md) 为准。
 
-## PPO smoke training
+## PPO closed-loop smoke training
 
-小规模训练 profile 使用 CUDA BF16、无交通 `S`/`SC` 和 `2 x 16 x 4` 参数：
+当前 smoke profile 主要用于验证 Exploration Policy → rollout → GAE/PPO → checkpoint 的闭环数据流：
 
 ```powershell
 .venv\Scripts\python.exe scripts\train.py runtime.seed=0 training.replay_id=0
 ```
 
-`metadrive_builtin_v1` 只验证闭环 PPO 数据流，不是 PlannerRFT parity 或能耗 reward。RL 训练产物与 evaluation 产物使用各自的数据边界和写出路径。训练状态 checkpoint 可用于从已完成 update 恢复；规模化和 learned-policy evaluation 不属于该入口。
+现有 `metadrive_builtin_v1` reward 只用于训练链路验证，不是 PlannerRFT parity，也不是最终能耗 reward。规模化训练、learned-policy evaluation 和最终 energy-oriented objective 仍需按研究问题和 GitHub Issues 推进。
 
-### 评测代码接口
+## 结果与实验记录
 
-`scripts/evaluate.py` 是 Hydra 配置入口，先调用
-`eco_planner.evaluation.parse_evaluation_config`，得到不可变的、字段冻结的
-`EvaluationJobConfig`，再传给 `run_evaluation(config, output_dir)`。核心评测代码不接收
-`DictConfig`，配置字段缺失、类型错误或互相矛盾时由 Pydantic 在入口一次性拒绝。
-
-环境每次执行轨迹后返回的动态 `info`，必须立即通过
-`TrajectoryExecutionRecord.from_info(info)` 转成已校验的执行记录；evaluation 层不直接读取
-MetaDrive 字典字段。
-
-评测 JSON 产物使用严格 Pydantic 模型；NPZ trace 使用 `validate_trace_arrays` 定义的显式数组契约。JSON 加载时检查当前模型要求的字段和类型，NPZ 加载时检查完整字段集合、数组类型、shape、dtype、有限性以及已实现的跨字段/跨数组不变量。产物契约本身不使用 `schema_version` 进行格式选择。
+运行产物保存在被 Git 忽略的 `outputs/`。用于研究结论的运行应在 `docs/experiments/records/` 中登记，并更新 [实验索引](docs/experiments/README.md)；记录实际 commit/diff、resolved config、Hydra overrides、seed、环境、结果和产物位置。未运行的计划不要写成实验结果。
 
 ## 文档导航
 
-| 文件                                                            | 内容              |
-| ------------------------------------------------------------- | --------------- |
-| [CONTEXT.md](CONTEXT.md)                                      | 领域语言和规范术语       |
-| [system-contract.md](docs/agents/system-contract.md)          | 当前已实现系统的数据与执行契约 |
-| [docs/adr/](docs/adr/)                                        | 重要设计与实验方法决定     |
-| [GitHub Issues](https://github.com/xcz0/Eco-AutoDrive/issues) | active work     |
-| [research/README.md](docs/research/README.md)                 | 未决假设、候选方法和开放问题  |
-| [docs/experiments/README.md](docs/experiments/README.md)      | 实际评测配置、结果和产物索引  |
-| [AGENTS.md](AGENTS.md)                                        | 编码智能体工作规则与验证要求  |
+| 文件 | 职责 |
+| --- | --- |
+| [AGENTS.md](AGENTS.md) | 编码智能体的读取、实现、验证和写回规则 |
+| [docs/agents/domain.md](docs/agents/domain.md) | 高风险领域语义区分与术语使用规则 |
+| [CONTEXT.md](CONTEXT.md) | 领域术语的完整规范定义 |
+| [docs/agents/system-contract.md](docs/agents/system-contract.md) | 当前已实现系统的数据与执行契约 |
+| [docs/adr/](docs/adr/) | 已接受的重要设计选择及理由 |
+| [GitHub Issues](https://github.com/xcz0/Eco-AutoDrive/issues) | active implementation work 与验收标准 |
+| [docs/research/README.md](docs/research/README.md) | 未决假设、候选方法和开放问题 |
+| [docs/experiments/README.md](docs/experiments/README.md) | 实际运行的配置、结果、结论边界和产物索引 |
 
 ## 主要参考
 
-* [Diffusion Planner](https://github.com/ZhengYinan-AIR/Diffusion-Planner)：基础框架与初始权重
-* [MetaDrive](https://github.com/metadriverse/metadrive)：闭环仿真环境
+- [Diffusion Planner](https://github.com/ZhengYinan-AIR/Diffusion-Planner)：基础框架与初始权重
+- [MetaDrive](https://github.com/metadriverse/metadrive)：闭环仿真环境

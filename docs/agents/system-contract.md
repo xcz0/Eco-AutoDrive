@@ -2,6 +2,36 @@
 
 本文是当前已实现系统行为的规范性 reference。它规定 evaluation 以及 policy-guided rollout、GAE、PPO training 的数据和执行契约；不规定低层控制器或最终能耗模型。
 
+## 使用与维护
+
+本文件只描述**已经实现并应由当前代码遵守的持久系统契约**，不是 roadmap、研究计划或实验日志。
+
+使用时按任务读取相关章节，不要因为文件是权威 reference 就默认把全文载入上下文。若任务只涉及 sampler，就读取扩散/guidance 章节；若只涉及 PPO，就读取 Exploration Policy、rollout 和 GAE/PPO 章节。跨模块行为变化时再扩大读取范围。
+
+当前实现事实最终仍由代码、测试和机器可读配置体现。若它们与本文件冲突，先明确指出差异；若本次修改改变了持久的数据或执行语义，同步修正本文件，而不是保留两套解释。
+
+以下内容不要写入本文件：
+
+- 尚未确定的方法或目标 → `docs/research/`；
+- 设计为什么这样选择 → `docs/adr/`；
+- 某次实际运行的配置、结果和 provenance → `docs/experiments/`；
+- 尚未完成的实现任务和验收标准 → GitHub Issues。
+
+不要为了兼容历史 artifact 或旧实现而记录不存在于当前代码中的行为。历史事实需要保留时，放入对应实验记录或 ADR。
+
+## 导航
+
+- **系统边界**：evaluation runtime、配置边界、设备与并行模型。
+- **Checkpoint 与模型输入**：官方权重加载、observation 字段、shape 和 padding。
+- **坐标、时间与单位**：局部坐标、采样频率、execution horizon 和单位转换。
+- **地图与限速 / 交通观测**：MetaDrive map/traffic adapter 契约。
+- **扩散与随机性**：DPM/DDIM、scheduler、seed、precision 与随机流。
+- **Reference planner 与正交 guidance**：固定 reference guidance 的数学和审计边界。
+- **Exploration Policy / Policy-guided rollout / GAE、PPO 与训练**：learned guidance 与 RL 数据流。
+- **轨迹执行**：运动学执行边界与 `TrajectoryExecutionRecord`。
+- **能耗记录**：指标隔离和结论限制。
+- **评测与产物**：JSON/NPZ、failure、trace 和 matrix 汇总契约。
+
 ## 系统边界
 
 当前闭环链路为：MetaDrive 状态构造成官方格式 raw observation，冻结的官方 EMA Diffusion Planner 生成 8 s 联合轨迹，环境执行 ego 轨迹前 0.5 s，然后从实际仿真状态重新规划。
