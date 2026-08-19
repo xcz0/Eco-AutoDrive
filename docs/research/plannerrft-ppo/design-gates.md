@@ -1,78 +1,161 @@
-# PlannerRFT PPO-only 契约与待决问题
+# PlannerRFT PPO-only Design Gates
 
 ## 目的
 
-下表把会改变数据流、训练语义或结论口径的问题列为 gate。gate 关闭前可以做只读研究或隔离的
-数学原型，但不能把对应阶段转成实现 Issue。决定若改变长期系统边界，应写 ADR；实现后再同步
-system contract。
+本文件只维护仍会影响研究结论、实验设计或后续架构选择的开放问题。
 
-## Gate 清单
+已经关闭的 gate 不再复制当前实现细节。其长期决定由 ADR 保存，当前实现行为由
+[`system-contract.md`](../../agents/system-contract.md) 保存。
 
-| ID | 问题 | 当前证据/约束 | 候选选择 | 关闭 gate 所需产物 |
-| --- | --- | --- | --- | --- |
-| G-01 | 一个 PPO MDP step 多长？ | **已关闭**：Stage 4 rollout 每次执行 `1 x 0.1 s` 并重规划；既有 evaluation 继续执行 `5 x 0.1 s` | 见 ADR 0017 | Issue #18；single-substep simulator、时间轴和 evaluation 隔离测试 |
-| G-02 | reference trajectory 如何生成？ | **已关闭**：同一冻结 checkpoint、每周期一次 scene encoding；标准高斯 DDIM-5 reference 每周期刷新并与 guided pass 共享 initial noise 和 transition draws | 见 ADR 0013 | Issue #6；随机流重放、单 encoder、冻结范围和 reference trace 测试 |
-| G-03 | orthogonal guidance 的离散定义和 neutral action 是什么？ | **已关闭**：heading 定义切/左法向，当前点加未来点作 10 Hz 差分；零速合法；centered gradient delta 使 `(0,0)` 精确 neutral | 见 ADR 0013；这是项目复现决定 | Issue #6；手算方向/量纲、零速/退化边界和 rigid-transform 测试 |
-| G-04 | policy 的完整 observation 是什么？ | **已关闭**：一次冻结 scene encoding 及 padding mask、一次冻结 route/navigation encoding 及 validity mask、ego-local physical reference `[B,80,4]` | 见 ADR 0016 | Issue #16；shape/dtype/device/mask、单次编码和冻结反向测试 |
-| G-05 | Beta action 如何映射和记概率？ | **已关闭**：保存严格位于 `(0,1)^2` 的 base action `u`；guidance 为 `2u-1`；joint transformed log-prob 减 `2 log 2`，entropy 加 `2 log 2` | 见 ADR 0016；这是项目复现决定 | Issue #16；sample/rsample/mean、support、log-prob、entropy 和 old/new 重算测试 |
-| G-06 | 多候选 `K` 如何进入 PPO 概率？ | **已关闭**：阶段 3--5 固定单候选 `K=1`，不定义额外候选选择概率 | 见 ADR 0016 | Issue #16；单 action 概率接口；未来若改变 `K` 必须重开 gate |
-| G-07 | PPO reward 如何在 MetaDrive 定义？ | **Stage-6 smoke 已关闭**：优化严格固定的 `metadrive_builtin_v1`，分别保存 dense score、terminal overwrite、进度、速度、停驶、失败与执行误差；不是论文 parity reward | 见 ADR 0019；Stage 7/能耗 reward 仍需另立决定 | Issue #20；严格 reward config、分解测试和反停驶验收 |
-| G-08 | terminal 与 truncation 如何 bootstrap？ | **已关闭**：`bootstrap_mask = not terminated`；纯 time-limit truncation 与 rollout tail 保存 final-state old value，GAE 递归仍在 done 边界停止 | 见 ADR 0017/0018 | Issue #18/#19；terminal/truncation/tail buffer 与 GAE 手算测试 |
-| G-09 | 训练 runtime 如何扩展？ | 当前 ADR 0010 限定单进程单设备 evaluation | 独立同步向量环境；多进程收集；其他训练编排 | ADR；seed 派生、设备、异常传播、资源释放和产物聚合测试 |
-| G-10 | parity 与项目扩展如何分开？ | 本项目目标包含道路预瞄与能耗，PlannerRFT 原目标不同 | 先 parity 后扩展；直接项目 reward | 两套命名独立的 config/实验矩阵和结论边界 |
-| G-11 | DDIM 初始分布和五步时间表是什么？ | **已关闭**：默认论文文字 profile 使用标准高斯；本项目选择 `t=[1.0,0.8,0.6,0.4,0.2] -> [0.8,0.6,0.4,0.2,0.0]`；`0.5` 倍噪声仅作隔离变体 | 见 ADR 0011；时间表不得描述为作者事实 | Issue #4；严格 sampler 配置、数学/随机性测试和配对闭环证据 |
-| G-12 | guidance 梯度在哪个空间、作用于谁？ | **已关闭**：physical ego energy 经 normalizer/冻结 DiT 对 normalized noisy joint sample 求导；transition 后单位系数更新；屏蔽 current 与 neighbor，只应用 ego future 梯度 | 见 ADR 0013；记录被屏蔽 neighbor gradient | Issue #6；sample gradient、参数冻结、mask、有限性和逐步 diagnostics 测试 |
+当某个开放问题已经转化为明确的可执行工作时，应建立 GitHub Issue；Issue 而不是本文件负责跟踪实现进度。
 
-## 必须保持的不变量
+## 当前开放 Gates
 
-无论 gate 最终如何关闭，下列当前约束都不能被研究实现静默绕过：
+### G-07：energy-oriented optimization objective 应如何定义？
 
-- checkpoint、normalization、shape、dtype、device、有限性和单位在系统边界显式验证；
-- baseline DPM 路径保持可复现，reference/planner/encoder 的冻结范围可审计；
-- 地图 seed、diffusion noise seed 和新增的 policy action seed 分开记录；
-- 原始预测与实际执行 trace 分开保存，失败回合不删除；
-- 不通过平滑、裁剪、中心线投影、回退控制器、零轨迹或坏样本跳过掩盖失效；
-- 运动学执行结论不外推为低层 steering/throttle/brake 可执行性；
-- MetaDrive 代理能耗与 FASTSim 等精细模型不混用。
+**状态：部分关闭，energy extension 仍开放。**
 
-地图 seed、噪声 seed 与 policy action seed 的规范定义见 `CONTEXT.md`；三条随机流不得复用或
-通过全局 RNG 隐式耦合。
+已经完成：
 
-## 配置分层建议
+- MetaDrive reward 已足以支持 closed-loop PPO smoke training；
+- smoke objective 的定位和使用理由已经形成项目决定；
+- PPO 数据流和更新器不再依赖“最终 reward 必须先设计完成”才能存在。
 
-关闭各 gate 后，建议使用独立、必需字段齐全的 Hydra 配置组，避免把实验参数硬编码进 Python：
+仍未解决：
+
+- 最终能耗优化是否直接使用 reward-based RL；
+- energy term 使用哪一种指标；
+- energy、安全、有效进度、旅行时间和舒适性如何组合；
+- 如何避免通过停车、低速或任务失败获得表面上的低能耗；
+- 不同 termination type 是否应该进入同一 reward 比较；
+- 是否需要 PlannerRFT-style parity reward 作为中间实验，还是直接研究 Eco-AutoDrive objective。
+
+相关来源：
+
+- ADR 0019
+- [`system-contract.md`](../../agents/system-contract.md)
+- GitHub Issue #3
+- [`primary-source notes`](../plannerrft-ppo-primary-sources.md)
+
+关闭该 gate 需要的是研究 objective 和比较口径的明确决定，而不是重新证明 PPO 基础设施存在。
+
+---
+
+### G-09：是否需要 scale-out PPO training runtime？
+
+**状态：开放。**
+
+当前已有 smoke training 足以验证训练链路，但尚未回答是否需要更大规模的 rollout/runtime。
+
+需要先回答：
+
+- 小规模配对实验能否观察到稳定的 learned-guidance signal；
+- 研究问题需要多少场景和随机 seed 才能形成有意义的统计比较；
+- simulator wall-clock 是否已经成为主要实验瓶颈；
+- scale-out 的复杂性是否会影响随机性、重放和实验解释。
+
+候选方向包括：
+
+- 保持当前小规模/串行训练；
+- 同步向量环境；
+- 多进程 rollout collection；
+- 其他独立训练 orchestration。
+
+只有当实验规模本身成为研究阻碍时，才需要关闭该 gate 并建立相应实现 Issue。
+
+当前 evaluation runtime 的系统行为见
+[`system-contract.md`](../../agents/system-contract.md)。
+
+---
+
+### G-10：PlannerRFT reproduction 与 Eco-AutoDrive extension 如何分开？
+
+**状态：开放。**
+
+PlannerRFT 的原始研究目标与 Eco-AutoDrive 的道路预瞄和能耗目标不同。
+
+需要明确区分至少三类结论：
+
+1. **source fact**  
+   PlannerRFT 论文或官方代码实际公开的内容。
+
+2. **project reproduction choice**  
+   为了在 Eco-AutoDrive 中实现 PPO-only 路线而作出的项目级决定。
+
+3. **Eco-AutoDrive extension**  
+   道路预瞄、能耗 reward、MetaDrive 场景和其他本项目新增内容。
+
+任何实验报告都不应把第 2、3 类内容描述为 PlannerRFT 作者事实。
+
+需要进一步决定：
+
+- 是否仍需要专门的 PlannerRFT parity experiment；
+- 如果需要，parity 的目的和停止条件是什么；
+- energy-oriented experiment 是否应与 parity experiment 使用完全独立的命名和指标。
+
+外部来源事实统一见
+[`primary-source notes`](../plannerrft-ppo-primary-sources.md)。
+
+---
+
+## 已关闭 Gates
+
+以下问题已经完成决策或实现验证，不再作为 active research work 展开。
+
+| Gate | 状态 | 决策来源 |
+| --- | --- | --- |
+| G-01 PPO MDP step | Closed | ADR 0017；Issue #18 |
+| G-02 reference trajectory generation | Closed | ADR 0013；Issue #6 |
+| G-03 orthogonal guidance definition / neutral action | Closed | ADR 0013；Issue #6 |
+| G-04 Exploration Policy observation | Closed | ADR 0016；Issue #16 |
+| G-05 Beta action mapping / probability accounting | Closed | ADR 0016；Issue #16 |
+| G-06 candidate count `K` | Closed for current PPO-only design | ADR 0016；Issue #16 |
+| G-08 terminal / truncation bootstrap | Closed | ADR 0017、0018；Issues #18、#19 |
+| G-11 DDIM initial distribution / timestep schedule | Closed | ADR 0011；Issue #4 |
+| G-12 guidance gradient space / target channels | Closed | ADR 0013；Issue #6 |
+
+若未来研究改变这些前提，例如：
+
+- 从单候选变为多候选；
+- 改变 PPO action definition；
+- 改变 rollout MDP 时间尺度；
+- 改变 guidance 作用对象；
+
+应重新打开相应 gate 或建立新的 gate，而不是静默修改已有结论。
+
+## 研究不变量
+
+研究实验仍应保持以下基本边界：
+
+- 当前实现行为以 `system-contract.md` 为准；
+- 外部方法事实以 primary-source notes 为准；
+- 已接受的长期决定以 ADR 为准；
+- map、diffusion noise 和 policy action 等不同随机来源必须能够独立解释；
+- 原始规划结果、实际执行结果和 termination information 不应因为结果不理想而被过滤；
+- 运动学闭环结论不直接外推为低层车辆动力学结论；
+- MetaDrive proxy energy 与 FASTSim 等精细能耗模型必须使用不同名称和单位；
+- PlannerRFT reproduction choice 不得描述为作者未公开的实现事实。
+
+## 从 Gate 到实现
+
+Gate 的作用是回答“需要决定什么”，不是维护实施计划。
+
+当 gate 关闭并产生明确工作后：
 
 ```text
-configs/
-  sampler/{dpm10,ddim5}.yaml
-  guidance/plannerrft.yaml
-  policy/exploration_beta.yaml
-  reward/{plannerrft_parity,eco_extension}.yaml
-  rollout/{smoke,parity}.yaml
-  train/ppo_exploration.yaml
-  experiment/plannerrft_ppo_*.yaml
-```
+research question
+      ↓
+design gate
+      ↓
+ADR（若为长期技术决定）
+      ↓
+GitHub Issue
+      ↓
+implementation
+      ↓
+experiment evidence
+      ↓
+system contract（若形成当前系统事实）
+````
 
-这是候选目录，不表示这些配置已存在。当前 `configs/experiment/baseline.yaml` 引用了不存在的
-`train/dppo`，`configs/reward/energy.yaml` 也未接入现有 evaluation runner；两者不能作为 RL 已实现
-或 reward 已定义的证据。实现第一阶段时应在对应 Issue 中删除或修正这些遗留配置，而不是为其
-添加假入口。
-
-## Issue 拆分建议
-
-gate 关闭后，可按以下依赖链建立独立 Issues；每个 Issue 只完成一个逻辑变更：
-
-```text
-baseline revalidation
-  -> DDIM sampler
-  -> fixed orthogonal guidance
-  -> Exploration Policy distribution
-  -> rollout contract
-  -> reward adapter
-  -> GAE/PPO math
-  -> smoke training
-  -> paired ablation
-  -> scale-out runtime
-```
-
-Issue 之间通过验收产物依赖，不通过复制状态到 Markdown 跟踪进度。
+本文件不维护配置目录建议、阶段依赖链或已经完成工作的进度。

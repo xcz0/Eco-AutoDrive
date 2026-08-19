@@ -1,121 +1,128 @@
-# PlannerRFT PPO-only 复现研究
+# PlannerRFT PPO-only 研究
 
-## 文档状态
+## 研究问题
 
-本文描述 PlannerRFT PPO-only 的分阶段复现路线。阶段 1--3 已分别加入可选 DDIM-5、固定正交
-guidance 和 forward-only Exploration Policy；阶段 4 已加入 10 Hz closed-loop rollout 数据契约，
-阶段 5 已加入基于 TorchRL 的 GAE/PPO 数学更新器；阶段 6 已加入并验收小规模 closed-loop
-smoke training。
-默认评测仍是冻结官方 EMA、10-step DPM-Solver++、每个规划周期执行前 0.5 s 轨迹的 MetaDrive
-运动学闭环。optimizer state 持久化和论文 parity reward 仍是候选工作，不是已实现能力。当前不变量详见
+本专题研究：
+
+> PlannerRFT 的 Exploration Optimization 思路是否可以作为 Eco-AutoDrive 中优化长程驾驶表现和能耗的一种有效方法？
+
+这里关注的是研究问题，而不是当前实现说明。
+
+仓库已经具备 PlannerRFT PPO-only 路线所需的主要基础设施，包括 policy-guided planning、closed-loop rollout、GAE/PPO update 和 MetaDrive smoke training。其当前行为和数据契约统一记录在
 [`system-contract.md`](../../agents/system-contract.md)。
 
-## 目标边界
+基础设施已经实现并不意味着：
 
-本专题只复现 PlannerRFT 的 Exploration Optimization：
+- PPO 已被选为最终能耗优化方法；
+- 当前 reward 是最终 energy reward；
+- 当前实现与 PlannerRFT 论文训练环境完全 parity；
+- learned guidance 已被证明优于非 RL 方法。
 
-1. 保留可独立运行的官方 Diffusion Planner baseline；
-2. 增加可切换的 5-step DDIM；
-3. 用冻结的 reference planner 产生参考轨迹，并施加横向/纵向 guidance；
-4. 用 Exploration Policy 输出两个 guidance scale 的概率分布和状态价值；
-5. 在 MetaDrive 闭环中收集 rollout，以 GAE 和 PPO 只更新 Exploration Policy 与 value head；
-6. 通过无 guidance、随机/固定 guidance 和 learned guidance 的配对消融判断 PPO 是否有用。
+这些仍属于研究问题。
 
-不包含 GRPO，不直接用 PPO 更新 DiT，也不声称训练后可以移除 Exploration Policy。PPO-only
-阶段若有效，其含义是“策略学会如何引导冻结 planner”，不是“Diffusion Planner 已被强化学习
-微调”。
+## 研究范围
 
-## 候选数据流
+本专题只讨论 PlannerRFT 的 PPO / Exploration Optimization 路线。
+
+概念上：
 
 ```text
-raw observation
-      |
-      +--> frozen scene encoder -----------------------+
-      |                                                |
-      +--> frozen reference planner --> x_ref ---------+--> Exploration Policy
-      |                                                       |
-      |                                               Beta distributions + value
-      |                                                       |
-      +--> frozen planner DiT <--- DDIM + orthogonal guidance <+
-                              |
-                       ego trajectory [80, 4]
-                              |
-                 MetaDrive kinematic execution
-                              |
-                    reward, termination, next state
-                              |
-                         GAE + PPO update
-```
+frozen Diffusion Planner
+        |
+        +--> reference trajectory
+        |
+        +--> Exploration Policy
+                  |
+             guidance action
+                  |
+        guided trajectory generation
+                  |
+             MetaDrive rollout
+                  |
+                 reward
+                  |
+              PPO update
+````
 
-训练期间拟冻结 scene encoder、reference planner 和 planner DiT；只训练 Exploration Policy 的
-actor/value 参数。若未来加入 GRPO，必须另立专题和设计决定。
+研究重点是让 Exploration Policy 学习如何改变冻结规划器的 guidance，而不是直接使用 PPO 更新 Diffusion Planner 的 DiT 参数。
 
-## 当前仓库适配结论
+GRPO 不属于本专题。
 
-| 区域 | 当前事实 | 对复现的含义 |
-| --- | --- | --- |
-| 模型 | 已移植 checkpoint-compatible encoder、DiT 和 10-step DPM-Solver++ | 新 sampler 必须是显式可选边界，不能覆盖 baseline 语义 |
-| 编码 | planner 可一次返回冻结 scene tokens/padding mask 与 route/navigation token/validity mask | policy feature 提取不建立 planner autograd graph；该接口不改变普通 `encode()` 和评测 runner |
-| 扩散 | VP-SDE、`x_start` prediction、baseline 初始噪声 `0.5 * N(0,I)` 已形成契约；论文描述 DDIM 从标准高斯开始 | DDIM 必须复用 normalization 和当前状态约束；初始噪声尺度/timestep 先经 parity gate，不能静默混同 |
-| guidance | 已有可选的固定 reference-centered orthogonal guidance；默认仍关闭 | 阶段 2 的 neutral、离散几何与注入系数是 ADR 0013 的项目复现决定，不是作者实现 parity；learned action 只接入 Stage 4 rollout |
-| 环境动作 | evaluation 每次执行 5 个 0.1 s 点；Stage 4 rollout 明确执行 1 点 | 2 Hz baseline 与 10 Hz PPO MDP 不混用 |
-| reward | rollout 严格保存单子步 MetaDrive built-in score，标为 `metadrive_builtin_v1` | 它不是最终优化奖励；不得称为 PlannerRFT parity reward |
-| RL | `src/eco_planner/rl/` 已实现 policy、严格 rollout contract、TorchRL GAE/ClipPPOLoss 与 Stage-6 serial smoke trainer | Training Artifact v1 只服务小规模正确性；没有 optimizer resume、learned-policy evaluation 或规模化 runtime |
-| 运行时 | 每个 evaluation job 是单进程、单设备 Fabric；traffic matrix 可做隔离作业并行 | 论文规模的并行环境仍需要独立 training orchestrator 和相应 ADR |
+## PlannerRFT 与 Eco-AutoDrive 的概念映射
+
+| PlannerRFT 概念             | Eco-AutoDrive 中的对应              |
+| ------------------------- | ------------------------------- |
+| pretrained planner        | 预训练 Diffusion Planner           |
+| reference planning result | 冻结 planner 产生的参考轨迹              |
+| Exploration Policy        | 根据场景和参考轨迹产生 guidance action 的策略 |
+| exploration action        | 横向/纵向 guidance                  |
+| closed-loop simulator     | MetaDrive                       |
+| environment reward        | MetaDrive 中定义的实验 objective      |
+| PPO optimization          | 更新 Exploration Policy           |
+| long-horizon evaluation   | MetaDrive 多规划周期闭环运行             |
+
+这一映射只说明 PlannerRFT 方法如何被解释到本项目中。
+
+PlannerRFT 使用的训练环境、车辆模型、交通来源、奖励组成和实验规模与 Eco-AutoDrive 不相同，因此论文结果不能直接作为本项目的数值验收阈值。
+
+## 与能耗研究的关系
+
+PlannerRFT PPO-only 是候选优化方法之一。
+
+最终研究问题不是：
+
+> “如何继续完成 PPO 实现？”
+
+而是：
+
+> “在已经具备 PPO 实验基础设施的前提下，PPO 是否比固定 guidance、无 guidance 或非 RL 方法更适合利用长程信息改善能耗？”
+
+因此后续研究需要首先区分：
+
+1. PlannerRFT 方法解释或 parity 问题；
+2. Eco-AutoDrive 自身的 energy-oriented extension；
+3. PPO 与其他候选优化方法之间的方法选择。
 
 ## 文档导航
 
-- [分阶段实现与验收](implementation-plan.md)：代码边界、测试、产物和进入下一阶段的门槛。
-- [契约与待决问题](design-gates.md)：必须先回答的 MDP、概率、奖励、运行时和实验口径问题。
-- [一手资料核查](../plannerrft-ppo-primary-sources.md)：论文/补充材料/官方代码支持的事实与未公开细节。
+* [一手资料核查](../plannerrft-ppo-primary-sources.md)
+  PlannerRFT 论文、补充材料和官方代码能够支持的事实，以及未公开的实现细节。
 
-## 研究门槛
+* [Design gates](design-gates.md)
+  尚未解决的研究决定，以及已经关闭 gate 的简要索引。
 
-必须按顺序通过以下门槛，不能用后续训练曲线代替前序正确性：
+* [Remaining-work plan](implementation-plan.md)
+  在现有 PPO 基础设施之上的剩余研究和实验工作。
 
-```text
-baseline 可复现
-  -> DDIM 数学与 sampler 对照通过
-  -> 固定 guidance 的方向和量纲通过
-  -> policy distribution/log-prob/value 单元测试通过
-  -> rollout 时间轴、done 与 reward 对齐通过
-  -> GAE/PPO 数值测试通过
-  -> 小规模 closed-loop 学习信号成立
-  -> 配对消融优于随机/固定 guidance
-  -> 才讨论论文规模训练
-```
+* [System contract](../../agents/system-contract.md)
+  当前已经实现的 planner、guidance、rollout、reward transport、GAE 和 PPO 行为。
 
-缺少必需 checkpoint、配置、shape、单位、seed 或奖励定义时应立即失败。不得通过轨迹平滑、裁剪、
-中心线投影、回退控制器、坏回合过滤或零轨迹掩盖失败。
+* [ADRs](../../adr/)
+  已经接受的项目级技术决定及其理由。
 
-## 与现有 ADR 的关系
+* [Experiment records](../../experiments/)
+  已完成运行的实验配置、结果和 provenance。
 
-- ADR 0001 要求保留官方 baseline。DDIM、reference planner 和 PPO 必须作为显式新路径加入；
-  baseline checkpoint、normalization、模型层级和 DPM 入口保持可独立验证。
-- ADR 0002 要求本仓库拥有 MetaDrive 边界。不得从 `ref/` 导入 PlannerRFT 或上游
-  Diffusion Planner 运行时代码。
-- ADR 0003 保留 0.5 s evaluation receding-horizon execution；ADR 0017 新增并隔离 0.1 s PPO
-  rollout，不改变 baseline。
-- ADR 0006 要求保存原始 planner 失败。guidance 不是修复失败的回退器；所有候选轨迹、被选
-  动作和失败回合必须可追溯。
-- ADR 0007/0008 要求在稳定场景上比较并按终止类型分层。PPO 消融必须遵循配对 seed 和完整
-  回合保留规则。
-- ADR 0016 固定阶段 3 的 policy observation、单候选、Beta 仿射变换、显式 policy RNG、共享
-  actor/value trunk 与 policy-only checkpoint；这些都是项目复现决定，不是作者公开实现。
-- ADR 0017 固定 10 Hz closed-loop rollout、time-limit bootstrap 和 MetaDrive reward 的非 parity
-  定位；G-07 仍阻止进入 closed-loop 优化训练。
-- ADR 0018 固定 Stage 5 的 TorchRL GAE/PPO 数学、完整 batch advantage normalization、
-  transformed Beta loss、unclipped value loss 与 per-optimizer-step cosine；它不选择 reward。
-- ADR 0019 选择 MetaDrive 原始 score 作为 Stage-6 smoke objective，并固定 2x16x4 串行训练和
-  Training Artifact v1；该决定不定义论文 parity 或能耗 reward。
+## 相关 Issues
 
-论文训练使用 nuMax、nuPlan/PDM-Closed LQR tracker、运动学自行车模型和 log-replay traffic；
-本项目使用 MetaDrive 运动学轨迹点执行与不同场景分布。论文分数、40M environment steps 和
-8xH100 资源条件只能作为来源事实，不能成为本项目默认验收阈值。
+当前可执行工作的状态以 GitHub Issues 为准，不在本文复制。
 
-## 转为 active work
+与本专题直接相关的历史实现 Issues 包括：
 
-当且仅当某阶段的 design gate 已关闭，才为该阶段建立 GitHub Issue。Issue 至少应包含：目标、
-非目标、依赖的决定、受影响文件、显式配置字段、测试矩阵、实验产物和退出条件。实现结果写入
-`docs/experiments/`，成为当前不变量的内容写入 `system-contract.md`，需要长期保留理由的
-选择写入 `docs/adr/`。
+* #4 — 5-step DDIM sampler
+* #6 — reference planner 与 orthogonal guidance
+* #16 — Exploration Policy 与 value head
+* #18 — 10 Hz closed-loop rollout
+* #19 — TorchRL GAE/PPO updater
+* #20 — closed-loop PPO smoke training
+
+这些工作已经完成，不再作为本专题的待实现阶段。
+
+当前研究文档整理由 #32 跟踪。
+
+与能耗研究基础直接相关的 active work 包括：
+
+* #1 — 建立稳定的短程或中程能耗场景矩阵
+* #3 — 在稳定场景基线上比较现有能耗指标
+
+新的 PPO 消融、energy reward、scale-out training 或 preview-conditioned optimization 工作，应在研究决定明确后建立独立 Issue，而不是直接加入本文件作为承诺任务。

@@ -1,237 +1,251 @@
-# PlannerRFT PPO-only 分阶段实现与验收
+# PlannerRFT PPO-only Remaining-Work Plan
 
-## 使用方式
+## 目的
 
-本文件是候选实施顺序，不是进度表。阶段只有在对应 GitHub Issue 被创建后才成为 active work；
-实际运行结果只登记在 `docs/experiments/`。每一阶段都必须保留上一阶段的独立入口和证据，
-不得为了让后续训练运行而放宽边界校验。
+PlannerRFT PPO-only 的基础实现阶段已经完成。
 
-## 阶段总览
+本文件不再描述 Stage 0–6 的实现步骤，而只记录：
 
-| 阶段 | 可交付物 | 训练对象 | 进入下一阶段的必要证据 |
-| --- | --- | --- | --- |
-| 0 | 当前 HEAD 的冻结 baseline 复核 | 无 | checkpoint、输入、噪声、DPM 输出和闭环产物可复现 |
-| 1 | 可切换 5-step DDIM | 无 | sampler 数学测试、确定性/随机性测试和 paired 闭环对照 |
-| 2 | reference planner 与横纵向 guidance | 无 | guidance 为零退化及正负方向/量纲测试 |
-| 3 | Exploration Policy 与 value head | policy forward only | Beta 参数、变换、log-prob、entropy、value shape 全部可验证 |
-| 4 | closed-loop rollout 数据契约 | 无 | 时间轴、action、reward、done、bootstrap 和 seed 完整对齐 |
-| 5 | GAE 与 PPO optimizer | actor/value | 手算批次、旧新策略比率和参数冻结测试通过 |
-| 6 | 小规模闭环训练 | actor/value | reward/分布变化可重复，且无 silent failure |
-| 7 | 配对消融与规模化 | actor/value | learned guidance 优于预注册对照，结论按终止类型分层 |
+- 已完成工作的历史索引；
+- 在现有基础设施之上仍可能需要完成的研究工作；
+- 哪些候选工作只有在研究决定成立后才值得转成 GitHub Issue。
 
-## 阶段 0：重建不可变 baseline
+当前实现契约见
+[`system-contract.md`](../../agents/system-contract.md)。
 
-### 目的
+实际开发状态以 GitHub Issues 为准。
 
-E-000 证明过固定合成输入上的上游数值对齐，E-004/E-006 提供过部分闭环证据；它们不自动证明
-未来实现起点的当前 HEAD 仍完全一致。开始 sampler 修改前，应在新 Issue 对应 commit 上重跑并
-登记 baseline。
+## 已完成的基础工作
 
-### 必需记录
+此前的阶段路线可以压缩为以下历史索引：
 
-- 当前 Git commit、tracked diff、依赖环境、设备和解析后 precision；
-- checkpoint/`args.json` 路径、EMA tensor 数和参数总数；
-- 地图 seed、噪声 seed、完整 Hydra overrides；
-- DPM 的初始噪声、完整联合预测、实际执行 trace、终止类型和延迟；
-- 非 GPU/simulator/slow 测试、显式 simulator 测试和格式检查结果。
+| 历史阶段 | 结果 | 主要 Issue |
+| --- | --- | --- |
+| baseline / prerequisite validation | 已完成作为后续工作的基础 | experiment records |
+| DDIM-5 | 已实现并验证 | #4 |
+| reference planner + orthogonal guidance | 已实现并验证 | #6 |
+| Exploration Policy + value head | 已实现 | #16 |
+| 10 Hz closed-loop PPO rollout | 已实现 | #18 |
+| GAE + PPO updater | 已实现 | #19 |
+| closed-loop PPO smoke training | 已实现并验收 | #20 |
 
-### 退出条件
+这些阶段不再是 remaining work。
 
-当前 HEAD 满足 system contract，且新产物没有覆盖旧实验。此阶段不增加 PPO、guidance 或新
-reward。
+其详细实现行为不在本文件重述。
 
-## 阶段 1：实现可切换的 5-step DDIM
+长期技术决定见 [`docs/adr/`](../../adr/)，运行证据见
+[`docs/experiments/`](../../experiments/)。
 
-### 代码边界
+## 当前状态
 
-建议在 `src/eco_planner/models/` 下增加独立 DDIM sampler，并由显式 Hydra `sampler` 配置选择；
-采样数值更新由 `diffusers` scheduler 实现，项目不得维护 DPM 或 DDIM update 公式。sampler 公共 API
-至少显式接收：
-
-- 初始扩散状态、denoise callable 和 current-state constraint；
-- 有序 timestep/schedule；
-- 采样步数；
-- `ddim_stochasticity`（避免与 guidance scale 同名）；
-- 用于随机 transition 的显式 `torch.Generator`。
-
-输入必须验证 shape、dtype、device 和有限性。输出仍为归一化空间的完整联合状态，逆归一化和
-`float32 [B, 11, 80, 4]` 边界由现有 planner runtime 负责。
-
-PlannerRFT 公开算法描述 reference DDIM 从标准高斯开始，而当前 baseline 契约使用
-`0.5 * N(0,I)`。实现前必须通过 G-11 明确 DDIM 的初始分布、五个 timestep 和 endpoint；不能
-为保持当前行为而声称它等同论文，也不能为追论文文字而改写 baseline DPM。
-
-### 数学与随机性测试
-
-- 用 VP-SDE 的 `alpha(t)`/`sigma(t)` 和 `x_start` prediction 手算单步 transition；
-- `ddim_stochasticity=0` 在固定 observation/initial noise 下逐值确定；
-- 非零 stochasticity 使用独立显式 seed，同 seed 重放一致、不同 seed 确实改变 transition；
-- 五步 schedule 单调、端点明确，current-state constraint 每步保持；
-- 非法步数、缺 generator、非有限张量、device/dtype 不一致立即失败；
-- DPM 回归测试保持原样通过。
-
-### 闭环对照
-
-在预注册的小型稳定能耗场景网格上配对地图 seed 和初始噪声，比较 DPM-10 与 DDIM-5。此阶段
-只判断 sampler 替换是否造成明显驾驶退化，不把论文 nuPlan 分数当作 MetaDrive 通过阈值。
-训练/evaluation 的 stochasticity 取值必须来自 resolved config，并分别登记。
-
-## 阶段 2：reference planner 与 orthogonal guidance
-
-### 先关闭的接口问题
-
-必须明确 reference trajectory 的产生 sampler、随机性和刷新频率；横向法向的坐标基准、纵向
-速度的离散定义、zero-speed 处理、单位和最大幅度也必须写入配置/ADR。不能用中心线投影、轨迹
-平滑或裁剪来制造预期方向。
-
-### 代码边界
-
-- reference planner 从同一经过严格加载的 checkpoint 建立冻结、eval-mode 路径；
-- scene encoding 是否共享一次 forward 必须显式决定，不能无意产生两份可训练 encoder；
-- guidance 只作用于 DDIM 采样边界，并返回可审计的 reference、scale、目标量和梯度统计；
-- planner 输出仍走现有原始轨迹验证和运动学执行边界。
-
-### 必需测试
-
-- 所选公式必须定义唯一 neutral action；若决定 neutral action 为零，则它在相同 sampler
-  随机性下必须退化为 unguided DDIM；
-- 横向 scale 的正负值产生相反的参考法向趋势；纵向 scale 的正负值产生相反速度趋势；
-- rigid transform 后 guidance 结果等价；
-- 所有计算使用明确的米、秒、m/s 和 10 Hz 时间轴；
-- reference 退化、重复点、零速或非有限值按预先决定的错误边界失败，不静默回退；
-- reference/planner/encoder 参数全部冻结，反向图只保留 guidance 所需的 sample gradient。
-
-只有固定 guidance 能稳定通过上述测试，才进入 policy 实现。
-
-## 阶段 3：Exploration Policy
-
-### 候选概率接口
-
-policy 输入候选为冻结 scene tokens `[B, N, H]` 和 ego reference trajectory
-`[B, 80, 4]`；是否额外传入 route token/mask 属于 design gate。输出应是：
-
-- lateral Beta 的两个严格正参数；
-- longitudinal Beta 的两个严格正参数；
-- value `[B]`；
-- 可用于审计的 action、joint log-prob 和 entropy。
-
-论文没有公开 Beta `[0,1]` 到 guidance `[-1,1]` 的映射。若复现者选择
-`u ~ Beta(alpha, beta)`、`guidance = 2u - 1`，必须明确 PPO 存储的是 `u` 还是变换后 action，
-并在 log-prob/entropy 中一致处理变换。不得把该仿射变换描述成作者事实，也不得靠 clamp 把
-非法 Beta 参数或边界 action 伪装成有效值。数值稳定参数化及初始零均值方式是复现者选择，需
-记录理由。
-
-### 必需测试
-
-- 参数 shape、严格正性、有限性和 device/dtype；
-- sample、reparameterized sample（若使用）、mode/mean evaluation 的语义分别明确；
-- joint log-prob 等于两个独立维度之和，old/new policy 在相同输入/action 上可重算；
-- action support 与 guidance support 严格一致；
-- 对称初始化产生零均值 guidance，但不能把分布退化为确定性点；
-- value shape 为 `[B]`，不存在意外 broadcast；
-- checkpoint 只保存/加载预期可训练参数，并验证冻结模型没有梯度或权重变化。
-
-网络层数、hidden dimension、Beta 初始化常数若官方未公开，必须作为 Hydra 必需字段，不得写成
-声称与作者相同的默认值。
-
-## 阶段 4：closed-loop rollout 契约
-
-### MDP 时间步先决条件
-
-**已关闭（ADR 0017 / Issue #18）**：PPO rollout MDP step 为 0.1 s，只执行所选轨迹第一个点后
-重规划；既有 evaluation 保留 0.5 s、五子步行为。两条路径的 reward、discount、终止和 rollout
-length 不能混用。
-
-### 每个 transition 的最低字段
+目前已经可以进行：
 
 ```text
-policy observation or frozen encoding
-reference trajectory and any policy mask
-base Beta action u and transformed guidance action
-old joint log-prob, old value
-diffusion-noise seed/state and exploration-policy seed/state
-reward with component values and units
-terminated, truncated, bootstrap mask
-scenario/map seed, planning-cycle index, executed substep count
+frozen planner
+    ↓
+Exploration Policy
+    ↓
+guided planning
+    ↓
+MetaDrive closed-loop rollout
+    ↓
+reward
+    ↓
+GAE / PPO update
+````
+
+因此下一阶段研究的重点不再是“把 PPO 跑起来”，而是判断：
+
+> PPO 是否值得作为 Eco-AutoDrive 的能耗优化方法继续投入。
+
+这仍是开放研究问题。
+
+## Remaining Work 1：建立可比较的能耗评价基础
+
+在比较 learned guidance 之前，需要有稳定且可解释的能耗研究基线。
+
+当前相关 active Issues：
+
+* #1 — 建立稳定的短程或中程能耗场景矩阵
+* #3 — 在稳定场景基线上比较现有能耗指标
+
+这里需要解决的是评价问题，而不是 PPO infrastructure 问题：
+
+* 什么场景具有代表性；
+* 什么能耗指标具有可比性；
+* termination type 如何分层；
+* 实际执行距离、速度和能耗如何共同解释；
+* proxy energy 是否足以支撑方法筛选。
+
+这些工作完成前，可以继续进行 PPO 工具链测试，但不应把 smoke objective 的变化解释为最终 energy improvement。
+
+## Remaining Work 2：决定 PPO 的研究 objective
+
+对应 [G-07](design-gates.md)。
+
+需要明确区分：
+
+```text
+smoke-training objective
+        ≠
+PlannerRFT parity reward
+        ≠
+Eco-AutoDrive energy objective
 ```
 
-不为 PPO-only 保存 DDIM 去噪链，除非存在独立的诊断需求；去噪 transition 不是该 PPO actor 的
-action。若每个场景生成多个 guidance 候选再随机选择，buffer 必须能证明被执行候选的抽样概率和
-old log-prob 完全一致。
+后续研究需要决定：
 
-### 必需测试
+* 是否需要 PlannerRFT reward parity；
+* 是否直接研究 energy-oriented reward；
+* energy signal 是 reward 的组成部分、主要目标还是独立 evaluation metric；
+* 如何防止停车、低速或任务失败造成错误优化方向；
+* 如何报告安全、有效进度、旅行时间、舒适性和能耗之间的 trade-off。
 
-- 固定小回合逐项对齐 observation/action/reward/next observation；
-- terminal 不 bootstrap，time-limit truncation 是否 bootstrap 由显式决定控制；
-- rollout 在回合边界不会泄漏 GAE；
-- rollout transition 必须只执行一个 substep；既有 5-substep evaluation 的提前终止累计回归保持；
-- policy action RNG 与 diffusion noise/map seed 分离且都可重放；
-- buffer 拒绝缺字段、错误 shape、非有限值和混合 device。
+只有在研究定义明确后，具体 reward implementation 才应成为新的 GitHub Issue。
 
-## 阶段 5：GAE 与 PPO optimizer
+## Remaining Work 3：验证 learned guidance 是否提供实际价值
 
-### 奖励先决条件
+如果继续研究 PPO，应使用配对实验回答 learned Exploration Policy 是否优于更简单的方法。
 
-PlannerRFT 的 reward 组件不能直接等同于 MetaDrive 内置 reward。必须先逐项定义 collision、
-drivable-area compliance、wrong-direction、TTC、有效进度、comfort 和 speed 等候选量在本仓库的
-数据来源、单位、采样频率、累计边界和 terminal 语义。能耗项若加入，需作为本项目扩展单独命名，
-不能冒充论文 parity reward。
+基本比较对象可包括：
 
-### 数学测试
+```text
+unguided planner
+fixed guidance
+random / observation-independent guidance
+learned Exploration Policy
+```
 
-- 对短手算序列验证 discounted return、TD residual 和 GAE；
-- 分别覆盖 terminal、truncation、rollout 尾部 bootstrap；
-- 优势标准化只在预定 batch 边界发生，零方差情况显式处理；
-- PPO ratio 由 guidance policy 的 joint log-prob 得到，不使用 DDIM transition probability；
-- clipped policy loss、unclipped/clipped value loss选择、entropy 和总 loss 与手算一致；
-- minibatch 索引无遗漏/重复越界，epoch 间 old log-prob 不变；
-- 梯度范数、优化器和 scheduler 均来自配置；非有限 loss/gradient 立即失败；
-- optimizer step 后只有 actor/value 参数变化。
+研究重点不是单独观察 PPO loss，而是判断：
 
-论文给出的超参数可作为 parity profile；本机 smoke profile 应单独配置，不能用较小规模运行冒充
-论文设置。
+* learned action 是否真正随 observation 改变；
+* learned guidance 是否在相同场景和随机条件下改善目标指标；
+* 改善是否来自有效驾驶行为，而不是停车或失败；
+* 结果是否跨 seed 保持；
+* 不同 termination type 下结论是否一致；
+* PPO 是否比固定或非 RL 方法提供足够增益。
 
-## 阶段 6：小规模 closed-loop 训练
+具体实验矩阵、指标和统计方法应在建立对应 GitHub Issue 时确定。
 
-### 目的
+如果 learned guidance 不能稳定优于简单对照，则没有必要因为 PPO infrastructure 已经存在而继续扩大训练规模。
 
-先验证完整数据流和学习信号，不追最终分数。使用 2--8 个环境、16--32 个 MDP steps 等小规模
-值时，必须标为 smoke profile，并记录与 parity profile 的全部差异。
+## Remaining Work 4：决定是否需要规模化训练
 
-### 预注册检查
+对应 [G-09](design-gates.md)。
 
-- 固定场景分布、map/noise/policy seeds、训练步数和评测间隔；
-- actor/value loss、KL、clip fraction、entropy、value explained variance、gradient norm；
-- lateral/longitudinal Beta 参数、action 均值/方差和边界附近概率质量；
-- reward 每一组件、终止类型、有效进度和执行误差；
-- 冻结参数 hash 在训练前后相同。
+规模化不是当前默认下一步。
 
-### 退出条件
+只有当小规模实验表明：
 
-至少两个独立训练 seed 可重放；策略分布随观测变化；没有通过停驶、频繁失败或非法轨迹获得更高
-分数；全部失败回合保留。loss 下降本身不构成通过。
+1. learned guidance 存在值得继续研究的信号；
+2. 当前结果主要受 rollout 数量或训练规模限制；
+3. 更大的样本量能够回答明确的研究问题；
 
-## 阶段 7：消融与规模化
+才需要研究：
 
-### 必需对照
+* vectorized environment；
+* multi-process rollout；
+* larger PPO batches；
+* 更长训练；
+* 独立 training orchestration。
 
-1. 5-step DDIM，无 guidance；
-2. uniform guidance；
-3. 固定 Beta guidance；
-4. learned Exploration Policy。
+如果当前小规模运行足以回答方法选择问题，则不需要为了接近论文资源规模而进行 scale-out。
 
-评测使用相同场景、地图 seed、diffusion noise seed；随机 guidance 还需预注册自身 seed。主要
-指标和停止规则必须在看结果前确定。报告 reward、有效进度、安全、速度/旅行时间、舒适性、代理
-能耗指标和终止类型，不用单一累计 reward 掩盖失败。
+## Remaining Work 5：道路预瞄与 PPO 的关系
 
-### 规模化门槛
+PlannerRFT PPO-only infrastructure 本身不等于道路预瞄方法。
 
-论文级并行环境数、rollout length、batch、PPO epochs 和学习率只在小规模正确性成立后启用。
-当前单设备 evaluation runtime 不承担多环境训练；应建立独立 training orchestrator，并通过 ADR
-决定进程、设备、seed 派生、环境生命周期、失败传播和产物聚合。
+如果项目后续加入新的 preview information，需要单独回答：
 
-### 可以支持的最终结论
+```text
+preview information
+       ↓
+representation / encoder
+       ↓
+planner or policy conditioning
+       ↓
+behavior change
+       ↓
+energy effect
+```
 
-若 learned guidance 在预注册配对消融中稳定优于对照，只能声称 PlannerRFT 的 PPO exploration
-branch 在本项目 MetaDrive 运动学执行条件下得到论文级机制复现。没有 nuPlan 同配置、官方代码和
-GRPO 时，不得声称逐行复现、论文数值 parity 或完整 PlannerRFT 部署模型复现。
+需要区分至少两种问题：
+
+1. planner 能否利用新的 preview information；
+2. PPO 是否有助于学习如何利用这些信息。
+
+因此不应默认把“加入 preview”与“使用 PPO”绑定成同一个实现步骤。
+
+可能先通过监督式、固定 guidance 或推理期方法验证 preview signal 是否有价值，再决定是否使用现有 PPO infrastructure。
+
+具体 preview 表示和注入方式属于独立研究问题，不在本文提前固定。
+
+## Remaining Work 6：决定 PlannerRFT parity 是否仍有研究价值
+
+对应 [G-10](design-gates.md)。
+
+如果研究目标主要转向 Eco-AutoDrive 的能耗与道路预瞄，完整复现 PlannerRFT 的训练规模或 reward 未必是必要条件。
+
+需要明确：
+
+* 哪些 PlannerRFT 事实只用于方法理解；
+* 哪些部分需要 parity experiment；
+* 哪些部分只是项目复现决定；
+* 哪些实验已经属于 Eco-AutoDrive extension。
+
+如果未来仍进行 parity experiment，应与 energy-oriented experiment 使用不同名称、配置和结论范围。
+
+## 建立新工作的规则
+
+本文件中的 remaining work 都是候选研究工作，不等于 active implementation task。
+
+工作流为：
+
+```text
+open research question
+        ↓
+design gate / research decision
+        ↓
+ADR（需要长期保留的技术决定）
+        ↓
+GitHub Issue
+        ↓
+implementation
+        ↓
+experiment record
+```
+
+GitHub Issue 应负责保存：
+
+* 明确目标；
+* 非目标；
+* 受影响代码；
+* 配置；
+* 测试；
+* 实验矩阵；
+* acceptance criteria。
+
+本文件不重复这些实施细节，也不维护 Issue 的完成进度。
+
+## 当前最重要的研究判断
+
+PlannerRFT PPO-only 路线当前需要回答的核心问题可以缩写为：
+
+```text
+PPO infrastructure exists
+          ↓
+energy evaluation becomes reliable
+          ↓
+define a meaningful optimization objective
+          ↓
+paired learned-vs-simple-guidance experiment
+          ↓
+Does PPO add value?
+       /        \
+     yes         no
+      |           |
+consider scale   keep simpler
+or preview RL    optimization route
+```
+
+因此，后续是否继续扩展 PPO 应由实验结果驱动，而不是由旧 Stage 路线图驱动。

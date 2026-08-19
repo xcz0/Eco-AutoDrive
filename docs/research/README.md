@@ -1,71 +1,136 @@
 # 研究空间
 
-本文件只保存未成为系统事实、正式决定或 active task 的研究内容。当前契约见 `../agents/system-contract.md`，已采用的取舍见 `../adr/`，已承诺工作由 GitHub Issues 跟踪，实际证据见 `../experiments/README.md`。
+本目录只保存尚未成为系统事实、正式决定或 active implementation work 的研究内容。
 
-## 专题研究
+文档职责：
 
-| 专题 | 状态 | 入口 |
-| --- | --- | --- |
-| PlannerRFT PPO-only 论文级复现 | 阶段 5 的 GAE/PPO 数学更新器已实现；G-07 reward 与闭环训练仍是候选工作 | [范围与路线](plannerrft-ppo/README.md) |
+- 当前已实现行为 → [`docs/agents/system-contract.md`](../agents/system-contract.md)
+- 已接受的技术决定及理由 → [`docs/adr/`](../adr/)
+- 可执行开发工作 → GitHub Issues
+- 实验运行证据 → [`docs/experiments/`](../experiments/)
+- 外部论文和代码事实 → 对应 primary-source notes
+- 尚未解决的研究问题 → 本目录
 
-专题文档用于细化候选方案，不改变本文、本仓库 ADR 或 system contract 的权威性。某一阶段进入
-开发前，必须把可交付物和验收标准转入 GitHub Issue；已实现阶段的事实必须同步回 ADR 和 system
-contract，不得把其余路线图当作实施状态。
+研究文档不复制当前实现契约，也不使用路线图阶段描述代码是否已经实现。
 
 ## 研究目标
 
-研究如何在保留预训练 Diffusion Planner 驾驶能力的前提下引入道路预瞄，使规划轨迹在安全、有效进度和旅行效率可接受时呈现更好的能耗特性。
+研究如何在保留预训练 Diffusion Planner 驾驶能力的前提下，引入道路预瞄信息，使规划器能够利用更长程的道路和导航信息改善能耗表现，同时保持安全、有效进度和旅行效率。
 
-## 已验证事实
+当前研究重点包括：
 
-本文件不重复保存已验证事实。模型数值对齐、闭环运行和失败边界的证据只登记在实验记录；成为当前行为约束的结论只写入 system contract。
+1. 道路预瞄信息应包含什么，以及如何表示和注入 Diffusion Planner；
+2. 如何评价预瞄信息是否真正改善能耗，而不是通过停车、降低有效进度或增加失败率取得较低能耗；
+3. 是否需要强化学习，以及如果需要，应采用何种策略优化方式；
+4. MetaDrive 中的代理能耗指标与更精细车辆能耗模型之间如何建立可信的比较关系。
 
-## 假设
+这些问题仍属于研究问题，不构成当前系统契约。
 
-- 明确的道路预瞄条件可能使规划器更早调整速度和轨迹，从而改善代理或精细能耗指标，同时保持驾驶能力。
-- 在决定是否使用强化学习前，监督式新增模块、代价引导或推理期引导可能足以判断预瞄信号是否具有可利用价值。
-- 使用实际执行速度 trace 的精细车辆模型可能改变代理能耗指标给出的相对排序。
+## 专题研究
 
-这些假设均未由当前实验验证。
+| 专题 | 当前研究状态 | 入口 |
+| --- | --- | --- |
+| PlannerRFT PPO-only | PPO、policy-guided rollout 和 MetaDrive closed-loop smoke training 基础设施已经实现；是否最终使用 PPO 作为能耗优化方法仍未决定 | [PlannerRFT PPO-only 研究](plannerrft-ppo/README.md) |
 
-## 候选方法
+PlannerRFT/PPO 基础设施的存在只说明该路线已经具备实验条件，不表示 PPO 已被选为本项目最终的能耗优化方法。
 
-### 道路预瞄
+## 道路预瞄
 
-候选信息包括前方曲率、限速及变化位置、变道/合流/道路拓扑、交通状态，以及数据确实存在时的坡度或高程。候选注入方式包括独立条件编码、route token 扩展、条件残差和推理期引导；预瞄距离、采样方式、编码器和注入位置均未确定。
+候选预瞄信息包括：
 
-研究必须区分当前 `route_lanes` 已有的局部几何与新增的、更远期或语义更明确的预瞄信息。
+- 前方道路曲率及其变化；
+- 限速及限速变化位置；
+- 变道、合流、分流和道路拓扑；
+- 导航路线中的长程结构；
+- 交通状态；
+- 数据确实存在时的坡度或高程。
 
-### 策略优化
+需要区分：
 
-候选路线包括 DPPO、普通环境 MDP 下的其他扩散策略优化、只训练新增模块、参数高效微调，以及先做监督式或代价引导实验。是否需要强化学习本身尚未确定；在作出决定前，不固定 sampler、log-prob、critic、优势估计、PPO 更新或奖励公式。
+- 当前 Diffusion Planner 已经接收的局部 `route_lanes`；
+- 新增的、更长程或语义更明确的 preview information。
 
-当前已细化一个不含 GRPO 的 PlannerRFT 候选路线：冻结预训练 Diffusion Planner，仅用 PPO
-训练输出横向/纵向 guidance scale 的 Exploration Policy。该路线的论文事实、仓库适配和分阶段
-门槛见 [PlannerRFT PPO-only 研究](plannerrft-ppo/README.md)。专题中列出的 5-step DDIM、
-reference planner 的既有实现与 10 Hz rollout 契约已成为当前系统事实；奖励和 PPO 超参数仍是该复现
-假设下的候选条件，不是当前系统配置。
+仍待研究的问题包括：
 
-### 精细能耗复核
+- 预瞄距离；
+- 空间或时间采样方法；
+- 连续几何与离散道路事件如何共同表示；
+- 是否使用独立 encoder、route token 扩展、条件残差或其他条件注入方式；
+- 模型是否已经能够从现有 route information 中提取足够的长程信息。
 
-MetaDrive 代理指标可与 FASTSim 或其他车辆模型形成候选的两阶段评价，但尚未确定研究对象是燃油车、电动车还是一般化车辆，也未确定车辆参数、主指标和代理指标与精细模型不一致时的解释口径。
+## 策略优化
 
-### 低层动力学阶段
+是否需要强化学习仍是开放问题。
 
-候选后续阶段可加入 steering/throttle 轨迹跟踪、车辆动力学约束和可跟踪性验证。该阶段如何与运动学结果衔接尚未决定。
+当前可研究的路线包括：
 
-### 场景参与者扩展
+- PlannerRFT 风格的 Exploration Policy + PPO；
+- 其他基于环境 MDP 的 diffusion-policy optimization；
+- 只训练新增的 preview module；
+- 参数高效微调；
+- 监督式辅助目标；
+- 推理期 guidance 或代价引导。
 
-候选扩展包括行人、自行车和静态事故物体等场景参与者。是否需要将它们纳入主要能耗研究、如何控制分布以及采用哪些比较指标尚未决定。
+仓库已经实现 PlannerRFT PPO-only 所需的主要实验基础设施，包括 Exploration Policy、closed-loop rollout、GAE/PPO update 和 MetaDrive smoke training。
+
+这些能力属于当前实现事实，具体契约见
+[`system-contract.md`](../agents/system-contract.md)。
+
+它们不能被解释为以下研究结论：
+
+- PPO 已被证明优于非 RL 方法；
+- 当前 MetaDrive reward 是最终能耗优化目标；
+- PlannerRFT 的论文 reward 已在 MetaDrive 中实现 parity；
+- 当前 PPO 路线已经证明能够改善能耗。
+
+这些问题仍需要实验回答。
+
+## 能耗评价
+
+MetaDrive 中可以使用代理能耗指标进行快速闭环比较，但代理指标与真实车辆能耗并不等价。
+
+候选的研究结构是：
+
+```text
+closed-loop driving
+        |
+        +--> proxy energy metric
+        |
+        +--> executed speed / acceleration trace
+                    |
+                    +--> FASTSim or another detailed model
+````
+
+仍待确定：
+
+* 研究对象是燃油车、电动车还是一般化车辆；
+* 车辆参数；
+* 主能耗指标；
+* 总能耗、单位距离能耗和单位有效进度能耗之间的取舍；
+* 不同场景长度和 termination type 的可比性；
+* proxy metric 与 detailed model 排序不一致时的解释方式。
+
+## 低层动力学
+
+当前主要研究仍基于运动学轨迹执行。
+
+后续若研究 steering/throttle/brake、车辆动力学或轨迹可跟踪性，应作为独立研究阶段处理。运动学闭环中的能耗或安全结论不能自动外推为低层动力学结论。
 
 ## 开放问题
 
-- 道路预瞄应包含哪些信息、覆盖多远、采用何种表示和注入位置？
-- 如何定义与实际执行轨迹一致的策略动作和概率？
-- 是否需要强化学习；若需要，应更新完整模型、新增模块还是参数高效子集？
-- PlannerRFT 奖励如何映射到 MetaDrive 可观测、单位明确且不会掩盖失败的逐步量？
-- 如何在能耗、安全、有效进度、旅行时间和舒适性之间形成不鼓励停车或任务失败的比较口径？
-- 主能耗指标应使用总能耗、单位距离能耗、单位有效进度能耗还是其他定义？
-- 不同场景长度和终止类型之间何时具有可比性？
-- 精细能耗复核需要哪些车辆质量、阻力、效率、加速度和道路属性？
-- 运动学规划结论应如何与后续低层控制及动力学结论衔接？
+当前主要开放问题为：
+
+* 道路预瞄应包含哪些信息？
+* 预瞄距离应多长？
+* 预瞄信息应如何编码并注入 Diffusion Planner？
+* 现有 route conditioning 是否已经包含足够长程信息？
+* 如何证明模型确实利用了新增 preview，而不是由其他输入产生相同行为？
+* 是否需要强化学习来利用预瞄信息？
+* 如果使用 PPO，优化对象应继续是 Exploration Policy，还是未来考虑其他参数子集？
+* 当前 smoke reward 与最终 energy-oriented objective 应如何区分？
+* 如何同时约束能耗、安全、有效进度、旅行时间和舒适性？
+* 什么能耗指标适合作为主要比较指标？
+* MetaDrive proxy energy 与精细车辆模型之间应如何交叉验证？
+* 运动学研究结果如何与后续低层控制和动力学研究衔接？
+
+可执行工作一旦被接受，不继续在本文件中维护任务状态，而转入 GitHub Issue。
