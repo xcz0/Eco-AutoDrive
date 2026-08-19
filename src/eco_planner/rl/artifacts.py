@@ -17,8 +17,6 @@ from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.ppo import PPOUpdateReport
 from eco_planner.rl.rollout import RolloutEpisode
 
-TRAINING_ARTIFACT_SCHEMA_VERSION = 1
-
 
 class _ArtifactModel(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True, extra="forbid", allow_inf_nan=False)
@@ -63,7 +61,6 @@ class PolicyProbeSummary(_ArtifactModel):
 
 
 class TrainingRunSummary(_ArtifactModel):
-    schema_version: StrictInt = TRAINING_ARTIFACT_SCHEMA_VERSION
     status: str = "completed"
     training_seed: StrictInt = Field(ge=0)
     replay_id: StrictInt = Field(ge=0)
@@ -99,7 +96,6 @@ def write_rollout_episode(path: Path, episode: RolloutEpisode) -> None:
     arrays = _trajectory_arrays(episode.trajectory)
     arrays.update(
         {
-            "schema_version": np.asarray(TRAINING_ARTIFACT_SCHEMA_VERSION, dtype=np.int64),
             "tail_kind": np.asarray(episode.tail_kind),
             "tail_bootstrap_value": episode.tail_bootstrap_value.numpy(),
         }
@@ -114,7 +110,6 @@ def write_partial_rollout(path: Path, trajectory: TensorDictBase | None) -> None
     arrays = _trajectory_arrays(trajectory) if trajectory is not None else {}
     arrays.update(
         {
-            "schema_version": np.asarray(TRAINING_ARTIFACT_SCHEMA_VERSION, dtype=np.int64),
             "trace_status": np.asarray("partial" if trajectory is not None else "empty"),
         }
     )
@@ -166,7 +161,6 @@ def write_training_runtime_metadata(path: Path, runtime: object) -> None:
 
     repository_root = Path(to_absolute_path("."))
     metadata = {
-        "schema_version": TRAINING_ARTIFACT_SCHEMA_VERSION,
         **collect_repository_metadata(repository_root),
         "runtime": asdict(runtime.report),
         "checkpoint": asdict(runtime.checkpoint_report),

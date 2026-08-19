@@ -11,7 +11,7 @@ from omegaconf import OmegaConf
 
 from eco_planner.evaluation.artifacts.io import write_json
 from eco_planner.evaluation.artifacts.metadata import write_runtime_metadata
-from eco_planner.evaluation.artifacts.models import ARTIFACT_SCHEMA_VERSION, JobSummary
+from eco_planner.evaluation.artifacts.models import JobSummary
 from eco_planner.evaluation.config import EvaluationJobConfig
 from eco_planner.evaluation.episode import run_scenario
 from eco_planner.evaluation.runtime.engine import (
@@ -46,7 +46,6 @@ def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
     summaries = [run_scenario(spec, runtime, config, output_dir) for spec in scenarios]
     summary = JobSummary.model_validate(
         {
-            "schema_version": ARTIFACT_SCHEMA_VERSION,
             "status": (
                 "failed"
                 if any(episode.status == "failed" for episode in summaries)

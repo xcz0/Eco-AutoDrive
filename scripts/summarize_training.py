@@ -64,7 +64,6 @@ def summarize(root: Path) -> dict[str, object]:
             }
         )
     return {
-        "schema_version": 1,
         "status": "passed",
         "total_runs": 4,
         "total_transitions": sum(item[1].total_transitions for item in runs.values()),

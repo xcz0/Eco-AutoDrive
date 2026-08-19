@@ -10,7 +10,7 @@ from hydra.utils import to_absolute_path
 
 from eco_planner.artifacts import collect_repository_metadata, write_tracked_diff
 from eco_planner.evaluation.artifacts.io import write_json
-from eco_planner.evaluation.artifacts.models import ARTIFACT_SCHEMA_VERSION, RuntimeMetadata
+from eco_planner.evaluation.artifacts.models import RuntimeMetadata
 from eco_planner.evaluation.runtime.engine import InferenceRuntimeReport
 from eco_planner.evaluation.runtime.resources import ExecutionReport
 from eco_planner.models import GuidanceConfig, SamplerReport
@@ -29,7 +29,6 @@ def write_runtime_metadata(
     repository_root = Path(to_absolute_path("."))
     metadata = RuntimeMetadata.model_validate(
         {
-            "schema_version": ARTIFACT_SCHEMA_VERSION,
             **collect_repository_metadata(repository_root),
             "inference_runtime": asdict(runtime_report),
             "sampler": asdict(sampler_report),

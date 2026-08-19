@@ -1,4 +1,4 @@
-"""Artifact v4 JSON models shared by producers and consumers."""
+"""Evaluation artifact models."""
 
 from __future__ import annotations
 
@@ -14,8 +14,6 @@ from pydantic import (
     StrictInt,
     model_validator,
 )
-
-ARTIFACT_SCHEMA_VERSION = 4
 
 
 class ArtifactModel(BaseModel):
@@ -176,7 +174,6 @@ class TrafficObservationSummary(ArtifactModel):
 
 
 class CompletedEpisodeSummary(ArtifactModel):
-    schema_version: Literal[4] = ARTIFACT_SCHEMA_VERSION
     status: Literal["completed"] = "completed"
     trace_status: Literal["complete"] = "complete"
     scenario: ScenarioSummary
@@ -211,7 +208,6 @@ class CompletedEpisodeSummary(ArtifactModel):
 
 
 class FailedEpisodeSummary(ArtifactModel):
-    schema_version: Literal[4] = ARTIFACT_SCHEMA_VERSION
     status: Literal["failed"] = "failed"
     scenario: ScenarioSummary
     evaluation_mode: Literal["no_traffic", "traffic"]
@@ -231,7 +227,6 @@ EpisodeSummary = Annotated[
 
 
 class JobSummary(ArtifactModel):
-    schema_version: Literal[4] = ARTIFACT_SCHEMA_VERSION
     status: Literal["completed", "failed"]
     runtime: InferenceRuntimeSummary
     checkpoint: CheckpointSummary
@@ -252,7 +247,6 @@ class JobSummary(ArtifactModel):
 
 
 class RuntimeMetadata(ArtifactModel):
-    schema_version: Literal[4] = ARTIFACT_SCHEMA_VERSION
     git_head: str = Field(min_length=1)
     git_status_short: tuple[str, ...]
     platform: str = Field(min_length=1)

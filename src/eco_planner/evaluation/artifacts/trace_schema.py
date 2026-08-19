@@ -7,8 +7,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from eco_planner.evaluation.artifacts.models import ARTIFACT_SCHEMA_VERSION
-
 PLANNER_ACTOR_COUNT = 11
 PLANNER_FUTURE_STEPS = 80
 PLANNER_STATE_DIM = 4
@@ -42,7 +40,6 @@ OBSERVATION_FIELDS: dict[str, tuple[tuple[int, ...], np.dtype]] = {
 }
 
 _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
-    "schema_version": TraceFieldSpec((), np.dtype(np.int64), finite=False),
     "trace_status": TraceFieldSpec((), None, finite=False),
     "warmup_initial_state": TraceFieldSpec((7,), np.dtype(np.float64)),
     "warmup_initial_state_valid": TraceFieldSpec((), np.dtype(np.bool_), finite=False),
@@ -127,7 +124,6 @@ TRACE_FIELDS = {
 GUIDED_TRACE_FIELDS = frozenset(name for name, spec in TRACE_FIELDS.items() if spec.guided_only)
 STATIC_TRACE_FIELDS = frozenset(
     {
-        "schema_version",
         "trace_status",
         "warmup_initial_state",
         "warmup_initial_state_valid",
@@ -215,8 +211,6 @@ def validate_trace_arrays(
     plan_cycles = mapping["initial_noise"].shape[0]
     simulator_steps = mapping["executed_states"].shape[0]
     warmup_steps = mapping["warmup_states"].shape[0]
-    if mapping["schema_version"].item() != ARTIFACT_SCHEMA_VERSION:
-        raise ValueError("trace schema version is unsupported")
     trace_status = str(mapping["trace_status"].item())
     if trace_status not in {"complete", "partial", "empty"}:
         raise ValueError("trace status is invalid")

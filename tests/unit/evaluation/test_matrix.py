@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 
 from eco_planner.evaluation.analysis.matrix import build_matrix_report, summarize_matrix
-from eco_planner.evaluation.artifacts.models import ARTIFACT_SCHEMA_VERSION
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
 
 
@@ -54,7 +53,6 @@ def _execution_metadata() -> dict[str, object]:
 
 def _episode(name: str, seed: int, density: float) -> dict[str, object]:
     return {
-        "schema_version": ARTIFACT_SCHEMA_VERSION,
         "status": "completed",
         "trace_status": "complete",
         "scenario": {"name": name, "map_sequence": "S", "seed": seed},
@@ -119,7 +117,6 @@ def _runtime(seed: int) -> dict[str, object]:
 
 def _runtime_metadata(seed: int) -> dict[str, object]:
     return {
-        "schema_version": ARTIFACT_SCHEMA_VERSION,
         "git_head": "fixture",
         "git_status_short": [],
         "platform": "fixture",
@@ -187,7 +184,6 @@ runtime:
     (job / "summary.json").write_text(
         json.dumps(
             {
-                "schema_version": ARTIFACT_SCHEMA_VERSION,
                 "status": "completed",
                 "runtime": _runtime(seed),
                 "checkpoint": {"ema_tensor_count": 276, "parameter_count": 6_042_628},
@@ -302,7 +298,6 @@ video:
     (job / "runtime_metadata.json").write_text(json.dumps(_runtime_metadata(0)), encoding="utf-8")
     (job / "tracked_diff.patch").write_bytes(b"")
     episode = {
-        "schema_version": ARTIFACT_SCHEMA_VERSION,
         "status": "failed",
         "scenario": {"name": "long_straight", "map_sequence": "S", "seed": 0},
         "evaluation_mode": "traffic",
@@ -324,7 +319,6 @@ video:
     (job / "summary.json").write_text(
         json.dumps(
             {
-                "schema_version": ARTIFACT_SCHEMA_VERSION,
                 "status": "failed",
                 "runtime": runtime,
                 "checkpoint": {"ema_tensor_count": 276, "parameter_count": 6_042_628},

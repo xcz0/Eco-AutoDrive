@@ -12,7 +12,6 @@ from metadrive.utils.doc_utils import generate_gif
 from pydantic import BaseModel, TypeAdapter
 
 from eco_planner.evaluation.artifacts.models import (
-    ARTIFACT_SCHEMA_VERSION,
     CompletedEpisodeSummary,
     EpisodeSummary,
     FailedEpisodeSummary,
@@ -53,25 +52,12 @@ def load_runtime_metadata(path: Path) -> RuntimeMetadata:
 
 
 def _load_json(path: Path, model: type[_Artifact]) -> _Artifact:
-    text = path.read_text(encoding="utf-8")
-    _require_schema_version(path, text)
-    return model.model_validate_json(text)
+    return model.model_validate_json(path.read_text(encoding="utf-8"))
 
 
 def _load_episode_json(path: Path) -> EpisodeSummary:
     text = path.read_text(encoding="utf-8")
-    _require_schema_version(path, text)
     return _EPISODE_ADAPTER.validate_json(text)
-
-
-def _require_schema_version(path: Path, text: str) -> None:
-    """Reject unrecognized and stale JSON before discriminated Pydantic validation."""
-
-    payload = json.loads(text)
-    if not isinstance(payload, dict):
-        raise TypeError(f"JSON root must be an object: {path}")
-    if payload.get("schema_version") != ARTIFACT_SCHEMA_VERSION:
-        raise ValueError(f"artifact must use schema version {ARTIFACT_SCHEMA_VERSION}: {path}")
 
 
 def load_trace_artifact(path: Path) -> LoadedTraceArtifact:
@@ -79,11 +65,6 @@ def load_trace_artifact(path: Path) -> LoadedTraceArtifact:
 
     with np.load(path, allow_pickle=False) as trace:
         arrays = {name: trace[name] for name in trace.files}
-    if "schema_version" not in arrays:
-        raise ValueError(f"trace is missing schema version: {path}")
-    version = int(arrays["schema_version"].item())
-    if version != ARTIFACT_SCHEMA_VERSION:
-        raise ValueError(f"unsupported trace schema version {version}: {path}")
     status = str(arrays["trace_status"].item())
     validate_trace_arrays(arrays, expected_trace_status=status)
     return LoadedTraceArtifact(status, arrays)

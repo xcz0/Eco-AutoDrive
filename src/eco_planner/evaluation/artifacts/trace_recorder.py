@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 import torch
 
-from eco_planner.evaluation.artifacts.models import ARTIFACT_SCHEMA_VERSION
 from eco_planner.evaluation.artifacts.trace_schema import (
     EXECUTION_PREFIX_STEPS,
     OBSERVATION_FIELDS,
@@ -21,7 +20,7 @@ if TYPE_CHECKING:
 
 
 class EpisodeTraceRecorder:
-    """Record one Artifact v4 trace directly into fixed-capacity arrays."""
+    """Record one evaluation trace"""
 
     def __init__(
         self,
@@ -204,7 +203,6 @@ class EpisodeTraceRecorder:
 
     def _final_arrays(self, trace_status: str) -> dict[str, np.ndarray]:
         arrays: dict[str, np.ndarray] = {
-            "schema_version": np.asarray(ARTIFACT_SCHEMA_VERSION, dtype=np.int64),
             "trace_status": np.asarray(trace_status),
             "warmup_initial_state": self.warmup_initial_state,
             "warmup_initial_state_valid": np.asarray(
