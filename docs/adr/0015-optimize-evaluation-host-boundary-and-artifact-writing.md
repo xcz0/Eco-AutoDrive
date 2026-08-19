@@ -1,31 +1,26 @@
-# Optimize the evaluation host boundary and Artifact v3 writing
+# Optimize the evaluation host boundary and artifact writing
 
 **Status:** Accepted and implemented
 **Date:** 2026-08-14
 
-长程 traffic 评测的首要目标是独立进程总墙钟。此前每个规划周期保留设备 observation，随后为
-trace 将其复制回 CPU；prediction 又分别为 ego 执行和 trace 做主机复制。采样器还在每个 DPM/DDIM
-transition 上执行同步式有限性归约，recorder 以 Python record 列表累计并在 `finalize()` 中整体
-`stack`/`concatenate`，最后用压缩 NPZ 消耗 CPU 时间和额外峰值内存。
+长程闭环 evaluation 的主要性能目标是降低整个独立评测进程的墙钟时间和峰值内存，而不是单独优化模型 forward。
 
-评测边界现在保留 adapter 产生的原始 CPU `float32` observation 作为 Artifact 输入；Fabric 设备
-副本只供模型使用，并允许 autocast 产生 FP16/BF16 计算张量。`FabricInferenceRuntime.infer()` 返回
-CPU-resident `HostInferenceResult`：noise、prediction、reference 和 guidance diagnostics 在同一 CUDA
-stream 上排队复制并只同步一次，随后统一转为 Artifact v3 dtype 和检查有限性。ego 轨迹是 prediction
-的视图，不再单独复制。最终 CPU 边界负责拒绝非有限推理结果；采样 transition 热循环只验证必要的
-shape、device 和 dtype 结构。
+此前一个 planning cycle 中存在多次重复的 device-to-host copy 和同步：模型输入、prediction、ego execution 数据以及 trace 数据可能沿不同路径分别复制。Sampler 热循环中还执行同步式数值检查，而 recorder 使用 Python record 列表累计数据，最终再整体 stack 或 concatenate。这些操作会增加 CUDA synchronization、Python 分配以及 episode 结束时的峰值内存。
 
-`EpisodeTraceRecorder` 在创建时接收 planning 与 warmup 最大容量，按 Artifact v3 shape/dtype
-预分配并直接写槽位。`finalize()` 只返回有效切片，并继续区分 `complete`、`partial` 和 `empty`。
-producer 做增量边界检查和最终结构检查；`load_trace_artifact` 仍对外部/落盘数组执行完整字段、shape、
-精确 dtype、有限性和跨数组关系校验。
+因此，evaluation 明确设置一个 host boundary。
 
-Artifact schema 保持 v3，文件名、JSON 字段、NPZ key、shape 和 dtype 均不改变。`trace.npz` 使用标准
-未压缩 `np.savez`；现有 NumPy reader 无需格式迁移。evaluation 根包不再重导出会装载 runtime 的
-公共符号，summary、episode writer、runtime metadata 与 reader 分离；离线 reader 不导入
-Lightning、MetaDrive 或模型 runtime。
+原始 observation 在进入模型前已经是 CPU 数据，因此保留 CPU representation 作为持久化来源；设备副本只服务于模型计算。模型推理完成后，需要写入 trace 或交给环境执行的结果统一返回 host，尽量合并 device-to-host transfer 和 synchronization，而不是为不同消费者分别复制。
 
-Windows RTX 3050 的两个 300-step traffic 场景筛选中，CUDA
-`torch.set_float32_matmul_precision("high")` 的进程总墙钟中位数相对 `highest` 降低 5.56%，且下降量
-超过两组 MAD；两组均保持相同场景状态、终止原因、planning cycles 和 simulator steps，因此 CUDA
-评测路径采用 `high`。该设置允许浮点差异，不构成跨设备逐位一致性承诺。
+完整数值有限性检查放在最终 CPU boundary。Sampler 的 transition 热路径只执行保证数值更新安全所必需的结构检查，避免每个 diffusion transition 都触发设备同步。
+
+Episode trace 使用预分配数组，而不是累积 Python record 后再整体拼接。Recorder 在 episode 开始时根据最大容量分配存储，并在运行期间直接写入对应槽位；episode 结束时仅返回实际有效区域的 view 或 slice。
+
+这一设计具有三个目的：
+
+1. 将内存复杂度从大量临时 Python/NumPy 对象转换为可预测的连续数组；
+2. 避免 finalize 阶段的大规模 stack/concatenate；
+3. 使 partial、complete 和 empty episode 使用同一记录机制。
+
+Trace 持久化继续使用 NumPy NPZ。写入路径采用标准未压缩 `np.savez`，因为长程 evaluation 更关注写入 CPU 时间和峰值内存，而当前数据不需要通过压缩格式换取额外复杂度。离线 reader 在读取外部数据时仍执行完整结构和数值验证。
+
+具体 host result 类型、trace 字段、容量、dtype、mixed-precision 设置以及硬件相关优化参数属于当前系统契约和 evaluation 配置，而不是本 ADR 的长期约束。
