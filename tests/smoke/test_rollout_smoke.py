@@ -115,6 +115,6 @@ def test_collects_one_real_10hz_transition_without_artifacts(baseline_checkpoint
     )
 
     assert episode.transition_count == 1
-    assert episode.trajectory["guidance_action"].shape == (1, 2)
+    assert episode.training_trajectory["guidance_action"].shape == (1, 2)
     assert episode.tail_kind == "rollout_limit"
-    assert episode.trajectory["reward"].shape == (1, 1)
+    assert episode.training_trajectory["reward"].shape == (1, 1)

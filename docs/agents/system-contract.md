@@ -162,11 +162,11 @@ policy action generator 不得改变 PyTorch 全局 RNG，且与 map/noise seed 
 
 rollout 使用独立的 serial Fabric runtime 和 `guidance=orthogonal_policy`。一个 transition 先准备冻结 scene/navigation encoding 与 DDIM reference，以独立 policy generator 抽取 `rsample`，再用同一份 encoding、initial noise 与 DDIM transition randomness 完成 guided pass。planner 保持 eval/frozen；普通 evaluation 和固定 action guidance 路径不变。
 
-collector 原生保存按时间维组织的 CPU TensorDict：policy context、base/guidance action、old transformed joint log-prob/value、Beta 参数、initial noise、消费前 diffusion/policy RNG state、map/noise/policy seed、planning-cycle index、reward/audit 以及 terminated/truncated。rollout 每次决策只同步复制供 MetaDrive 执行的 ego trajectory；其余 TensorDict/replay 字段在 simulator step 后经独立 CUDA transfer stream 等待并写入。rollout 必须设置`trajectory_execution_steps=1`；evaluation config 要求 5。不保存 DDIM denoise chain。纯 truncation 与 rollout-limit tail 保存最终状态的冻结 critic value；terminal tail 保存零。
+collector 为每个 episode 保存两个按时间维组织的 CPU TensorDict。PPO training trajectory 仅含 policy context、guidance action、old transformed joint log-prob/value、reward、terminated/truncated 及其 GAE `next` 边界；audit/replay trajectory 保留 policy context、base/guidance action、old transformed joint log-prob/value、Beta 参数、initial noise、消费前 diffusion/policy RNG state、map/noise/policy seed、planning-cycle index、reward/audit 以及 terminated/truncated。两者共享字段必须逐项一致。rollout 每次决策只同步复制供 MetaDrive 执行的 ego trajectory；其余 audit/replay 字段在 simulator step 后经独立 CUDA transfer stream 等待并写入。rollout 必须设置`trajectory_execution_steps=1`；evaluation config 要求 5。不保存 DDIM denoise chain。纯 truncation 与 rollout-limit tail 保存最终状态的冻结 critic value；terminal tail 保存零。
 
 ## GAE、PPO 与训练
 
-每个 `RolloutEpisode` 的 TensorDict 直接包含当前 value 和 `next` 的 reward、done、terminated、state value。episode 最后一项总是 GAE recursion boundary；真实 terminal 不 bootstrap，纯 truncation 与 rollout-limit tail bootstrap，advantage 不跨 episode 泄漏。
+每个 `RolloutEpisode` 的 PPO training TensorDict 直接包含当前 value 和 `next` 的 reward、done、terminated、state value；audit/replay TensorDict 不带 GAE 派生字段。episode 最后一项总是 GAE recursion boundary；真实 terminal 不 bootstrap，纯 truncation 与 rollout-limit tail bootstrap，advantage 不跨 episode 泄漏。
 
 TorchRL `GAE` 产生未标准化 advantage 与 value target。多个 episode 仅在 GAE 后拼接，advantage 只在完整 PPO batch 上使用 sample standard deviation 标准化一次；少于两个样本、零方差或非有限统计立即失败。TorchRL `ClipPPOLoss` 通过共享同一个 `ExplorationPolicy` 的 actor/critic TensorDict adapter 重算当前 value 与 `AffineBeta` guidance distribution；PPO ratio 使用保存的 old transformed joint log-prob，entropy 含仿射 Jacobian，不使用 DDIM transition probability。value loss 为 unclipped L2，policy、value 与 entropy loss 共同更新 policy actor head、value head 和共享 trunk。
 

@@ -109,7 +109,7 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
     assert runtime.bootstrap_marker == 2
     assert episode.tail_kind == "rollout_limit"
     assert episode.tail_bootstrap_value.item() == 2.0
-    assert episode.trajectory["state_value"].squeeze(-1).tolist() == [0.0, 1.0]
+    assert episode.training_trajectory["state_value"].squeeze(-1).tolist() == [0.0, 1.0]
     assert len(FakeEnv.instances[0].trajectories) == 2
     assert all(trajectory.shape == (80, 4) for trajectory in FakeEnv.instances[0].trajectories)
 

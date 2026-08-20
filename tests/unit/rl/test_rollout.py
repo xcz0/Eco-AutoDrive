@@ -4,9 +4,14 @@ import numpy as np
 import pytest
 import torch
 
-from eco_planner.rl.artifacts import write_partial_rollout
+from eco_planner.rl.artifacts import write_partial_rollout, write_rollout_episode
 from eco_planner.rl.policy import ExplorationPolicyContext
-from eco_planner.rl.rollout import build_rollout_transition, finalize_rollout_episode
+from eco_planner.rl.rollout import (
+    PPOTrainingTrajectory,
+    RolloutAuditTrajectory,
+    build_rollout_transition,
+    finalize_rollout_episode,
+)
 
 
 def _context() -> ExplorationPolicyContext:
@@ -60,26 +65,26 @@ def test_tensor_dict_rollout_preserves_terminal_and_truncation_bootstrap_rules()
         [_transition(terminated=True)], "terminated", torch.zeros(1)
     )
     assert terminal.transition_count == 1
-    assert terminal.trajectory["next", "done"].item()
-    assert terminal.trajectory["next", "terminated"].item()
+    assert terminal.training_trajectory["next", "done"].item()
+    assert terminal.training_trajectory["next", "terminated"].item()
 
     truncated = finalize_rollout_episode(
         [_transition(truncated=True)], "truncated", torch.tensor([2.0])
     )
-    assert truncated.trajectory["next", "state_value"].item() == pytest.approx(2.0)
+    assert truncated.training_trajectory["next", "state_value"].item() == pytest.approx(2.0)
 
 
 def test_rollout_limit_uses_contiguous_tensor_dict_transitions() -> None:
     episode = finalize_rollout_episode(
         [_transition(0), _transition(1)], "rollout_limit", torch.ones(1)
     )
-    assert episode.trajectory["planning_cycle_index"].squeeze(-1).tolist() == [0, 1]
+    assert episode.audit_trajectory["planning_cycle_index"].squeeze(-1).tolist() == [0, 1]
     assert episode.policy_context_at(1).reference_trajectory.shape == (1, 80, 4)
 
 
 def test_partial_rollout_artifact_converts_only_at_the_npz_boundary(tmp_path) -> None:
     path = tmp_path / "trace.npz"
-    write_partial_rollout(path, _transition())
+    write_partial_rollout(path, _transition().audit_trajectory)
 
     with np.load(path, allow_pickle=False) as arrays:
         assert arrays["trace_status"].item() == "partial"
@@ -87,10 +92,30 @@ def test_partial_rollout_artifact_converts_only_at_the_npz_boundary(tmp_path) ->
         assert arrays["initial_noise"].shape == (1, 11, 80, 4)
 
 
+def test_complete_rollout_artifact_uses_the_audit_trajectory(tmp_path) -> None:
+    episode = finalize_rollout_episode([_transition()], "rollout_limit", torch.zeros(1))
+    path = tmp_path / "episode.npz"
+    write_rollout_episode(path, episode)
+
+    with np.load(path, allow_pickle=False) as arrays:
+        assert arrays["initial_noise"].shape == (1, 11, 80, 4)
+        assert arrays["diffusion_rng_state"].dtype == np.uint8
+        assert arrays["planning_cycle_index"].item() == 0
+
+
 def test_transition_rejects_non_interior_action_without_clamping() -> None:
     with pytest.raises(ValueError, match="strictly inside"):
-        finalize_rollout_episode(
-            [_transition().set("base_action", torch.tensor([[0.0, 0.5]]))],
-            "rollout_limit",
-            torch.zeros(1),
+        RolloutAuditTrajectory(
+            _transition().audit_trajectory.set("base_action", torch.tensor([[0.0, 0.5]]))
         )
+
+
+def test_training_and_audit_contracts_validate_at_their_own_boundaries() -> None:
+    transition = _transition()
+    assert "initial_noise" not in transition.training_trajectory.keys()
+    assert "initial_noise" in transition.audit_trajectory.keys()
+
+    with pytest.raises(ValueError, match="PPO training trajectory is missing fields"):
+        PPOTrainingTrajectory(transition.training_trajectory.exclude("reward"))
+    with pytest.raises(ValueError, match="rollout audit trajectory is missing fields"):
+        RolloutAuditTrajectory(transition.audit_trajectory.exclude("initial_noise"))

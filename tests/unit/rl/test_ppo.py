@@ -6,7 +6,7 @@ import torch
 from eco_planner.rl.config import PPOConfig
 from eco_planner.rl.distributions import AffineBeta
 from eco_planner.rl.policy import ExplorationPolicy, ExplorationPolicyContext
-from eco_planner.rl.ppo import PPOUpdater, estimate_episode_gae
+from eco_planner.rl.ppo import PPOUpdater, _batch_trajectories, estimate_episode_gae
 from eco_planner.rl.rollout import build_rollout_transition, finalize_rollout_episode
 
 
@@ -95,6 +95,17 @@ def test_gae_consumes_the_rollout_tensor_dict_directly(exploration_policy_config
     estimate = estimate_episode_gae(episode, _config())
     assert estimate.advantage.shape == (2, 1)
     assert estimate.value_target.shape == (2, 1)
+
+
+def test_ppo_batch_excludes_audit_only_rollout_fields(exploration_policy_config) -> None:
+    episode = _episode(ExplorationPolicy(exploration_policy_config))
+    batch = _batch_trajectories((episode,), _config())
+
+    assert "initial_noise" not in batch.keys()
+    assert "diffusion_rng_state" not in batch.keys()
+    assert "policy_rng_state" not in batch.keys()
+    assert "planning_cycle_index" not in batch.keys()
+    assert batch["guidance_action"].shape == (2, 2)
 
 
 def test_ppo_update_uses_canonical_affine_beta_distribution(exploration_policy_config) -> None:

@@ -1,4 +1,4 @@
-"""TorchRL-backed GAE and clipped PPO updates over canonical trajectories."""
+"""TorchRL-backed GAE and clipped PPO updates over compact training trajectories."""
 
 from __future__ import annotations
 
@@ -136,7 +136,7 @@ def estimate_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> GAEEstim
         raise TypeError("GAE input must be a RolloutEpisode")
     if not isinstance(config, PPOConfig):
         raise TypeError("GAE config must be PPOConfig")
-    tensordict = episode.trajectory.select("state_value", "next").clone()
+    tensordict = episode.training_trajectory.select("state_value", "next").clone()
     estimator = GAE(
         gamma=config.gamma,
         lmbda=config.gae_lambda,

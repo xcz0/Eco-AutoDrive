@@ -1,4 +1,4 @@
-"""TensorDict-first closed-loop trajectories for PPO collection and artifacts."""
+"""Separate PPO training and audit/replay trajectories for one rollout."""
 
 from __future__ import annotations
 
@@ -19,7 +19,18 @@ _CONTEXT_KEYS = (
     "navigation_padding_mask",
     "reference_trajectory",
 )
-_REQUIRED_KEYS = frozenset(
+_TRAINING_KEYS = frozenset(
+    {
+        *_CONTEXT_KEYS,
+        "guidance_action",
+        "old_joint_guidance_log_prob",
+        "state_value",
+        "reward",
+        "terminated",
+        "truncated",
+    }
+)
+_AUDIT_KEYS = frozenset(
     {
         *_CONTEXT_KEYS,
         "base_action",
@@ -57,25 +68,22 @@ _REQUIRED_KEYS = frozenset(
 
 
 @dataclass(frozen=True)
-class RolloutEpisode:
-    """One CPU trajectory with a validated PPO bootstrap boundary."""
+class PPOTrainingTrajectory:
+    """CPU fields required by GAE and PPO, excluding audit-only rollout data."""
 
-    trajectory: TensorDictBase
-    tail_kind: TailKind
-    tail_bootstrap_value: torch.Tensor
+    data: TensorDictBase
 
     def __post_init__(self) -> None:
-        _validate_trajectory(self.trajectory)
-        _validate_tail(self.trajectory, self.tail_kind, self.tail_bootstrap_value)
+        _validate_training_trajectory(self.data)
 
     @property
     def transition_count(self) -> int:
-        return self.trajectory.batch_size[0]
+        return self.data.batch_size[0]
 
     def policy_context_at(self, index: int) -> ExplorationPolicyContext:
         if type(index) is not int or not 0 <= index < self.transition_count:
-            raise IndexError("policy context index is outside the rollout trajectory")
-        item = self.trajectory[index]
+            raise IndexError("policy context index is outside the PPO training trajectory")
+        item = self.data[index]
         return ExplorationPolicyContext(**{key: item[key].unsqueeze(0) for key in _CONTEXT_KEYS})
 
     def with_gae(self, advantage: torch.Tensor, value_target: torch.Tensor) -> TensorDictBase:
@@ -90,10 +98,75 @@ class RolloutEpisode:
                 or not torch.isfinite(value).all()
             ):
                 raise ValueError(f"GAE {name} must be detached CPU float32 with shape [T, 1]")
-        result = self.trajectory.clone()
+        result = self.data.clone()
         result["advantage"] = advantage
         result["value_target"] = value_target
         return result
+
+
+@dataclass(frozen=True)
+class RolloutAuditTrajectory:
+    """CPU artifact/replay fields, including reproducibility and execution diagnostics."""
+
+    data: TensorDictBase
+
+    def __post_init__(self) -> None:
+        _validate_audit_trajectory(self.data)
+
+    @property
+    def transition_count(self) -> int:
+        return self.data.batch_size[0]
+
+
+@dataclass(frozen=True)
+class RolloutTransition:
+    """One aligned PPO and audit transition before episode concatenation."""
+
+    training: PPOTrainingTrajectory
+    audit: RolloutAuditTrajectory
+
+    def __post_init__(self) -> None:
+        _validate_shared_fields(self.training.data, self.audit.data)
+
+    @property
+    def training_trajectory(self) -> TensorDictBase:
+        return self.training.data
+
+    @property
+    def audit_trajectory(self) -> TensorDictBase:
+        return self.audit.data
+
+
+@dataclass(frozen=True)
+class RolloutEpisode:
+    """Aligned PPO and audit trajectories with a validated GAE bootstrap boundary."""
+
+    training: PPOTrainingTrajectory
+    audit: RolloutAuditTrajectory
+    tail_kind: TailKind
+    tail_bootstrap_value: torch.Tensor
+
+    def __post_init__(self) -> None:
+        _validate_shared_fields(self.training.data, self.audit.data)
+        _validate_tail(self.training.data, self.tail_kind, self.tail_bootstrap_value)
+
+    @property
+    def transition_count(self) -> int:
+        return self.training.transition_count
+
+    @property
+    def training_trajectory(self) -> TensorDictBase:
+        return self.training.data
+
+    @property
+    def audit_trajectory(self) -> TensorDictBase:
+        return self.audit.data
+
+    def policy_context_at(self, index: int) -> ExplorationPolicyContext:
+        return self.training.policy_context_at(index)
+
+    def with_gae(self, advantage: torch.Tensor, value_target: torch.Tensor) -> TensorDictBase:
+        return self.training.with_gae(advantage, value_target)
 
 
 def build_rollout_transition(
@@ -129,8 +202,8 @@ def build_rollout_transition(
     noise_seed: int,
     policy_action_seed: int,
     planning_cycle_index: int,
-) -> TensorDict:
-    """Create one auditable, batch-size-one rollout transition."""
+) -> RolloutTransition:
+    """Create aligned, batch-size-one PPO and audit/replay transition contracts."""
 
     if terminated and truncated:
         raise ValueError("rollout transition cannot be both terminated and truncated")
@@ -169,132 +242,170 @@ def build_rollout_transition(
     ):
         if type(value) is not int or value < 0:
             raise ValueError(f"{name} must be a non-negative integer")
-    transition = TensorDict(
-        {
-            "scene_tokens": policy_context.scene_tokens,
-            "scene_padding_mask": policy_context.scene_padding_mask,
-            "navigation_tokens": policy_context.navigation_tokens,
-            "navigation_padding_mask": policy_context.navigation_padding_mask,
-            "reference_trajectory": policy_context.reference_trajectory,
-            "base_action": base_action,
-            "guidance_action": guidance_action,
-            "old_joint_guidance_log_prob": old_joint_guidance_log_prob.reshape(1, 1),
-            "state_value": state_value.reshape(1, 1),
-            "beta_alpha": beta_alpha,
-            "beta_beta": beta_beta,
-            "initial_noise": initial_noise,
-            "diffusion_rng_state": diffusion_rng_state.unsqueeze(0),
-            "policy_rng_state": policy_rng_state.unsqueeze(0),
-            "reward": _float(reward),
-            "dense_reward": _float(dense_reward),
-            "terminal_override": _float(terminal_override),
-            "route_completion_delta": _float(route_completion_delta),
-            "distance_m": _float(distance_m),
-            "speed_mps": _float(speed_mps),
-            "stopped": _bool(stopped),
-            "position_error_m": _float(position_error_m),
-            "heading_error_rad": _float(heading_error_rad),
-            "arrive_dest": _bool(arrive_dest),
-            "out_of_road": _bool(out_of_road),
-            "crash_vehicle": _bool(crash_vehicle),
-            "crash_object": _bool(crash_object),
-            "crash_building": _bool(crash_building),
-            "crash_human": _bool(crash_human),
-            "terminated": _bool(terminated),
-            "truncated": _bool(truncated),
-            "map_seed": _integer(map_seed),
-            "noise_seed": _integer(noise_seed),
-            "policy_action_seed": _integer(policy_action_seed),
-            "planning_cycle_index": _integer(planning_cycle_index),
-        },
-        batch_size=[1],
+    shared = {
+        "scene_tokens": policy_context.scene_tokens,
+        "scene_padding_mask": policy_context.scene_padding_mask,
+        "navigation_tokens": policy_context.navigation_tokens,
+        "navigation_padding_mask": policy_context.navigation_padding_mask,
+        "reference_trajectory": policy_context.reference_trajectory,
+        "guidance_action": guidance_action,
+        "old_joint_guidance_log_prob": old_joint_guidance_log_prob.reshape(1, 1),
+        "state_value": state_value.reshape(1, 1),
+        "reward": _float(reward),
+        "terminated": _bool(terminated),
+        "truncated": _bool(truncated),
+    }
+    training = PPOTrainingTrajectory(TensorDict(shared, batch_size=[1]))
+    audit = RolloutAuditTrajectory(
+        TensorDict(
+            {
+                **shared,
+                "base_action": base_action,
+                "beta_alpha": beta_alpha,
+                "beta_beta": beta_beta,
+                "initial_noise": initial_noise,
+                "diffusion_rng_state": diffusion_rng_state.unsqueeze(0),
+                "policy_rng_state": policy_rng_state.unsqueeze(0),
+                "dense_reward": _float(dense_reward),
+                "terminal_override": _float(terminal_override),
+                "route_completion_delta": _float(route_completion_delta),
+                "distance_m": _float(distance_m),
+                "speed_mps": _float(speed_mps),
+                "stopped": _bool(stopped),
+                "position_error_m": _float(position_error_m),
+                "heading_error_rad": _float(heading_error_rad),
+                "arrive_dest": _bool(arrive_dest),
+                "out_of_road": _bool(out_of_road),
+                "crash_vehicle": _bool(crash_vehicle),
+                "crash_object": _bool(crash_object),
+                "crash_building": _bool(crash_building),
+                "crash_human": _bool(crash_human),
+                "map_seed": _integer(map_seed),
+                "noise_seed": _integer(noise_seed),
+                "policy_action_seed": _integer(policy_action_seed),
+                "planning_cycle_index": _integer(planning_cycle_index),
+            },
+            batch_size=[1],
+        )
     )
-    _validate_transition(transition)
-    return transition
+    return RolloutTransition(training, audit)
 
 
 def finalize_rollout_episode(
-    transitions: list[TensorDictBase], tail_kind: TailKind, tail_bootstrap_value: torch.Tensor
+    transitions: list[RolloutTransition], tail_kind: TailKind, tail_bootstrap_value: torch.Tensor
 ) -> RolloutEpisode:
-    """Concatenate native TensorDict transitions and attach the GAE ``next`` fields."""
+    """Concatenate aligned transitions and attach GAE ``next`` fields to PPO data only."""
 
     if not transitions:
         raise ValueError("rollout episode must contain at least one transition")
     for index, transition in enumerate(transitions):
-        _validate_transition(transition)
-        if transition["planning_cycle_index"].item() != index:
+        if not isinstance(transition, RolloutTransition):
+            raise TypeError("rollout episode transitions must be RolloutTransition instances")
+        if transition.audit_trajectory["planning_cycle_index"].item() != index:
             raise ValueError("planning_cycle_index must be contiguous from zero")
         if index and (
-            transitions[index - 1]["terminated"].item()
-            or transitions[index - 1]["truncated"].item()
+            transitions[index - 1].training_trajectory["terminated"].item()
+            or transitions[index - 1].training_trajectory["truncated"].item()
         ):
             raise ValueError("rollout episode cannot continue after an episode boundary")
-    trajectory = torch.cat(transitions, dim=0)
+    training_trajectory = torch.cat([item.training_trajectory for item in transitions], dim=0)
     next_values = torch.cat(
-        [trajectory["state_value"][1:], tail_bootstrap_value.reshape(1, 1)], dim=0
+        [training_trajectory["state_value"][1:], tail_bootstrap_value.reshape(1, 1)], dim=0
     )
-    done = torch.zeros((trajectory.batch_size[0], 1), dtype=torch.bool)
+    done = torch.zeros((training_trajectory.batch_size[0], 1), dtype=torch.bool)
     done[-1] = True
-    trajectory["next"] = TensorDict(
+    training_trajectory["next"] = TensorDict(
         {
             "state_value": next_values,
-            "reward": trajectory["reward"].clone(),
+            "reward": training_trajectory["reward"].clone(),
             "done": done,
-            "terminated": trajectory["terminated"].clone(),
+            "terminated": training_trajectory["terminated"].clone(),
         },
-        batch_size=trajectory.batch_size,
+        batch_size=training_trajectory.batch_size,
     )
-    return RolloutEpisode(trajectory, tail_kind, tail_bootstrap_value)
+    return RolloutEpisode(
+        PPOTrainingTrajectory(training_trajectory),
+        RolloutAuditTrajectory(torch.cat([item.audit_trajectory for item in transitions], dim=0)),
+        tail_kind,
+        tail_bootstrap_value,
+    )
 
 
-def _validate_trajectory(trajectory: TensorDictBase) -> None:
-    if not isinstance(trajectory, TensorDictBase) or len(trajectory.batch_size) != 1:
-        raise TypeError("rollout trajectory must be a one-dimensional TensorDict")
-    if trajectory.batch_size[0] <= 0:
-        raise ValueError("rollout trajectory must contain at least one transition")
-    actual = set(trajectory.keys(include_nested=False))
-    missing = _REQUIRED_KEYS - actual
-    if missing:
-        raise ValueError(f"rollout trajectory is missing fields: {sorted(missing)}")
-    for key, value in trajectory.items(include_nested=True, leaves_only=True):
-        if not isinstance(value, torch.Tensor) or value.device.type != "cpu":
-            raise TypeError(f"rollout field {key!r} must be a CPU tensor")
-        if value.dtype.is_floating_point and not torch.isfinite(value).all():
-            raise ValueError(f"rollout field {key!r} must be finite")
-    _validate_transition(trajectory)
+def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
+    _validate_common_trajectory(trajectory, _TRAINING_KEYS, "PPO training")
+    _validate_policy_context(trajectory, "PPO training")
+    if tuple(trajectory["guidance_action"].shape[1:]) != (2,):
+        raise ValueError("PPO training guidance_action must have shape [T, 2]")
+    if torch.any((trajectory["guidance_action"] <= -1.0) | (trajectory["guidance_action"] >= 1.0)):
+        raise ValueError("PPO training guidance_action must be strictly inside (-1, 1)")
+    for key in ("old_joint_guidance_log_prob", "state_value", "reward"):
+        if tuple(trajectory[key].shape[1:]) != (1,):
+            raise ValueError(f"PPO training {key} must have shape [T, 1]")
+    for key in ("terminated", "truncated"):
+        if trajectory[key].dtype != torch.bool or tuple(trajectory[key].shape[1:]) != (1,):
+            raise TypeError(f"PPO training {key} must be bool with shape [T, 1]")
+    if torch.any(trajectory["terminated"] & trajectory["truncated"]):
+        raise ValueError("PPO training transition cannot be both terminated and truncated")
 
 
-def _validate_transition(transition: TensorDictBase) -> None:
-    if transition.batch_size != torch.Size([1]) and len(transition.batch_size) != 1:
-        raise ValueError("rollout transition must use one leading batch dimension")
-    for key in _REQUIRED_KEYS:
-        if key not in transition:
-            raise ValueError(f"rollout transition is missing {key!r}")
-    context = ExplorationPolicyContext(**{key: transition[key] for key in _CONTEXT_KEYS})
-    if context.scene_tokens.shape[0] != transition.batch_size[0]:
-        raise ValueError("policy context batch size must match rollout transition")
+def _validate_audit_trajectory(trajectory: TensorDictBase) -> None:
+    _validate_common_trajectory(trajectory, _AUDIT_KEYS, "rollout audit")
+    _validate_policy_context(trajectory, "rollout audit")
     for key in ("base_action", "guidance_action", "beta_alpha", "beta_beta"):
-        if tuple(transition[key].shape[1:]) != (2,):
-            raise ValueError(f"rollout {key} must have shape [T, 2]")
-    if torch.any((transition["base_action"] <= 0.0) | (transition["base_action"] >= 1.0)):
-        raise ValueError("base action must be strictly inside (0, 1)")
-    if torch.any((transition["guidance_action"] <= -1.0) | (transition["guidance_action"] >= 1.0)):
-        raise ValueError("guidance action must be strictly inside (-1, 1)")
-    torch.testing.assert_close(transition["guidance_action"], 2.0 * transition["base_action"] - 1.0)
-    if torch.any(transition["beta_alpha"] <= 0.0) or torch.any(transition["beta_beta"] <= 0.0):
-        raise ValueError("Beta parameters must be strictly positive")
-    if tuple(transition["initial_noise"].shape[1:]) != (11, 80, 4):
-        raise ValueError("initial noise must have shape [T, 11, 80, 4]")
+        if tuple(trajectory[key].shape[1:]) != (2,):
+            raise ValueError(f"rollout audit {key} must have shape [T, 2]")
+    if torch.any((trajectory["base_action"] <= 0.0) | (trajectory["base_action"] >= 1.0)):
+        raise ValueError("rollout audit base_action must be strictly inside (0, 1)")
+    if torch.any((trajectory["guidance_action"] <= -1.0) | (trajectory["guidance_action"] >= 1.0)):
+        raise ValueError("rollout audit guidance_action must be strictly inside (-1, 1)")
+    torch.testing.assert_close(trajectory["guidance_action"], 2.0 * trajectory["base_action"] - 1.0)
+    if torch.any(trajectory["beta_alpha"] <= 0.0) or torch.any(trajectory["beta_beta"] <= 0.0):
+        raise ValueError("rollout audit Beta parameters must be strictly positive")
+    if tuple(trajectory["initial_noise"].shape[1:]) != (11, 80, 4):
+        raise ValueError("rollout audit initial_noise must have shape [T, 11, 80, 4]")
     for key in ("diffusion_rng_state", "policy_rng_state"):
-        if transition[key].dtype != torch.uint8 or transition[key].ndim != 2:
+        if trajectory[key].dtype != torch.uint8 or trajectory[key].ndim != 2:
             raise TypeError(f"{key} must have shape [T, state_length] and uint8 dtype")
     if not torch.allclose(
-        transition["reward"],
-        transition["dense_reward"] + transition["terminal_override"],
+        trajectory["reward"],
+        trajectory["dense_reward"] + trajectory["terminal_override"],
         rtol=0.0,
         atol=1e-6,
     ):
-        raise ValueError("reward must equal dense_reward plus terminal_override")
+        raise ValueError("rollout audit reward must equal dense_reward plus terminal_override")
+
+
+def _validate_common_trajectory(
+    trajectory: TensorDictBase, required_keys: frozenset[str], contract: str
+) -> None:
+    if not isinstance(trajectory, TensorDictBase) or len(trajectory.batch_size) != 1:
+        raise TypeError(f"{contract} trajectory must be a one-dimensional TensorDict")
+    if trajectory.batch_size[0] <= 0:
+        raise ValueError(f"{contract} trajectory must contain at least one transition")
+    missing = required_keys - set(trajectory.keys(include_nested=False))
+    if missing:
+        raise ValueError(f"{contract} trajectory is missing fields: {sorted(missing)}")
+    for key, value in trajectory.items(include_nested=True, leaves_only=True):
+        if not isinstance(value, torch.Tensor) or value.device.type != "cpu":
+            raise TypeError(f"{contract} field {key!r} must be a CPU tensor")
+        if value.dtype.is_floating_point and not torch.isfinite(value).all():
+            raise ValueError(f"{contract} field {key!r} must be finite")
+
+
+def _validate_policy_context(trajectory: TensorDictBase, contract: str) -> None:
+    context = ExplorationPolicyContext(**{key: trajectory[key] for key in _CONTEXT_KEYS})
+    if context.scene_tokens.shape[0] != trajectory.batch_size[0]:
+        raise ValueError(f"{contract} policy context batch size must match trajectory")
+
+
+def _validate_shared_fields(training: TensorDictBase, audit: TensorDictBase) -> None:
+    if training.batch_size != audit.batch_size:
+        raise ValueError(
+            "PPO training and rollout audit trajectories must have matching batch sizes"
+        )
+    for key in _TRAINING_KEYS:
+        if not torch.equal(training[key], audit[key]):
+            raise ValueError(f"PPO training and rollout audit fields disagree for {key!r}")
 
 
 def _validate_tail(trajectory: TensorDictBase, tail_kind: TailKind, value: torch.Tensor) -> None:

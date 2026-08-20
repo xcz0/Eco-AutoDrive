@@ -180,7 +180,11 @@ def collect_rollout_episode(
             runtime.bootstrap_value(next_observation, diffusion_generator),
         )
     except EpisodeFailure as failure:
-        partial = torch.cat(transitions, dim=0) if transitions else None
+        partial = (
+            torch.cat([transition.audit_trajectory for transition in transitions], dim=0)
+            if transitions
+            else None
+        )
         raise RolloutCollectionFailure(failure.phase.value, failure.cause, partial) from failure
     finally:
         env.close()
