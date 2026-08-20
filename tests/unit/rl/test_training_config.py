@@ -13,7 +13,7 @@ def _config():
     config_dir = Path(__file__).parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
         return compose(
-            config_name="training/ppo_smoke",
+            config_name="experiment/train_ppo_smoke",
             overrides=["runtime.seed=0", "training.replay_id=0"],
         )
 
@@ -22,8 +22,8 @@ def test_ppo_smoke_config_resolves_a_general_closed_loop_job() -> None:
     parsed = parse_training_config(_config())
     assert [item.map for item in parsed.scenarios] == ["S", "SC"]
     assert parsed.training.update_count == 4
-    assert parsed.train.batch_size == 32
-    assert parsed.train.scheduler_total_optimizer_steps == 32
+    assert parsed.rl.batch_size == 32
+    assert parsed.rl.scheduler_total_optimizer_steps == 32
 
 
 @pytest.mark.parametrize(
@@ -31,8 +31,8 @@ def test_ppo_smoke_config_resolves_a_general_closed_loop_job() -> None:
     [
         ("training.transitions_per_environment", 0, "greater than 0"),
         ("env.trajectory_execution_steps", 5, "trajectory_execution_steps"),
-        ("train.batch_size", 16, "must equal all closed-loop"),
-        ("train.scheduler_total_optimizer_steps", 8, "cover every configured"),
+        ("rl.batch_size", 16, "must equal all closed-loop"),
+        ("rl.scheduler_total_optimizer_steps", 8, "cover every configured"),
     ],
 )
 def test_training_config_rejects_invalid_cross_field_values(

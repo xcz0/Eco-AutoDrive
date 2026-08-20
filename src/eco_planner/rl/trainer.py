@@ -61,7 +61,7 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
         Path(to_absolute_path(config.model.checkpoint_path)),
         policy_seeds[0],
     )
-    updater = PPOUpdater(runtime.policy, config.train)
+    updater = PPOUpdater(runtime.policy, config.rl)
     (
         start_update,
         total_transitions,
@@ -159,7 +159,7 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
 
     if probe_contexts is None or probe_before is None:
         raise RuntimeError("training did not capture fixed probe contexts")
-    expected_total = config.training.update_count * config.train.batch_size
+    expected_total = config.training.update_count * config.rl.batch_size
     if total_transitions != expected_total:
         raise RuntimeError(
             f"training collected {total_transitions} transitions, expected {expected_total}"

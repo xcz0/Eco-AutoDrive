@@ -9,7 +9,7 @@ from eco_planner.rl.config import parse_ppo_config
 
 
 def _config() -> object:
-    path = Path(__file__).parents[3] / "configs" / "train" / "ppo_smoke.yaml"
+    path = Path(__file__).parents[3] / "configs" / "rl" / "ppo_smoke.yaml"
     return OmegaConf.load(path)
 
 

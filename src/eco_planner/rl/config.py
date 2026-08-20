@@ -94,7 +94,7 @@ class PPOConfig(_StrictModel):
     @model_validator(mode="after")
     def validate_optimization_contract(self) -> PPOConfig:
         if self.batch_size % self.minibatch_size:
-            raise ValueError("train.batch_size must be divisible by train.minibatch_size")
+            raise ValueError("rl.batch_size must be divisible by rl.minibatch_size")
         if self.scheduler_minimum_learning_rate >= self.learning_rate:
             raise ValueError("scheduler minimum learning rate must be below the initial rate")
         if self.scheduler_total_optimizer_steps < self.optimizer_steps_per_update:
@@ -188,7 +188,7 @@ class RLTrainingJobConfig(_StrictModel):
     guidance: OrthogonalPolicyGuidanceConfig
     policy: ExplorationPolicyConfig
     reward: MetaDriveBuiltinRewardConfig
-    train: PPOConfig
+    rl: PPOConfig
     scenarios: tuple[ScenarioConfig, ...]
 
     @model_validator(mode="after")
@@ -209,10 +209,10 @@ class RLTrainingJobConfig(_StrictModel):
             if self.env.get(name) != getattr(self.reward, name):
                 raise ValueError(f"env.{name} must equal the selected reward profile")
         sample_count = len(self.scenarios) * self.training.transitions_per_environment
-        if self.train.batch_size != sample_count:
-            raise ValueError("train.batch_size must equal all closed-loop transitions per update")
-        required_steps = self.training.update_count * self.train.optimizer_steps_per_update
-        if self.train.scheduler_total_optimizer_steps < required_steps:
+        if self.rl.batch_size != sample_count:
+            raise ValueError("rl.batch_size must equal all closed-loop transitions per update")
+        required_steps = self.training.update_count * self.rl.optimizer_steps_per_update
+        if self.rl.scheduler_total_optimizer_steps < required_steps:
             raise ValueError("scheduler horizon must cover every configured PPO update")
         return self
 
@@ -239,14 +239,14 @@ def parse_rollout_config(config: DictConfig) -> RolloutJobConfig:
 
 def parse_training_config(config: DictConfig) -> RLTrainingJobConfig:
     raw = _resolve_dict(config, "training")
-    nodes = _profile_nodes(config, ("sampler", "guidance", "policy", "train"), "training")
+    nodes = _profile_nodes(config, ("sampler", "guidance", "policy", "rl"), "training")
     guidance = parse_guidance_config(nodes["guidance"])
     if not isinstance(guidance, OrthogonalPolicyGuidanceConfig):
         raise ValueError("training requires guidance=orthogonal_policy")
     raw["sampler"] = parse_sampler_config(nodes["sampler"])
     raw["guidance"] = guidance
     raw["policy"] = parse_exploration_policy_config(nodes["policy"])
-    raw["train"] = parse_ppo_config(nodes["train"])
+    raw["rl"] = parse_ppo_config(nodes["rl"])
     if isinstance(raw.get("scenarios"), list):
         raw["scenarios"] = tuple(raw["scenarios"])
     return RLTrainingJobConfig.model_validate(raw)

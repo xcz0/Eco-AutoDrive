@@ -8,7 +8,7 @@ defaults:
   - /guidance: orthogonal_policy
   - /policy: exploration_beta
   - /reward: metadrive_builtin_v1
-  - /train: ppo_closed_loop_smoke
+  - /rl: ppo_closed_loop_smoke
   - _self_
 
 name: plannerrft_ppo_closed_loop_smoke
