@@ -72,15 +72,17 @@ def test_real_checkpoint_policy_guided_decision_is_finite_and_replayable(
         replay_runtime.new_noise_generator(),
         replay_runtime.new_policy_generator(),
     )
+    first_audit = first.audit_result()
+    replay_audit = replay.audit_result()
 
     assert torch.equal(torch.random.get_rng_state(), global_state)
-    assert first.prediction.shape == (1, 11, 80, 4)
-    assert first.prediction.dtype.name == "float32"
-    assert torch.equal(first.initial_noise, replay.initial_noise)
-    assert torch.equal(first.base_action, replay.base_action)
-    assert torch.equal(first.guidance_action, replay.guidance_action)
-    assert torch.isfinite(first.old_joint_guidance_log_prob).all()
-    assert torch.isfinite(first.old_value).all()
+    assert first_audit.prediction.shape == (1, 11, 80, 4)
+    assert first_audit.prediction.dtype.name == "float32"
+    assert torch.equal(first_audit.initial_noise, replay_audit.initial_noise)
+    assert torch.equal(first_audit.base_action, replay_audit.base_action)
+    assert torch.equal(first_audit.guidance_action, replay_audit.guidance_action)
+    assert torch.isfinite(first_audit.old_joint_guidance_log_prob).all()
+    assert torch.isfinite(first_audit.old_value).all()
 
 
 @pytest.mark.simulator
@@ -112,6 +114,6 @@ def test_collects_one_real_10hz_transition_without_artifacts(baseline_checkpoint
     )
 
     assert episode.transition_count == 1
-    assert episode.training_trajectory["guidance_action"].shape == (1, 2)
+    assert episode.training["guidance_action"].shape == (1, 2)
     assert episode.tail_kind == "rollout_limit"
-    assert episode.training_trajectory["reward"].shape == (1, 1)
+    assert episode.training["reward"].shape == (1, 1)

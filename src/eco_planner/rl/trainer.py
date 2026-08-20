@@ -104,7 +104,16 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
                     episode,
                 )
                 if episode_index == 0:
-                    update_contexts.append(episode.policy_context_at(0))
+                    item = episode.training[0]
+                    update_contexts.append(
+                        ExplorationPolicyContext(
+                            scene_tokens=item["scene_tokens"].unsqueeze(0),
+                            scene_padding_mask=item["scene_padding_mask"].unsqueeze(0),
+                            navigation_tokens=item["navigation_tokens"].unsqueeze(0),
+                            navigation_padding_mask=item["navigation_padding_mask"].unsqueeze(0),
+                            reference_trajectory=item["reference_trajectory"].unsqueeze(0),
+                        )
+                    )
                 update_episodes.append(episode)
                 total_transitions += episode.transition_count
                 remaining -= episode.transition_count

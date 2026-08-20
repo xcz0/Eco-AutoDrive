@@ -9,7 +9,7 @@ from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl.collector import collect_rollout_episode
 from eco_planner.rl.policy import ExplorationPolicyContext
-from eco_planner.rl.rollout import PPOTrainingDecision
+from eco_planner.rl.rollout import build_training_decision
 from eco_planner.rl.runtime import RolloutAudit, RolloutDecision
 
 
@@ -111,7 +111,7 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
     assert runtime.bootstrap_marker == 2
     assert episode.tail_kind == "rollout_limit"
     assert episode.tail_bootstrap_value.item() == 2.0
-    assert episode.training_trajectory["state_value"].squeeze(-1).tolist() == [0.0, 1.0]
+    assert episode.training["state_value"].squeeze(-1).tolist() == [0.0, 1.0]
     assert len(FakeEnv.instances[0].trajectories) == 2
     assert all(trajectory.shape == (80, 4) for trajectory in FakeEnv.instances[0].trajectories)
 
@@ -135,8 +135,8 @@ class _FakeRolloutDecision:
         return self._audit.ego_trajectory
 
     @property
-    def training_decision(self) -> PPOTrainingDecision:
-        return PPOTrainingDecision.from_policy_output(
+    def training_decision(self) -> object:
+        return build_training_decision(
             self._audit.policy_context,
             self._audit.guidance_action,
             self._audit.old_joint_guidance_log_prob,

@@ -56,25 +56,6 @@ _PPO_UPDATE_METRIC_NAMES = (
 
 
 @dataclass(frozen=True)
-class GAEEstimate:
-    """One episode's non-differentiable advantage and value target."""
-
-    advantage: torch.Tensor
-    value_target: torch.Tensor
-
-    def __post_init__(self) -> None:
-        if self.advantage.ndim != 2 or self.advantage.shape[-1] != 1:
-            raise ValueError("GAE advantage must have shape [T, 1]")
-        if self.value_target.shape != self.advantage.shape:
-            raise ValueError("GAE value target must match advantage shape")
-        for name, value in (("advantage", self.advantage), ("value target", self.value_target)):
-            if value.dtype != torch.float32:
-                raise TypeError(f"GAE {name} must be a float32 tensor")
-            if value.requires_grad or not torch.isfinite(value).all():
-                raise ValueError(f"GAE {name} must be finite and detached")
-
-
-@dataclass(frozen=True)
 class PPOUpdateReport:
     """Scalar diagnostics from one complete PPO update."""
 
@@ -124,14 +105,10 @@ class _PolicyValueAdapter(nn.Module):
         return state_value
 
 
-def estimate_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> GAEEstimate:
-    """Use TorchRL GAE directly on one trajectory TensorDict."""
+def _append_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> TensorDictBase:
+    """Run TorchRL GAE and append its detached outputs to the PPO trajectory."""
 
-    if not isinstance(episode, RolloutEpisode):
-        raise TypeError("GAE input must be a RolloutEpisode")
-    if not isinstance(config, PPOConfig):
-        raise TypeError("GAE config must be PPOConfig")
-    tensordict = episode.training_trajectory.select("state_value", "next").clone()
+    tensordict = episode.training.select("state_value", "next").clone()
     estimator = GAE(
         gamma=config.gamma,
         lmbda=config.gae_lambda,
@@ -144,10 +121,10 @@ def estimate_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> GAEEstim
         auto_reset_env=False,
     )
     estimator(tensordict)
-    return GAEEstimate(
-        advantage=tensordict["advantage"].detach().clone(),
-        value_target=tensordict["value_target"].detach().clone(),
-    )
+    trajectory = episode.training.clone()
+    trajectory["advantage"] = tensordict["advantage"].detach().clone()
+    trajectory["value_target"] = tensordict["value_target"].detach().clone()
+    return trajectory
 
 
 class PPOUpdater:
@@ -365,8 +342,7 @@ def _batch_trajectories(episodes: Sequence[RolloutEpisode], config: PPOConfig) -
         raise ValueError("PPO update requires at least one rollout episode")
     trajectories = []
     for episode in episode_tuple:
-        estimate = estimate_episode_gae(episode, config)
-        trajectories.append(episode.with_gae(estimate.advantage, estimate.value_target))
+        trajectories.append(_append_episode_gae(episode, config))
     return torch.cat(trajectories, dim=0).select(*_PPO_BATCH_KEYS)
 
 

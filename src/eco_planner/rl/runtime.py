@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from lightning.fabric import Fabric
+from tensordict import TensorDictBase
 
 from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.runtime.contracts import (
@@ -34,7 +35,7 @@ from eco_planner.rl.policy import (
     ExplorationPolicyContext,
     validate_exploration_policy_context,
 )
-from eco_planner.rl.rollout import PPOTrainingDecision
+from eco_planner.rl.rollout import build_training_decision
 
 
 @dataclass(frozen=True)
@@ -68,7 +69,7 @@ class RolloutDecision:
         diffusion_rng_state: torch.Tensor,
         policy_rng_state: torch.Tensor,
         policy_config: ExplorationPolicyConfig,
-        training_decision: PPOTrainingDecision,
+        training_decision: TensorDictBase,
     ) -> None:
         self._execution = execution
         self._deferred = deferred
@@ -83,7 +84,7 @@ class RolloutDecision:
         return self._execution.ego_trajectory
 
     @property
-    def training_decision(self) -> PPOTrainingDecision:
+    def training_decision(self) -> TensorDictBase:
         """Return the device-resident PPO inputs without waiting for the audit copy."""
 
         return self._training_decision
@@ -222,7 +223,7 @@ class FabricRolloutRuntime:
         if result.guidance_action is None:
             raise RuntimeError("policy-guided planner did not return its guidance action")
         torch.testing.assert_close(result.guidance_action, action.guidance_action)
-        training_decision = PPOTrainingDecision.from_policy_output(
+        training_decision = build_training_decision(
             policy_context,
             action.guidance_action,
             action.joint_guidance_log_prob,

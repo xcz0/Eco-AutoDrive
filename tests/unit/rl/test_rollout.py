@@ -3,16 +3,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
+from tensordict import TensorDictBase
 
 from eco_planner.rl.artifacts import write_rollout_episode
 from eco_planner.rl.policy import ExplorationPolicyContext
 from eco_planner.rl.rollout import (
-    PPOTrainingDecision,
-    PPOTrainingTrajectory,
-    RolloutAuditTrajectory,
-    RolloutTrainingBuffer,
-    build_rollout_transition,
-    finalize_buffered_rollout_episode,
+    build_rollout_audit,
+    build_training_decision,
+    build_training_transition,
     finalize_rollout_episode,
 )
 
@@ -27,11 +25,25 @@ def _context() -> ExplorationPolicyContext:
     )
 
 
-def _transition(index: int = 0, *, terminated: bool = False, truncated: bool = False):
-    return build_rollout_transition(
-        policy_context=_context(),
-        base_action=torch.tensor([[0.25, 0.75]], dtype=torch.float32),
-        guidance_action=torch.tensor([[-0.5, 0.5]], dtype=torch.float32),
+def _transitions(
+    index: int = 0, *, terminated: bool = False, truncated: bool = False
+) -> tuple[TensorDictBase, TensorDictBase]:
+    context = _context()
+    base_action = torch.tensor([[0.25, 0.75]], dtype=torch.float32)
+    guidance_action = 2.0 * base_action - 1.0
+    decision = build_training_decision(
+        context,
+        guidance_action,
+        torch.tensor([0.5], dtype=torch.float32),
+        torch.tensor([1.0], dtype=torch.float32),
+    )
+    training = build_training_transition(
+        decision, reward=0.25, terminated=terminated, truncated=truncated
+    )
+    audit = build_rollout_audit(
+        policy_context=context,
+        base_action=base_action,
+        guidance_action=guidance_action,
         old_joint_guidance_log_prob=torch.tensor([0.5], dtype=torch.float32),
         state_value=torch.tensor([1.0], dtype=torch.float32),
         beta_alpha=torch.full((1, 2), 2.0),
@@ -61,32 +73,38 @@ def _transition(index: int = 0, *, terminated: bool = False, truncated: bool = F
         policy_action_seed=2,
         planning_cycle_index=index,
     )
+    return training, audit
 
 
-def test_tensor_dict_rollout_preserves_terminal_and_truncation_bootstrap_rules() -> None:
-    terminal = finalize_rollout_episode(
-        [_transition(terminated=True)], "terminated", torch.zeros(1)
-    )
+def test_rollout_tensor_dicts_preserve_terminal_and_truncation_bootstrap_rules() -> None:
+    training, audit = _transitions(terminated=True)
+    terminal = finalize_rollout_episode([training], [audit], "terminated", torch.zeros(1))
     assert terminal.transition_count == 1
-    assert terminal.training_trajectory["next", "done"].item()
-    assert terminal.training_trajectory["next", "terminated"].item()
+    assert terminal.training["next", "done"].item()
+    assert terminal.training["next", "terminated"].item()
 
-    truncated = finalize_rollout_episode(
-        [_transition(truncated=True)], "truncated", torch.tensor([2.0])
-    )
-    assert truncated.training_trajectory["next", "state_value"].item() == pytest.approx(2.0)
+    training, audit = _transitions(truncated=True)
+    truncated = finalize_rollout_episode([training], [audit], "truncated", torch.tensor([2.0]))
+    assert truncated.training["next", "state_value"].item() == pytest.approx(2.0)
 
 
-def test_rollout_limit_uses_contiguous_tensor_dict_transitions() -> None:
+def test_rollout_limit_preserves_audit_and_training_device_ownership() -> None:
+    first_training, first_audit = _transitions(0)
+    second_training, second_audit = _transitions(1)
     episode = finalize_rollout_episode(
-        [_transition(0), _transition(1)], "rollout_limit", torch.ones(1)
+        [first_training, second_training],
+        [first_audit, second_audit],
+        "rollout_limit",
+        torch.ones(1),
     )
-    assert episode.audit_trajectory["planning_cycle_index"].squeeze(-1).tolist() == [0, 1]
-    assert episode.policy_context_at(1).reference_trajectory.shape == (1, 80, 4)
+    assert episode.audit["planning_cycle_index"].squeeze(-1).tolist() == [0, 1]
+    assert episode.training["scene_tokens"].device.type == "cpu"
+    assert episode.audit["scene_tokens"].device.type == "cpu"
 
 
-def test_complete_rollout_artifact_uses_the_audit_trajectory(tmp_path) -> None:
-    episode = finalize_rollout_episode([_transition()], "rollout_limit", torch.zeros(1))
+def test_complete_rollout_artifact_uses_the_audit_tensor_dict(tmp_path) -> None:
+    training, audit = _transitions()
+    episode = finalize_rollout_episode([training], [audit], "rollout_limit", torch.zeros(1))
     path = tmp_path / "episode.npz"
     write_rollout_episode(path, episode)
 
@@ -96,82 +114,28 @@ def test_complete_rollout_artifact_uses_the_audit_trajectory(tmp_path) -> None:
         assert arrays["planning_cycle_index"].item() == 0
 
 
-def test_transition_rejects_non_interior_action_without_clamping() -> None:
+def test_rollout_validates_complete_audit_at_the_episode_boundary() -> None:
+    training, audit = _transitions()
     with pytest.raises(ValueError, match="strictly inside"):
-        RolloutAuditTrajectory(
-            _transition().audit_trajectory.set("base_action", torch.tensor([[0.0, 0.5]]))
+        finalize_rollout_episode(
+            [training],
+            [audit.set("base_action", torch.tensor([[0.0, 0.5]]))],
+            "rollout_limit",
+            torch.zeros(1),
         )
 
 
-def test_training_and_audit_contracts_validate_at_their_own_boundaries() -> None:
-    transition = _transition()
-    assert "initial_noise" not in transition.training_trajectory.keys()
-    assert "initial_noise" in transition.audit_trajectory.keys()
-
-    with pytest.raises(ValueError, match="PPO training trajectory is missing fields"):
-        PPOTrainingTrajectory(transition.training_trajectory.exclude("reward"))
-    with pytest.raises(ValueError, match="rollout audit trajectory is missing fields"):
-        RolloutAuditTrajectory(transition.audit_trajectory.exclude("initial_noise"))
-
-
-def test_rollout_training_buffer_owns_detached_features_until_a_truncated_boundary() -> None:
+def test_training_transition_owns_detached_policy_features() -> None:
     context = _context()
-    decision = PPOTrainingDecision.from_policy_output(
+    decision = build_training_decision(
         context,
         torch.tensor([[-0.5, 0.5]], dtype=torch.float32),
         torch.tensor([0.5], dtype=torch.float32),
         torch.tensor([1.0], dtype=torch.float32),
     )
-    expected_tokens = decision.data["scene_tokens"].clone()
+    expected_tokens = decision["scene_tokens"].clone()
     context.scene_tokens.add_(1.0)
-    buffer = RolloutTrainingBuffer(1)
-    buffer.append(decision, reward=0.25, terminated=False, truncated=True)
-    training = buffer.finalize("truncated", torch.tensor([2.0], dtype=torch.float32))
+    training = build_training_transition(decision, reward=0.25, terminated=False, truncated=True)
 
-    assert buffer.transition_count == 0
-    assert not training.data["scene_tokens"].requires_grad
-    torch.testing.assert_close(training.data["scene_tokens"], expected_tokens)
-    assert training.data["next", "state_value"].item() == pytest.approx(2.0)
-    assert training.data["next", "done"].item()
-
-
-def test_rollout_training_buffer_enforces_capacity_and_episode_boundary() -> None:
-    decision = PPOTrainingDecision.from_policy_output(
-        _context(),
-        torch.tensor([[-0.5, 0.5]], dtype=torch.float32),
-        torch.tensor([0.5], dtype=torch.float32),
-        torch.tensor([1.0], dtype=torch.float32),
-    )
-    buffer = RolloutTrainingBuffer(2)
-    buffer.append(decision, reward=0.25, terminated=True, truncated=False)
-
-    with pytest.raises(ValueError, match="cannot continue after an episode boundary"):
-        buffer.append(decision, reward=0.25, terminated=False, truncated=False)
-
-    capacity = RolloutTrainingBuffer(1)
-    capacity.append(decision, reward=0.25, terminated=False, truncated=False)
-    with pytest.raises(RuntimeError, match="capacity is exhausted"):
-        capacity.append(decision, reward=0.25, terminated=False, truncated=False)
-
-
-def test_buffered_rollout_keeps_ppo_features_independent_of_cpu_audit() -> None:
-    transition = _transition(terminated=True)
-    decision = PPOTrainingDecision.from_policy_output(
-        _context(),
-        transition.training_trajectory["guidance_action"],
-        transition.training_trajectory["old_joint_guidance_log_prob"],
-        transition.training_trajectory["state_value"],
-    )
-    buffer = RolloutTrainingBuffer(1)
-    buffer.append(decision, reward=0.25, terminated=True, truncated=False)
-
-    episode = finalize_buffered_rollout_episode(
-        buffer, [transition.audit], "terminated", torch.zeros(1)
-    )
-
-    torch.testing.assert_close(
-        episode.training_trajectory["scene_tokens"], decision.data["scene_tokens"]
-    )
-    torch.testing.assert_close(
-        episode.training_trajectory["guidance_action"], decision.data["guidance_action"]
-    )
+    assert not training["scene_tokens"].requires_grad
+    torch.testing.assert_close(training["scene_tokens"], expected_tokens)

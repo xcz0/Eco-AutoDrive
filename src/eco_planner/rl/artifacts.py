@@ -93,7 +93,7 @@ def write_rollout_episode(path: Path, episode: RolloutEpisode) -> None:
     """Persist the complete audit trajectory through the stable NumPy artifact boundary."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    arrays = _trajectory_arrays(episode.audit_trajectory)
+    arrays = _trajectory_arrays(episode.audit)
     arrays.update(
         {
             "tail_kind": np.asarray(episode.tail_kind),
@@ -108,7 +108,7 @@ def build_update_summary(
 ) -> TrainingUpdateSummary:
     if not episodes:
         raise ValueError("training update summary requires at least one episode")
-    trajectory = torch.cat([episode.audit_trajectory for episode in episodes], dim=0)
+    trajectory = torch.cat([episode.audit for episode in episodes], dim=0)
     sample_count = trajectory.batch_size[0]
     collision = (
         trajectory["crash_vehicle"]

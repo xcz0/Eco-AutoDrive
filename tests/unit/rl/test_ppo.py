@@ -10,9 +10,13 @@ from eco_planner.rl.ppo import (
     PPOUpdater,
     _batch_trajectories,
     _build_torchrl_policy_adapters,
-    estimate_episode_gae,
 )
-from eco_planner.rl.rollout import build_rollout_transition, finalize_rollout_episode
+from eco_planner.rl.rollout import (
+    build_rollout_audit,
+    build_training_decision,
+    build_training_transition,
+    finalize_rollout_episode,
+)
 
 
 def _config() -> PPOConfig:
@@ -50,10 +54,24 @@ def _episode(policy: ExplorationPolicy):
     context = _context(policy.config.hidden_dim)
     with torch.no_grad():
         output, action = policy.act(context, "sample", torch.Generator().manual_seed(4))
-    transitions = []
+    training_transitions = []
+    audit_transitions = []
     for index, reward in enumerate((1.0, 2.0)):
-        transitions.append(
-            build_rollout_transition(
+        training_transitions.append(
+            build_training_transition(
+                build_training_decision(
+                    context,
+                    action.guidance_action,
+                    action.joint_guidance_log_prob,
+                    output.value,
+                ),
+                reward=reward,
+                terminated=index == 1,
+                truncated=False,
+            )
+        )
+        audit_transitions.append(
+            build_rollout_audit(
                 policy_context=context,
                 base_action=action.base_action,
                 guidance_action=action.guidance_action,
@@ -87,14 +105,16 @@ def _episode(policy: ExplorationPolicy):
                 planning_cycle_index=index,
             )
         )
-    return finalize_rollout_episode(transitions, "terminated", torch.zeros(1))
+    return finalize_rollout_episode(
+        training_transitions, audit_transitions, "terminated", torch.zeros(1)
+    )
 
 
 def test_gae_consumes_the_rollout_tensor_dict_directly(exploration_policy_config) -> None:
     episode = _episode(ExplorationPolicy(exploration_policy_config))
-    estimate = estimate_episode_gae(episode, _config())
-    assert estimate.advantage.shape == (2, 1)
-    assert estimate.value_target.shape == (2, 1)
+    batch = _batch_trajectories((episode,), _config())
+    assert batch["advantage"].shape == (2, 1)
+    assert batch["value_target"].shape == (2, 1)
 
 
 def test_ppo_batch_excludes_audit_only_rollout_fields(exploration_policy_config) -> None:

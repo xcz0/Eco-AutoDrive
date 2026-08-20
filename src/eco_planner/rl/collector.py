@@ -16,11 +16,10 @@ from eco_planner.envs import (
 )
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl.rollout import (
-    RolloutAuditTrajectory,
     RolloutEpisode,
-    RolloutTrainingBuffer,
-    build_rollout_transition,
-    finalize_buffered_rollout_episode,
+    build_rollout_audit,
+    build_training_transition,
+    finalize_rollout_episode,
 )
 from eco_planner.rl.runtime import RolloutDecision
 
@@ -100,8 +99,8 @@ def collect_rollout_episode(
         if mode == "no_traffic"
         else None
     )
-    training_buffer = RolloutTrainingBuffer(max_transitions)
-    audit_transitions: list[RolloutAuditTrajectory] = []
+    training_transitions = []
+    audit_transitions = []
     try:
         env.reset(seed=spec.seed)
         if traffic_adapter is not None:
@@ -130,14 +129,16 @@ def collect_rollout_episode(
                 stopped_speed_threshold_mps,
             )
             reward = float(execution.substep_rewards.sum())
-            training_buffer.append(
-                training_decision,
-                reward=reward,
-                terminated=terminated,
-                truncated=truncated,
+            training_transitions.append(
+                build_training_transition(
+                    training_decision,
+                    reward=reward,
+                    terminated=terminated,
+                    truncated=truncated,
+                )
             )
             audit_transitions.append(
-                build_rollout_transition(
+                build_rollout_audit(
                     policy_context=audit_result.policy_context,
                     base_action=audit_result.base_action,
                     guidance_action=audit_result.guidance_action,
@@ -160,24 +161,24 @@ def collect_rollout_episode(
                     policy_action_seed=resolved_policy_seed,
                     planning_cycle_index=cycle,
                     **audit,
-                ).audit
+                )
             )
             previous_route_completion = execution.route_completion
             if terminated:
-                return finalize_buffered_rollout_episode(
-                    training_buffer, audit_transitions, "terminated", torch.zeros(1)
+                return finalize_rollout_episode(
+                    training_transitions, audit_transitions, "terminated", torch.zeros(1)
                 )
             if truncated:
                 next_observation = _build_observation(traffic_adapter, no_traffic_adapter, env)
-                return finalize_buffered_rollout_episode(
-                    training_buffer,
+                return finalize_rollout_episode(
+                    training_transitions,
                     audit_transitions,
                     "truncated",
                     runtime.bootstrap_value(next_observation, diffusion_generator),
                 )
         next_observation = _build_observation(traffic_adapter, no_traffic_adapter, env)
-        return finalize_buffered_rollout_episode(
-            training_buffer,
+        return finalize_rollout_episode(
+            training_transitions,
             audit_transitions,
             "rollout_limit",
             runtime.bootstrap_value(next_observation, diffusion_generator),
