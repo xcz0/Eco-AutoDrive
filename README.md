@@ -21,13 +21,11 @@ Eco-AutoDrive 研究如何在 MetaDrive 闭环中利用预训练 Diffusion Plann
 本地 Windows 环境：
 
 ```powershell
-uv sync --all-groups
-uv run pytest -m "not gpu and not simulator and not slow"
-uv run ruff check .
-uv run ruff format --check .
+just setup
+just check
 ```
 
-编码智能体使用已准备好的 `.venv`，其读取顺序、实现约束和验证命令见 [AGENTS.md](AGENTS.md)。
+`just --list` 显示全部入口；Hydra override 可直接追加到评测命令。编码智能体使用已准备好的 `.venv`，其读取顺序、实现约束和验证命令见 [AGENTS.md](AGENTS.md)。
 
 ## 闭环评测
 
@@ -35,10 +33,10 @@ uv run ruff format --check .
 
 ```powershell
 # 无交通
-.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_smoke
+just eval-smoke
 
 # 有交通
-.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_traffic_smoke
+just eval-traffic-smoke
 ```
 
 `no-traffic` 会拒绝背景车辆和静态交通物体，不能用于有交通评测。
@@ -46,8 +44,8 @@ uv run ruff format --check .
 默认 sampler 为保持官方语义的 `dpm10`。项目额外提供：
 
 ```powershell
-.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_smoke planner/sampler=ddim5
-.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_smoke planner/sampler=ddim5_project_noise
+just eval-smoke planner/sampler=ddim5
+just eval-smoke planner/sampler=ddim5_project_noise
 ```
 
 `ddim5` 使用标准高斯初始噪声；`ddim5_project_noise` 使用 `0.5` 倍噪声，仅作为项目隔离对照。两者均采用本项目选择的五步时间表，不代表上游未公开的 sampler parity。
@@ -55,9 +53,7 @@ uv run ruff format --check .
 固定 reference guidance 必须与标准高斯 `ddim5` 搭配：
 
 ```powershell
-.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_smoke `
-  planner/sampler=ddim5 planner/guidance=orthogonal_reference `
-  guidance.lateral_scale=1 guidance.longitudinal_scale=0
+just eval-guidance guidance.lateral_scale=1 guidance.longitudinal_scale=0
 ```
 
 scale 必须位于 `[-1,1]`；`(0,0)` 精确退化为同次 unguided reference。reference-centered energy、10 Hz 速度差分、单位梯度系数和 ego-only gradient scope 属于项目复现决定；guidance 不做中心线投影、平滑、裁剪或失败回退。完整数学与随机性契约见 [system-contract.md](docs/agents/system-contract.md) 和相关 ADR。
@@ -70,15 +66,13 @@ scale 必须位于 `[-1,1]`；`(0,0)` 精确退化为同次 unguided reference�
 
 ```powershell
 # 无交通完整预设
-.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_full runtime.seed=3
+just eval runtime.seed=3
 
 # 无交通多 seed
-.venv\Scripts\python.exe scripts\evaluate.py --multirun `
-  --config-name experiment/evaluate_no_traffic_matrix
+just eval-no-traffic-matrix
 
 # 交通矩阵
-.venv\Scripts\python.exe scripts\evaluate.py --multirun `
-  --config-name experiment/evaluate_traffic_matrix
+just eval-matrix
 ```
 
 traffic matrix 默认使用两个 Joblib `loky` 进程；串行对照可通过 `hydra/launcher=basic evaluation.execution.mode=serial evaluation.execution.launcher=basic evaluation.execution.worker_count=1` 覆盖。CUDA 运行使用 `runtime.accelerator=cuda`，CPU 对照使用 `runtime.accelerator=cpu`。多 GPU 调度不属于该入口。
@@ -92,7 +86,7 @@ traffic matrix 默认使用两个 Joblib `loky` 进程；串行对照可通过 `
 当前 smoke profile 主要用于验证 Exploration Policy → rollout → GAE/PPO → checkpoint 的闭环数据流：
 
 ```powershell
-.venv\Scripts\python.exe scripts\train.py runtime.seed=0 training.replay_id=0
+just train-smoke 0 0
 ```
 
 现有 `metadrive_builtin_v1` reward 只用于训练链路验证，不是 PlannerRFT parity，也不是最终能耗 reward。规模化训练、learned-policy evaluation 和最终 energy-oriented objective 仍需按研究问题和 GitHub Issues 推进。

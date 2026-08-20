@@ -18,7 +18,7 @@ Eco-AutoDrive 是个人科研代码库。优先保证**逻辑正确、实验语�
 | 长期设计选择及理由 | 相关 `docs/adr/` |
 | 尚未确定的方法、假设和研究问题 | `docs/research/` |
 | 已实际运行的实验、配置、结果和产物来源 | `docs/experiments/README.md`、对应 `records/`、实际 resolved config/artifact |
-| 使用入口、依赖和当前运行方式 | `README.md`、`pyproject.toml`、`uv.lock`、相关代码和测试 |
+| 使用入口、依赖和当前运行方式 | `justfile`、`README.md`、`pyproject.toml`、`uv.lock`、相关代码和测试 |
 
 区分“当前事实”和“目标要求”：
 
@@ -82,12 +82,12 @@ Eco-AutoDrive 是个人科研代码库。优先保证**逻辑正确、实验语�
 
 依赖硬件或仿真器的测试应显式标记；缺少依赖时由命令排除 marker，测试本身不得静默跳过。
 
-编码智能体运行在已准备好的 Windows 沙箱中。假定 `.venv` 可用；不要把 `uv sync`、Python 版本探测或其他环境预检作为常规步骤，也不要使用 `uv run`。直接使用 `.venv\Scripts\` 下的工具：
+编码智能体运行在已准备好的 Windows 沙箱中。假定 `.venv` 可用；不要把 `just setup`、Python 版本探测或其他环境预检作为常规步骤，也不要使用 `uv run`。使用 `justfile` 提供的入口：
 
 ```powershell
-.venv\Scripts\pytest.exe -m "not gpu and not simulator and not slow"
-.venv\Scripts\ruff.exe check .
-.venv\Scripts\ruff.exe format --check .
+just test
+just lint
+just format-check
 ```
 
 针对性验证通过且没有其他失败证据时停止。
