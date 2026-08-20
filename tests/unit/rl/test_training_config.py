@@ -26,6 +26,16 @@ def test_ppo_smoke_config_resolves_a_general_closed_loop_job() -> None:
     assert parsed.rl.scheduler_total_optimizer_steps == 32
 
 
+def test_training_reward_coefficients_remain_sweepable_and_match_metadrive_env() -> None:
+    config = _config()
+    OmegaConf.update(config, "reward.speed_reward", 0.2, merge=False)
+
+    parsed = parse_training_config(config)
+
+    assert parsed.reward.speed_reward == pytest.approx(0.2)
+    assert parsed.env["speed_reward"] == pytest.approx(0.2)
+
+
 @pytest.mark.parametrize(
     ("path", "value", "message"),
     [

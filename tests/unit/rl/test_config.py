@@ -11,10 +11,7 @@ from eco_planner.rl.config import parse_exploration_policy_config, parse_rollout
 
 def _policy_mapping() -> dict[str, object]:
     return {
-        "name": "exploration_beta",
         "hidden_dim": 192,
-        "reference_horizon": 80,
-        "reference_state_dim": 4,
         "reference_mixer_depth": 2,
         "reference_token_mlp_hidden_dim": 128,
         "reference_channel_mlp_hidden_dim": 384,
@@ -34,7 +31,6 @@ def test_hydra_policy_profile_is_complete_and_strict() -> None:
 
     parsed = parse_exploration_policy_config(config.policy)
     assert parsed.hidden_dim == 192
-    assert parsed.reference_horizon == 80
     assert parsed.initial_concentration == 2.0
 
 
@@ -42,7 +38,7 @@ def test_hydra_policy_profile_is_complete_and_strict() -> None:
     ("update", "error"),
     [
         ({"hidden_dim": 191}, "divisible"),
-        ({"reference_horizon": 79}, r"\[B, 80, 4\]"),
+        ({"reference_horizon": 79}, "Extra inputs"),
         ({"cross_attention_dropout": 1.0}, "less than 1"),
         ({"initial_concentration": 0.0001}, "exceed"),
         ({"fusion_mlp_depth": 0}, "greater than 0"),
@@ -63,12 +59,17 @@ def test_policy_config_rejects_missing_and_extra_fields() -> None:
         parse_exploration_policy_config(OmegaConf.create(raw))
 
 
-def test_rollout_profile_is_explicit_and_uses_one_substep() -> None:
+def test_rollout_profile_excludes_fixed_runtime_semantics() -> None:
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
         config = compose(config_name="experiment/rollout_smoke")
 
     parsed = parse_rollout_config(config)
-    assert parsed.rollout.transition_dt_s == 0.1
-    assert parsed.rollout.bootstrap_time_limit
     assert parsed.env["trajectory_execution_steps"] == 1
+    assert set(config.rollout) == {
+        "mode",
+        "max_transitions",
+        "history_warmup_steps",
+        "policy_action_seed",
+        "stopped_speed_threshold_mps",
+    }

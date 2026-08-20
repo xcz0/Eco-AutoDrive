@@ -19,8 +19,6 @@ evaluation:
   evaluated_horizon_steps: 200
   execution:
     mode: serial
-    launcher: basic
-    worker_count: 1
     torch_threads_per_worker: null
     deterministic: false
 

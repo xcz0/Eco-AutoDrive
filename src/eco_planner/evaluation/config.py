@@ -41,31 +41,14 @@ class ScenarioConfig(_StrictModel):
 
 class RuntimeConfig(_StrictModel):
     accelerator: Literal["auto", "cpu", "cuda"]
-    devices: StrictInt
     precision: Literal["auto", "32-true", "16-mixed", "bf16-mixed"]
     seed: StrictInt = Field(ge=0)
-
-    @model_validator(mode="after")
-    def require_one_device(self) -> RuntimeConfig:
-        if self.devices != 1:
-            raise ValueError("runtime.devices must be 1")
-        return self
 
 
 class ExecutionConfig(_StrictModel):
     mode: Literal["serial", "parallel"]
-    launcher: Literal["basic", "joblib"]
-    worker_count: StrictInt = Field(gt=0)
     torch_threads_per_worker: StrictInt | None = Field(default=None, gt=0)
     deterministic: StrictBool
-
-    @model_validator(mode="after")
-    def validate_mode(self) -> ExecutionConfig:
-        if self.mode == "serial" and (self.launcher != "basic" or self.worker_count != 1):
-            raise ValueError("serial execution requires the basic launcher and one worker")
-        if self.mode == "parallel" and (self.launcher != "joblib" or self.worker_count != 2):
-            raise ValueError("parallel execution requires Joblib with exactly two workers")
-        return self
 
 
 class MatrixConfig(_StrictModel):
@@ -166,18 +149,10 @@ class EvaluationJobConfig(_StrictModel):
 def parse_evaluation_config(config: DictConfig) -> EvaluationJobConfig:
     """Resolve Hydra values and return the sole typed configuration used by evaluation."""
 
-    if not isinstance(config, DictConfig):
-        raise TypeError("evaluation configuration must be a DictConfig")
     raw = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
-    if not isinstance(raw, dict):
-        raise TypeError("evaluation configuration must resolve to a dictionary")
-    sampler_node = config.get("sampler")
-    guidance_node = config.get("guidance")
-    if not isinstance(sampler_node, DictConfig) or not isinstance(guidance_node, DictConfig):
-        raise ValueError("evaluation configuration must select sampler and guidance profiles")
     payload = dict(raw)
-    payload["sampler"] = parse_sampler_config(sampler_node)
-    payload["guidance"] = parse_guidance_config(guidance_node)
+    payload["sampler"] = parse_sampler_config(config["sampler"])
+    payload["guidance"] = parse_guidance_config(config["guidance"])
     scenarios = payload.get("scenarios")
     if isinstance(scenarios, list):
         payload["scenarios"] = tuple(scenarios)

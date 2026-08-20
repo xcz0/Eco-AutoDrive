@@ -325,7 +325,7 @@ def create_fabric_rollout_runtime(
     settings = resolve_runtime_settings(runtime_config)
     fabric = Fabric(
         accelerator=settings.resolved_accelerator,
-        devices=settings.devices,
+        devices=1,
         precision=settings.resolved_precision,
     )
     fabric.seed_everything(settings.seed, workers=True, verbose=False)

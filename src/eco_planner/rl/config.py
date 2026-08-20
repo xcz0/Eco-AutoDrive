@@ -37,10 +37,7 @@ class _StrictModel(BaseModel):
 class ExplorationPolicyConfig(_StrictModel):
     """Architecture and affine-Beta initialization parameters."""
 
-    name: Literal["exploration_beta"]
     hidden_dim: StrictInt = Field(gt=0)
-    reference_horizon: StrictInt = Field(gt=0)
-    reference_state_dim: StrictInt = Field(gt=0)
     reference_mixer_depth: StrictInt = Field(gt=0)
     reference_token_mlp_hidden_dim: StrictInt = Field(gt=0)
     reference_channel_mlp_hidden_dim: StrictInt = Field(gt=0)
@@ -53,8 +50,6 @@ class ExplorationPolicyConfig(_StrictModel):
 
     @model_validator(mode="after")
     def validate_policy_contract(self) -> ExplorationPolicyConfig:
-        if (self.reference_horizon, self.reference_state_dim) != (80, 4):
-            raise ValueError("policy reference trajectory contract must be [B, 80, 4]")
         if self.hidden_dim % self.cross_attention_heads:
             raise ValueError("policy.hidden_dim must be divisible by cross_attention_heads")
         if self.initial_concentration <= self.minimum_concentration:
@@ -68,13 +63,9 @@ class PPOConfig(_StrictModel):
     name: str = Field(min_length=1)
     gamma: StrictFloat = Field(gt=0.0, lt=1.0)
     gae_lambda: StrictFloat = Field(gt=0.0, lt=1.0)
-    normalize_advantage: Literal[True]
     clip_epsilon: StrictFloat = Field(gt=0.0, lt=1.0)
-    value_loss: Literal["l2"]
-    clip_value: Literal[False]
     value_coefficient: StrictFloat = Field(ge=0.0)
     entropy_coefficient: StrictFloat = Field(ge=0.0)
-    optimizer: Literal["adam"]
     learning_rate: StrictFloat = Field(gt=0.0)
     adam_epsilon: StrictFloat = Field(gt=0.0)
     weight_decay: StrictFloat = Field(ge=0.0)
@@ -83,7 +74,6 @@ class PPOConfig(_StrictModel):
     batch_size: StrictInt = Field(gt=0)
     minibatch_size: StrictInt = Field(gt=0)
     minibatch_seed: StrictInt = Field(ge=0)
-    scheduler: Literal["cosine"]
     scheduler_total_optimizer_steps: StrictInt = Field(gt=0)
     scheduler_minimum_learning_rate: StrictFloat = Field(ge=0.0)
 
@@ -108,21 +98,11 @@ class RolloutConfig(_StrictModel):
     mode: Literal["no_traffic", "traffic"]
     max_transitions: StrictInt = Field(gt=0)
     history_warmup_steps: StrictInt = Field(ge=0)
-    transition_dt_s: StrictFloat
     policy_action_seed: StrictInt = Field(ge=0)
-    reward_source: Literal["metadrive_builtin_v1"]
-    bootstrap_time_limit: StrictBool
-    candidate_count: StrictInt
     stopped_speed_threshold_mps: StrictFloat = Field(gt=0.0)
 
     @model_validator(mode="after")
     def validate_rollout_contract(self) -> RolloutConfig:
-        if self.transition_dt_s != 0.1:
-            raise ValueError("rollout transition_dt_s must be exactly 0.1")
-        if not self.bootstrap_time_limit:
-            raise ValueError("rollout requires bootstrap_time_limit=true")
-        if self.candidate_count != 1:
-            raise ValueError("rollout requires candidate_count=1")
         if self.mode == "no_traffic" and self.history_warmup_steps != 0:
             raise ValueError("no-traffic rollout requires zero history warmup steps")
         if self.mode == "traffic" and self.history_warmup_steps != 20:
@@ -151,16 +131,14 @@ class RolloutJobConfig(_StrictModel):
 
 
 class MetaDriveBuiltinRewardConfig(_StrictModel):
-    name: Literal["metadrive_builtin_v1"]
-    unit: Literal["dimensionless_score"]
-    driving_reward: Literal[1.0]
-    speed_reward: Literal[0.1]
-    success_reward: Literal[10.0]
-    out_of_road_penalty: Literal[5.0]
-    crash_vehicle_penalty: Literal[5.0]
-    crash_object_penalty: Literal[5.0]
-    crash_sidewalk_penalty: Literal[0.0]
-    use_lateral_reward: Literal[False]
+    driving_reward: StrictFloat = Field(ge=0.0)
+    speed_reward: StrictFloat = Field(ge=0.0)
+    success_reward: StrictFloat = Field(ge=0.0)
+    out_of_road_penalty: StrictFloat = Field(ge=0.0)
+    crash_vehicle_penalty: StrictFloat = Field(ge=0.0)
+    crash_object_penalty: StrictFloat = Field(ge=0.0)
+    crash_sidewalk_penalty: StrictFloat = Field(ge=0.0)
+    use_lateral_reward: StrictBool
 
 
 class TrainingConfig(_StrictModel):
@@ -218,57 +196,40 @@ class RLTrainingJobConfig(_StrictModel):
 
 
 def parse_exploration_policy_config(config: DictConfig) -> ExplorationPolicyConfig:
-    return ExplorationPolicyConfig.model_validate(_resolve_dict(config, "policy"))
+    return ExplorationPolicyConfig.model_validate(
+        dict(OmegaConf.to_container(config, resolve=True, throw_on_missing=True))
+    )
 
 
 def parse_ppo_config(config: DictConfig) -> PPOConfig:
-    return PPOConfig.model_validate(_resolve_dict(config, "PPO optimization"))
+    return PPOConfig.model_validate(
+        dict(OmegaConf.to_container(config, resolve=True, throw_on_missing=True))
+    )
 
 
 def parse_rollout_config(config: DictConfig) -> RolloutJobConfig:
-    raw = _resolve_dict(config, "rollout")
-    nodes = _profile_nodes(config, ("sampler", "guidance", "policy"), "rollout")
-    guidance = parse_guidance_config(nodes["guidance"])
+    raw = dict(OmegaConf.to_container(config, resolve=True, throw_on_missing=True))
+    guidance = parse_guidance_config(config["guidance"])
     if not isinstance(guidance, OrthogonalPolicyGuidanceConfig):
         raise ValueError("rollout requires guidance=orthogonal_policy")
-    raw["sampler"] = parse_sampler_config(nodes["sampler"])
+    raw["sampler"] = parse_sampler_config(config["sampler"])
     raw["guidance"] = guidance
-    raw["policy"] = parse_exploration_policy_config(nodes["policy"])
+    raw["policy"] = parse_exploration_policy_config(config["policy"])
     return RolloutJobConfig.model_validate(raw)
 
 
 def parse_training_config(config: DictConfig) -> RLTrainingJobConfig:
-    raw = _resolve_dict(config, "training")
-    nodes = _profile_nodes(config, ("sampler", "guidance", "policy", "rl"), "training")
-    guidance = parse_guidance_config(nodes["guidance"])
+    raw = dict(OmegaConf.to_container(config, resolve=True, throw_on_missing=True))
+    guidance = parse_guidance_config(config["guidance"])
     if not isinstance(guidance, OrthogonalPolicyGuidanceConfig):
         raise ValueError("training requires guidance=orthogonal_policy")
-    raw["sampler"] = parse_sampler_config(nodes["sampler"])
+    raw["sampler"] = parse_sampler_config(config["sampler"])
     raw["guidance"] = guidance
-    raw["policy"] = parse_exploration_policy_config(nodes["policy"])
-    raw["rl"] = parse_ppo_config(nodes["rl"])
+    raw["policy"] = parse_exploration_policy_config(config["policy"])
+    raw["rl"] = parse_ppo_config(config["rl"])
     if isinstance(raw.get("scenarios"), list):
         raw["scenarios"] = tuple(raw["scenarios"])
     return RLTrainingJobConfig.model_validate(raw)
-
-
-def _resolve_dict(config: DictConfig, name: str) -> dict[str, Any]:
-    if not isinstance(config, DictConfig):
-        raise TypeError(f"{name} configuration must be a DictConfig")
-    raw = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
-    if not isinstance(raw, dict):
-        raise TypeError(f"{name} configuration must resolve to a dictionary")
-    return raw
-
-
-def _profile_nodes(
-    config: DictConfig, names: tuple[str, ...], boundary: str
-) -> dict[str, DictConfig]:
-    nodes = {name: config.get(name) for name in names}
-    if not all(isinstance(node, DictConfig) for node in nodes.values()):
-        required = ", ".join(names)
-        raise ValueError(f"{boundary} must select {required} profiles")
-    return {name: node for name, node in nodes.items() if isinstance(node, DictConfig)}
 
 
 def _validate_rollout_environment(

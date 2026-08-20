@@ -1,4 +1,3 @@
 accelerator: auto
-devices: 1
 precision: auto
 seed: ???

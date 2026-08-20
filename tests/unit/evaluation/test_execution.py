@@ -15,7 +15,6 @@ def _config(*, accelerator: str = "cpu", video: bool = False, threads: int = 2):
             "map_query_radius_m": 100.0,
             "runtime": {
                 "accelerator": accelerator,
-                "devices": 1,
                 "precision": "32-true",
                 "seed": 0,
             },
@@ -35,8 +34,6 @@ def _config(*, accelerator: str = "cpu", video: bool = False, threads: int = 2):
                 "evaluated_horizon_steps": 5,
                 "execution": {
                     "mode": "parallel",
-                    "launcher": "joblib",
-                    "worker_count": 2,
                     "torch_threads_per_worker": threads,
                     "deterministic": True,
                 },
@@ -69,6 +66,7 @@ def test_cpu_parallel_execution_applies_explicit_thread_budget(
     report = configure_job_execution(_config(threads=4))
 
     assert report.mode == "parallel"
+    assert report.launcher == "joblib"
     assert report.worker_count == 2
     assert report.torch_threads_per_worker == 4
     assert applied == [4]

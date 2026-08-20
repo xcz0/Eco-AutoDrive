@@ -35,9 +35,6 @@ from eco_planner.models import (
     sampler_report,
 )
 
-_ACCELERATORS = frozenset({"auto", "cpu", "cuda"})
-_PRECISIONS = frozenset({"auto", "32-true", "16-mixed", "bf16-mixed"})
-
 
 @dataclass(frozen=True)
 class InferenceRuntimeReport:
@@ -58,7 +55,6 @@ class _ResolvedRuntimeSettings:
     resolved_accelerator: str
     requested_precision: str
     resolved_precision: str
-    devices: int
     seed: int
 
 
@@ -184,7 +180,7 @@ def create_fabric_inference_runtime(
         torch.set_float32_matmul_precision("high")
     fabric = Fabric(
         accelerator=settings.resolved_accelerator,
-        devices=settings.devices,
+        devices=1,
         precision=settings.resolved_precision,
     )
     fabric.seed_everything(settings.seed, workers=True, verbose=False)
@@ -363,22 +359,11 @@ def _validate_execution_trajectory(trajectory: np.ndarray) -> None:
 
 
 def resolve_runtime_settings(runtime_config: RuntimeConfig) -> _ResolvedRuntimeSettings:
-    """Validate Hydra values and resolve the explicit Fabric accelerator and precision."""
+    """Resolve the configured Fabric accelerator and precision against available hardware."""
 
-    if not isinstance(runtime_config, RuntimeConfig):
-        raise TypeError("runtime configuration must be a RuntimeConfig")
     accelerator = runtime_config.accelerator
     precision = runtime_config.precision
-    devices = runtime_config.devices
     seed = runtime_config.seed
-    if not isinstance(accelerator, str) or accelerator not in _ACCELERATORS:
-        raise ValueError("runtime.accelerator must be one of: auto, cpu, cuda")
-    if type(devices) is not int or devices != 1:
-        raise ValueError("runtime.devices must be the integer 1 for closed-loop inference")
-    if not isinstance(precision, str) or precision not in _PRECISIONS:
-        raise ValueError("runtime.precision must be one of: auto, 32-true, 16-mixed, bf16-mixed")
-    if type(seed) is not int or seed < 0:
-        raise ValueError("runtime.seed must be a non-negative integer")
 
     cuda_available = torch.cuda.is_available()
     if accelerator == "cuda" and not cuda_available:
@@ -405,6 +390,5 @@ def resolve_runtime_settings(runtime_config: RuntimeConfig) -> _ResolvedRuntimeS
         resolved_accelerator=resolved_accelerator,
         requested_precision=precision,
         resolved_precision=resolved_precision,
-        devices=devices,
         seed=seed,
     )

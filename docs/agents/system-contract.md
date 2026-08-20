@@ -40,11 +40,11 @@ Hydra/OmegaConf 只存在于 CLI 配置边界。入口必须通过 `parse_evalua
 
 仿真真实状态、模型观测、模型预测和能耗记录必须分别保存。模型预测不得覆盖仿真状态，不同能耗指标不得静默互换或混合累计。业务代码不得从 `ref/` 导入运行时实现。
 
-推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。`runtime.devices` 必须为 1，不得在同一评测作业内启动多进程闭环。
+推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。单设备是运行时代码契约，不得在同一评测作业内启动多进程闭环。
 
 raw observation 在 CPU 边界按当前 observation/trace 契约的 shape、dtype 和有限性完整校验并原值写入 trace；Fabric 设备副本只供计算使用，可按 resolved mixed precision 转为 FP16/BF16。每个规划周期只同步把 batch-zero ego trajectory 转为执行所需的 host `float32`；完整 prediction、初始噪声、reference 与 guidance diagnostics 则在独立 CUDA transfer stream 排队，并由 artifact/replay 调用方在 simulator step 后通过显式 full-audit 边界等待、转为 trace 约定 dtype 后检查有限性。
 
-跨评测作业的进程并行由 ADR 0012 定义。traffic matrix 默认使用两个 Joblib `loky` worker；每个进程仍保持一个 MetaDrive、一个 `devices=1` Fabric runtime 和一个 artifact writer。CPU 显式验证线程预算；CUDA 只允许两个进程共享一张可见 GPU，并要求确定性配置和正式运行前显存 preflight。smoke、no-traffic 和普通 full 运行保持串行，多 GPU 调度不属于该入口。
+跨评测作业的进程并行由 ADR 0012 定义。traffic matrix 固定使用两个 Joblib `loky` worker；每个进程仍保持一个 MetaDrive、一个单设备 Fabric runtime 和一个 artifact writer。CPU 显式验证线程预算；CUDA 只允许两个进程共享一张可见 GPU，并要求确定性配置和正式运行前显存 preflight。smoke、no-traffic 和普通 full 运行保持串行，多 GPU 调度不属于该入口。
 
 ## Checkpoint 与模型输入
 
@@ -146,7 +146,7 @@ Exploration Policy 由 serial rollout collector 接入 learned-guidance closed l
 
 rollout runtime 在 eval-mode、所有参数 `requires_grad=False` 的官方模型上，通过 `prepare_policy_guidance()` 一次准备 scene/navigation encoding 和 reference。输出 detach 后才进入 policy；policy backward 不得为 planner 产生 `.grad` 或改变 planner 权重。普通 planner `encode()`、fixed-guidance evaluation runner 和官方 checkpoint state-dict 层级保持不变。
 
-reference 先经配置化 MLP-Mixer 编码，再作为 query 对拼接后的 scene/navigation tokens 做 masked cross-attention；actor 与 value 共享融合 trunk。actor 产生 lateral/longitudinal 的严格正 `alpha,beta [B,2]`，value 严格为 `[B]`。所有层数、维度、attention heads、dropout、初始 concentration 和最小 concentration 都是 Hydra 必需字段。concentration 使用 `softplus(raw)+minimum_concentration`；actor head 对称初始化为 `alpha=beta`，所以初始 guidance 均值为零，但 Beta 方差非零。
+reference 先经 MLP-Mixer 编码，再作为 query 对拼接后的 scene/navigation tokens 做 masked cross-attention；actor 与 value 共享融合 trunk。actor 产生 lateral/longitudinal 的严格正 `alpha,beta [B,2]`，value 严格为 `[B]`。reference 输入固定为 `[B,80,4]`；其余层数、维度、attention heads、dropout、初始 concentration 和最小 concentration 都是 Hydra 必需字段。concentration 使用 `softplus(raw)+minimum_concentration`；actor head 对称初始化为 `alpha=beta`，所以初始 guidance 均值为零，但 Beta 方差非零。
 
 每个 planning cycle 只定义单候选 `K=1`。base action `u` 严格位于 `(0,1)^2`，rollout 保存 `u`；audited guidance action 为 `g=2u-1`，严格位于 `(-1,1)^2`。training sampling 使用调用者提供的独立 policy `torch.Generator` 和 `rsample`；普通 `sample` 也只消费该 generator；deterministic evaluation 使用 mean，不公开 mode。边界 action、非有限参数或非法 shape/dtype/device 立即失败，不得 clamp。两个维度独立时：
 
@@ -170,7 +170,7 @@ collector 为每个 episode 构造两个按时间维组织的 TensorDict。PPO t
 
 TorchRL `GAE` 产生未标准化 advantage 与 value target。多个 episode 仅在 GAE 后拼接，advantage 只在完整 PPO batch 上使用 sample standard deviation 标准化一次；少于两个样本、零方差或非有限统计立即失败。设备传输前 PPO batch 严格只选择 policy context、guidance action、old transformed joint log-prob、advantage 和 value target；`next`、reward、边界标记和 collection-time value 仅用于 GAE，不进入 `ClipPPOLoss` 更新。TorchRL `ClipPPOLoss` 的 actor TensorDict adapter 一次执行 `ExplorationPolicy` 并写入 `alpha`、`beta` 与当前 value；critic adapter 复用该 value，不重复执行 shared trunk。PPO ratio 使用保存的 old transformed joint log-prob，entropy 含仿射 Jacobian，不使用 DDIM transition probability。value loss 为 unclipped L2，policy、value 与 entropy loss 共同更新 policy actor head、value head 和共享 trunk。
 
-训练参数由 `RLTrainingJobConfig` 和 YAML profile 决定，不由代码中的固定 update、batch 或 scenario 限制决定。每个逻辑 slot 拥有独立、持久的 diffusion noise 与 policy action generator；实际 seeds 由固定 SeedSequence namespace 和 training seed 确定性派生。训练状态 checkpoint 使用 Fabric 保存 policy、optimizer、scheduler、PPO minibatch RNG、CPU/CUDA RNG 以及已完成 update 的 loop state，可从 checkpoint 恢复。训练前后冻结 planner 参数 hash 必须相同，只有 Exploration Policy 可被 optimizer 更新。
+可 sweep 的训练参数由 `RLTrainingJobConfig` 和 YAML profile 决定；PPO 固定使用完整 batch advantage normalization、unclipped L2 value loss、Adam 与 cosine scheduler。每个逻辑 slot 拥有独立、持久的 diffusion noise 与 policy action generator；实际 seeds 由固定 SeedSequence namespace 和 training seed 确定性派生。训练状态 checkpoint 使用 Fabric 保存 policy、optimizer、scheduler、PPO minibatch RNG、CPU/CUDA RNG 以及已完成 update 的 loop state，可从 checkpoint 恢复。训练前后冻结 planner 参数 hash 必须相同，只有 Exploration Policy 可被 optimizer 更新。
 
 RL 训练输出与 evaluation 输出使用各自独立的数据边界。每个训练 episode 的 NPZ 在输出边界由 TensorDict 转换，保存 policy context、Beta 参数、base/guidance action、old log-prob/value、initial noise、两条 RNG state、reward/audit、done 和 seed；不保存 DDIM denoise chain。每次运行保存 resolved config、runtime metadata、tracked diff、policy export checkpoints、training-state checkpoint 和严格 summary。分类的 episode failure 保存 partial 或 empty trace 后令作业失败，不跳过。
 

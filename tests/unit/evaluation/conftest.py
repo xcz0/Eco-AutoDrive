@@ -161,8 +161,6 @@ def evaluation_config() -> object:
                 "evaluated_horizon_steps": 10,
                 "execution": {
                     "mode": "serial",
-                    "launcher": "basic",
-                    "worker_count": 1,
                     "torch_threads_per_worker": None,
                     "deterministic": False,
                 },
@@ -172,7 +170,6 @@ def evaluation_config() -> object:
             "model": {"args_path": "args.json", "checkpoint_path": "model.pth"},
             "runtime": {
                 "accelerator": "cpu",
-                "devices": 1,
                 "precision": "32-true",
                 "seed": 7,
             },

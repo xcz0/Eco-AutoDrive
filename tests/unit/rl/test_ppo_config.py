@@ -19,8 +19,6 @@ def test_ppo_smoke_config_is_strict_and_complete() -> None:
     assert parsed.gae_lambda == pytest.approx(0.95)
     assert parsed.optimizer_steps_per_update == 4
     assert parsed.scheduler_total_optimizer_steps == 4
-    assert parsed.value_loss == "l2"
-    assert not parsed.clip_value
 
 
 @pytest.mark.parametrize(
@@ -28,8 +26,11 @@ def test_ppo_smoke_config_is_strict_and_complete() -> None:
     [
         ("minibatch_size", 3, "divisible"),
         ("scheduler_total_optimizer_steps", 3, "horizon"),
-        ("clip_value", True, "Input should be False"),
-        ("normalize_advantage", False, "Input should be True"),
+        ("normalize_advantage", True, "Extra inputs"),
+        ("value_loss", "l2", "Extra inputs"),
+        ("clip_value", False, "Extra inputs"),
+        ("optimizer", "adam", "Extra inputs"),
+        ("scheduler", "cosine", "Extra inputs"),
         ("adam_epsilon", 0.0, "greater than 0"),
     ],
 )

@@ -10,10 +10,7 @@ from eco_planner.rl.policy import ExplorationPolicyContext
 @pytest.fixture
 def exploration_policy_config() -> ExplorationPolicyConfig:
     return ExplorationPolicyConfig(
-        name="exploration_beta",
         hidden_dim=12,
-        reference_horizon=80,
-        reference_state_dim=4,
         reference_mixer_depth=2,
         reference_token_mlp_hidden_dim=16,
         reference_channel_mlp_hidden_dim=24,

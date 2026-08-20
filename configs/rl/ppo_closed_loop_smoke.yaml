@@ -1,13 +1,9 @@
 name: ppo_closed_loop_smoke
 gamma: 0.99
 gae_lambda: 0.95
-normalize_advantage: true
 clip_epsilon: 0.2
-value_loss: l2
-clip_value: false
 value_coefficient: 0.5
 entropy_coefficient: 0.01
-optimizer: adam
 learning_rate: 0.00025
 adam_epsilon: 0.00001
 weight_decay: 0.0
@@ -16,6 +12,5 @@ epochs: 4
 batch_size: 32
 minibatch_size: 16
 minibatch_seed: ${runtime.seed}
-scheduler: cosine
 scheduler_total_optimizer_steps: 32
 scheduler_minimum_learning_rate: 0.0

@@ -19,7 +19,7 @@ def test_real_checkpoint_policy_guided_decision_is_finite_and_replayable(
 ) -> None:
     def runtime():
         return create_fabric_rollout_runtime(
-            RuntimeConfig(accelerator="cpu", devices=1, precision="32-true", seed=0),
+            RuntimeConfig(accelerator="cpu", precision="32-true", seed=0),
             Ddim5SamplerConfig(
                 name="ddim5",
                 num_steps=5,
@@ -43,10 +43,7 @@ def test_real_checkpoint_policy_guided_decision_is_finite_and_replayable(
                 zero_speed_tolerance_mps=1e-6,
             ),
             ExplorationPolicyConfig(
-                name="exploration_beta",
                 hidden_dim=192,
-                reference_horizon=80,
-                reference_state_dim=4,
                 reference_mixer_depth=2,
                 reference_token_mlp_hidden_dim=128,
                 reference_channel_mlp_hidden_dim=384,

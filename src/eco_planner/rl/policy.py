@@ -14,6 +14,9 @@ from torch.nn import functional as F
 from eco_planner.rl.config import ExplorationPolicyConfig
 from eco_planner.rl.distributions import AffineBeta, AffineBetaAction, AffineBetaParameters
 
+_REFERENCE_HORIZON = 80
+_REFERENCE_STATE_DIM = 4
+
 
 @dataclass(frozen=True)
 class ExplorationPolicyContext:
@@ -66,11 +69,11 @@ class ExplorationPolicy(nn.Module):
     def __init__(self, config: ExplorationPolicyConfig) -> None:
         super().__init__()
         self.config = config
-        self.reference_projection = nn.Linear(config.reference_state_dim, config.hidden_dim)
+        self.reference_projection = nn.Linear(_REFERENCE_STATE_DIM, config.hidden_dim)
         self.reference_mixers = nn.ModuleList(
             [
                 _ReferenceMixerBlock(
-                    config.reference_horizon,
+                    _REFERENCE_HORIZON,
                     config.hidden_dim,
                     config.reference_token_mlp_hidden_dim,
                     config.reference_channel_mlp_hidden_dim,
@@ -204,8 +207,8 @@ def _validate_context_structure(
     batch = scene.shape[0]
     if tuple(reference.shape) != (
         batch,
-        config.reference_horizon,
-        config.reference_state_dim,
+        _REFERENCE_HORIZON,
+        _REFERENCE_STATE_DIM,
     ):
         raise ValueError("reference trajectory must have shape [B, 80, 4]")
     if navigation.shape[0] != batch:

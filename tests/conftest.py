@@ -128,7 +128,7 @@ def baseline_checkpoint_dir() -> Path:
 
 @pytest.fixture(scope="session")
 def baseline_runtime(baseline_checkpoint_dir: Path) -> FabricInferenceRuntime:
-    runtime_config = RuntimeConfig(accelerator="cpu", devices=1, precision="32-true", seed=0)
+    runtime_config = RuntimeConfig(accelerator="cpu", precision="32-true", seed=0)
     return create_fabric_inference_runtime(
         runtime_config,
         Dpm10SamplerConfig(),
@@ -140,7 +140,7 @@ def baseline_runtime(baseline_checkpoint_dir: Path) -> FabricInferenceRuntime:
 
 @pytest.fixture(scope="session")
 def ddim_runtime(baseline_checkpoint_dir: Path) -> FabricInferenceRuntime:
-    runtime_config = RuntimeConfig(accelerator="cpu", devices=1, precision="32-true", seed=0)
+    runtime_config = RuntimeConfig(accelerator="cpu", precision="32-true", seed=0)
     sampler_config = Ddim5SamplerConfig(
         name="ddim5",
         num_steps=5,
@@ -160,7 +160,7 @@ def ddim_runtime(baseline_checkpoint_dir: Path) -> FabricInferenceRuntime:
 
 @pytest.fixture(scope="session")
 def guided_runtime(baseline_checkpoint_dir: Path) -> FabricInferenceRuntime:
-    runtime_config = RuntimeConfig(accelerator="cpu", devices=1, precision="32-true", seed=0)
+    runtime_config = RuntimeConfig(accelerator="cpu", precision="32-true", seed=0)
     sampler_config = Ddim5SamplerConfig(
         name="ddim5",
         num_steps=5,

@@ -41,10 +41,7 @@ def test_real_checkpoint_features_feed_exploration_policy(
         reference_trajectory=prepared.policy_context.reference_trajectory,
     )
     config = ExplorationPolicyConfig(
-        name="exploration_beta",
         hidden_dim=planner.config.hidden_dim,
-        reference_horizon=80,
-        reference_state_dim=4,
         reference_mixer_depth=2,
         reference_token_mlp_hidden_dim=128,
         reference_channel_mlp_hidden_dim=384,

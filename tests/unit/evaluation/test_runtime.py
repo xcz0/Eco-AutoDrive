@@ -23,7 +23,6 @@ from eco_planner.models.planner import PlannerInferenceResult
 def _config(**overrides: object) -> RuntimeConfig:
     values: dict[str, object] = {
         "accelerator": "auto",
-        "devices": 1,
         "precision": "auto",
         "seed": 7,
     }
@@ -61,7 +60,6 @@ def test_auto_runtime_resolves_cuda_precision_by_capability(
 @pytest.mark.parametrize(
     ("overrides", "error", "message"),
     [
-        ({"devices": 2}, ValueError, "devices"),
         ({"seed": -1}, ValueError, "seed"),
         ({"accelerator": "mps"}, ValueError, "accelerator"),
         ({"precision": "64-true"}, ValueError, "precision"),

@@ -452,7 +452,7 @@ def test_cuda_bf16_completes_traffic_warmup_and_first_inference(
     baseline_checkpoint_dir,
 ) -> None:
     runtime = create_fabric_inference_runtime(
-        RuntimeConfig(accelerator="cuda", devices=1, precision="bf16-mixed", seed=0),
+        RuntimeConfig(accelerator="cuda", precision="bf16-mixed", seed=0),
         Dpm10SamplerConfig(),
         NoGuidanceConfig(),
         baseline_checkpoint_dir / "args.json",

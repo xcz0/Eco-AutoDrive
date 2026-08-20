@@ -177,7 +177,7 @@ class PPOUpdater:
             entropy_bonus=True,
             entropy_coeff=config.entropy_coefficient,
             critic_coeff=config.value_coefficient,
-            loss_critic_type=config.value_loss,
+            loss_critic_type="l2",
             normalize_advantage=False,
             separate_losses=False,
             functional=False,

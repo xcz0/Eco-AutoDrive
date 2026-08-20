@@ -19,8 +19,6 @@ def _config() -> object:
                 "evaluated_horizon_steps": 5,
                 "execution": {
                     "mode": "serial",
-                    "launcher": "basic",
-                    "worker_count": 1,
                     "torch_threads_per_worker": None,
                     "deterministic": False,
                 },
@@ -29,7 +27,6 @@ def _config() -> object:
             "model": {"args_path": "args.json", "checkpoint_path": "model.pth"},
             "runtime": {
                 "accelerator": "cpu",
-                "devices": 1,
                 "precision": "32-true",
                 "seed": 0,
             },
@@ -61,7 +58,7 @@ def test_parse_evaluation_config_returns_frozen_typed_boundary() -> None:
     ("path", "value", "message"),
     [
         ("runtime.seed", "0", "runtime.seed"),
-        ("runtime.devices", True, "runtime.devices"),
+        ("runtime.devices", 1, "runtime.devices"),
         ("video.enabled", 0, "video.enabled"),
         ("map_query_radius_m", float("nan"), "map_query_radius_m"),
     ],
@@ -84,16 +81,10 @@ def test_parse_evaluation_config_rejects_extra_fields() -> None:
         parse_evaluation_config(config)
 
 
-@pytest.mark.parametrize(
-    ("mutate", "message"),
-    [
-        (lambda config: setattr(config.env, "horizon", 4), "env.horizon"),
-        (lambda config: delattr(config, "sampler"), "select sampler"),
-    ],
-)
-def test_parse_evaluation_config_rejects_cross_boundary_mismatch(mutate, message: str) -> None:
+@pytest.mark.parametrize("mutate", [lambda config: setattr(config.env, "horizon", 4)])
+def test_parse_evaluation_config_rejects_cross_boundary_mismatch(mutate) -> None:
     config = _config()
     mutate(config)
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError, match="env.horizon"):
         parse_evaluation_config(config)

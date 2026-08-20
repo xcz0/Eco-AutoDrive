@@ -16,11 +16,7 @@ rollout:
   mode: no_traffic
   max_transitions: 4
   history_warmup_steps: 0
-  transition_dt_s: 0.1
   policy_action_seed: 1
-  reward_source: metadrive_builtin_v1
-  bootstrap_time_limit: true
-  candidate_count: 1
   stopped_speed_threshold_mps: 0.1
 
 env:

@@ -30,7 +30,8 @@ def configure_job_execution(config: EvaluationJobConfig) -> ExecutionReport:
 
     execution = config.evaluation.execution
     mode = execution.mode
-    workers = execution.worker_count
+    launcher = "basic" if mode == "serial" else "joblib"
+    workers = 1 if mode == "serial" else 2
     threads = execution.torch_threads_per_worker
 
     settings = resolve_runtime_settings(config.runtime)
@@ -59,7 +60,7 @@ def configure_job_execution(config: EvaluationJobConfig) -> ExecutionReport:
 
     return ExecutionReport(
         mode=str(mode),
-        launcher=execution.launcher,
+        launcher=launcher,
         worker_count=workers,
         torch_threads_per_worker=threads,
         deterministic=execution.deterministic,
