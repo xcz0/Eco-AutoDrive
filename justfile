@@ -48,8 +48,8 @@ format-check:
     {{ruff}} format --check .
 
 format:
-    {{ruff}} format .
     {{ruff}} check --fix .
+    {{ruff}} format .
 
 
 # ---------------------------------------------------------------------------

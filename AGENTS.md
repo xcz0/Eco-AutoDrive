@@ -87,7 +87,7 @@ Eco-AutoDrive 是个人科研代码库。优先保证**逻辑正确、实验语�
 ```powershell
 just test
 just lint
-just format-check
+just format
 ```
 
 运行 `just test`、`just test-target`、`just test-sim` 或 `just test-gpu` 时应请求沙箱外执行，不要重建环境或改用 `uv run`。
