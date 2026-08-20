@@ -11,9 +11,7 @@ import numpy as np
 import torch
 from lightning.fabric import Fabric
 
-from eco_planner.evaluation.artifacts.models import FailurePhase
 from eco_planner.evaluation.config import RuntimeConfig
-from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.runtime.contracts import (
     DeferredHostTensors,
     HostExecutionResult,
@@ -40,8 +38,8 @@ from eco_planner.rl.rollout import PPOTrainingDecision
 
 
 @dataclass(frozen=True)
-class HostRolloutDecision:
-    """CPU data produced for one policy-guided planner decision."""
+class RolloutAudit:
+    """CPU data retained for one policy-guided planner decision."""
 
     prediction: np.ndarray
     initial_noise: torch.Tensor
@@ -59,24 +57,8 @@ class HostRolloutDecision:
     def ego_trajectory(self) -> np.ndarray:
         return self.prediction[0, 0]
 
-    def full_audit(self) -> HostRolloutDecision:
-        """Return this already-complete decision for protocol compatibility."""
 
-        return self
-
-    @property
-    def training_decision(self) -> PPOTrainingDecision:
-        """Provide the compact PPO inputs for CPU-only and test runtimes."""
-
-        return PPOTrainingDecision.from_policy_output(
-            self.policy_context,
-            self.guidance_action,
-            self.old_joint_guidance_log_prob,
-            self.old_value,
-        )
-
-
-class PendingRolloutDecision:
+class RolloutDecision:
     """Execution trajectory plus deferred CPU rollout storage fields."""
 
     def __init__(
@@ -94,7 +76,7 @@ class PendingRolloutDecision:
         self._policy_rng_state = policy_rng_state
         self._policy_config = policy_config
         self._training_decision = training_decision
-        self._audit: HostRolloutDecision | None = None
+        self._audit: RolloutAudit | None = None
 
     @property
     def ego_trajectory(self) -> np.ndarray:
@@ -106,7 +88,7 @@ class PendingRolloutDecision:
 
         return self._training_decision
 
-    def full_audit(self) -> HostRolloutDecision:
+    def audit_result(self) -> RolloutAudit:
         """Wait for the stored PPO/replay payload after simulator execution."""
 
         if self._audit is None:
@@ -120,7 +102,7 @@ class PendingRolloutDecision:
                 reference_trajectory=host["reference_trajectory"],
             )
             _validate_rollout_context(context, self._policy_config)
-            self._audit = HostRolloutDecision(
+            self._audit = RolloutAudit(
                 prediction=host["prediction"].numpy(),
                 initial_noise=host["initial_noise"],
                 policy_context=context,
@@ -134,9 +116,6 @@ class PendingRolloutDecision:
                 policy_rng_state=self._policy_rng_state,
             )
         return self._audit
-
-    def __getattr__(self, name: str) -> object:
-        return getattr(self.full_audit(), name)
 
 
 class FabricRolloutRuntime:
@@ -212,7 +191,7 @@ class FabricRolloutRuntime:
         observation: Mapping[str, torch.Tensor],
         diffusion_generator: torch.Generator,
         policy_generator: torch.Generator,
-    ) -> PendingRolloutDecision:
+    ) -> RolloutDecision:
         """Sample one action and defer replay storage until after trajectory execution."""
 
         raw_observation = dict(observation)
@@ -269,7 +248,7 @@ class FabricRolloutRuntime:
         )
         execution = copy_execution_trajectory(result.prediction, self.device)
         _validate_execution_trajectory(execution.ego_trajectory)
-        return PendingRolloutDecision(
+        return RolloutDecision(
             execution,
             deferred,
             diffusion_rng_state=diffusion_rng_state,
@@ -362,10 +341,7 @@ def create_fabric_rollout_runtime(
 
 def _validate_execution_trajectory(trajectory: np.ndarray) -> None:
     if not np.isfinite(trajectory).all():
-        raise EpisodeFailure(
-            FailurePhase.INFERENCE,
-            RuntimeError("rollout ego trajectory contains non-finite values"),
-        )
+        raise RuntimeError("rollout ego trajectory contains non-finite values")
 
 
 def _unwrap_exploration_policy(module: torch.nn.Module) -> ExplorationPolicy:
@@ -380,19 +356,13 @@ def _unwrap_exploration_policy(module: torch.nn.Module) -> ExplorationPolicy:
 def _validate_finite(tensors: Mapping[str, torch.Tensor]) -> None:
     for name, value in tensors.items():
         if value.dtype.is_floating_point and not torch.isfinite(value).all():
-            raise EpisodeFailure(
-                FailurePhase.INFERENCE,
-                RuntimeError(f"rollout host tensor {name!r} contains non-finite values"),
-            )
+            raise RuntimeError(f"rollout host tensor {name!r} contains non-finite values")
 
 
 def _validate_rollout_context(
     context: ExplorationPolicyContext, config: ExplorationPolicyConfig
 ) -> None:
-    try:
-        validate_exploration_policy_context(context, config)
-    except (TypeError, ValueError) as error:
-        raise EpisodeFailure(FailurePhase.INFERENCE, error) from error
+    validate_exploration_policy_context(context, config)
 
 
 def _seed(value: int, name: str) -> int:

@@ -62,11 +62,6 @@ class HostInferenceResult:
 
         return self.prediction[0, 0]
 
-    def full_audit(self) -> HostInferenceResult:
-        """Return this already-complete result for runtime protocol compatibility."""
-
-        return self
-
 
 def copy_execution_trajectory(
     prediction: torch.Tensor, device: torch.device

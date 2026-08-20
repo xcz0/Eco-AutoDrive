@@ -9,7 +9,8 @@ from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl.collector import collect_rollout_episode
 from eco_planner.rl.policy import ExplorationPolicyContext
-from eco_planner.rl.runtime import HostRolloutDecision
+from eco_planner.rl.rollout import PPOTrainingDecision
+from eco_planner.rl.runtime import RolloutAudit, RolloutDecision
 
 
 def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
@@ -65,14 +66,14 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
         def new_policy_generator(self) -> torch.Generator:
             return torch.Generator().manual_seed(self.policy_action_seed)
 
-        def decide(self, observation, diffusion_generator, policy_generator) -> HostRolloutDecision:
+        def decide(self, observation, diffusion_generator, policy_generator) -> RolloutDecision:
             marker = int(observation["marker"].item())
             self.observation_markers.append(marker)
             context = _context(float(marker))
             trajectory = np.zeros((1, 11, 80, 4), dtype=np.float32)
             trajectory[..., 2] = 1.0
             base = torch.tensor([[0.25, 0.75]], dtype=torch.float32)
-            return HostRolloutDecision(
+            audit = RolloutAudit(
                 prediction=trajectory,
                 initial_noise=torch.zeros((1, 11, 80, 4), dtype=torch.float32),
                 policy_context=context,
@@ -85,6 +86,7 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
                 diffusion_rng_state=diffusion_generator.get_state(),
                 policy_rng_state=policy_generator.get_state(),
             )
+            return _FakeRolloutDecision(audit)
 
         def bootstrap_value(self, observation, diffusion_generator) -> torch.Tensor:
             self.bootstrap_marker = int(observation["marker"].item())
@@ -122,6 +124,27 @@ def _context(marker: float) -> ExplorationPolicyContext:
         navigation_padding_mask=torch.zeros((1, 1), dtype=torch.bool),
         reference_trajectory=torch.zeros((1, 80, 4), dtype=torch.float32),
     )
+
+
+class _FakeRolloutDecision:
+    def __init__(self, audit: RolloutAudit) -> None:
+        self._audit = audit
+
+    @property
+    def ego_trajectory(self) -> np.ndarray:
+        return self._audit.ego_trajectory
+
+    @property
+    def training_decision(self) -> PPOTrainingDecision:
+        return PPOTrainingDecision.from_policy_output(
+            self._audit.policy_context,
+            self._audit.guidance_action,
+            self._audit.old_joint_guidance_log_prob,
+            self._audit.old_value,
+        )
+
+    def audit_result(self) -> RolloutAudit:
+        return self._audit
 
 
 def _info() -> dict[str, object]:

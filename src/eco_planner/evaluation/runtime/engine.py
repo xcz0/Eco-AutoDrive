@@ -12,9 +12,7 @@ import torch
 from lightning.fabric import Fabric
 from torch import nn
 
-from eco_planner.evaluation.artifacts.models import FailurePhase
 from eco_planner.evaluation.config import RuntimeConfig
-from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.runtime.contracts import (
     DeferredHostTensors,
     HostExecutionResult,
@@ -58,8 +56,8 @@ class _ResolvedRuntimeSettings:
     seed: int
 
 
-class HostInferenceDecision:
-    """Execution data plus an explicitly resolved full audit result."""
+class InferenceDecision:
+    """Execution data plus an explicitly resolved audit result."""
 
     def __init__(
         self,
@@ -74,15 +72,12 @@ class HostInferenceDecision:
     def ego_trajectory(self) -> np.ndarray:
         return self._execution.ego_trajectory
 
-    def full_audit(self) -> HostInferenceResult:
+    def audit_result(self) -> HostInferenceResult:
         """Wait for and return the complete artifact/replay payload."""
 
         if self._audit is None:
             self._audit = self._resolve_audit()
         return self._audit
-
-    def __getattr__(self, name: str) -> object:
-        return getattr(self.full_audit(), name)
 
 
 class FabricInferenceRuntime:
@@ -119,7 +114,7 @@ class FabricInferenceRuntime:
         self,
         observation: Mapping[str, torch.Tensor],
         generator: torch.Generator,
-    ) -> HostInferenceDecision:
+    ) -> InferenceDecision:
         """Run one planner pass and synchronously transfer only its executable trajectory."""
 
         raw_observation = dict(observation)
@@ -163,7 +158,7 @@ class FabricInferenceRuntime:
             self.sampler_report.num_steps,
             self.device,
         )
-        return _to_host_decision(noise, result, self.device)
+        return _to_inference_decision(noise, result, self.device)
 
 
 def create_fabric_inference_runtime(
@@ -278,11 +273,11 @@ def _validate_artifact_observation_fields(
             raise ValueError(f"raw observation field {name!r} must be finite")
 
 
-def _to_host_decision(
+def _to_inference_decision(
     noise: torch.Tensor,
     result: PlannerInferenceResult,
     device: torch.device,
-) -> HostInferenceDecision:
+) -> InferenceDecision:
     tensors: dict[str, tuple[torch.Tensor, torch.dtype]] = {
         "initial_noise": (noise.detach(), torch.float32),
         "prediction": (result.prediction.detach(), torch.float32),
@@ -309,7 +304,7 @@ def _to_host_decision(
     deferred = defer_host_tensors(tensors, device)
     execution = copy_execution_trajectory(result.prediction, device)
     _validate_execution_trajectory(execution.ego_trajectory)
-    return HostInferenceDecision(
+    return InferenceDecision(
         execution,
         lambda: _host_result_from_tensors(deferred, diagnostics is not None),
     )
@@ -322,10 +317,7 @@ def _host_result_from_tensors(
     arrays = {name: tensor.numpy() for name, tensor in host_tensors.items()}
     for name, value in arrays.items():
         if value.dtype.kind in "fc" and not np.isfinite(value).all():
-            raise EpisodeFailure(
-                FailurePhase.INFERENCE,
-                RuntimeError(f"Diffusion Planner result {name!r} contains non-finite values"),
-            )
+            raise RuntimeError(f"Diffusion Planner result {name!r} contains non-finite values")
     host_diagnostics = (
         None
         if not diagnostics_present
@@ -352,10 +344,7 @@ def _host_result_from_tensors(
 
 def _validate_execution_trajectory(trajectory: np.ndarray) -> None:
     if not np.isfinite(trajectory).all():
-        raise EpisodeFailure(
-            FailurePhase.INFERENCE,
-            RuntimeError("Diffusion Planner ego trajectory contains non-finite values"),
-        )
+        raise RuntimeError("Diffusion Planner ego trajectory contains non-finite values")
 
 
 def resolve_runtime_settings(runtime_config: RuntimeConfig) -> _ResolvedRuntimeSettings:

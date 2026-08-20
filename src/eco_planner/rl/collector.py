@@ -7,7 +7,6 @@ from typing import Literal, Protocol
 
 import numpy as np
 import torch
-from tensordict import TensorDictBase
 
 from eco_planner.envs import (
     MetaDriveObservationAdapter,
@@ -16,7 +15,6 @@ from eco_planner.envs import (
     TrajectoryMetaDriveEnv,
 )
 from eco_planner.evaluation.config import ScenarioConfig
-from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.rl.rollout import (
     RolloutAuditTrajectory,
     RolloutEpisode,
@@ -24,7 +22,7 @@ from eco_planner.rl.rollout import (
     build_rollout_transition,
     finalize_buffered_rollout_episode,
 )
-from eco_planner.rl.runtime import HostRolloutDecision, PendingRolloutDecision
+from eco_planner.rl.runtime import RolloutDecision
 
 
 class _RolloutRuntime(Protocol):
@@ -41,23 +39,13 @@ class _RolloutRuntime(Protocol):
         observation: Mapping[str, torch.Tensor],
         diffusion_generator: torch.Generator,
         policy_generator: torch.Generator,
-    ) -> HostRolloutDecision | PendingRolloutDecision: ...
+    ) -> RolloutDecision: ...
 
     def bootstrap_value(
         self,
         observation: Mapping[str, torch.Tensor],
         diffusion_generator: torch.Generator,
     ) -> torch.Tensor: ...
-
-
-class RolloutCollectionFailure(RuntimeError):
-    """Recoverable episode failure plus every transition collected before it."""
-
-    def __init__(self, phase: str, cause: Exception, trajectory: TensorDictBase | None) -> None:
-        self.phase = phase
-        self.cause = cause
-        self.trajectory = trajectory
-        super().__init__(f"{phase}: {cause}")
 
 
 def collect_rollout_episode(
@@ -130,7 +118,7 @@ def collect_rollout_episode(
             decision = runtime.decide(observation, diffusion_generator, policy_generator)
             training_decision = decision.training_decision
             _, _, terminated, truncated, info = env.step(decision.ego_trajectory)
-            decision = decision.full_audit()
+            audit_result = decision.audit_result()
             execution = info["trajectory_execution"]
             if execution.substep_states.shape[0] != 1:
                 raise RuntimeError("rollout transition must execute exactly one substep")
@@ -150,16 +138,16 @@ def collect_rollout_episode(
             )
             audit_transitions.append(
                 build_rollout_transition(
-                    policy_context=decision.policy_context,
-                    base_action=decision.base_action,
-                    guidance_action=decision.guidance_action,
-                    old_joint_guidance_log_prob=decision.old_joint_guidance_log_prob,
-                    state_value=decision.old_value,
-                    beta_alpha=decision.beta_alpha,
-                    beta_beta=decision.beta_beta,
-                    initial_noise=decision.initial_noise,
-                    diffusion_rng_state=decision.diffusion_rng_state,
-                    policy_rng_state=decision.policy_rng_state,
+                    policy_context=audit_result.policy_context,
+                    base_action=audit_result.base_action,
+                    guidance_action=audit_result.guidance_action,
+                    old_joint_guidance_log_prob=audit_result.old_joint_guidance_log_prob,
+                    state_value=audit_result.old_value,
+                    beta_alpha=audit_result.beta_alpha,
+                    beta_beta=audit_result.beta_beta,
+                    initial_noise=audit_result.initial_noise,
+                    diffusion_rng_state=audit_result.diffusion_rng_state,
+                    policy_rng_state=audit_result.policy_rng_state,
                     reward=reward,
                     dense_reward=float(execution.substep_dense_rewards.sum()),
                     terminal_override=float(
@@ -194,14 +182,6 @@ def collect_rollout_episode(
             "rollout_limit",
             runtime.bootstrap_value(next_observation, diffusion_generator),
         )
-    except EpisodeFailure as failure:
-        partial = (
-            torch.cat([transition.data for transition in audit_transitions], dim=0)
-            if audit_transitions
-            else None
-        )
-        training_buffer.clear()
-        raise RolloutCollectionFailure(failure.phase.value, failure.cause, partial) from failure
     finally:
         env.close()
 

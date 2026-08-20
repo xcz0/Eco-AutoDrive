@@ -144,10 +144,12 @@ def test_cpu_fabric_runtime_assembles_model_and_replays_noise(
     assert fabric_runtime.device == torch.device("cpu")
     assert fabric_runtime.report.resolved_precision == "32-true"
     assert fabric_runtime.report.world_size == 1
-    assert first_result.prediction.dtype == np.float32
-    assert np.array_equal(first_result.initial_noise, second_result.initial_noise)
-    assert np.array_equal(first_result.prediction, second_result.prediction)
-    assert np.shares_memory(first_result.ego_trajectory, first_result.prediction)
+    first_audit = first_result.audit_result()
+    second_audit = second_result.audit_result()
+    assert first_audit.prediction.dtype == np.float32
+    assert np.array_equal(first_audit.initial_noise, second_audit.initial_noise)
+    assert np.array_equal(first_audit.prediction, second_audit.prediction)
+    assert np.shares_memory(first_result.ego_trajectory, first_audit.prediction)
 
 
 def test_cuda_execution_copy_does_not_wait_for_deferred_audit(

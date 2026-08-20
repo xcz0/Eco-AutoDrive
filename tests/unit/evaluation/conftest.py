@@ -12,8 +12,8 @@ from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
 from eco_planner.envs.observation_adapter import TrafficObservationAudit
 from eco_planner.evaluation import episode
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
-from eco_planner.evaluation.runtime.contracts import HostInferenceResult
-from eco_planner.evaluation.runtime.engine import InferenceRuntimeReport
+from eco_planner.evaluation.runtime.contracts import HostExecutionResult, HostInferenceResult
+from eco_planner.evaluation.runtime.engine import InferenceDecision, InferenceRuntimeReport
 from eco_planner.models import CheckpointLoadReport, NoGuidanceConfig, SamplerReport
 
 
@@ -140,14 +140,15 @@ class FakeRuntime:
 
     def infer(
         self, observation: dict[str, torch.Tensor], generator: torch.Generator
-    ) -> HostInferenceResult:
+    ) -> InferenceDecision:
         noise = torch.randn((1, 11, 80, 4), generator=generator)
         prediction = torch.zeros_like(noise)
         prediction[..., 2] = 1.0
-        return HostInferenceResult(
+        audit = HostInferenceResult(
             initial_noise=noise.numpy(),
             prediction=prediction.numpy(),
         )
+        return InferenceDecision(HostExecutionResult(audit.ego_trajectory), lambda: audit)
 
 
 @pytest.fixture

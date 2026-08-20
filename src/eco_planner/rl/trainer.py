@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import traceback
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +16,6 @@ from eco_planner.rl.artifacts import (
     build_update_summary,
     policy_state_hash,
     write_json,
-    write_partial_rollout,
     write_rollout_episode,
     write_training_runtime_metadata,
 )
@@ -26,7 +24,7 @@ from eco_planner.rl.checkpoint import (
     save_exploration_policy_checkpoint,
     save_training_checkpoint,
 )
-from eco_planner.rl.collector import RolloutCollectionFailure, collect_rollout_episode
+from eco_planner.rl.collector import collect_rollout_episode
 from eco_planner.rl.config import RLTrainingJobConfig
 from eco_planner.rl.distributions import AffineBeta
 from eco_planner.rl.policy import ExplorationPolicyContext
@@ -84,35 +82,20 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
             remaining = config.training.transitions_per_environment
             episode_index = 0
             while remaining:
-                try:
-                    episode = collect_rollout_episode(
-                        scenario,
-                        runtime,
-                        config.env,
-                        mode="no_traffic",
-                        map_query_radius_m=config.map_query_radius_m,
-                        history_warmup_steps=0,
-                        max_transitions=remaining,
-                        stopped_speed_threshold_mps=config.training.stopped_speed_threshold_mps,
-                        diffusion_generator=diffusion_generators[slot],
-                        policy_generator=policy_generators[slot],
-                        noise_seed=noise_seeds[slot],
-                        policy_action_seed=policy_seeds[slot],
-                    )
-                except RolloutCollectionFailure as failure:
-                    failure_dir = output_dir / "failures" / f"update-{update_index:03d}-slot-{slot}"
-                    write_partial_rollout(failure_dir / "trace.npz", failure.trajectory)
-                    write_json(
-                        failure_dir / "failure.json",
-                        {
-                            "phase": failure.phase,
-                            "exception_type": type(failure.cause).__name__,
-                            "message": str(failure.cause),
-                            "traceback": traceback.format_exc(),
-                        },
-                    )
-                    write_training_runtime_metadata(output_dir / "runtime_metadata.json", runtime)
-                    raise
+                episode = collect_rollout_episode(
+                    scenario,
+                    runtime,
+                    config.env,
+                    mode="no_traffic",
+                    map_query_radius_m=config.map_query_radius_m,
+                    history_warmup_steps=0,
+                    max_transitions=remaining,
+                    stopped_speed_threshold_mps=config.training.stopped_speed_threshold_mps,
+                    diffusion_generator=diffusion_generators[slot],
+                    policy_generator=policy_generators[slot],
+                    noise_seed=noise_seeds[slot],
+                    policy_action_seed=policy_seeds[slot],
+                )
                 write_rollout_episode(
                     output_dir
                     / "updates"

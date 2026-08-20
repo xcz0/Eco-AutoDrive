@@ -103,19 +103,6 @@ def write_rollout_episode(path: Path, episode: RolloutEpisode) -> None:
     np.savez(path, **arrays)
 
 
-def write_partial_rollout(path: Path, trajectory: TensorDictBase | None) -> None:
-    """Persist the collected TensorDict prefix of a classified episode failure."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    arrays = _trajectory_arrays(trajectory) if trajectory is not None else {}
-    arrays.update(
-        {
-            "trace_status": np.asarray("partial" if trajectory is not None else "empty"),
-        }
-    )
-    np.savez(path, **arrays)
-
-
 def build_update_summary(
     update_index: int, episodes: tuple[RolloutEpisode, ...], report: PPOUpdateReport
 ) -> TrainingUpdateSummary:

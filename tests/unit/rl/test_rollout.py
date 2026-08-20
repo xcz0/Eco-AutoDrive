@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from eco_planner.rl.artifacts import write_partial_rollout, write_rollout_episode
+from eco_planner.rl.artifacts import write_rollout_episode
 from eco_planner.rl.policy import ExplorationPolicyContext
 from eco_planner.rl.rollout import (
     PPOTrainingDecision,
@@ -83,16 +83,6 @@ def test_rollout_limit_uses_contiguous_tensor_dict_transitions() -> None:
     )
     assert episode.audit_trajectory["planning_cycle_index"].squeeze(-1).tolist() == [0, 1]
     assert episode.policy_context_at(1).reference_trajectory.shape == (1, 80, 4)
-
-
-def test_partial_rollout_artifact_converts_only_at_the_npz_boundary(tmp_path) -> None:
-    path = tmp_path / "trace.npz"
-    write_partial_rollout(path, _transition().audit_trajectory)
-
-    with np.load(path, allow_pickle=False) as arrays:
-        assert arrays["trace_status"].item() == "partial"
-        assert arrays["base_action"].shape == (1, 2)
-        assert arrays["initial_noise"].shape == (1, 11, 80, 4)
 
 
 def test_complete_rollout_artifact_uses_the_audit_trajectory(tmp_path) -> None:

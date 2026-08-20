@@ -42,7 +42,7 @@ Hydra/OmegaConf 只存在于 CLI 配置边界。入口必须通过 `parse_evalua
 
 推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。单设备是运行时代码契约，不得在同一评测作业内启动多进程闭环。
 
-raw observation 在 CPU 边界按当前 observation/trace 契约的 shape、dtype 和有限性完整校验并原值写入 trace；Fabric 设备副本只供计算使用，可按 resolved mixed precision 转为 FP16/BF16。每个规划周期只同步把 batch-zero ego trajectory 转为执行所需的 host `float32`；完整 prediction、初始噪声、reference 与 guidance diagnostics 则在独立 CUDA transfer stream 排队，并由 artifact/replay 调用方在 simulator step 后通过显式 full-audit 边界等待、转为 trace 约定 dtype 后检查有限性。
+raw observation 在 CPU 边界按当前 observation/trace 契约的 shape、dtype 和有限性完整校验并原值写入 trace；Fabric 设备副本只供计算使用，可按 resolved mixed precision 转为 FP16/BF16。每个规划周期只同步把 batch-zero ego trajectory 转为执行所需的 host `float32`；完整 prediction、初始噪声、reference 与 guidance diagnostics 则在独立 CUDA transfer stream 排队，并由 artifact/replay 调用方在 simulator step 后显式取得 audit result、转为 trace 约定 dtype 后检查有限性。
 
 跨评测作业的进程并行由 ADR 0012 定义。traffic matrix 固定使用两个 Joblib `loky` worker；每个进程仍保持一个 MetaDrive、一个单设备 Fabric runtime 和一个 artifact writer。CPU 显式验证线程预算；CUDA 只允许两个进程共享一张可见 GPU，并要求确定性配置和正式运行前显存 preflight。smoke、no-traffic 和普通 full 运行保持串行，多 GPU 调度不属于该入口。
 
@@ -172,11 +172,11 @@ TorchRL `GAE` 产生未标准化 advantage 与 value target。多个 episode 仅
 
 可 sweep 的训练参数由 `RLTrainingJobConfig` 和 YAML profile 决定；PPO 固定使用完整 batch advantage normalization、unclipped L2 value loss、Adam 与 cosine scheduler。每个逻辑 slot 拥有独立、持久的 diffusion noise 与 policy action generator；实际 seeds 由固定 SeedSequence namespace 和 training seed 确定性派生。训练状态 checkpoint 使用 Fabric 保存 policy、optimizer、scheduler、PPO minibatch RNG、CPU/CUDA RNG 以及已完成 update 的 loop state，可从 checkpoint 恢复。训练前后冻结 planner 参数 hash 必须相同，只有 Exploration Policy 可被 optimizer 更新。
 
-RL 训练输出与 evaluation 输出使用各自独立的数据边界。每个训练 episode 的 NPZ 在输出边界由 TensorDict 转换，保存 policy context、Beta 参数、base/guidance action、old log-prob/value、initial noise、两条 RNG state、reward/audit、done 和 seed；不保存 DDIM denoise chain。每次运行保存 resolved config、runtime metadata、tracked diff、policy export checkpoints、training-state checkpoint 和严格 summary。分类的 episode failure 保存 partial 或 empty trace 后令作业失败，不跳过。
+RL 训练输出与 evaluation 输出使用各自独立的数据边界。每个训练 episode 的 NPZ 在输出边界由 TensorDict 转换，保存 policy context、Beta 参数、base/guidance action、old log-prob/value、initial noise、两条 RNG state、reward/audit、done 和 seed；不保存 DDIM denoise chain。每次运行保存 resolved config、runtime metadata、tracked diff、policy export checkpoints、training-state checkpoint 和严格 summary。rollout 内部错误直接终止训练，不保存 partial trajectory。
 
 ## 轨迹执行
 
-运动学接口只接收有限的 `float32 [80,4]` ego 后轴局部轨迹。混合精度 forward 的 ego trajectory 必须在进入环境前原值转换为 `float32`；完整 prediction 在 full-audit 边界转换并保存 trace。每次 action 只校验并转换一次，环境与运动学 policy 共享同一份已准备的世界轨迹。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。
+运动学接口只接收有限的 `float32 [80,4]` ego 后轴局部轨迹。混合精度 forward 的 ego trajectory 必须在进入环境前原值转换为 `float32`；完整 prediction 在 audit result 边界转换并保存 trace。每次 action 只校验并转换一次，环境与运动学 policy 共享同一份已准备的世界轨迹。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。
 
 `TrajectoryMetaDriveEnv` 的 Gym observation 只是一元素 `float32` 零数组；planner 输入必须由本项目 traffic/no-traffic observation adapter 构造。headless 无交通环境不初始化传感器；有交通环境只保留背景 IDM policy 必需的共享 lidar，不把它作为 planner observation。headless、非录制执行把每个 0.1 s 对外子步的五个 `0.02 s` Bullet substep 交给一次原生 `doPhysics` 调用；渲染或 MetaDrive episode recording 继续使用上游通用 step 路径。
 
