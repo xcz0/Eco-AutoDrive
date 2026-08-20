@@ -131,7 +131,7 @@ def collect_rollout_episode(
             training_decision = decision.training_decision
             _, _, terminated, truncated, info = env.step(decision.ego_trajectory)
             decision = decision.full_audit()
-            execution = TrajectoryExecutionRecord.from_info(info)
+            execution = info["trajectory_execution"]
             if execution.substep_states.shape[0] != 1:
                 raise RuntimeError("rollout transition must execute exactly one substep")
             if traffic_adapter is not None:
@@ -226,7 +226,7 @@ def _warmup_traffic(
     collected = 0
     while collected < required_steps:
         _, _, terminated, truncated, info = env.step(_stationary_trajectory())
-        execution = TrajectoryExecutionRecord.from_info(info)
+        execution = info["trajectory_execution"]
         if terminated or truncated:
             raise RuntimeError("traffic history warmup ended before the required frame count")
         adapter.append_frames(execution.traffic_frames)

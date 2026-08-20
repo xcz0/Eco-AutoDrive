@@ -84,14 +84,12 @@ def capture_traffic_frame(env: Any) -> TrafficFrame:
 
     participants: list[TrafficParticipantState] = []
     static_objects: list[StaticTrafficObjectState] = []
-    observed_ids: set[str] = set()
-    for name, obj in objects.items():
+    for obj in objects.values():
         participant_kind = _participant_kind(obj)
         if obj is ego:
             continue
         if participant_kind is not None:
-            object_id = _validated_object_id(name, obj)
-            _reject_duplicate(observed_ids, object_id)
+            object_id = obj.id
             participants.append(
                 TrafficParticipantState(
                     object_id=object_id,
@@ -108,8 +106,7 @@ def capture_traffic_frame(env: Any) -> TrafficFrame:
         static_kind = _static_object_kind(obj)
         if static_kind is None:
             continue
-        object_id = _validated_object_id(name, obj)
-        _reject_duplicate(observed_ids, object_id)
+        object_id = obj.id
         static_objects.append(
             StaticTrafficObjectState(
                 object_id=object_id,
@@ -156,21 +153,6 @@ def _static_object_kind(obj: object) -> StaticObjectKind | None:
     if isinstance(obj, TrafficObject):
         raise TypeError(f"unsupported static traffic object: {type(obj).__name__}")
     return None
-
-
-def _validated_object_id(name: object, obj: object) -> str:
-    object_id = getattr(obj, "id", None)
-    if not isinstance(object_id, str) or not object_id:
-        raise ValueError(f"traffic object {name!r} must expose a non-empty string id")
-    if name != object_id:
-        raise ValueError(f"traffic object dictionary key {name!r} does not match id {object_id!r}")
-    return object_id
-
-
-def _reject_duplicate(observed_ids: set[str], object_id: str) -> None:
-    if object_id in observed_ids:
-        raise RuntimeError(f"duplicate traffic object id: {object_id!r}")
-    observed_ids.add(object_id)
 
 
 def _finite_vector(value: object, field: str, object_id: str) -> tuple[float, float]:

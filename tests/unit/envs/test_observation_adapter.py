@@ -252,24 +252,18 @@ def test_traffic_adapter_requires_consecutive_complete_history(
         adapter.build(SimpleNamespace(engine=SimpleNamespace(episode_step=0)))
 
 
-@pytest.mark.parametrize(
-    "invalid_frames",
-    [
-        lambda: (_traffic_frame(1, ()), object()),
-        lambda: (
-            _traffic_frame(1, (_participant("new-id", y=12.0),)),
-            _traffic_frame(3, (_participant("new-id", y=12.0),)),
-        ),
-    ],
-)
-def test_traffic_adapter_rejects_invalid_batches_atomically(
-    official_model_config: OfficialDiffusionPlannerConfig, invalid_frames
+def test_traffic_adapter_rejects_nonconsecutive_batch_atomically(
+    official_model_config: OfficialDiffusionPlannerConfig,
 ) -> None:
     adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
     adapter.reset(_traffic_frame(0, ()))
+    frames = (
+        _traffic_frame(1, (_participant("new-id", y=12.0),)),
+        _traffic_frame(3, (_participant("new-id", y=12.0),)),
+    )
 
-    with pytest.raises((TypeError, ValueError)):
-        adapter.append_frames(invalid_frames())  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="consecutive"):
+        adapter.append_frames(frames)
 
     assert tuple(frame.simulator_step for frame in adapter._history) == (0,)
     assert adapter._artifact_participant_ids == {}

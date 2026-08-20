@@ -9,7 +9,6 @@ from eco_planner.envs import (
     MetaDriveMapAdapter,
     MetaDriveObservationAdapter,
     NoTrafficMetaDriveObservationAdapter,
-    TrajectoryExecutionRecord,
     TrajectoryMetaDriveEnv,
 )
 from eco_planner.evaluation.config import RuntimeConfig
@@ -85,7 +84,7 @@ def test_trajectory_environment_executes_five_simulator_steps() -> None:
         start_heading = float(env.agent.heading_theta)
 
         _, reward, terminated, truncated, info = env.step(_straight_trajectory(5.0))
-        execution = TrajectoryExecutionRecord.from_info(info)
+        execution = info["trajectory_execution"]
 
         np.testing.assert_array_equal(reset_observation, np.zeros(1, dtype=np.float32))
         assert env.engine.sensors == {}
@@ -98,6 +97,8 @@ def test_trajectory_environment_executes_five_simulator_steps() -> None:
         assert env.engine.episode_step == 5
         assert info["trajectory_execution_steps"] == 5
         assert info["trajectory_reward_sum"] == pytest.approx(reward)
+        assert info["trajectory_execution"] is execution
+        assert "trajectory_substep_states" not in info
         assert execution.substep_states.shape == (5, 7)
         assert execution.route_completion == pytest.approx(info["route_completion"])
         np.testing.assert_allclose(
@@ -132,7 +133,7 @@ def test_trajectory_environment_executes_one_rollout_substep() -> None:
     try:
         env.reset(seed=0)
         _, _, terminated, truncated, info = env.step(_straight_trajectory(5.0))
-        execution = TrajectoryExecutionRecord.from_info(info)
+        execution = info["trajectory_execution"]
 
         assert env.engine.episode_step == 1
         assert info["trajectory_execution_steps"] == 1
@@ -163,14 +164,13 @@ def test_trajectory_environment_matches_variable_heading_waypoints() -> None:
         env.reset(seed=0)
         _, _, _, _, info = env.step(_turning_trajectory())
 
+        execution = info["trajectory_execution"]
         np.testing.assert_allclose(
-            info["trajectory_substep_states"][:, :2],
-            info["trajectory_target_centers"],
-            atol=1e-3,
+            execution.substep_states[:, :2], execution.target_centers, atol=1e-3
         )
         np.testing.assert_allclose(
-            info["trajectory_substep_states"][:, 2],
-            info["trajectory_target_headings"],
+            execution.substep_states[:, 2],
+            execution.target_headings,
             atol=1e-4,
         )
     finally:
@@ -185,7 +185,7 @@ def test_trajectory_environment_stops_prefix_at_episode_horizon() -> None:
     try:
         env.reset(seed=0)
         _, _, terminated, truncated, info = env.step(_straight_trajectory(5.0))
-        execution = TrajectoryExecutionRecord.from_info(info)
+        execution = info["trajectory_execution"]
 
         assert not terminated
         assert truncated
@@ -209,7 +209,7 @@ def test_trajectory_environment_returns_consecutive_traffic_frames() -> None:
 
         _, _, terminated, truncated, info = env.step(_stationary_trajectory())
 
-        frames = info["traffic_substep_frames"]
+        frames = info["trajectory_execution"].traffic_frames
         assert initial.simulator_step == 0
         assert tuple(frame.simulator_step for frame in frames) == (1, 2, 3, 4, 5)
         assert any(frame.participants for frame in frames)
@@ -237,7 +237,7 @@ def test_traffic_adapter_builds_after_real_two_second_warmup(
             _, _, terminated, truncated, info = env.step(_stationary_trajectory())
             assert not terminated
             assert not truncated
-            adapter.append_frames(info["traffic_substep_frames"])
+            adapter.append_frames(info["trajectory_execution"].traffic_frames)
 
         observation = adapter.build(env)
 
@@ -264,20 +264,21 @@ def _traffic_observation_sequence(
         adapter.reset(env.initial_traffic_frame, env=env)
         for _ in range(4):
             _, _, _, _, info = env.step(_stationary_trajectory())
-            adapter.append_frames(info["traffic_substep_frames"])
+            adapter.append_frames(info["trajectory_execution"].traffic_frames)
         for _ in range(8):
             observation = adapter.build(env)
             audit = adapter.last_audit
             _, _, terminated, truncated, info = env.step(_straight_trajectory(5.0))
             assert not terminated
             assert not truncated
-            adapter.append_frames(info["traffic_substep_frames"])
+            execution = info["trajectory_execution"]
+            adapter.append_frames(execution.traffic_frames)
             records.append(
                 (
                     observation,
                     audit,
-                    info["trajectory_substep_states"].copy(),
-                    float(info["route_completion"]),
+                    execution.substep_states.copy(),
+                    execution.route_completion,
                 )
             )
         return records
@@ -438,7 +439,7 @@ def test_official_planner_executes_no_traffic_closed_loop_cycle(
         assert prediction.shape == (1, 11, 80, 4)
         assert np.isfinite(prediction).all()
         assert info["trajectory_execution_steps"] >= 1
-        assert info["trajectory_substep_states"].shape[1] == 7
+        assert info["trajectory_execution"].substep_states.shape[1] == 7
         assert isinstance(terminated, bool)
         assert isinstance(truncated, bool)
     finally:
@@ -468,7 +469,7 @@ def test_cuda_bf16_completes_traffic_warmup_and_first_inference(
         for _ in range(4):
             _, _, terminated, truncated, info = env.step(_stationary_trajectory())
             assert not terminated and not truncated
-            adapter.append_frames(TrajectoryExecutionRecord.from_info(info).traffic_frames)
+            adapter.append_frames(info["trajectory_execution"].traffic_frames)
         observation = adapter.build(env)
 
         result = runtime.infer(observation, runtime.new_noise_generator())

@@ -92,15 +92,8 @@ class MetaDriveMapAdapter:
             raise RuntimeError("map snapshot does not match the current reset map")
 
         center_position = np.asarray(ego.position, dtype=np.float64)
-        if center_position.shape != (2,) or not np.isfinite(center_position).all():
-            raise ValueError("ego center position must be a finite two-dimensional vector")
         center_heading = float(ego.heading_theta)
-        if not np.isfinite(center_heading):
-            raise ValueError("ego heading must be finite")
-        rear_wheelbase = getattr(ego, "REAR_WHEELBASE", None)
-        if rear_wheelbase is None or not np.isfinite(rear_wheelbase) or rear_wheelbase <= 0.0:
-            raise ValueError("ego vehicle must define a finite positive REAR_WHEELBASE")
-        rear_axle = rear_axle_position(center_position, center_heading, float(rear_wheelbase))
+        rear_axle = rear_axle_position(center_position, center_heading, float(ego.REAR_WHEELBASE))
 
         lane_records = self._select_lanes(self._candidate_snapshots(rear_axle), rear_axle)
         route_records = self._select_route_lanes(lane_records, navigation)

@@ -51,12 +51,6 @@ class MetaDriveObservationAdapter:
         model_config: OfficialDiffusionPlannerConfig,
         query_radius_m: float,
     ) -> None:
-        if not isinstance(model_config, OfficialDiffusionPlannerConfig):
-            raise TypeError("model_config must be an OfficialDiffusionPlannerConfig")
-        if type(query_radius_m) not in {int, float}:
-            raise TypeError("query_radius_m must be a numeric value")
-        if not np.isfinite(query_radius_m) or float(query_radius_m) <= 0.0:
-            raise ValueError("query_radius_m must be finite and positive")
         self._config = model_config
         self._query_radius_m = float(query_radius_m)
         self._map_adapter = MetaDriveMapAdapter(model_config, self._query_radius_m)
@@ -76,8 +70,6 @@ class MetaDriveObservationAdapter:
     def reset(self, initial_frame: TrafficFrame, *, env: Any | None = None) -> None:
         """Clear prior episode state and seed history with the reset frame."""
 
-        if not isinstance(initial_frame, TrafficFrame):
-            raise TypeError("initial_frame must be a TrafficFrame")
         self._history.clear()
         self._encoded_history.clear()
         self._artifact_participant_ids.clear()
@@ -91,15 +83,11 @@ class MetaDriveObservationAdapter:
     def append_frames(self, frames: tuple[TrafficFrame, ...]) -> None:
         """Append consecutive 10 Hz frames returned by one trajectory action."""
 
-        if not isinstance(frames, tuple) or not frames:
-            raise TypeError("frames must be a non-empty tuple of TrafficFrame values")
         previous_step = self._history[-1].simulator_step if self._history else None
         validated: list[TrafficFrame] = []
         encoded_frames: list[_EncodedParticipantFrame] = []
         staged_artifact_ids = dict(self._artifact_participant_ids)
         for frame in frames:
-            if not isinstance(frame, TrafficFrame):
-                raise TypeError("frames must contain only TrafficFrame values")
             if previous_step is not None and frame.simulator_step != previous_step + 1:
                 raise ValueError(
                     "traffic history simulator steps must be consecutive: "
@@ -164,21 +152,11 @@ class MetaDriveObservationAdapter:
         histories = tuple(self._encoded_history)
         selected_rows = np.empty((len(selected), len(histories), 8), dtype=np.float64)
         for output_index, object_id in enumerate(selected):
-            current_row = current.rows[current.index_by_id[object_id]]
-            filled: np.ndarray | None = None
+            filled = current.rows[current.index_by_id[object_id]]
             for reverse_index, frame in enumerate(reversed(histories)):
                 row_index = frame.index_by_id.get(object_id)
                 if row_index is not None:
-                    state_row = frame.rows[row_index]
-                    if state_row[7] != current_row[7]:
-                        raise RuntimeError(
-                            f"traffic participant {object_id!r} changed type within history"
-                        )
-                    filled = state_row
-                if filled is None:
-                    raise RuntimeError(
-                        f"current traffic participant {object_id!r} is absent from current frame"
-                    )
+                    filled = frame.rows[row_index]
                 selected_rows[output_index, len(histories) - reverse_index - 1] = filled
         if selected:
             result[: len(selected)] = _encoded_participant_history_features(
@@ -199,11 +177,7 @@ class MetaDriveObservationAdapter:
 
     def _build_static_objects(self, latest: TrafficFrame) -> tuple[np.ndarray, int]:
         anchor_xy, anchor_heading = _rear_axle_anchor(latest)
-        unique: dict[str, StaticTrafficObjectState] = {}
-        for state in latest.static_objects:
-            if state.object_id in unique:
-                raise RuntimeError(f"duplicate static traffic object id: {state.object_id!r}")
-            unique[state.object_id] = state
+        unique = {state.object_id: state for state in latest.static_objects}
         distances = {
             object_id: float(np.linalg.norm(np.asarray(state.position_xy_m) - anchor_xy))
             for object_id, state in unique.items()
@@ -226,12 +200,7 @@ class MetaDriveObservationAdapter:
 
 
 def _unique_participants(frame: TrafficFrame) -> dict[str, TrafficParticipantState]:
-    result: dict[str, TrafficParticipantState] = {}
-    for state in frame.participants:
-        if state.object_id in result:
-            raise RuntimeError(f"duplicate traffic participant id: {state.object_id!r}")
-        result[state.object_id] = state
-    return result
+    return {state.object_id: state for state in frame.participants}
 
 
 def _encode_participants(frame: TrafficFrame) -> _EncodedParticipantFrame:
@@ -289,10 +258,7 @@ def _rear_axle_anchor(frame: TrafficFrame) -> tuple[np.ndarray, float]:
 
 
 def _to_local_vector(vector: np.ndarray, anchor_heading: float) -> np.ndarray:
-    array = np.asarray(vector, dtype=np.float64)
-    if array.shape != (2,):
-        raise ValueError("vector must be two-dimensional")
-    return world_vectors_to_local(array[None], anchor_heading)[0]
+    return world_vectors_to_local(vector[None], anchor_heading)[0]
 
 
 def _encoded_participant_history_features(

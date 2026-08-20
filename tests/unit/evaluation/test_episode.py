@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from eco_planner.envs import TrafficFrame
+from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
 from eco_planner.evaluation import episode
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
 from eco_planner.evaluation.config import ScenarioConfig, parse_evaluation_config
@@ -69,30 +69,7 @@ def test_traffic_warmup_records_stationary_history() -> None:
                 0.0,
                 False,
                 False,
-                {
-                    "trajectory_start_center": np.zeros(2),
-                    "trajectory_start_heading": 0.0,
-                    "trajectory_world_centers": np.zeros((80, 2)),
-                    "trajectory_world_headings": np.zeros(80),
-                    "trajectory_substep_states": np.zeros((5, 7)),
-                    "trajectory_substep_rewards": np.zeros(5),
-                    "trajectory_substep_dense_rewards": np.zeros(5),
-                    "trajectory_substep_terminated": np.zeros(5, dtype=np.bool_),
-                    "trajectory_substep_truncated": np.zeros(5, dtype=np.bool_),
-                    "traffic_substep_frames": frames,
-                    "trajectory_target_centers": np.zeros((5, 2)),
-                    "trajectory_target_headings": np.zeros(5),
-                    "trajectory_position_errors_m": np.zeros(5),
-                    "trajectory_heading_errors_rad": np.zeros(5),
-                    "route_completion": 0.0,
-                    "arrive_dest": False,
-                    "out_of_road": False,
-                    "crash_vehicle": False,
-                    "crash_object": False,
-                    "crash_building": False,
-                    "crash_human": False,
-                    "max_step": False,
-                },
+                {"trajectory_execution": _warmup_execution(frames)},
             )
 
     class WarmupAdapter:
@@ -109,3 +86,31 @@ def test_traffic_warmup_records_stationary_history() -> None:
     episode.run_traffic_warmup(WarmupEnv(), adapter, trace, 20)  # type: ignore[arg-type]
     assert len(adapter.frames) == 20
     assert np.concatenate(trace.warmup_state_arrays).shape == (20, 7)
+
+
+def _warmup_execution(frames: tuple[TrafficFrame, ...]) -> TrajectoryExecutionRecord:
+    states = np.zeros((5, 7))
+    return TrajectoryExecutionRecord(
+        start_center=np.zeros(2),
+        start_heading=0.0,
+        world_centers=np.zeros((80, 2)),
+        world_headings=np.zeros(80),
+        substep_states=states,
+        target_centers=states[:, :2],
+        target_headings=states[:, 2],
+        position_errors_m=np.zeros(5),
+        heading_errors_rad=np.zeros(5),
+        substep_rewards=np.zeros(5),
+        substep_dense_rewards=np.zeros(5),
+        substep_terminated=np.zeros(5, dtype=np.bool_),
+        substep_truncated=np.zeros(5, dtype=np.bool_),
+        traffic_frames=frames,
+        route_completion=0.0,
+        arrive_dest=False,
+        out_of_road=False,
+        crash_vehicle=False,
+        crash_object=False,
+        crash_building=False,
+        crash_human=False,
+        max_step=False,
+    )

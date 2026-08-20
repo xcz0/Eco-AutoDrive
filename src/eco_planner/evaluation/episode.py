@@ -99,7 +99,7 @@ def run_scenario(
             ego_trajectory = inference.ego_trajectory
             anchor = vehicle_state(env)
             _, reward, terminated, truncated, info = env.step(ego_trajectory)
-            execution = TrajectoryExecutionRecord.from_info(info)
+            execution = info["trajectory_execution"]
             if traffic_adapter is not None:
                 traffic_adapter.append_frames(execution.traffic_frames)
             total_reward += float(reward)
@@ -184,7 +184,7 @@ def run_traffic_warmup(
     initial_position = trace.warmup_initial_state[:2].copy()
     for _ in range(warmup_steps // 5):
         _, _, terminated, truncated, info = env.step(stationary_trajectory())
-        execution = TrajectoryExecutionRecord.from_info(info)
+        execution = info["trajectory_execution"]
         frames = execution.traffic_frames
         adapter.append_frames(frames)
         trace.append_warmup(

@@ -56,33 +56,34 @@ class FakeEnv:
         states = np.column_stack(
             (positions, np.zeros(5), np.full(5, 10.0), np.zeros(5), np.full(5, 10.0), np.zeros(5))
         )
-        info: dict[str, object] = {
-            "trajectory_start_center": np.array([start, 0.0]),
-            "trajectory_start_heading": 0.0,
-            "trajectory_world_centers": np.column_stack((np.arange(1, 81) + start, np.zeros(80))),
-            "trajectory_world_headings": np.zeros(80),
-            "trajectory_substep_states": states,
-            "trajectory_substep_rewards": np.ones(5),
-            "trajectory_substep_dense_rewards": np.ones(5),
-            "trajectory_substep_terminated": np.array([False, False, False, False, terminated]),
-            "trajectory_substep_truncated": np.zeros(5, dtype=np.bool_),
-            "trajectory_target_centers": positions,
-            "trajectory_target_headings": np.zeros(5),
-            "trajectory_position_errors_m": np.zeros(5),
-            "trajectory_heading_errors_rad": np.zeros(5),
-            "traffic_substep_frames": tuple(
+        execution = TrajectoryExecutionRecord(
+            start_center=np.array([start, 0.0]),
+            start_heading=0.0,
+            world_centers=np.column_stack((np.arange(1, 81) + start, np.zeros(80))),
+            world_headings=np.zeros(80),
+            substep_states=states,
+            target_centers=positions,
+            target_headings=np.zeros(5),
+            position_errors_m=np.zeros(5),
+            heading_errors_rad=np.zeros(5),
+            substep_rewards=np.ones(5),
+            substep_dense_rewards=np.ones(5),
+            substep_terminated=np.array([False, False, False, False, terminated]),
+            substep_truncated=np.zeros(5, dtype=np.bool_),
+            traffic_frames=tuple(
                 TrafficFrame(index, (0.0, 0.0), 0.0, 1.0, (), ())
                 for index in range((self._step - 1) * 5 + 1, self._step * 5 + 1)
             ),
-            "route_completion": self._step / 2,
-            "arrive_dest": terminated,
-            "out_of_road": False,
-            "crash_vehicle": False,
-            "crash_object": False,
-            "crash_building": False,
-            "crash_human": False,
-            "max_step": False,
-        }
+            route_completion=self._step / 2,
+            arrive_dest=terminated,
+            out_of_road=False,
+            crash_vehicle=False,
+            crash_object=False,
+            crash_building=False,
+            crash_human=False,
+            max_step=False,
+        )
+        info: dict[str, object] = {"trajectory_execution": execution}
         return None, 5.0, terminated, False, info
 
     def close(self) -> None:
@@ -215,7 +216,8 @@ def matrix_trace_arrays() -> dict[str, np.ndarray]:
     trajectory = np.zeros((80, 4), dtype=np.float32)
     trajectory[:, 2] = 1.0
     _, _, _, _, info = environment.step(trajectory)
-    execution = TrajectoryExecutionRecord.from_info(info)
+    execution = info["trajectory_execution"]
+    assert isinstance(execution, TrajectoryExecutionRecord)
     recorder = EpisodeTraceRecorder.from_initial_state(
         np.zeros(7), max_plan_cycles=1, max_warmup_steps=20, guided=False
     )

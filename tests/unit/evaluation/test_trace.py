@@ -24,38 +24,34 @@ def _observation() -> dict[str, torch.Tensor]:
     }
 
 
-def _step_info() -> dict[str, object]:
+def _execution() -> TrajectoryExecutionRecord:
     states = np.zeros((5, 7), dtype=np.float64)
-    return {
-        "trajectory_start_center": np.zeros(2, dtype=np.float64),
-        "trajectory_start_heading": 0.0,
-        "trajectory_world_centers": np.zeros((80, 2), dtype=np.float64),
-        "trajectory_world_headings": np.zeros(80),
-        "trajectory_substep_states": states,
-        "trajectory_substep_rewards": np.ones(5),
-        "trajectory_substep_dense_rewards": np.ones(5),
-        "trajectory_substep_terminated": np.array([False, False, False, False, True]),
-        "trajectory_substep_truncated": np.zeros(5, dtype=np.bool_),
-        "trajectory_target_centers": states[:, :2],
-        "trajectory_target_headings": states[:, 2],
-        "trajectory_position_errors_m": np.zeros(5),
-        "trajectory_heading_errors_rad": np.zeros(5),
-        "traffic_substep_frames": tuple(
+    return TrajectoryExecutionRecord(
+        start_center=np.zeros(2, dtype=np.float64),
+        start_heading=0.0,
+        world_centers=np.zeros((80, 2), dtype=np.float64),
+        world_headings=np.zeros(80),
+        substep_states=states,
+        target_centers=states[:, :2],
+        target_headings=states[:, 2],
+        position_errors_m=np.zeros(5),
+        heading_errors_rad=np.zeros(5),
+        substep_rewards=np.ones(5),
+        substep_dense_rewards=np.ones(5),
+        substep_terminated=np.array([False, False, False, False, True]),
+        substep_truncated=np.zeros(5, dtype=np.bool_),
+        traffic_frames=tuple(
             TrafficFrame(index, (0.0, 0.0), 0.0, 1.0, (), ()) for index in range(5)
         ),
-        "route_completion": 1.0,
-        "arrive_dest": True,
-        "out_of_road": False,
-        "crash_vehicle": False,
-        "crash_object": False,
-        "crash_building": False,
-        "crash_human": False,
-        "max_step": False,
-    }
-
-
-def _execution() -> TrajectoryExecutionRecord:
-    return TrajectoryExecutionRecord.from_info(_step_info())
+        route_completion=1.0,
+        arrive_dest=True,
+        out_of_road=False,
+        crash_vehicle=False,
+        crash_object=False,
+        crash_building=False,
+        crash_human=False,
+        max_step=False,
+    )
 
 
 def test_trace_recorder_finalizes_stable_schema_once() -> None:
@@ -95,33 +91,6 @@ def test_empty_trace_records_explicit_invalid_initial_states() -> None:
 
     with pytest.raises(RuntimeError, match="complete trace"):
         EpisodeTraceRecorder.empty().finalize("complete")
-
-
-def test_trace_recorder_rejects_misaligned_step_arrays() -> None:
-    info = _step_info()
-    info["trajectory_target_centers"] = np.zeros((4, 2))
-
-    with pytest.raises(ValueError, match="trajectory_target_centers"):
-        TrajectoryExecutionRecord.from_info(info)
-
-
-@pytest.mark.parametrize("value", [np.float32(0.5), np.float64(0.5), np.int64(1)])
-def test_execution_record_accepts_finite_numpy_route_completion(value: np.generic) -> None:
-    info = _step_info()
-    info["route_completion"] = value
-
-    execution = TrajectoryExecutionRecord.from_info(info)
-
-    assert execution.route_completion == pytest.approx(float(value))
-
-
-@pytest.mark.parametrize("value", [True, np.bool_(False), np.array(0.5), np.nan, np.inf])
-def test_execution_record_rejects_invalid_route_completion(value: object) -> None:
-    info = _step_info()
-    info["route_completion"] = value
-
-    with pytest.raises(TypeError, match="route_completion"):
-        TrajectoryExecutionRecord.from_info(info)
 
 
 def test_trace_validator_rejects_unexpected_arrays() -> None:

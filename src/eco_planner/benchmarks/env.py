@@ -102,7 +102,7 @@ def _run_once(model_config: OfficialDiffusionPlannerConfig, *, traffic: bool) ->
                 _, _, terminated, truncated, info = env.step(trajectory)
                 if terminated or truncated:
                     raise RuntimeError("traffic history warmup ended unexpectedly")
-                adapter.append_frames(info["traffic_substep_frames"])
+                adapter.append_frames(info["trajectory_execution"].traffic_frames)
         else:
             adapter = NoTrafficMetaDriveObservationAdapter(model_config, 100.0)
             adapter.reset(env)
@@ -113,7 +113,7 @@ def _run_once(model_config: OfficialDiffusionPlannerConfig, *, traffic: bool) ->
             if terminated or truncated:
                 raise RuntimeError("timing warmup ended unexpectedly")
             if traffic:
-                adapter.append_frames(info["traffic_substep_frames"])
+                adapter.append_frames(info["trajectory_execution"].traffic_frames)
 
         start = time.perf_counter()
         for _ in range(_MEASURED_CYCLES):
@@ -122,7 +122,7 @@ def _run_once(model_config: OfficialDiffusionPlannerConfig, *, traffic: bool) ->
             if terminated or truncated:
                 raise RuntimeError("measured cycle ended unexpectedly")
             if traffic:
-                adapter.append_frames(info["traffic_substep_frames"])
+                adapter.append_frames(info["trajectory_execution"].traffic_frames)
         elapsed = time.perf_counter() - start
         return elapsed * 1_000.0 / _MEASURED_CYCLES
     finally:

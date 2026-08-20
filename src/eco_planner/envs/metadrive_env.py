@@ -15,6 +15,7 @@ from metadrive.policy.base_policy import BasePolicy
 from metadrive.policy.replay_policy import ReplayTrafficParticipantPolicy
 from metadrive.utils import Config, concat_step_infos, merge_dicts
 
+from eco_planner.envs.execution import TrajectoryExecutionRecord
 from eco_planner.envs.geometry import (
     local_points_to_world,
     rear_axle_position,
@@ -75,10 +76,6 @@ class _TrajectoryStepRecord:
 
     @classmethod
     def empty(cls, execution_steps: int) -> _TrajectoryStepRecord:
-        if execution_steps not in _ALLOWED_EXECUTION_STEPS:
-            raise ValueError(
-                f"trajectory_execution_steps must be one of {sorted(_ALLOWED_EXECUTION_STEPS)}"
-            )
         return cls(
             states=np.empty((execution_steps, 7), dtype=np.float64),
             rewards=np.empty(execution_steps, dtype=np.float64),
@@ -99,13 +96,10 @@ class _TrajectoryStepRecord:
         angular_velocity: float,
         traffic_frame: TrafficFrame,
     ) -> None:
-        velocity = np.asarray(agent.velocity, dtype=np.float64)
-        if velocity.shape != (2,) or not np.isfinite(velocity).all():
-            raise RuntimeError("controlled vehicle returned an invalid velocity")
         index = self.count
         self.states[index, :2] = np.asarray(agent.position, dtype=np.float64)
         self.states[index, 2] = float(agent.heading_theta)
-        self.states[index, 3:5] = velocity
+        self.states[index, 3:5] = agent.velocity
         self.states[index, 5] = float(agent.speed)
         self.states[index, 6] = angular_velocity
         self.rewards[index] = reward
@@ -122,32 +116,37 @@ class _TrajectoryStepRecord:
         total_reward: float,
     ) -> dict[str, Any]:
         executed_steps = self.count
-        if executed_steps == 0:
-            raise RuntimeError("trajectory execution completed without a simulator step")
         state_array = self.states[:executed_steps].copy()
         target_centers = world_trajectory.centers[1 : executed_steps + 1]
         target_headings = world_trajectory.headings[1 : executed_steps + 1]
+        execution = TrajectoryExecutionRecord(
+            start_center=world_trajectory.centers[0].copy(),
+            start_heading=float(world_trajectory.headings[0]),
+            world_centers=world_trajectory.centers[1:].copy(),
+            world_headings=world_trajectory.headings[1:].copy(),
+            substep_states=state_array,
+            target_centers=target_centers.copy(),
+            target_headings=target_headings.copy(),
+            position_errors_m=np.linalg.norm(state_array[:, :2] - target_centers, axis=1),
+            heading_errors_rad=np.abs(shortest_angle_delta(state_array[:, 2] - target_headings)),
+            substep_rewards=self.rewards[:executed_steps].copy(),
+            substep_dense_rewards=self.dense_rewards[:executed_steps].copy(),
+            substep_terminated=self.terminated[:executed_steps].copy(),
+            substep_truncated=self.truncated[:executed_steps].copy(),
+            traffic_frames=tuple(self.traffic_frames),
+            route_completion=_finite_info_scalar(final_info, "route_completion"),
+            arrive_dest=bool(final_info["arrive_dest"]),
+            out_of_road=bool(final_info["out_of_road"]),
+            crash_vehicle=bool(final_info["crash_vehicle"]),
+            crash_object=bool(final_info["crash_object"]),
+            crash_building=bool(final_info["crash_building"]),
+            crash_human=bool(final_info["crash_human"]),
+            max_step=bool(final_info["max_step"]),
+        )
         result = dict(final_info)
         result["trajectory_execution_steps"] = executed_steps
         result["trajectory_reward_sum"] = total_reward
-        result["trajectory_start_center"] = world_trajectory.centers[0].copy()
-        result["trajectory_start_heading"] = float(world_trajectory.headings[0])
-        result["trajectory_world_centers"] = world_trajectory.centers[1:].copy()
-        result["trajectory_world_headings"] = world_trajectory.headings[1:].copy()
-        result["trajectory_substep_states"] = state_array
-        result["trajectory_target_centers"] = target_centers.copy()
-        result["trajectory_target_headings"] = target_headings.copy()
-        result["trajectory_position_errors_m"] = np.linalg.norm(
-            state_array[:, :2] - target_centers, axis=1
-        )
-        result["trajectory_heading_errors_rad"] = np.abs(
-            shortest_angle_delta(state_array[:, 2] - target_headings)
-        )
-        result["trajectory_substep_rewards"] = self.rewards[:executed_steps].copy()
-        result["trajectory_substep_dense_rewards"] = self.dense_rewards[:executed_steps].copy()
-        result["trajectory_substep_terminated"] = self.terminated[:executed_steps].copy()
-        result["trajectory_substep_truncated"] = self.truncated[:executed_steps].copy()
-        result["traffic_substep_frames"] = tuple(self.traffic_frames)
+        result["trajectory_execution"] = execution
         return result
 
 
@@ -174,15 +173,6 @@ def _to_world_trajectory(
     rear_wheelbase: float,
     timestep_s: float,
 ) -> _WorldTrajectory:
-    if center_position.shape != (2,) or not np.isfinite(center_position).all():
-        raise ValueError("center_position must be a finite two-dimensional vector")
-    if not np.isfinite(center_heading):
-        raise ValueError("center_heading must be finite")
-    if not np.isfinite(rear_wheelbase) or rear_wheelbase <= 0.0:
-        raise ValueError("rear_wheelbase must be finite and positive")
-    if not np.isfinite(timestep_s) or timestep_s <= 0.0:
-        raise ValueError("timestep_s must be finite and positive")
-
     anchor_rear_axle = rear_axle_position(
         center_position.astype(np.float64), center_heading, rear_wheelbase
     )
@@ -212,7 +202,6 @@ class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
         # termination, so the externally recorded state is the requested trajectory waypoint.
         BasePolicy.__init__(self, control_object=obj, random_seed=seed)
         config = self.engine.global_config
-        self._horizon = _require_positive_int(config, "trajectory_horizon")
         self._execution_steps = _require_positive_int(config, "trajectory_execution_steps")
         _validated_timestep(config)
         self._trajectory: _WorldTrajectory | None = None
@@ -249,10 +238,6 @@ class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
                 raise RuntimeError(
                     "a new trajectory was supplied before the cached prefix finished"
                 )
-            if not isinstance(external_action, _PreparedTrajectory):
-                raise TypeError("trajectory policy requires a prepared trajectory")
-            if external_action.local.shape != (self._horizon, 4):
-                raise ValueError("prepared trajectory has an invalid horizon")
             self._trajectory = external_action.world
             self._cache_last_update = self.engine.episode_step
         elif self._trajectory is None or self._cache_last_update is None:
@@ -487,7 +472,6 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         )
         prepared = _PreparedTrajectory(local=validated, world=world_trajectory)
         total_reward = 0.0
-        final_result: tuple[Any, float, bool, bool, dict[str, Any]] | None = None
         step_record = _TrajectoryStepRecord.empty(self._execution_steps)
         for index in range(self._execution_steps):
             action = prepared if index == 0 else None
@@ -507,13 +491,9 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
                 float(world_trajectory.angular_velocities[index]),
                 capture_traffic_frame(self),
             )
-            final_result = (observation, total_reward, terminated, truncated, info)
             if terminated or truncated:
                 break
-        if final_result is None:
-            raise RuntimeError("trajectory execution completed without a simulator step")
-        observation, _, terminated, truncated, final_info = final_result
-        result_info = step_record.update_info(final_info, world_trajectory, total_reward)
+        result_info = step_record.update_info(info, world_trajectory, total_reward)
         return observation, total_reward, terminated, truncated, result_info
 
     def _step_once(

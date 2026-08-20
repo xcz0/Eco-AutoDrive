@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from eco_planner.envs import TrafficFrame
+from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl.collector import collect_rollout_episode
 from eco_planner.rl.policy import ExplorationPolicyContext
@@ -125,27 +125,30 @@ def _context(marker: float) -> ExplorationPolicyContext:
 
 
 def _info() -> dict[str, object]:
+    states = np.zeros((1, 7))
     return {
-        "trajectory_world_centers": np.zeros((80, 2)),
-        "trajectory_world_headings": np.zeros(80),
-        "trajectory_start_center": np.zeros(2),
-        "trajectory_start_heading": 0.0,
-        "trajectory_substep_states": np.zeros((1, 7)),
-        "trajectory_target_centers": np.zeros((1, 2)),
-        "trajectory_target_headings": np.zeros(1),
-        "trajectory_position_errors_m": np.zeros(1),
-        "trajectory_heading_errors_rad": np.zeros(1),
-        "trajectory_substep_rewards": np.asarray([0.25]),
-        "trajectory_substep_dense_rewards": np.asarray([0.25]),
-        "trajectory_substep_terminated": np.asarray([False]),
-        "trajectory_substep_truncated": np.asarray([False]),
-        "traffic_substep_frames": (TrafficFrame(1, (0.0, 0.0), 0.0, 1.0, (), ()),),
-        "route_completion": 0.0,
-        "arrive_dest": False,
-        "out_of_road": False,
-        "crash_vehicle": False,
-        "crash_object": False,
-        "crash_building": False,
-        "crash_human": False,
-        "max_step": False,
+        "trajectory_execution": TrajectoryExecutionRecord(
+            start_center=np.zeros(2),
+            start_heading=0.0,
+            world_centers=np.zeros((80, 2)),
+            world_headings=np.zeros(80),
+            substep_states=states,
+            target_centers=states[:, :2],
+            target_headings=states[:, 2],
+            position_errors_m=np.zeros(1),
+            heading_errors_rad=np.zeros(1),
+            substep_rewards=np.asarray([0.25]),
+            substep_dense_rewards=np.asarray([0.25]),
+            substep_terminated=np.asarray([False]),
+            substep_truncated=np.asarray([False]),
+            traffic_frames=(TrafficFrame(1, (0.0, 0.0), 0.0, 1.0, (), ()),),
+            route_completion=0.0,
+            arrive_dest=False,
+            out_of_road=False,
+            crash_vehicle=False,
+            crash_object=False,
+            crash_building=False,
+            crash_human=False,
+            max_step=False,
+        )
     }
