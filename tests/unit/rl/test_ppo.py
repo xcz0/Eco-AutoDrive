@@ -6,7 +6,12 @@ import torch
 from eco_planner.rl.config import PPOConfig
 from eco_planner.rl.distributions import AffineBeta
 from eco_planner.rl.policy import ExplorationPolicy, ExplorationPolicyContext
-from eco_planner.rl.ppo import PPOUpdater, _batch_trajectories, estimate_episode_gae
+from eco_planner.rl.ppo import (
+    PPOUpdater,
+    _batch_trajectories,
+    _build_torchrl_policy_adapters,
+    estimate_episode_gae,
+)
 from eco_planner.rl.rollout import build_rollout_transition, finalize_rollout_episode
 
 
@@ -123,6 +128,58 @@ def test_ppo_update_uses_canonical_affine_beta_distribution(exploration_policy_c
     assert not torch.equal(policy.actor_head.bias, before)
     distribution = AffineBeta(torch.full((1, 2), 2.0), torch.full((1, 2), 2.0))
     assert distribution.log_prob(torch.zeros((1, 2))).shape == (1,)
+
+
+def test_torchrl_adapters_match_one_direct_policy_forward(exploration_policy_config) -> None:
+    policy = ExplorationPolicy(exploration_policy_config)
+    batch = _batch_trajectories((_episode(policy),), _config())
+    context = ExplorationPolicyContext(
+        **{
+            key: batch[key]
+            for key in (
+                "scene_tokens",
+                "scene_padding_mask",
+                "navigation_tokens",
+                "navigation_padding_mask",
+                "reference_trajectory",
+            )
+        }
+    )
+    with torch.no_grad():
+        expected = policy(context)
+    actor, critic = _build_torchrl_policy_adapters(policy)
+    adapted = batch.clone()
+    actor.get_dist(adapted)
+    adapted = critic(adapted)
+
+    torch.testing.assert_close(adapted["alpha"], expected.parameters.alpha)
+    torch.testing.assert_close(adapted["beta"], expected.parameters.beta)
+    torch.testing.assert_close(adapted["state_value"], expected.value.unsqueeze(-1))
+
+
+def test_ppo_loss_evaluates_the_shared_policy_once_per_minibatch(
+    exploration_policy_config, monkeypatch
+) -> None:
+    policy = ExplorationPolicy(exploration_policy_config)
+    updater = PPOUpdater(policy, _config())
+    batch = _batch_trajectories((_episode(policy),), _config())
+    original_forward = policy.forward
+    calls = 0
+
+    def counted_forward(context: ExplorationPolicyContext):
+        nonlocal calls
+        calls += 1
+        return original_forward(context)
+
+    monkeypatch.setattr(policy, "forward", counted_forward)
+    losses = updater.loss_module(batch)
+    total_loss = losses["loss_objective"] + losses["loss_critic"] + losses["loss_entropy"]
+    total_loss.backward()
+
+    assert calls == 1
+    assert policy.fusion_trunk[0].weight.grad is not None
+    assert policy.actor_head.weight.grad is not None
+    assert policy.value_head.weight.grad is not None
 
 
 def test_ppo_update_aggregates_multi_minibatch_diagnostics_once(

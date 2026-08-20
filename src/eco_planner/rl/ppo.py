@@ -92,7 +92,7 @@ class PPOUpdateReport:
     final_learning_rate: float
 
 
-class _PolicyParameterAdapter(nn.Module):
+class _PolicyOutputAdapter(nn.Module):
     def __init__(self, policy: ExplorationPolicy) -> None:
         super().__init__()
         self.policy = policy
@@ -104,7 +104,7 @@ class _PolicyParameterAdapter(nn.Module):
         navigation_tokens: torch.Tensor,
         navigation_padding_mask: torch.Tensor,
         reference_trajectory: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         output = self.policy(
             ExplorationPolicyContext(
                 scene_tokens=scene_tokens,
@@ -114,32 +114,14 @@ class _PolicyParameterAdapter(nn.Module):
                 reference_trajectory=reference_trajectory,
             )
         )
-        return output.parameters.alpha, output.parameters.beta
+        return output.parameters.alpha, output.parameters.beta, output.value.unsqueeze(-1)
 
 
 class _PolicyValueAdapter(nn.Module):
-    def __init__(self, policy: ExplorationPolicy) -> None:
-        super().__init__()
-        self.policy = policy
+    def forward(self, state_value: torch.Tensor) -> torch.Tensor:
+        """Expose the actor adapter's shared policy value to the critic loss."""
 
-    def forward(
-        self,
-        scene_tokens: torch.Tensor,
-        scene_padding_mask: torch.Tensor,
-        navigation_tokens: torch.Tensor,
-        navigation_padding_mask: torch.Tensor,
-        reference_trajectory: torch.Tensor,
-    ) -> torch.Tensor:
-        value = self.policy(
-            ExplorationPolicyContext(
-                scene_tokens=scene_tokens,
-                scene_padding_mask=scene_padding_mask,
-                navigation_tokens=navigation_tokens,
-                navigation_padding_mask=navigation_padding_mask,
-                reference_trajectory=reference_trajectory,
-            )
-        ).value
-        return value.unsqueeze(-1)
+        return state_value
 
 
 def estimate_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> GAEEstimate:
@@ -355,8 +337,10 @@ class PPOUpdater:
 def _build_torchrl_policy_adapters(
     policy: ExplorationPolicy,
 ) -> tuple[ProbabilisticTensorDictSequential, TensorDictModule]:
-    parameter_module = TensorDictModule(
-        _PolicyParameterAdapter(policy), in_keys=list(_CONTEXT_KEYS), out_keys=["alpha", "beta"]
+    output_module = TensorDictModule(
+        _PolicyOutputAdapter(policy),
+        in_keys=list(_CONTEXT_KEYS),
+        out_keys=["alpha", "beta", "state_value"],
     )
     distribution_module = ProbabilisticTensorDictModule(
         in_keys={"alpha": "alpha", "beta": "beta"},
@@ -366,9 +350,9 @@ def _build_torchrl_policy_adapters(
         return_log_prob=True,
         log_prob_key="joint_guidance_log_prob",
     )
-    actor = ProbabilisticTensorDictSequential(parameter_module, distribution_module)
+    actor = ProbabilisticTensorDictSequential(output_module, distribution_module)
     critic = TensorDictModule(
-        _PolicyValueAdapter(policy), in_keys=list(_CONTEXT_KEYS), out_keys=["state_value"]
+        _PolicyValueAdapter(), in_keys=["state_value"], out_keys=["state_value"]
     )
     return actor, critic
 
