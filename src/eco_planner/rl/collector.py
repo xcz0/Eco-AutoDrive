@@ -18,9 +18,11 @@ from eco_planner.envs import (
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.rl.rollout import (
+    RolloutAuditTrajectory,
     RolloutEpisode,
+    RolloutTrainingBuffer,
     build_rollout_transition,
-    finalize_rollout_episode,
+    finalize_buffered_rollout_episode,
 )
 from eco_planner.rl.runtime import HostRolloutDecision, PendingRolloutDecision
 
@@ -110,7 +112,8 @@ def collect_rollout_episode(
         if mode == "no_traffic"
         else None
     )
-    transitions = []
+    training_buffer = RolloutTrainingBuffer(max_transitions)
+    audit_transitions: list[RolloutAuditTrajectory] = []
     try:
         env.reset(seed=spec.seed)
         if traffic_adapter is not None:
@@ -125,6 +128,7 @@ def collect_rollout_episode(
         for cycle in range(max_transitions):
             observation = _build_observation(traffic_adapter, no_traffic_adapter, env)
             decision = runtime.decide(observation, diffusion_generator, policy_generator)
+            training_decision = decision.training_decision
             _, _, terminated, truncated, info = env.step(decision.ego_trajectory)
             decision = decision.full_audit()
             execution = TrajectoryExecutionRecord.from_info(info)
@@ -137,7 +141,14 @@ def collect_rollout_episode(
                 previous_route_completion,
                 stopped_speed_threshold_mps,
             )
-            transitions.append(
+            reward = float(execution.substep_rewards.sum())
+            training_buffer.append(
+                training_decision,
+                reward=reward,
+                terminated=terminated,
+                truncated=truncated,
+            )
+            audit_transitions.append(
                 build_rollout_transition(
                     policy_context=decision.policy_context,
                     base_action=decision.base_action,
@@ -149,7 +160,7 @@ def collect_rollout_episode(
                     initial_noise=decision.initial_noise,
                     diffusion_rng_state=decision.diffusion_rng_state,
                     policy_rng_state=decision.policy_rng_state,
-                    reward=float(execution.substep_rewards.sum()),
+                    reward=reward,
                     dense_reward=float(execution.substep_dense_rewards.sum()),
                     terminal_override=float(
                         (execution.substep_rewards - execution.substep_dense_rewards).sum()
@@ -161,30 +172,35 @@ def collect_rollout_episode(
                     policy_action_seed=resolved_policy_seed,
                     planning_cycle_index=cycle,
                     **audit,
-                )
+                ).audit
             )
             previous_route_completion = execution.route_completion
             if terminated:
-                return finalize_rollout_episode(transitions, "terminated", torch.zeros(1))
+                return finalize_buffered_rollout_episode(
+                    training_buffer, audit_transitions, "terminated", torch.zeros(1)
+                )
             if truncated:
                 next_observation = _build_observation(traffic_adapter, no_traffic_adapter, env)
-                return finalize_rollout_episode(
-                    transitions,
+                return finalize_buffered_rollout_episode(
+                    training_buffer,
+                    audit_transitions,
                     "truncated",
                     runtime.bootstrap_value(next_observation, diffusion_generator),
                 )
         next_observation = _build_observation(traffic_adapter, no_traffic_adapter, env)
-        return finalize_rollout_episode(
-            transitions,
+        return finalize_buffered_rollout_episode(
+            training_buffer,
+            audit_transitions,
             "rollout_limit",
             runtime.bootstrap_value(next_observation, diffusion_generator),
         )
     except EpisodeFailure as failure:
         partial = (
-            torch.cat([transition.audit_trajectory for transition in transitions], dim=0)
-            if transitions
+            torch.cat([transition.data for transition in audit_transitions], dim=0)
+            if audit_transitions
             else None
         )
+        training_buffer.clear()
         raise RolloutCollectionFailure(failure.phase.value, failure.cause, partial) from failure
     finally:
         env.close()

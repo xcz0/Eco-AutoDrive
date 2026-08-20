@@ -55,8 +55,8 @@ class GAEEstimate:
         if self.value_target.shape != self.advantage.shape:
             raise ValueError("GAE value target must match advantage shape")
         for name, value in (("advantage", self.advantage), ("value target", self.value_target)):
-            if value.device.type != "cpu" or value.dtype != torch.float32:
-                raise TypeError(f"GAE {name} must be a CPU float32 tensor")
+            if value.dtype != torch.float32:
+                raise TypeError(f"GAE {name} must be a float32 tensor")
             if value.requires_grad or not torch.isfinite(value).all():
                 raise ValueError(f"GAE {name} must be finite and detached")
 

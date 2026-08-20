@@ -11,6 +11,7 @@ from tensordict import TensorDict, TensorDictBase
 from eco_planner.rl.policy import ExplorationPolicyContext
 
 TailKind = Literal["terminated", "truncated", "rollout_limit"]
+_CPU_DEVICE = torch.device("cpu")
 
 _CONTEXT_KEYS = (
     "scene_tokens",
@@ -28,6 +29,14 @@ _TRAINING_KEYS = frozenset(
         "reward",
         "terminated",
         "truncated",
+    }
+)
+_TRAINING_DECISION_KEYS = frozenset(
+    {
+        *_CONTEXT_KEYS,
+        "guidance_action",
+        "old_joint_guidance_log_prob",
+        "state_value",
     }
 )
 _AUDIT_KEYS = frozenset(
@@ -69,7 +78,7 @@ _AUDIT_KEYS = frozenset(
 
 @dataclass(frozen=True)
 class PPOTrainingTrajectory:
-    """CPU fields required by GAE and PPO, excluding audit-only rollout data."""
+    """One-device fields required by GAE and PPO, excluding audit-only rollout data."""
 
     data: TensorDictBase
 
@@ -91,13 +100,13 @@ class PPOTrainingTrajectory:
         for name, value in (("advantage", advantage), ("value target", value_target)):
             if (
                 not isinstance(value, torch.Tensor)
-                or value.device.type != "cpu"
+                or value.device != _tensordict_device(self.data)
                 or value.dtype != torch.float32
                 or tuple(value.shape) != expected
                 or value.requires_grad
                 or not torch.isfinite(value).all()
             ):
-                raise ValueError(f"GAE {name} must be detached CPU float32 with shape [T, 1]")
+                raise ValueError(f"GAE {name} must be detached float32 with shape [T, 1]")
         result = self.data.clone()
         result["advantage"] = advantage
         result["value_target"] = value_target
@@ -116,6 +125,143 @@ class RolloutAuditTrajectory:
     @property
     def transition_count(self) -> int:
         return self.data.batch_size[0]
+
+
+@dataclass(frozen=True)
+class PPOTrainingDecision:
+    """Detached policy data retained until one bounded episode reaches PPO."""
+
+    data: TensorDictBase
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.data, TensorDictBase) or self.data.batch_size != torch.Size([1]):
+            raise TypeError("PPO training decision must be a batch-size-one TensorDict")
+        if set(self.data.keys(include_nested=False)) != _TRAINING_DECISION_KEYS:
+            raise ValueError("PPO training decision has unexpected fields")
+        devices = set()
+        for key, value in self.data.items(include_nested=True, leaves_only=True):
+            if not isinstance(value, torch.Tensor) or value.requires_grad:
+                raise TypeError(f"PPO training decision field {key!r} must be a detached tensor")
+            devices.add(value.device)
+        if len(devices) != 1:
+            raise ValueError("PPO training decision fields must use one device")
+
+    @classmethod
+    def from_policy_output(
+        cls,
+        policy_context: ExplorationPolicyContext,
+        guidance_action: torch.Tensor,
+        old_joint_guidance_log_prob: torch.Tensor,
+        state_value: torch.Tensor,
+    ) -> PPOTrainingDecision:
+        """Detach and own the compact PPO inputs without an artifact-device conversion."""
+
+        values = {
+            "scene_tokens": policy_context.scene_tokens,
+            "scene_padding_mask": policy_context.scene_padding_mask,
+            "navigation_tokens": policy_context.navigation_tokens,
+            "navigation_padding_mask": policy_context.navigation_padding_mask,
+            "reference_trajectory": policy_context.reference_trajectory,
+            "guidance_action": guidance_action,
+            "old_joint_guidance_log_prob": old_joint_guidance_log_prob.reshape(1, 1),
+            "state_value": state_value.reshape(1, 1),
+        }
+        return cls(
+            TensorDict(
+                {key: value.detach().clone() for key, value in values.items()}, batch_size=[1]
+            )
+        )
+
+
+class RolloutTrainingBuffer:
+    """Bounded, single-device staging for PPO data collected during one episode."""
+
+    def __init__(self, capacity: int) -> None:
+        if type(capacity) is not int or capacity <= 0:
+            raise ValueError("rollout training buffer capacity must be a positive integer")
+        self._capacity = capacity
+        self._transitions: list[TensorDictBase] = []
+        self._device: torch.device | None = None
+        self._finalized = False
+
+    @property
+    def capacity(self) -> int:
+        return self._capacity
+
+    @property
+    def transition_count(self) -> int:
+        return len(self._transitions)
+
+    def append(
+        self, decision: PPOTrainingDecision, *, reward: float, terminated: bool, truncated: bool
+    ) -> None:
+        """Append exactly one detached PPO transition without crossing devices for features."""
+
+        if self._finalized:
+            raise RuntimeError("cannot append to a finalized rollout training buffer")
+        if not isinstance(decision, PPOTrainingDecision):
+            raise TypeError("rollout training buffer requires a PPOTrainingDecision")
+        if type(reward) is not float or not torch.isfinite(torch.tensor(reward)):
+            raise TypeError("rollout training reward must be a finite float")
+        if type(terminated) is not bool or type(truncated) is not bool:
+            raise TypeError("rollout training terminal flags must be bool")
+        if terminated and truncated:
+            raise ValueError("rollout training transition cannot be both terminated and truncated")
+        if self.transition_count >= self.capacity:
+            raise RuntimeError("rollout training buffer capacity is exhausted")
+        device = _tensordict_device(decision.data)
+        if self._device is None:
+            self._device = device
+        elif device != self._device:
+            raise ValueError("rollout training buffer cannot mix devices")
+        if self._transitions and (
+            self._transitions[-1]["terminated"].item() or self._transitions[-1]["truncated"].item()
+        ):
+            raise ValueError("rollout training buffer cannot continue after an episode boundary")
+        self._transitions.append(
+            TensorDict(
+                {
+                    **{key: decision.data[key] for key in _TRAINING_DECISION_KEYS},
+                    "reward": _float(reward, device),
+                    "terminated": _bool(terminated, device),
+                    "truncated": _bool(truncated, device),
+                },
+                batch_size=[1],
+            )
+        )
+
+    def finalize(
+        self, tail_kind: TailKind, tail_bootstrap_value: torch.Tensor
+    ) -> PPOTrainingTrajectory:
+        """Release staged decisions as one PPO trajectory with its GAE boundary."""
+
+        if self._finalized:
+            raise RuntimeError("rollout training buffer is already finalized")
+        if not self._transitions or self._device is None:
+            raise ValueError("rollout training buffer must contain at least one transition")
+        self._finalized = True
+        trajectory = torch.cat(self._transitions, dim=0)
+        self._transitions.clear()
+        bootstrap = _validate_and_move_tail(trajectory, tail_kind, tail_bootstrap_value)
+        next_values = torch.cat([trajectory["state_value"][1:], bootstrap.reshape(1, 1)], dim=0)
+        done = torch.zeros((trajectory.batch_size[0], 1), dtype=torch.bool, device=self._device)
+        done[-1] = True
+        trajectory["next"] = TensorDict(
+            {
+                "state_value": next_values,
+                "reward": trajectory["reward"].clone(),
+                "done": done,
+                "terminated": trajectory["terminated"].clone(),
+            },
+            batch_size=trajectory.batch_size,
+        )
+        return PPOTrainingTrajectory(trajectory)
+
+    def clear(self) -> None:
+        """Release retained decisions after an aborted rollout."""
+
+        self._transitions.clear()
+        self._finalized = True
 
 
 @dataclass(frozen=True)
@@ -331,6 +477,40 @@ def finalize_rollout_episode(
     )
 
 
+def finalize_buffered_rollout_episode(
+    training_buffer: RolloutTrainingBuffer,
+    audit_transitions: list[RolloutAuditTrajectory],
+    tail_kind: TailKind,
+    tail_bootstrap_value: torch.Tensor,
+) -> RolloutEpisode:
+    """Join a device-resident PPO buffer to its independent CPU audit trajectory."""
+
+    if not isinstance(training_buffer, RolloutTrainingBuffer):
+        raise TypeError("buffered rollout requires a RolloutTrainingBuffer")
+    if not audit_transitions:
+        raise ValueError("buffered rollout must contain at least one audit transition")
+    for index, audit in enumerate(audit_transitions):
+        if not isinstance(audit, RolloutAuditTrajectory):
+            raise TypeError("buffered rollout audits must be RolloutAuditTrajectory instances")
+        if audit.data["planning_cycle_index"].item() != index:
+            raise ValueError("planning_cycle_index must be contiguous from zero")
+        if index and (
+            audit_transitions[index - 1].data["terminated"].item()
+            or audit_transitions[index - 1].data["truncated"].item()
+        ):
+            raise ValueError("buffered rollout cannot continue after an episode boundary")
+    training = training_buffer.finalize(tail_kind, tail_bootstrap_value)
+    audit = RolloutAuditTrajectory(torch.cat([item.data for item in audit_transitions], dim=0))
+    if training.transition_count != audit.transition_count:
+        raise ValueError("PPO training buffer and audit trajectory lengths disagree")
+    return RolloutEpisode(
+        training,
+        audit,
+        tail_kind,
+        tail_bootstrap_value.detach().to(_tensordict_device(training.data)),
+    )
+
+
 def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
     _validate_common_trajectory(trajectory, _TRAINING_KEYS, "PPO training")
     _validate_policy_context(trajectory, "PPO training")
@@ -350,6 +530,8 @@ def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
 
 def _validate_audit_trajectory(trajectory: TensorDictBase) -> None:
     _validate_common_trajectory(trajectory, _AUDIT_KEYS, "rollout audit")
+    if _tensordict_device(trajectory).type != "cpu":
+        raise TypeError("rollout audit fields must be CPU tensors")
     _validate_policy_context(trajectory, "rollout audit")
     for key in ("base_action", "guidance_action", "beta_alpha", "beta_beta"):
         if tuple(trajectory[key].shape[1:]) != (2,):
@@ -385,9 +567,14 @@ def _validate_common_trajectory(
     missing = required_keys - set(trajectory.keys(include_nested=False))
     if missing:
         raise ValueError(f"{contract} trajectory is missing fields: {sorted(missing)}")
+    device: torch.device | None = None
     for key, value in trajectory.items(include_nested=True, leaves_only=True):
-        if not isinstance(value, torch.Tensor) or value.device.type != "cpu":
-            raise TypeError(f"{contract} field {key!r} must be a CPU tensor")
+        if not isinstance(value, torch.Tensor):
+            raise TypeError(f"{contract} field {key!r} must be a tensor")
+        if device is None:
+            device = value.device
+        elif value.device != device:
+            raise TypeError(f"{contract} fields must use one device")
         if value.dtype.is_floating_point and not torch.isfinite(value).all():
             raise ValueError(f"{contract} field {key!r} must be finite")
 
@@ -404,7 +591,9 @@ def _validate_shared_fields(training: TensorDictBase, audit: TensorDictBase) -> 
             "PPO training and rollout audit trajectories must have matching batch sizes"
         )
     for key in _TRAINING_KEYS:
-        if not torch.equal(training[key], audit[key]):
+        if training[key].shape != audit[key].shape or training[key].dtype != audit[key].dtype:
+            raise ValueError(f"PPO training and rollout audit fields disagree for {key!r}")
+        if training[key].device == audit[key].device and not torch.equal(training[key], audit[key]):
             raise ValueError(f"PPO training and rollout audit fields disagree for {key!r}")
 
 
@@ -413,13 +602,13 @@ def _validate_tail(trajectory: TensorDictBase, tail_kind: TailKind, value: torch
         raise ValueError("rollout episode has an invalid tail kind")
     if (
         not isinstance(value, torch.Tensor)
-        or value.device.type != "cpu"
+        or value.device != _tensordict_device(trajectory)
         or value.dtype != torch.float32
         or tuple(value.shape) != (1,)
         or value.requires_grad
         or not torch.isfinite(value).all()
     ):
-        raise ValueError("tail bootstrap value must be detached CPU float32 with shape [1]")
+        raise ValueError("tail bootstrap value must be detached float32 with shape [1]")
     final = trajectory[-1]
     terminated = bool(final["terminated"].item())
     truncated = bool(final["truncated"].item())
@@ -433,13 +622,34 @@ def _validate_tail(trajectory: TensorDictBase, tail_kind: TailKind, value: torch
         raise ValueError("rollout_limit tail must end before an episode boundary")
 
 
-def _float(value: float) -> torch.Tensor:
-    return torch.tensor([[value]], dtype=torch.float32)
+def _validate_and_move_tail(
+    trajectory: TensorDictBase, tail_kind: TailKind, value: torch.Tensor
+) -> torch.Tensor:
+    if (
+        not isinstance(value, torch.Tensor)
+        or value.dtype != torch.float32
+        or tuple(value.shape) != (1,)
+    ):
+        raise ValueError("tail bootstrap value must be detached float32 with shape [1]")
+    result = value.detach().to(_tensordict_device(trajectory))
+    _validate_tail(trajectory, tail_kind, result)
+    return result
 
 
-def _bool(value: bool) -> torch.Tensor:
-    return torch.tensor([[value]], dtype=torch.bool)
+def _float(value: float, device: torch.device = _CPU_DEVICE) -> torch.Tensor:
+    return torch.tensor([[value]], dtype=torch.float32, device=device)
+
+
+def _bool(value: bool, device: torch.device = _CPU_DEVICE) -> torch.Tensor:
+    return torch.tensor([[value]], dtype=torch.bool, device=device)
 
 
 def _integer(value: int) -> torch.Tensor:
     return torch.tensor([[value]], dtype=torch.int64)
+
+
+def _tensordict_device(trajectory: TensorDictBase) -> torch.device:
+    for value in trajectory.values(include_nested=True, leaves_only=True):
+        if isinstance(value, torch.Tensor):
+            return value.device
+    raise ValueError("TensorDict must contain at least one tensor")

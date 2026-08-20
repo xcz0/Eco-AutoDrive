@@ -97,7 +97,7 @@ def write_rollout_episode(path: Path, episode: RolloutEpisode) -> None:
     arrays.update(
         {
             "tail_kind": np.asarray(episode.tail_kind),
-            "tail_bootstrap_value": episode.tail_bootstrap_value.numpy(),
+            "tail_bootstrap_value": episode.tail_bootstrap_value.cpu().numpy(),
         }
     )
     np.savez(path, **arrays)

@@ -36,6 +36,7 @@ from eco_planner.rl.policy import (
     ExplorationPolicyContext,
     validate_exploration_policy_context,
 )
+from eco_planner.rl.rollout import PPOTrainingDecision
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,17 @@ class HostRolloutDecision:
 
         return self
 
+    @property
+    def training_decision(self) -> PPOTrainingDecision:
+        """Provide the compact PPO inputs for CPU-only and test runtimes."""
+
+        return PPOTrainingDecision.from_policy_output(
+            self.policy_context,
+            self.guidance_action,
+            self.old_joint_guidance_log_prob,
+            self.old_value,
+        )
+
 
 class PendingRolloutDecision:
     """Execution trajectory plus deferred CPU rollout storage fields."""
@@ -74,17 +86,25 @@ class PendingRolloutDecision:
         diffusion_rng_state: torch.Tensor,
         policy_rng_state: torch.Tensor,
         policy_config: ExplorationPolicyConfig,
+        training_decision: PPOTrainingDecision,
     ) -> None:
         self._execution = execution
         self._deferred = deferred
         self._diffusion_rng_state = diffusion_rng_state
         self._policy_rng_state = policy_rng_state
         self._policy_config = policy_config
+        self._training_decision = training_decision
         self._audit: HostRolloutDecision | None = None
 
     @property
     def ego_trajectory(self) -> np.ndarray:
         return self._execution.ego_trajectory
+
+    @property
+    def training_decision(self) -> PPOTrainingDecision:
+        """Return the device-resident PPO inputs without waiting for the audit copy."""
+
+        return self._training_decision
 
     def full_audit(self) -> HostRolloutDecision:
         """Wait for the stored PPO/replay payload after simulator execution."""
@@ -223,6 +243,12 @@ class FabricRolloutRuntime:
         if result.guidance_action is None:
             raise RuntimeError("policy-guided planner did not return its guidance action")
         torch.testing.assert_close(result.guidance_action, action.guidance_action)
+        training_decision = PPOTrainingDecision.from_policy_output(
+            policy_context,
+            action.guidance_action,
+            action.joint_guidance_log_prob,
+            output.value,
+        )
         deferred = defer_host_tensors(
             {
                 "prediction": (result.prediction, torch.float32),
@@ -249,6 +275,7 @@ class FabricRolloutRuntime:
             diffusion_rng_state=diffusion_rng_state,
             policy_rng_state=policy_rng_state,
             policy_config=self._policy.config,
+            training_decision=training_decision,
         )
 
     def bootstrap_value(
@@ -279,10 +306,7 @@ class FabricRolloutRuntime:
                 reference_trajectory=prepared.policy_context.reference_trajectory,
             )
             value = self._policy(context).value
-        deferred = defer_host_tensors({"bootstrap_value": (value, torch.float32)}, self.device)
-        host = deferred.resolve()["bootstrap_value"]
-        _validate_finite({"bootstrap_value": host})
-        return host
+        return value.detach().clone()
 
 
 def create_fabric_rollout_runtime(
