@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from eco_planner.rl.config import PPOConfig
@@ -104,3 +105,67 @@ def test_ppo_update_uses_canonical_affine_beta_distribution(exploration_policy_c
     assert not torch.equal(policy.actor_head.bias, before)
     distribution = AffineBeta(torch.full((1, 2), 2.0), torch.full((1, 2), 2.0))
     assert distribution.log_prob(torch.zeros((1, 2))).shape == (1,)
+
+
+def test_ppo_update_aggregates_multi_minibatch_diagnostics_once(
+    exploration_policy_config, monkeypatch
+) -> None:
+    config = _config().model_copy(
+        update={
+            "epochs": 2,
+            "batch_size": 4,
+            "minibatch_size": 2,
+            "scheduler_total_optimizer_steps": 4,
+        }
+    )
+    policy = ExplorationPolicy(exploration_policy_config)
+
+    class FixedLoss(torch.nn.Module):
+        def __init__(self, parameter: torch.nn.Parameter) -> None:
+            super().__init__()
+            self.parameter = parameter
+            self.calls = 0
+
+        def forward(self, minibatch: object) -> dict[str, torch.Tensor]:
+            del minibatch
+            self.calls += 1
+            scale = self.parameter.new_tensor(float(self.calls))
+            anchor = self.parameter.reshape(-1)[0] * 0.0
+            return {
+                "loss_objective": anchor + scale,
+                "loss_critic": anchor + 10.0 * scale,
+                "loss_entropy": anchor - 0.5 * scale,
+                "kl_approx": anchor + 0.01 * scale,
+                "clip_fraction": anchor + 0.1 * scale,
+                "entropy": anchor + 1.5 * scale,
+                "explained_variance": anchor + 3.0 * scale,
+            }
+
+    updater = PPOUpdater(policy, config)
+    fixed_loss = FixedLoss(next(policy.parameters()))
+    updater.loss_module = fixed_loss
+    original_cpu = torch.Tensor.cpu
+    cpu_call_count = 0
+
+    def track_cpu(value: torch.Tensor, *args: object, **kwargs: object) -> torch.Tensor:
+        nonlocal cpu_call_count
+        cpu_call_count += 1
+        return original_cpu(value, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "cpu", track_cpu)
+    report = updater.update((_episode(policy), _episode(policy)))
+
+    assert fixed_loss.calls == 4
+    assert cpu_call_count == 1
+    assert report.sample_count == 4
+    assert report.optimizer_step_count == 4
+    assert report.mean_policy_loss == pytest.approx(2.5)
+    assert report.mean_value_loss == pytest.approx(25.0)
+    assert report.mean_entropy_loss == pytest.approx(-1.25)
+    assert report.mean_total_loss == pytest.approx(26.25)
+    assert report.mean_approximate_kl == pytest.approx(0.025)
+    assert report.mean_clip_fraction == pytest.approx(0.25)
+    assert report.mean_entropy == pytest.approx(3.75)
+    assert report.mean_explained_variance == pytest.approx(7.5)
+    assert report.maximum_pre_clip_gradient_norm == pytest.approx(0.0)
+    assert report.final_learning_rate == pytest.approx(0.0)

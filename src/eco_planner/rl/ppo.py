@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -29,6 +28,17 @@ _CONTEXT_KEYS = (
     "navigation_tokens",
     "navigation_padding_mask",
     "reference_trajectory",
+)
+
+_PPO_UPDATE_METRIC_NAMES = (
+    "loss_objective",
+    "loss_critic",
+    "loss_entropy",
+    "total_loss",
+    "kl_approx",
+    "clip_fraction",
+    "entropy",
+    "explained_variance",
 )
 
 
@@ -250,22 +260,15 @@ class PPOUpdater:
         ):
             raise RuntimeError("PPO update would exceed the configured scheduler horizon")
         _normalize_full_batch_advantage(batch)
+        batch = batch.to(self.device)
         frozen_inputs = {
             key: batch[key].clone()
             for key in ("old_joint_guidance_log_prob", "state_value", "advantage", "value_target")
         }
-        batch = batch.to(self.device)
-        metric_values: dict[str, list[float]] = {
-            "loss_objective": [],
-            "loss_critic": [],
-            "loss_entropy": [],
-            "total_loss": [],
-            "kl_approx": [],
-            "clip_fraction": [],
-            "entropy": [],
-            "explained_variance": [],
-            "gradient_norm": [],
-        }
+        metric_totals = torch.zeros(
+            len(_PPO_UPDATE_METRIC_NAMES), device=self.device, dtype=torch.float64
+        )
+        maximum_gradient_norm = torch.zeros((), device=self.device, dtype=torch.float64)
         for _epoch in range(self.config.epochs):
             for host_indices in self._epoch_minibatch_indices(sample_count):
                 minibatch = batch[host_indices.to(self.device)]
@@ -285,35 +288,47 @@ class PPOUpdater:
                 self.optimizer.step()
                 self.scheduler.step()
                 self._completed_optimizer_steps += 1
-                for name in (
-                    "loss_objective",
-                    "loss_critic",
-                    "loss_entropy",
-                    "kl_approx",
-                    "clip_fraction",
-                    "entropy",
-                    "explained_variance",
-                ):
-                    _require_finite_scalar(losses[name], name)
-                    metric_values[name].append(float(losses[name].detach().mean().cpu()))
-                metric_values["total_loss"].append(float(total_loss.detach().cpu()))
-                metric_values["gradient_norm"].append(float(gradient_norm.detach().cpu()))
-        host_batch = batch.to("cpu")
+                metric_tensors = (
+                    losses["loss_objective"],
+                    losses["loss_critic"],
+                    losses["loss_entropy"],
+                    total_loss,
+                    losses["kl_approx"],
+                    losses["clip_fraction"],
+                    losses["entropy"],
+                    losses["explained_variance"],
+                )
+                for name, value in zip(_PPO_UPDATE_METRIC_NAMES, metric_tensors, strict=True):
+                    _require_finite_scalar(value, name)
+                scalar_metrics = tuple(value.detach().mean() for value in metric_tensors)
+                metric_totals.add_(torch.stack(scalar_metrics, dim=0).to(dtype=torch.float64))
+                maximum_gradient_norm = torch.maximum(
+                    maximum_gradient_norm, gradient_norm.detach().to(dtype=torch.float64)
+                )
         for key, expected in frozen_inputs.items():
-            if not torch.equal(host_batch[key], expected):
+            if not torch.equal(batch[key], expected):
                 raise RuntimeError(f"PPO update mutated frozen batch field {key!r}")
+        host_metrics = torch.cat(
+            (
+                metric_totals.div(required_steps),
+                maximum_gradient_norm.unsqueeze(0),
+            )
+        ).cpu()
+        if not torch.isfinite(host_metrics).all():
+            raise FloatingPointError("PPO update diagnostics must be finite")
+        metric_values = tuple(float(value) for value in host_metrics)
         return PPOUpdateReport(
             sample_count=sample_count,
             optimizer_step_count=required_steps,
-            mean_policy_loss=_mean(metric_values["loss_objective"]),
-            mean_value_loss=_mean(metric_values["loss_critic"]),
-            mean_entropy_loss=_mean(metric_values["loss_entropy"]),
-            mean_total_loss=_mean(metric_values["total_loss"]),
-            mean_approximate_kl=_mean(metric_values["kl_approx"]),
-            mean_clip_fraction=_mean(metric_values["clip_fraction"]),
-            mean_entropy=_mean(metric_values["entropy"]),
-            mean_explained_variance=_mean(metric_values["explained_variance"]),
-            maximum_pre_clip_gradient_norm=max(metric_values["gradient_norm"]),
+            mean_policy_loss=metric_values[0],
+            mean_value_loss=metric_values[1],
+            mean_entropy_loss=metric_values[2],
+            mean_total_loss=metric_values[3],
+            mean_approximate_kl=metric_values[4],
+            mean_clip_fraction=metric_values[5],
+            mean_entropy=metric_values[6],
+            mean_explained_variance=metric_values[7],
+            maximum_pre_clip_gradient_norm=metric_values[8],
             final_learning_rate=float(self.optimizer.param_groups[0]["lr"]),
         )
 
@@ -380,14 +395,9 @@ def _normalize_full_batch_advantage(batch: TensorDictBase) -> None:
 def _require_finite_scalar(value: torch.Tensor, name: str) -> None:
     if not isinstance(value, torch.Tensor) or value.numel() != 1:
         raise ValueError(f"{name} must be a scalar tensor")
-    if not torch.isfinite(value).all():
-        raise FloatingPointError(f"{name} must be finite")
-
-
-def _mean(values: list[float]) -> float:
-    if not values:
-        raise ValueError("PPO metric aggregation requires at least one value")
-    result = sum(values) / len(values)
-    if not math.isfinite(result):
-        raise FloatingPointError("PPO metric mean must be finite")
-    return result
+    finite = torch.isfinite(value).all()
+    if value.device.type == "cpu":
+        if not finite:
+            raise FloatingPointError(f"{name} must be finite")
+    else:
+        torch._assert_async(finite, f"{name} must be finite")
