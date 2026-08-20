@@ -1,0 +1,11 @@
+# @package _global_
+
+defaults:
+  - /evaluation: traffic
+  - _self_
+
+evaluation:
+  profile: full
+
+video:
+  enabled: false

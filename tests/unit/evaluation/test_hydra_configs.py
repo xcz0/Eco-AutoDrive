@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from hydra import compose, initialize_config_dir
 
+from eco_planner.evaluation.config import parse_evaluation_config
 from eco_planner.models import (
     OrthogonalReferenceGuidanceConfig,
     parse_guidance_config,
@@ -58,3 +59,28 @@ def test_traffic_matrix_composes_joblib_execution_grid() -> None:
     assert config.hydra.launcher.n_jobs == 2
     assert config.hydra.launcher.backend == "loky"
     assert config.video.enabled is False
+
+
+@pytest.mark.parametrize(
+    ("name", "mode", "profile", "horizon", "video_enabled"),
+    [
+        ("evaluate_no_traffic_smoke", "no_traffic", "smoke", 20, False),
+        ("evaluate_traffic_smoke", "traffic", "smoke", 100, False),
+        ("evaluate_no_traffic_full", "no_traffic", "full", 200, False),
+        ("evaluate_traffic_full", "traffic", "full", 3000, False),
+        ("evaluate_no_traffic_matrix", "no_traffic", "matrix", 200, False),
+        ("evaluate_traffic_matrix", "traffic", "matrix", 300, False),
+    ],
+)
+def test_experiment_profiles_compose_complete_evaluation_jobs(
+    name: str, mode: str, profile: str, horizon: int, video_enabled: bool
+) -> None:
+    config_dir = Path(__file__).resolve().parents[3] / "configs"
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
+        config = compose(config_name=f"experiment/{name}")
+
+    parsed = parse_evaluation_config(config)
+    assert parsed.evaluation.mode == mode
+    assert parsed.evaluation.profile == profile
+    assert parsed.evaluation.evaluated_horizon_steps == horizon
+    assert parsed.video.enabled is video_enabled

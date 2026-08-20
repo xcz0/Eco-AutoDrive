@@ -35,10 +35,10 @@ uv run ruff format --check .
 
 ```powershell
 # 无交通
-.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile smoke
+.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_smoke
 
 # 有交通
-.\scripts\run_evaluation.ps1 -Mode traffic -Profile smoke
+.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_traffic_smoke
 ```
 
 `no-traffic` 会拒绝背景车辆和静态交通物体，不能用于有交通评测。
@@ -46,8 +46,8 @@ uv run ruff format --check .
 默认 sampler 为保持官方语义的 `dpm10`。项目额外提供：
 
 ```powershell
-.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile smoke -Sampler ddim5
-.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile smoke -Sampler ddim5_project_noise
+.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_smoke sampler=ddim5
+.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_smoke sampler=ddim5_project_noise
 ```
 
 `ddim5` 使用标准高斯初始噪声；`ddim5_project_noise` 使用 `0.5` 倍噪声，仅作为项目隔离对照。两者均采用本项目选择的五步时间表，不代表上游未公开的 sampler parity。
@@ -55,36 +55,34 @@ uv run ruff format --check .
 固定 reference guidance 必须与标准高斯 `ddim5` 搭配：
 
 ```powershell
-.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile smoke -Sampler ddim5 `
-  -Guidance orthogonal_reference -LateralScale 1 -LongitudinalScale 0
+.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_smoke `
+  sampler=ddim5 guidance=orthogonal_reference guidance.lateral_scale=1 guidance.longitudinal_scale=0
 ```
 
 scale 必须位于 `[-1,1]`；`(0,0)` 精确退化为同次 unguided reference。reference-centered energy、10 Hz 速度差分、单位梯度系数和 ego-only gradient scope 属于项目复现决定；guidance 不做中心线投影、平滑、裁剪或失败回退。完整数学与随机性契约见 [system-contract.md](docs/agents/system-contract.md) 和相关 ADR。
 
 ## 评测预设
 
-`scripts/run_evaluation.ps1` 编排已有 Hydra 配置，默认关闭视频；使用 `-Video` 生成 GIF。每次运行写入 `outputs/` 下的独立目录。
+`configs/experiment/` 提供完整、可运行的 smoke、full 和 matrix 评测预设；它们默认关闭视频。需要录制 GIF 时，在任一命令后追加 `video.enabled=true`。每次运行写入 `outputs/` 下的独立目录。
 
 常用示例：
 
 ```powershell
-# 只查看将执行的命令
-.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile smoke -DryRun
-
 # 无交通完整预设
-.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile full -RuntimeSeed 3
+.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_full runtime.seed=3
 
 # 无交通多 seed
-.\scripts\run_evaluation.ps1 -Mode no-traffic -Profile matrix -RuntimeSeeds 0,1,2,3,4
+.venv\Scripts\python.exe scripts\evaluate.py --multirun `
+  --config-name experiment/evaluate_no_traffic_matrix
 
 # 交通矩阵
-.\scripts\run_evaluation.ps1 -Mode traffic -Profile matrix `
-  -RuntimeSeeds 0,1,2 -TrafficDensities 0.05,0.10
+.venv\Scripts\python.exe scripts\evaluate.py --multirun `
+  --config-name experiment/evaluate_traffic_matrix
 ```
 
-traffic matrix 默认使用两个 Joblib `loky` 进程；可用 `-ExecutionMode serial` 进行串行对照。CUDA 运行需显式传入 `-Extra cuda -Accelerator cuda`，CPU 对照使用 `-Extra cpu -Accelerator cpu`。多 GPU 调度不属于该入口。
+traffic matrix 默认使用两个 Joblib `loky` 进程；串行对照可通过 `hydra/launcher=basic evaluation.execution.mode=serial evaluation.execution.launcher=basic evaluation.execution.worker_count=1` 覆盖。CUDA 运行使用 `runtime.accelerator=cuda`，CPU 对照使用 `runtime.accelerator=cpu`。多 GPU 调度不属于该入口。
 
-推理使用单设备 Lightning Fabric。默认 `-Accelerator auto -Precision auto`：CUDA 上优先 BF16 mixed precision，不支持 BF16 时使用 FP16；CPU 使用 FP32。严格复现 FP32 数值基线时传入 `-Precision 32-true`。
+推理使用单设备 Lightning Fabric。默认 `runtime.accelerator=auto runtime.precision=auto`：CUDA 上优先 BF16 mixed precision，不支持 BF16 时使用 FP16；CPU 使用 FP32。严格复现 FP32 数值基线时传入 `runtime.precision=32-true`。
 
 具体 horizon、warmup、产物字段与数组契约、终止类型以及其他运行不变量以 [system-contract.md](docs/agents/system-contract.md) 为准。
 

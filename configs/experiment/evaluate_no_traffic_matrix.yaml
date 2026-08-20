@@ -1,0 +1,16 @@
+# @package _global_
+
+defaults:
+  - /evaluation: no_traffic
+  - _self_
+
+evaluation:
+  profile: matrix
+
+video:
+  enabled: false
+
+hydra:
+  sweeper:
+    params:
+      runtime.seed: 0,1,2

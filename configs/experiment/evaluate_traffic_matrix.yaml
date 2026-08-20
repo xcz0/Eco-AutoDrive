@@ -1,0 +1,11 @@
+# @package _global_
+
+defaults:
+  - /evaluation: traffic_matrix
+  - _self_
+
+hydra:
+  sweeper:
+    params:
+      runtime.seed: 0,1,2
+      env.traffic_density: 0.05,0.10
