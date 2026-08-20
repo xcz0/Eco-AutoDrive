@@ -36,8 +36,14 @@ class ExplicitGeneratorBetaSampler:
     """
 
     @staticmethod
-    def draw(parameters: AffineBetaParameters, generator: torch.Generator) -> torch.Tensor:
-        _validate_parameters(parameters)
+    def draw(
+        parameters: AffineBetaParameters,
+        generator: torch.Generator,
+        *,
+        validate_args: bool,
+    ) -> torch.Tensor:
+        if validate_args:
+            _validate_parameters(parameters)
         expected_device = parameters.alpha.device
         generator_device = torch.device(generator.device)
         if generator_device.type != expected_device.type or (
@@ -47,7 +53,8 @@ class ExplicitGeneratorBetaSampler:
         alpha_draw = torch._standard_gamma(parameters.alpha, generator=generator)
         beta_draw = torch._standard_gamma(parameters.beta, generator=generator)
         base_action = alpha_draw / (alpha_draw + beta_draw)
-        _validate_base_action(base_action, parameters.alpha)
+        if validate_args:
+            _validate_base_action(base_action, parameters.alpha)
         return base_action
 
 
@@ -57,12 +64,17 @@ class AffineBeta(TransformedDistribution):
     arg_constraints: dict[str, object] = {}
     has_rsample = True
 
-    def __init__(self, alpha: torch.Tensor, beta: torch.Tensor) -> None:
+    def __init__(
+        self, alpha: torch.Tensor, beta: torch.Tensor, validate_args: bool | None = None
+    ) -> None:
+        if validate_args is None:
+            validate_args = True
         parameters = AffineBetaParameters(alpha, beta)
-        _validate_parameters(parameters)
+        if validate_args:
+            _validate_parameters(parameters)
         self.parameters = parameters
-        base = Independent(Beta(parameters.alpha, parameters.beta, validate_args=True), 1)
-        super().__init__(base, [AffineTransform(loc=-1.0, scale=2.0)], validate_args=True)
+        base = Independent(Beta(parameters.alpha, parameters.beta, validate_args=validate_args), 1)
+        super().__init__(base, [AffineTransform(loc=-1.0, scale=2.0)], validate_args=validate_args)
 
     @property
     def mean(self) -> torch.Tensor:
@@ -71,27 +83,34 @@ class AffineBeta(TransformedDistribution):
 
     def entropy(self) -> torch.Tensor:
         result = self.base_dist.entropy() + 2.0 * math.log(2.0)
-        _validate_probability_result(result, "joint guidance entropy")
+        if self._validate_args:
+            _validate_probability_result(result, "joint guidance entropy")
         return result
 
     def log_prob(self, value: torch.Tensor) -> torch.Tensor:
-        _validate_guidance_action(value, self.parameters.alpha)
+        if self._validate_args:
+            _validate_guidance_action(value, self.parameters.alpha)
         result = super().log_prob(value)
-        _validate_probability_result(result, "joint guidance log-prob")
+        if self._validate_args:
+            _validate_probability_result(result, "joint guidance log-prob")
         return result
 
     def sample(self, generator: torch.Generator) -> AffineBetaAction:  # type: ignore[override]
         """Draw a non-differentiable action from only the supplied RNG stream."""
 
         with torch.no_grad():
-            base_action = ExplicitGeneratorBetaSampler.draw(self.parameters, generator)
+            base_action = ExplicitGeneratorBetaSampler.draw(
+                self.parameters, generator, validate_args=self._validate_args
+            )
         return self.evaluate_base_action(base_action)
 
     def rsample(self, generator: torch.Generator) -> AffineBetaAction:  # type: ignore[override]
         """Draw a differentiable action from only the supplied RNG stream."""
 
         return self.evaluate_base_action(
-            ExplicitGeneratorBetaSampler.draw(self.parameters, generator)
+            ExplicitGeneratorBetaSampler.draw(
+                self.parameters, generator, validate_args=self._validate_args
+            )
         )
 
     def action_mean(self) -> AffineBetaAction:
@@ -99,11 +118,13 @@ class AffineBeta(TransformedDistribution):
         return self.evaluate_base_action(parameters.alpha / (parameters.alpha + parameters.beta))
 
     def evaluate_base_action(self, base_action: torch.Tensor) -> AffineBetaAction:
-        _validate_base_action(base_action, self.parameters.alpha)
+        if self._validate_args:
+            _validate_base_action(base_action, self.parameters.alpha)
         guidance_action = 2.0 * base_action - 1.0
         joint_base_log_prob = self.base_dist.log_prob(base_action)
         joint_guidance_log_prob = self.log_prob(guidance_action)
-        _validate_probability_result(joint_base_log_prob, "joint base log-prob")
+        if self._validate_args:
+            _validate_probability_result(joint_base_log_prob, "joint base log-prob")
         return AffineBetaAction(
             base_action=base_action,
             guidance_action=guidance_action,
@@ -113,7 +134,8 @@ class AffineBeta(TransformedDistribution):
         )
 
     def evaluate_guidance_action(self, guidance_action: torch.Tensor) -> AffineBetaAction:
-        _validate_guidance_action(guidance_action, self.parameters.alpha)
+        if self._validate_args:
+            _validate_guidance_action(guidance_action, self.parameters.alpha)
         return self.evaluate_base_action((guidance_action + 1.0) / 2.0)
 
 

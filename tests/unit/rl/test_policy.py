@@ -9,7 +9,7 @@ from torch.distributions import Beta
 
 from eco_planner.rl import ExplorationPolicy, ExplorationPolicyConfig
 from eco_planner.rl.distributions import AffineBeta
-from eco_planner.rl.policy import ExplorationPolicyContext
+from eco_planner.rl.policy import ExplorationPolicyContext, validate_exploration_policy_context
 
 
 def test_forward_returns_positive_finite_parameters_and_exact_value_shape(
@@ -139,10 +139,26 @@ def test_beta_parameters_reject_nonpositive_or_nonfinite_values() -> None:
     ("context_update", "error"),
     [
         ({"scene_tokens": torch.zeros((3, 5, 11))}, "scene tokens"),
-        ({"scene_tokens": torch.full((3, 5, 12), float("nan"))}, "finite"),
         ({"navigation_tokens": torch.zeros((3, 2, 12), dtype=torch.float64)}, "dtype"),
         ({"reference_trajectory": torch.zeros((3, 79, 4))}, r"\[B, 80, 4\]"),
         ({"scene_padding_mask": torch.zeros((3, 5))}, "bool"),
+    ],
+)
+def test_policy_rejects_invalid_structural_context(
+    exploration_policy_config: ExplorationPolicyConfig,
+    exploration_policy_context: ExplorationPolicyContext,
+    context_update: dict[str, torch.Tensor],
+    error: str,
+) -> None:
+    policy = ExplorationPolicy(exploration_policy_config)
+    with pytest.raises((TypeError, ValueError), match=error):
+        policy(replace(exploration_policy_context, **context_update))
+
+
+@pytest.mark.parametrize(
+    ("context_update", "error"),
+    [
+        ({"scene_tokens": torch.full((3, 5, 12), float("nan"))}, "finite"),
         (
             {
                 "scene_padding_mask": torch.ones((3, 5), dtype=torch.bool),
@@ -152,15 +168,32 @@ def test_beta_parameters_reject_nonpositive_or_nonfinite_values() -> None:
         ),
     ],
 )
-def test_policy_rejects_invalid_context(
+def test_strict_context_validation_rejects_nonfinite_and_all_padding(
     exploration_policy_config: ExplorationPolicyConfig,
     exploration_policy_context: ExplorationPolicyContext,
     context_update: dict[str, torch.Tensor],
     error: str,
 ) -> None:
-    policy = ExplorationPolicy(exploration_policy_config)
-    with pytest.raises((TypeError, ValueError), match=error):
-        policy(replace(exploration_policy_context, **context_update))
+    with pytest.raises(ValueError, match=error):
+        validate_exploration_policy_context(
+            replace(exploration_policy_context, **context_update), exploration_policy_config
+        )
+
+
+def test_forward_avoids_tensor_reduction_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    exploration_policy_config: ExplorationPolicyConfig,
+    exploration_policy_context: ExplorationPolicyContext,
+) -> None:
+    def _forbidden(*args: object, **kwargs: object) -> torch.Tensor:
+        raise AssertionError("hot policy forward must not validate tensor values")
+
+    monkeypatch.setattr(torch, "isfinite", _forbidden)
+    monkeypatch.setattr(torch, "any", _forbidden)
+
+    output = ExplorationPolicy(exploration_policy_config)(exploration_policy_context)
+
+    assert output.value.shape == (3,)
 
 
 def test_sampling_mode_requires_exact_generator_semantics(

@@ -99,7 +99,7 @@ class ExplorationPolicy(nn.Module):
         self._initialize_symmetric_actor()
 
     def forward(self, context: ExplorationPolicyContext) -> ExplorationPolicyOutput:
-        _validate_context(context, self.config)
+        _validate_context_structure(context, self.config)
         reference = self.reference_projection(context.reference_trajectory)
         for mixer in self.reference_mixers:
             reference = mixer(reference)
@@ -123,9 +123,9 @@ class ExplorationPolicy(nn.Module):
         value = self.value_head(fused).squeeze(-1)
         if tuple(value.shape) != (context.reference_trajectory.shape[0],):
             raise RuntimeError("exploration policy value must have shape [B]")
-        if not torch.isfinite(value).all():
-            raise ValueError("exploration policy value must be finite")
-        return ExplorationPolicyOutput(AffineBeta(parameters.alpha, parameters.beta), value)
+        return ExplorationPolicyOutput(
+            AffineBeta(parameters.alpha, parameters.beta, validate_args=False), value
+        )
 
     def act(
         self,
@@ -162,7 +162,31 @@ def _inverse_softplus(value: float) -> float:
     return value + math.log(-math.expm1(-value))
 
 
-def _validate_context(context: ExplorationPolicyContext, config: ExplorationPolicyConfig) -> None:
+def validate_exploration_policy_context(
+    context: ExplorationPolicyContext, config: ExplorationPolicyConfig
+) -> None:
+    """Strictly validate a policy context at a rollout or explicit debug boundary."""
+
+    _validate_context_structure(context, config)
+    tensors = {
+        "scene_tokens": context.scene_tokens,
+        "navigation_tokens": context.navigation_tokens,
+        "reference_trajectory": context.reference_trajectory,
+    }
+    if any(not torch.isfinite(value).all() for value in tensors.values()):
+        raise ValueError("policy context features must be finite")
+    all_padding = torch.cat(
+        [context.scene_padding_mask, context.navigation_padding_mask], dim=1
+    ).all(dim=1)
+    if torch.any(all_padding):
+        raise ValueError("every policy batch item requires at least one valid context token")
+
+
+def _validate_context_structure(
+    context: ExplorationPolicyContext, config: ExplorationPolicyConfig
+) -> None:
+    if not isinstance(context, ExplorationPolicyContext):
+        raise TypeError("policy context must be an ExplorationPolicyContext")
     tensors = {
         "scene_tokens": context.scene_tokens,
         "navigation_tokens": context.navigation_tokens,
@@ -192,8 +216,6 @@ def _validate_context(context: ExplorationPolicyContext, config: ExplorationPoli
         raise ValueError("policy context features must share device")
     if not scene.dtype.is_floating_point:
         raise TypeError("policy context features must use a floating dtype")
-    if any(not torch.isfinite(value).all() for value in tensors.values()):
-        raise ValueError("policy context features must be finite")
     masks = {
         "scene padding mask": (context.scene_padding_mask, (batch, scene.shape[1])),
         "navigation padding mask": (
@@ -208,8 +230,3 @@ def _validate_context(context: ExplorationPolicyContext, config: ExplorationPoli
             raise ValueError(f"{name} has an invalid shape")
         if mask.device != scene.device:
             raise ValueError(f"{name} must share the feature device")
-    all_padding = torch.cat(
-        [context.scene_padding_mask, context.navigation_padding_mask], dim=1
-    ).all(dim=1)
-    if torch.any(all_padding):
-        raise ValueError("every policy batch item requires at least one valid context token")

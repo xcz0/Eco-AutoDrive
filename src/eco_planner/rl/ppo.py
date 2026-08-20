@@ -337,6 +337,7 @@ def _build_torchrl_policy_adapters(
         in_keys={"alpha": "alpha", "beta": "beta"},
         out_keys=["guidance_action"],
         distribution_class=AffineBeta,
+        distribution_kwargs={"validate_args": False},
         return_log_prob=True,
         log_prob_key="joint_guidance_log_prob",
     )

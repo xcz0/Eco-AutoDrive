@@ -28,6 +28,7 @@ from eco_planner.rl.config import ExplorationPolicyConfig
 from eco_planner.rl.policy import (
     ExplorationPolicy,
     ExplorationPolicyContext,
+    validate_exploration_policy_context,
 )
 
 
@@ -175,16 +176,18 @@ class FabricRolloutRuntime:
             self.device,
         )
         _validate_finite(host)
+        host_context = ExplorationPolicyContext(
+            scene_tokens=host["scene_tokens"],
+            scene_padding_mask=host["scene_padding_mask"],
+            navigation_tokens=host["navigation_tokens"],
+            navigation_padding_mask=host["navigation_padding_mask"],
+            reference_trajectory=host["reference_trajectory"],
+        )
+        _validate_rollout_context(host_context, self._policy.config)
         return HostRolloutDecision(
             prediction=host["prediction"].numpy(),
             initial_noise=host["initial_noise"],
-            policy_context=ExplorationPolicyContext(
-                scene_tokens=host["scene_tokens"],
-                scene_padding_mask=host["scene_padding_mask"],
-                navigation_tokens=host["navigation_tokens"],
-                navigation_padding_mask=host["navigation_padding_mask"],
-                reference_trajectory=host["reference_trajectory"],
-            ),
+            policy_context=host_context,
             base_action=host["base_action"],
             guidance_action=host["guidance_action"],
             old_joint_guidance_log_prob=host["old_joint_guidance_log_prob"],
@@ -314,6 +317,15 @@ def _validate_finite(tensors: Mapping[str, torch.Tensor]) -> None:
                 FailurePhase.INFERENCE,
                 RuntimeError(f"rollout host tensor {name!r} contains non-finite values"),
             )
+
+
+def _validate_rollout_context(
+    context: ExplorationPolicyContext, config: ExplorationPolicyConfig
+) -> None:
+    try:
+        validate_exploration_policy_context(context, config)
+    except (TypeError, ValueError) as error:
+        raise EpisodeFailure(FailurePhase.INFERENCE, error) from error
 
 
 def _seed(value: int, name: str) -> int:

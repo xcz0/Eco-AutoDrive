@@ -142,7 +142,7 @@ guided trace 额外保存完整 reference joint prediction、action、横向目�
 
 ## Exploration Policy
 
-Exploration Policy 由 serial rollout collector 接入 learned-guidance closed loop，并由 PPO optimizer 更新；它不接入既有 evaluation runner。它的输入固定为：冻结 scene tokens `[B,N,H]` 及 bool padding mask、冻结 route/navigation token `[B,1,H]` 及 bool validity/padding mask，以及 ego-local physical reference trajectory `float [B,80,4]`。reference 使用 10 Hz、米和 `[cos(h),sin(h)]`。所有 feature 必须同 batch、dtype 和 device，且有限；每个 batch item 至少有一个有效 context token。
+Exploration Policy 由 serial rollout collector 接入 learned-guidance closed loop，并由 PPO optimizer 更新；它不接入既有 evaluation runner。它的输入固定为：冻结 scene tokens `[B,N,H]` 及 bool padding mask、冻结 route/navigation token `[B,1,H]` 及 bool validity/padding mask，以及 ego-local physical reference trajectory `float [B,80,4]`。reference 使用 10 Hz、米和 `[cos(h),sin(h)]`。所有 feature 必须同 batch、dtype 和 device，且有限；每个 batch item 至少有一个有效 context token。完整的有限值和有效 token 校验发生在 rollout 回传 CPU 的边界或显式调试校验中；policy/PPO 热路径只检查结构契约。
 
 rollout runtime 在 eval-mode、所有参数 `requires_grad=False` 的官方模型上，通过 `prepare_policy_guidance()` 一次准备 scene/navigation encoding 和 reference。输出 detach 后才进入 policy；policy backward 不得为 planner 产生 `.grad` 或改变 planner 权重。普通 planner `encode()`、fixed-guidance evaluation runner 和官方 checkpoint state-dict 层级保持不变。
 
