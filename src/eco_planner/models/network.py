@@ -257,15 +257,14 @@ class TimestepEmbedder(nn.Module):
             nn.Linear(hidden_size, hidden_size),
         )
         self.frequency_embedding_size = frequency_embedding_size
+        half = frequency_embedding_size // 2
+        frequencies = torch.exp(
+            -math.log(10000) * torch.arange(0, half, dtype=torch.float32) / half
+        )
+        self.register_buffer("frequencies", frequencies, persistent=False)
 
     def forward(self, timestep: torch.Tensor) -> torch.Tensor:
-        half = self.frequency_embedding_size // 2
-        frequencies = torch.exp(
-            -math.log(10000)
-            * torch.arange(0, half, dtype=torch.float32, device=timestep.device)
-            / half
-        )
-        angles = timestep[:, None].float() * frequencies[None]
+        angles = timestep[:, None].float() * self.frequencies[None]
         embedding = torch.cat([torch.cos(angles), torch.sin(angles)], dim=-1)
         return self.mlp(embedding)
 

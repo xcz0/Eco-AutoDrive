@@ -1,9 +1,47 @@
 from __future__ import annotations
 
+import math
+from unittest.mock import patch
+
 import torch
+from torch import nn
 
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
-from eco_planner.models.network import DiffusionPlanner
+from eco_planner.models.network import DiffusionPlanner, TimestepEmbedder
+
+
+def test_timestep_embedder_caches_frequency_basis_without_checkpoint_state() -> None:
+    embedder = TimestepEmbedder(hidden_size=6, frequency_embedding_size=6)
+    embedder.mlp = nn.Identity()
+    checkpoint_embedder = TimestepEmbedder(hidden_size=6, frequency_embedding_size=6)
+    timestep = torch.tensor([0, 1, 7], dtype=torch.int64)
+    expected_frequencies = torch.exp(-math.log(10000) * torch.arange(0, 3, dtype=torch.float32) / 3)
+    expected = torch.cat(
+        [
+            torch.cos(timestep[:, None].float() * expected_frequencies[None]),
+            torch.sin(timestep[:, None].float() * expected_frequencies[None]),
+        ],
+        dim=-1,
+    )
+
+    with (
+        patch("eco_planner.models.network.torch.arange") as arange,
+        patch("eco_planner.models.network.torch.exp") as exp,
+    ):
+        first = embedder(timestep)
+        cached_basis = embedder.frequencies.data_ptr()
+        second = embedder(timestep)
+
+    torch.testing.assert_close(first, expected)
+    torch.testing.assert_close(second, expected)
+    assert embedder.frequencies.data_ptr() == cached_basis
+    arange.assert_not_called()
+    exp.assert_not_called()
+    checkpoint = checkpoint_embedder.state_dict()
+    assert "frequencies" not in checkpoint
+    TimestepEmbedder(hidden_size=6, frequency_embedding_size=6).load_state_dict(
+        checkpoint, strict=True
+    )
 
 
 def test_model_hierarchy_matches_official_checkpoint(
