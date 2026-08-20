@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from copy import copy
 from dataclasses import dataclass
 from typing import cast
 
@@ -77,6 +78,7 @@ class _DdimSampler:
     def __init__(self) -> None:
         self._schedule = LinearVpSchedule()
         self._trained_betas = build_vp_trained_betas(self._schedule)
+        self._scheduler_cache: dict[tuple[torch.device, torch.dtype], DDIMScheduler] = {}
 
     def sample(
         self,
@@ -152,6 +154,12 @@ class _DdimSampler:
     def _new_scheduler(
         self, device: torch.device, dtype: torch.dtype = torch.float32
     ) -> DDIMScheduler:
+        key = (device, dtype)
+        if key not in self._scheduler_cache:
+            self._scheduler_cache[key] = self._build_scheduler(device, dtype)
+        return self._scheduler_cache[key]
+
+    def _build_scheduler(self, device: torch.device, dtype: torch.dtype) -> DDIMScheduler:
         scheduler = DDIMScheduler(
             num_train_timesteps=_NUM_TRAIN_TIMESTEPS,
             trained_betas=self._trained_betas,
@@ -221,6 +229,9 @@ class _DpmSampler:
     def __init__(self) -> None:
         self._schedule = LinearVpSchedule()
         self._trained_betas = build_vp_trained_betas(self._schedule)
+        self._scheduler_template_cache: dict[
+            tuple[torch.device, torch.dtype], DPMSolverMultistepScheduler
+        ] = {}
 
     def sample(
         self,
@@ -254,6 +265,19 @@ class _DpmSampler:
 
     def _new_scheduler(
         self, device: torch.device, dtype: torch.dtype = torch.float32
+    ) -> DPMSolverMultistepScheduler:
+        key = (device, dtype)
+        if key not in self._scheduler_template_cache:
+            self._scheduler_template_cache[key] = self._build_scheduler(device, dtype)
+        scheduler = copy(self._scheduler_template_cache[key])
+        scheduler.model_outputs = [None] * scheduler.config.solver_order
+        scheduler.lower_order_nums = 0
+        scheduler._step_index = None
+        scheduler._begin_index = None
+        return scheduler
+
+    def _build_scheduler(
+        self, device: torch.device, dtype: torch.dtype
     ) -> DPMSolverMultistepScheduler:
         scheduler = DPMSolverMultistepScheduler(
             num_train_timesteps=_NUM_TRAIN_TIMESTEPS,
@@ -308,6 +332,7 @@ class DiffusionSampler:
     def __init__(self, config: SamplerConfig) -> None:
         self.config = config
         self._sampler = self._new_implementation(config)
+        self._ddim_timestep_cache: dict[tuple[torch.device, torch.dtype], torch.Tensor] = {}
 
     @property
     def initial_noise_scale(self) -> float:
@@ -356,16 +381,11 @@ class DiffusionSampler:
         """Run this profile's unguided sampling pass."""
 
         if isinstance(self.config, Ddim5SamplerConfig):
-            timesteps = torch.tensor(
-                self.config.timesteps,
-                dtype=initial_sample.dtype,
-                device=initial_sample.device,
-            )
             return self._sampler.sample(
                 initial_sample,
                 model,
                 current_state_constraint,
-                timesteps,
+                self._ddim_timesteps(initial_sample),
                 self.config.num_steps,
                 self.config.ddim_stochasticity,
                 generator,
@@ -389,16 +409,11 @@ class DiffusionSampler:
         """Run the configured DDIM profile with the project's guidance policy."""
 
         config = self._ddim_config()
-        timesteps = torch.tensor(
-            config.timesteps,
-            dtype=initial_sample.dtype,
-            device=initial_sample.device,
-        )
         return self._sampler.sample_guided(
             initial_sample,
             model,
             current_state_constraint,
-            timesteps,
+            self._ddim_timesteps(initial_sample),
             config.num_steps,
             config.ddim_stochasticity,
             generator,
@@ -417,3 +432,13 @@ class DiffusionSampler:
 
     def _ddim_config(self) -> Ddim5SamplerConfig:
         return cast(Ddim5SamplerConfig, self.config)
+
+    def _ddim_timesteps(self, sample: torch.Tensor) -> torch.Tensor:
+        key = (sample.device, sample.dtype)
+        if key not in self._ddim_timestep_cache:
+            self._ddim_timestep_cache[key] = torch.tensor(
+                self._ddim_config().timesteps,
+                dtype=sample.dtype,
+                device=sample.device,
+            )
+        return self._ddim_timestep_cache[key]

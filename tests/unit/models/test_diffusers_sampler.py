@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import torch
 
+from eco_planner.models.config import Ddim5SamplerConfig
 from eco_planner.models.guidance import GuidanceGradientResult
-from eco_planner.models.sampling import LinearVpSchedule, _DdimSampler, _DpmSampler
+from eco_planner.models.sampling import (
+    DiffusionSampler,
+    LinearVpSchedule,
+    _DdimSampler,
+    _DpmSampler,
+)
 
 
 def _constraint(sample: torch.Tensor) -> torch.Tensor:
@@ -160,3 +166,39 @@ def test_diffusers_dpm_uses_the_certified_profile_and_call_contract() -> None:
     )
     assert constraint_calls == 12
     assert torch.equal(result[:, :, 0], torch.ones((2, 3), dtype=torch.float64))
+
+
+def test_diffusers_sampler_caches_ddim_runtime_and_repeats_seeded_samples() -> None:
+    sampler = DiffusionSampler(
+        Ddim5SamplerConfig(
+            name="ddim5",
+            num_steps=5,
+            timesteps=(1.0, 0.8, 0.6, 0.4, 0.2, 0.0),
+            initial_noise_scale=1.0,
+            ddim_stochasticity=0.7,
+            parity_label="plannerrft_paper_text",
+        )
+    )
+    initial = torch.ones((2, 3, 4))
+
+    first = sampler.sample(initial, _model, _constraint, torch.Generator().manual_seed(23))
+    second = sampler.sample(initial, _model, _constraint, torch.Generator().manual_seed(23))
+
+    torch.testing.assert_close(first, second, rtol=0.0, atol=0.0)
+    assert len(sampler._ddim_timestep_cache) == 1
+    assert isinstance(sampler._sampler, _DdimSampler)
+    assert len(sampler._sampler._scheduler_cache) == 1
+
+
+def test_dpm_scheduler_template_does_not_leak_multistep_history_between_calls() -> None:
+    sampler = _DpmSampler()
+    initial = torch.ones((2, 3, 4))
+
+    first = sampler.sample(initial, _model, _constraint)
+    second = sampler.sample(initial, _model, _constraint)
+
+    torch.testing.assert_close(first, second, rtol=0.0, atol=0.0)
+    template = next(iter(sampler._scheduler_template_cache.values()))
+    assert template.step_index is None
+    assert template.lower_order_nums == 0
+    assert all(output is None for output in template.model_outputs)
