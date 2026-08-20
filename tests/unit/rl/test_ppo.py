@@ -101,10 +101,17 @@ def test_ppo_batch_excludes_audit_only_rollout_fields(exploration_policy_config)
     episode = _episode(ExplorationPolicy(exploration_policy_config))
     batch = _batch_trajectories((episode,), _config())
 
-    assert "initial_noise" not in batch.keys()
-    assert "diffusion_rng_state" not in batch.keys()
-    assert "policy_rng_state" not in batch.keys()
-    assert "planning_cycle_index" not in batch.keys()
+    assert set(batch.keys()) == {
+        "scene_tokens",
+        "scene_padding_mask",
+        "navigation_tokens",
+        "navigation_padding_mask",
+        "reference_trajectory",
+        "guidance_action",
+        "old_joint_guidance_log_prob",
+        "advantage",
+        "value_target",
+    }
     assert batch["guidance_action"].shape == (2, 2)
 
 
@@ -138,7 +145,18 @@ def test_ppo_update_aggregates_multi_minibatch_diagnostics_once(
             self.calls = 0
 
         def forward(self, minibatch: object) -> dict[str, torch.Tensor]:
-            del minibatch
+            assert not isinstance(minibatch, torch.Tensor)
+            assert set(minibatch.keys()) == {
+                "scene_tokens",
+                "scene_padding_mask",
+                "navigation_tokens",
+                "navigation_padding_mask",
+                "reference_trajectory",
+                "guidance_action",
+                "old_joint_guidance_log_prob",
+                "advantage",
+                "value_target",
+            }
             self.calls += 1
             scale = self.parameter.new_tensor(float(self.calls))
             anchor = self.parameter.reshape(-1)[0] * 0.0

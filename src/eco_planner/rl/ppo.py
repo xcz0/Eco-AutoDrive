@@ -29,6 +29,19 @@ _CONTEXT_KEYS = (
     "navigation_padding_mask",
     "reference_trajectory",
 )
+_PPO_BATCH_KEYS = (
+    *_CONTEXT_KEYS,
+    "guidance_action",
+    "old_joint_guidance_log_prob",
+    "advantage",
+    "value_target",
+)
+_PPO_IMMUTABLE_KEYS = (
+    "guidance_action",
+    "old_joint_guidance_log_prob",
+    "advantage",
+    "value_target",
+)
 
 _PPO_UPDATE_METRIC_NAMES = (
     "loss_objective",
@@ -261,10 +274,7 @@ class PPOUpdater:
             raise RuntimeError("PPO update would exceed the configured scheduler horizon")
         _normalize_full_batch_advantage(batch)
         batch = batch.to(self.device)
-        frozen_inputs = {
-            key: batch[key].clone()
-            for key in ("old_joint_guidance_log_prob", "state_value", "advantage", "value_target")
-        }
+        frozen_inputs = {key: batch[key].clone() for key in _PPO_IMMUTABLE_KEYS}
         metric_totals = torch.zeros(
             len(_PPO_UPDATE_METRIC_NAMES), device=self.device, dtype=torch.float64
         )
@@ -373,7 +383,7 @@ def _batch_trajectories(episodes: Sequence[RolloutEpisode], config: PPOConfig) -
     for episode in episode_tuple:
         estimate = estimate_episode_gae(episode, config)
         trajectories.append(episode.with_gae(estimate.advantage, estimate.value_target))
-    return torch.cat(trajectories, dim=0)
+    return torch.cat(trajectories, dim=0).select(*_PPO_BATCH_KEYS)
 
 
 def _normalize_full_batch_advantage(batch: TensorDictBase) -> None:
