@@ -1,25 +1,26 @@
-"""Trajectory-level MetaDrive environment and kinematic execution policy."""
+"""Trajectory-level MetaDrive environment lifecycle and step orchestration."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 import gymnasium as gym
 import numpy as np
 from metadrive.constants import DEFAULT_AGENT, TerminationState
-from metadrive.engine.engine_utils import get_global_config
 from metadrive.envs.metadrive_env import MetaDriveEnv
 from metadrive.obs.observation_base import BaseObservation
-from metadrive.policy.base_policy import BasePolicy
-from metadrive.policy.replay_policy import ReplayTrafficParticipantPolicy
 from metadrive.utils import Config, concat_step_infos, merge_dicts
 
-from eco_planner.envs.execution import TrajectoryExecutionRecord
-from eco_planner.envs.geometry import (
-    local_points_to_world,
-    rear_axle_position,
-    shortest_angle_delta,
+from eco_planner.envs.execution import (
+    TRAJECTORY_HORIZON,
+    TRAJECTORY_TIMESTEP_S,
+    KinematicTrajectoryPolicy,
+    TrajectoryExecutionRecorder,
+    WorldTrajectory,
+    execution_steps_from_config,
+    finite_info_scalar,
+    to_world_trajectory,
+    validate_trajectory,
 )
 from eco_planner.envs.lane_speed import (
     MAX_LANE_SPEED_LIMIT_KMH,
@@ -29,12 +30,6 @@ from eco_planner.envs.lane_speed import (
 )
 from eco_planner.envs.traffic_state import TrafficFrame, capture_traffic_frame
 
-TRAJECTORY_HORIZON = 80
-TRAJECTORY_EXECUTION_STEPS = 5
-ROLLOUT_EXECUTION_STEPS = 1
-_ALLOWED_EXECUTION_STEPS = frozenset({ROLLOUT_EXECUTION_STEPS, TRAJECTORY_EXECUTION_STEPS})
-TRAJECTORY_TIMESTEP_S = 0.1
-_MIN_HEADING_NORM = 1e-6
 _PLANNER_ONLY_OBSERVATION = np.zeros(1, dtype=np.float32)
 _ZERO_VELOCITY = np.zeros(2, dtype=np.float64)
 
@@ -48,223 +43,6 @@ class PlannerOnlyObservation(BaseObservation):
 
     def observe(self, *args: Any, **kwargs: Any) -> np.ndarray:
         return _PLANNER_ONLY_OBSERVATION.copy()
-
-
-@dataclass(frozen=True)
-class _WorldTrajectory:
-    centers: np.ndarray
-    headings: np.ndarray
-    velocities: np.ndarray
-    angular_velocities: np.ndarray
-
-
-@dataclass(frozen=True)
-class _PreparedTrajectory:
-    local: np.ndarray
-    world: _WorldTrajectory
-
-
-@dataclass
-class _TrajectoryStepRecord:
-    states: np.ndarray
-    rewards: np.ndarray
-    dense_rewards: np.ndarray
-    terminated: np.ndarray
-    truncated: np.ndarray
-    traffic_frames: list[TrafficFrame]
-    count: int
-
-    @classmethod
-    def empty(cls, execution_steps: int) -> _TrajectoryStepRecord:
-        return cls(
-            states=np.empty((execution_steps, 7), dtype=np.float64),
-            rewards=np.empty(execution_steps, dtype=np.float64),
-            dense_rewards=np.empty(execution_steps, dtype=np.float64),
-            terminated=np.empty(execution_steps, dtype=np.bool_),
-            truncated=np.empty(execution_steps, dtype=np.bool_),
-            traffic_frames=[],
-            count=0,
-        )
-
-    def append(
-        self,
-        agent: Any,
-        reward: float,
-        dense_reward: float,
-        terminated: bool,
-        truncated: bool,
-        angular_velocity: float,
-        traffic_frame: TrafficFrame,
-    ) -> None:
-        index = self.count
-        self.states[index, :2] = np.asarray(agent.position, dtype=np.float64)
-        self.states[index, 2] = float(agent.heading_theta)
-        self.states[index, 3:5] = agent.velocity
-        self.states[index, 5] = float(agent.speed)
-        self.states[index, 6] = angular_velocity
-        self.rewards[index] = reward
-        self.dense_rewards[index] = dense_reward
-        self.terminated[index] = terminated
-        self.truncated[index] = truncated
-        self.traffic_frames.append(traffic_frame)
-        self.count += 1
-
-    def update_info(
-        self,
-        final_info: dict[str, Any],
-        world_trajectory: _WorldTrajectory,
-        total_reward: float,
-    ) -> dict[str, Any]:
-        executed_steps = self.count
-        state_array = self.states[:executed_steps].copy()
-        target_centers = world_trajectory.centers[1 : executed_steps + 1]
-        target_headings = world_trajectory.headings[1 : executed_steps + 1]
-        execution = TrajectoryExecutionRecord(
-            start_center=world_trajectory.centers[0].copy(),
-            start_heading=float(world_trajectory.headings[0]),
-            world_centers=world_trajectory.centers[1:].copy(),
-            world_headings=world_trajectory.headings[1:].copy(),
-            substep_states=state_array,
-            target_centers=target_centers.copy(),
-            target_headings=target_headings.copy(),
-            position_errors_m=np.linalg.norm(state_array[:, :2] - target_centers, axis=1),
-            heading_errors_rad=np.abs(shortest_angle_delta(state_array[:, 2] - target_headings)),
-            substep_rewards=self.rewards[:executed_steps].copy(),
-            substep_dense_rewards=self.dense_rewards[:executed_steps].copy(),
-            substep_terminated=self.terminated[:executed_steps].copy(),
-            substep_truncated=self.truncated[:executed_steps].copy(),
-            traffic_frames=tuple(self.traffic_frames),
-            route_completion=_finite_info_scalar(final_info, "route_completion"),
-            arrive_dest=bool(final_info["arrive_dest"]),
-            out_of_road=bool(final_info["out_of_road"]),
-            crash_vehicle=bool(final_info["crash_vehicle"]),
-            crash_object=bool(final_info["crash_object"]),
-            crash_building=bool(final_info["crash_building"]),
-            crash_human=bool(final_info["crash_human"]),
-            max_step=bool(final_info["max_step"]),
-        )
-        result = dict(final_info)
-        result["trajectory_execution_steps"] = executed_steps
-        result["trajectory_reward_sum"] = total_reward
-        result["trajectory_execution"] = execution
-        return result
-
-
-def _validate_trajectory(trajectory: object, horizon: int) -> np.ndarray:
-    if not isinstance(trajectory, np.ndarray):
-        raise TypeError("trajectory must be a numpy.ndarray")
-    if trajectory.dtype != np.float32:
-        raise TypeError("trajectory must use numpy.float32")
-    if trajectory.shape != (horizon, 4):
-        raise ValueError(f"trajectory must have shape ({horizon}, 4)")
-    if not np.isfinite(trajectory).all():
-        raise ValueError("trajectory must contain only finite values")
-    heading_norms = np.linalg.norm(trajectory[:, 2:4], axis=1)
-    if np.any(heading_norms <= _MIN_HEADING_NORM):
-        raise ValueError("trajectory heading vectors must be non-zero")
-    return trajectory.copy()
-
-
-def _to_world_trajectory(
-    trajectory: np.ndarray,
-    *,
-    center_position: np.ndarray,
-    center_heading: float,
-    rear_wheelbase: float,
-    timestep_s: float,
-) -> _WorldTrajectory:
-    anchor_rear_axle = rear_axle_position(
-        center_position.astype(np.float64), center_heading, rear_wheelbase
-    )
-    future_rear_axles = local_points_to_world(
-        trajectory[:, :2].astype(np.float64), anchor_rear_axle, center_heading
-    )
-
-    relative_headings = np.arctan2(trajectory[:, 3], trajectory[:, 2]).astype(np.float64)
-    future_headings = center_heading + relative_headings
-    future_directions = np.column_stack((np.cos(future_headings), np.sin(future_headings)))
-    future_centers = future_rear_axles + rear_wheelbase * future_directions
-
-    centers = np.vstack((center_position.astype(np.float64), future_centers))
-    headings = np.concatenate(([center_heading], future_headings))
-    velocities = np.diff(centers, axis=0) / timestep_s
-    heading_deltas = shortest_angle_delta(np.diff(headings))
-    angular_velocities = heading_deltas / timestep_s
-    return _WorldTrajectory(centers, headings, velocities, angular_velocities)
-
-
-class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
-    """Execute an ego-local rear-axle trajectory by directly updating vehicle state."""
-
-    def __init__(self, obj: Any, seed: int) -> None:
-        # ReplayTrafficParticipantPolicy marks this policy for MetaDrive's after_step phase.  That
-        # phase runs after physics integration but before BaseEnv samples observation, reward, and
-        # termination, so the externally recorded state is the requested trajectory waypoint.
-        BasePolicy.__init__(self, control_object=obj, random_seed=seed)
-        config = self.engine.global_config
-        self._execution_steps = _require_positive_int(config, "trajectory_execution_steps")
-        _validated_timestep(config)
-        self._trajectory: _WorldTrajectory | None = None
-        self._cache_last_update: int | None = None
-
-    @classmethod
-    def get_input_space(cls) -> gym.spaces.Box:
-        horizon = _require_positive_int(get_global_config(), "trajectory_horizon")
-        return gym.spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            shape=(horizon, 4),
-            dtype=np.float32,
-        )
-
-    def reset(self) -> None:
-        self._trajectory = None
-        self._cache_last_update = None
-        super().reset()
-
-    def act(self, agent_id: str) -> None:
-        external_actions = self.engine.external_actions
-        if external_actions is None:
-            if self._trajectory is None:
-                return None
-            raise RuntimeError(
-                "trajectory cache survived MetaDrive reset without an external action"
-            )
-        if agent_id not in external_actions:
-            raise RuntimeError(f"MetaDrive did not provide an external action for {agent_id!r}")
-        external_action = external_actions[agent_id]
-        if external_action is not None:
-            if self._trajectory is not None:
-                raise RuntimeError(
-                    "a new trajectory was supplied before the cached prefix finished"
-                )
-            self._trajectory = external_action.world
-            self._cache_last_update = self.engine.episode_step
-        elif self._trajectory is None or self._cache_last_update is None:
-            raise RuntimeError("trajectory continuation requested without a cached trajectory")
-
-        if self._trajectory is None or self._cache_last_update is None:
-            raise RuntimeError("trajectory cache was not initialized")
-        index = self.engine.episode_step - self._cache_last_update
-        if index < 0 or index >= self._execution_steps:
-            raise RuntimeError(
-                f"trajectory cache index {index} is outside execution prefix "
-                f"[0, {self._execution_steps})"
-            )
-
-        trajectory = self._trajectory
-        self.control_object.set_position(trajectory.centers[index + 1])
-        self.control_object.set_heading_theta(float(trajectory.headings[index + 1]))
-        self.control_object.set_velocity(trajectory.velocities[index])
-        self.control_object.set_angular_velocity(float(trajectory.angular_velocities[index]))
-        self.action_info["trajectory_index"] = index
-        self.action_info["trajectory_target_position"] = trajectory.centers[index + 1].copy()
-        self.action_info["trajectory_target_heading"] = float(trajectory.headings[index + 1])
-
-        if index == self._execution_steps - 1:
-            self._trajectory = None
-            self._cache_last_update = None
-        return None
 
 
 class TrajectoryMetaDriveEnv(MetaDriveEnv):
@@ -311,16 +89,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             raise ValueError("TrajectoryMetaDriveEnv supports only single-agent operation")
         if self.config["manual_control"]:
             raise ValueError("TrajectoryMetaDriveEnv does not support manual control")
-        horizon = _require_positive_int(self.config, "trajectory_horizon")
-        execution_steps = _require_positive_int(self.config, "trajectory_execution_steps")
-        if horizon != TRAJECTORY_HORIZON:
-            raise ValueError(f"trajectory_horizon must be {TRAJECTORY_HORIZON}")
-        if execution_steps not in _ALLOWED_EXECUTION_STEPS:
-            raise ValueError(
-                f"trajectory_execution_steps must be one of {sorted(_ALLOWED_EXECUTION_STEPS)}"
-            )
-        self._execution_steps = execution_steps
-        _validated_timestep(self.config)
+        self._execution_steps = execution_steps_from_config(self.config)
         self._programmatic_lane_speed_limit_kmh = validated_programmatic_speed_limit_kmh(
             self.config["programmatic_lane_speed_limit_kmh"]
         )
@@ -459,22 +228,21 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         }
 
     def step(self, trajectory: np.ndarray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
-        validated = _validate_trajectory(trajectory, TRAJECTORY_HORIZON)
+        validated = validate_trajectory(trajectory, TRAJECTORY_HORIZON)
         rear_wheelbase = self.agent.REAR_WHEELBASE
         if rear_wheelbase is None:
             raise RuntimeError("controlled vehicle does not define REAR_WHEELBASE")
-        world_trajectory = _to_world_trajectory(
+        world_trajectory = to_world_trajectory(
             validated,
             center_position=np.asarray(self.agent.position, dtype=np.float64),
             center_heading=float(self.agent.heading_theta),
             rear_wheelbase=float(rear_wheelbase),
             timestep_s=TRAJECTORY_TIMESTEP_S,
         )
-        prepared = _PreparedTrajectory(local=validated, world=world_trajectory)
         total_reward = 0.0
-        step_record = _TrajectoryStepRecord.empty(self._execution_steps)
+        step_record = TrajectoryExecutionRecorder.empty(self._execution_steps)
         for index in range(self._execution_steps):
-            action = prepared if index == 0 else None
+            action = world_trajectory if index == 0 else None
             # KinematicTrajectoryPolicy applies the exact waypoint in MetaDrive's after_step
             # phase. Prevent the previous waypoint's velocity from moving the vehicle during
             # this intervening physics phase, including when a new trajectory is supplied.
@@ -485,7 +253,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             step_record.append(
                 self.agent,
                 float(reward),
-                _finite_info_scalar(info, "step_reward"),
+                finite_info_scalar(info, "step_reward"),
                 terminated,
                 truncated,
                 float(world_trajectory.angular_velocities[index]),
@@ -497,7 +265,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         return observation, total_reward, terminated, truncated, result_info
 
     def _step_once(
-        self, action: _PreparedTrajectory | None
+        self, action: WorldTrajectory | None
     ) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         actions = {DEFAULT_AGENT: action}
         engine_info = self._step_planner_simulator(actions)
@@ -525,7 +293,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             raise RuntimeError("single-agent environment changed its active agent")
         return _PLANNER_ONLY_OBSERVATION.copy(), float(reward), terminated, truncated, info
 
-    def _step_planner_simulator(self, actions: dict[str, _PreparedTrajectory | None]) -> dict:
+    def _step_planner_simulator(self, actions: dict[str, WorldTrajectory | None]) -> dict:
         before_info = self.engine.before_step(actions)
         if self.config["_render_mode"] != "none" or self.config["record_episode"]:
             self.engine.step(self.config["decision_repeat"])
@@ -543,37 +311,3 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             )
         after_info = self.engine.after_step()
         return merge_dicts(after_info, before_info, allow_new_keys=True, without_copy=True)
-
-
-def _require_positive_int(config: Any, name: str) -> int:
-    value = config[name]
-    if type(value) is not int or value <= 0:
-        raise ValueError(f"{name} must be a positive integer")
-    return value
-
-
-def _validated_timestep(config: Any) -> float:
-    physics_step = config["physics_world_step_size"]
-    decision_repeat = config["decision_repeat"]
-    if type(physics_step) not in {int, float} or physics_step <= 0.0:
-        raise ValueError("physics_world_step_size must be positive")
-    if type(decision_repeat) is not int or decision_repeat <= 0:
-        raise ValueError("decision_repeat must be a positive integer")
-    timestep = float(physics_step) * decision_repeat
-    if not np.isclose(timestep, TRAJECTORY_TIMESTEP_S, rtol=0.0, atol=1e-12):
-        raise ValueError(
-            f"physics_world_step_size * decision_repeat must equal {TRAJECTORY_TIMESTEP_S} seconds"
-        )
-    return timestep
-
-
-def _finite_info_scalar(info: dict[str, Any], name: str) -> float:
-    value = info.get(name)
-    if isinstance(value, (bool, np.bool_)) or not isinstance(
-        value, (int, float, np.integer, np.floating)
-    ):
-        raise TypeError(f"{name} must be a finite numeric scalar")
-    result = float(value)
-    if not np.isfinite(result):
-        raise ValueError(f"{name} must be finite")
-    return result
