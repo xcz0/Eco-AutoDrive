@@ -14,14 +14,28 @@ from omegaconf import DictConfig, OmegaConf
 
 DDIM5_TIMESTEPS = (1.0, 0.8, 0.6, 0.4, 0.2, 0.0)
 
+_DeviceDtype = tuple[torch.device, torch.dtype]
+_NormalizationConstants = tuple[torch.Tensor, torch.Tensor]
+
 
 class StateNormalizer:
     def __init__(self, mean: object, std: object) -> None:
         self.mean = torch.as_tensor(mean, dtype=torch.float32)
         self.std = torch.as_tensor(std, dtype=torch.float32)
+        self._cached_constants: dict[_DeviceDtype, _NormalizationConstants] = {}
 
     def inverse(self, data: torch.Tensor) -> torch.Tensor:
-        return data * self.std.to(data.device) + self.mean.to(data.device)
+        mean, std = self._constants(data)
+        return data * std + mean
+
+    def _constants(self, data: torch.Tensor) -> _NormalizationConstants:
+        key = (data.device, data.dtype)
+        if key not in self._cached_constants:
+            self._cached_constants[key] = (
+                self.mean.to(device=data.device, dtype=data.dtype),
+                self.std.to(device=data.device, dtype=data.dtype),
+            )
+        return self._cached_constants[key]
 
 
 class ObservationNormalizer:
@@ -35,18 +49,31 @@ class ObservationNormalizer:
             }
             for name, values in normalization.items()
         }
+        self._cached_constants: dict[str, dict[_DeviceDtype, _NormalizationConstants]] = {}
 
     def __call__(self, data: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         normalized = copy(dict(data))
-        for name, values in self._normalization.items():
+        for name in self._normalization:
             if name not in data:
                 continue
             tensor = data[name]
             padding = torch.sum(torch.ne(tensor, 0), dim=-1) == 0
-            result = (tensor - values["mean"].to(tensor.device)) / values["std"].to(tensor.device)
+            mean, std = self._constants(name, tensor)
+            result = (tensor - mean) / std
             result[padding] = 0
             normalized[name] = result
         return normalized
+
+    def _constants(self, name: str, data: torch.Tensor) -> _NormalizationConstants:
+        key = (data.device, data.dtype)
+        name_cache = self._cached_constants.setdefault(name, {})
+        if key not in name_cache:
+            values = self._normalization[name]
+            name_cache[key] = (
+                values["mean"].to(device=data.device, dtype=data.dtype),
+                values["std"].to(device=data.device, dtype=data.dtype),
+            )
+        return name_cache[key]
 
     def feature_dimension(self, name: str) -> int:
         return int(self._normalization[name]["mean"].numel())
