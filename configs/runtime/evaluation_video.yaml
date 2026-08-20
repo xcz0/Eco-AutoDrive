@@ -1,0 +1,9 @@
+# @package video
+
+enabled: false
+fps: 2
+screen_width: 800
+screen_height: 800
+film_width: 2000
+film_height: 2000
+scaling: 5.0

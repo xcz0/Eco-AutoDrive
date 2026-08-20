@@ -1,2 +1,4 @@
+# @package sampler
+
 name: dpm10
 implementation: diffusers

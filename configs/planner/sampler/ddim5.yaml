@@ -1,3 +1,5 @@
+# @package sampler
+
 name: ddim5
 implementation: diffusers
 num_steps: 5

@@ -46,8 +46,8 @@ uv run ruff format --check .
 默认 sampler 为保持官方语义的 `dpm10`。项目额外提供：
 
 ```powershell
-.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_smoke sampler=ddim5
-.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_smoke sampler=ddim5_project_noise
+.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_smoke planner/sampler=ddim5
+.venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_smoke planner/sampler=ddim5_project_noise
 ```
 
 `ddim5` 使用标准高斯初始噪声；`ddim5_project_noise` 使用 `0.5` 倍噪声，仅作为项目隔离对照。两者均采用本项目选择的五步时间表，不代表上游未公开的 sampler parity。
@@ -56,7 +56,8 @@ uv run ruff format --check .
 
 ```powershell
 .venv\Scripts\python.exe scripts\evaluate.py --config-name experiment/evaluate_no_traffic_smoke `
-  sampler=ddim5 guidance=orthogonal_reference guidance.lateral_scale=1 guidance.longitudinal_scale=0
+  planner/sampler=ddim5 planner/guidance=orthogonal_reference `
+  guidance.lateral_scale=1 guidance.longitudinal_scale=0
 ```
 
 scale 必须位于 `[-1,1]`；`(0,0)` 精确退化为同次 unguided reference。reference-centered energy、10 Hz 速度差分、单位梯度系数和 ego-only gradient scope 属于项目复现决定；guidance 不做中心线投影、平滑、裁剪或失败回退。完整数学与随机性契约见 [system-contract.md](docs/agents/system-contract.md) 和相关 ADR。

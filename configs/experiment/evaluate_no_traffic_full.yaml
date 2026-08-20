@@ -1,11 +1,45 @@
 # @package _global_
 
 defaults:
-  - /evaluation: no_traffic
+  - /env: metadrive
+  - /planner/model
+  - /runtime: fabric
+  - /runtime/evaluation_video
+  - /planner/sampler: dpm10
+  - /planner/guidance: none
   - _self_
 
-evaluation:
-  profile: full
+name: official_no_traffic_closed_loop
+map_query_radius_m: 100.0
 
-video:
-  enabled: false
+evaluation:
+  mode: no_traffic
+  profile: full
+  history_warmup_steps: 0
+  evaluated_horizon_steps: 200
+  execution:
+    mode: serial
+    launcher: basic
+    worker_count: 1
+    torch_threads_per_worker: null
+    deterministic: false
+
+env:
+  horizon: 200
+
+runtime:
+  seed: 0
+
+scenarios:
+  - name: straight
+    map: S
+    seed: 0
+  - name: gentle_curve
+    map: SC
+    seed: 0
+
+hydra:
+  run:
+    dir: outputs/no_traffic/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: false

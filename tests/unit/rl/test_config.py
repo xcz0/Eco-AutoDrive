@@ -30,7 +30,7 @@ def _policy_mapping() -> dict[str, object]:
 def test_hydra_policy_profile_is_complete_and_strict() -> None:
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        config = compose(config_name="policy/exploration_beta")
+        config = compose(config_name="rl/exploration_policy")
 
     parsed = parse_exploration_policy_config(config.policy)
     assert parsed.hidden_dim == 192
@@ -66,7 +66,7 @@ def test_policy_config_rejects_missing_and_extra_fields() -> None:
 def test_rollout_profile_is_explicit_and_uses_one_substep() -> None:
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        config = compose(config_name="rollout/smoke")
+        config = compose(config_name="experiment/rollout_smoke")
 
     parsed = parse_rollout_config(config)
     assert parsed.rollout.transition_dt_s == 0.1

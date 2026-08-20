@@ -2,11 +2,11 @@
 
 defaults:
   - /env: metadrive
-  - /model: diffusion_planner
+  - /planner/model
   - /runtime: fabric
-  - /sampler: ddim5
-  - /guidance: orthogonal_policy
-  - /policy: exploration_beta
+  - /planner/sampler: ddim5
+  - /planner/guidance: orthogonal_policy
+  - /rl/exploration_policy
   - _self_
 
 name: plannerrft_rollout_smoke
@@ -24,23 +24,8 @@ rollout:
   stopped_speed_threshold_mps: 0.1
 
 env:
-  num_scenarios: 1
-  use_render: false
-  image_observation: false
-  traffic_density: 0.0
-  random_traffic: false
-  random_spawn_lane_index: false
-  accident_prob: 0.0
-  physics_world_step_size: 0.02
-  decision_repeat: 5
-  trajectory_horizon: 80
   trajectory_execution_steps: 1
-  programmatic_lane_speed_limit_kmh: 50.0
   horizon: 4
-
-model:
-  args_path: checkpoints/DP-Origin/args.json
-  checkpoint_path: checkpoints/DP-Origin/model.pth
 
 runtime:
   seed: 0

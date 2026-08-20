@@ -15,7 +15,7 @@ from eco_planner.evaluation.runner import run_evaluation
 @hydra.main(
     version_base="1.3",
     config_path="../configs",
-    config_name="evaluation/no_traffic",
+    config_name="experiment/evaluate_no_traffic_full",
 )
 def main(config: DictConfig) -> None:
     output_dir = Path(HydraConfig.get().runtime.output_dir)

@@ -1,3 +1,5 @@
+# @package policy
+
 name: exploration_beta
 hidden_dim: 192
 reference_horizon: 80

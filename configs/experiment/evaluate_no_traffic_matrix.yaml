@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - /evaluation: no_traffic
+  - /experiment/evaluate_no_traffic_full
   - _self_
 
 evaluation:

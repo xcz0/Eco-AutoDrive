@@ -1,0 +1,4 @@
+# @package model
+
+args_path: checkpoints/DP-Origin/args.json
+checkpoint_path: checkpoints/DP-Origin/model.pth

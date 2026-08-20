@@ -1,5 +1,9 @@
-name: orthogonal_policy
+# @package guidance
+
+name: orthogonal_reference
 formula_label: centered_energy_gradient_delta_v1
+lateral_scale: 0.0
+longitudinal_scale: 0.0
 lateral_max_offset_m: 2.5
 longitudinal_max_speed_fraction: 0.25
 trajectory_dt_s: 0.1

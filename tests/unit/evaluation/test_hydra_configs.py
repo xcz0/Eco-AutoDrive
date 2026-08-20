@@ -25,7 +25,10 @@ from eco_planner.models import (
 def test_evaluation_composes_every_sampler_profile(profile: str, scale: float, label: str) -> None:
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        config = compose(config_name="evaluation/no_traffic", overrides=[f"sampler={profile}"])
+        config = compose(
+            config_name="experiment/evaluate_no_traffic_full",
+            overrides=[f"planner/sampler={profile}"],
+        )
 
     report = sampler_report(parse_sampler_config(config.sampler))
     assert report.initial_noise_scale == scale
@@ -35,10 +38,10 @@ def test_evaluation_composes_every_sampler_profile(profile: str, scale: float, l
 def test_evaluation_defaults_to_none_guidance_and_composes_active_profile() -> None:
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        baseline = compose(config_name="evaluation/no_traffic")
+        baseline = compose(config_name="experiment/evaluate_no_traffic_full")
         active = compose(
-            config_name="evaluation/no_traffic",
-            overrides=["sampler=ddim5", "guidance=orthogonal_reference"],
+            config_name="experiment/evaluate_no_traffic_full",
+            overrides=["planner/sampler=ddim5", "planner/guidance=orthogonal_reference"],
         )
 
     assert parse_guidance_config(baseline.guidance).name == "none"
@@ -50,7 +53,7 @@ def test_evaluation_defaults_to_none_guidance_and_composes_active_profile() -> N
 def test_traffic_matrix_composes_joblib_execution_grid() -> None:
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        config = compose(config_name="evaluation/traffic_matrix", return_hydra_config=True)
+        config = compose(config_name="experiment/evaluate_traffic_matrix", return_hydra_config=True)
 
     assert config.evaluation.profile == "matrix"
     assert list(config.evaluation.matrix.seeds) == [0, 1, 2]

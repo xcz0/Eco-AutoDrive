@@ -91,7 +91,7 @@ def test_real_checkpoint_policy_guided_decision_is_finite_and_replayable(
 def test_collects_one_real_10hz_transition_without_artifacts(baseline_checkpoint_dir) -> None:
     config_dir = Path(__file__).resolve().parents[2] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        config = compose(config_name="rollout/smoke")
+        config = compose(config_name="experiment/rollout_smoke")
     parsed = parse_rollout_config(config)
     runtime = create_fabric_rollout_runtime(
         parsed.runtime,

@@ -2,12 +2,12 @@
 
 defaults:
   - /env: metadrive
-  - /model: diffusion_planner
+  - /planner/model
   - /runtime: fabric
-  - /sampler: ddim5
-  - /guidance: orthogonal_policy
-  - /policy: exploration_beta
-  - /reward: metadrive_builtin_v1
+  - /planner/sampler: ddim5
+  - /planner/guidance: orthogonal_policy
+  - /rl/exploration_policy
+  - /rl/reward
   - /rl: ppo_closed_loop_smoke
   - _self_
 
@@ -26,18 +26,7 @@ training:
   resume_checkpoint_path: null
 
 env:
-  num_scenarios: 1
-  use_render: false
-  image_observation: false
-  traffic_density: 0.0
-  random_traffic: false
-  random_spawn_lane_index: false
-  accident_prob: 0.0
-  physics_world_step_size: 0.02
-  decision_repeat: 5
-  trajectory_horizon: 80
   trajectory_execution_steps: 1
-  programmatic_lane_speed_limit_kmh: 50.0
   horizon: 16
   driving_reward: ${reward.driving_reward}
   speed_reward: ${reward.speed_reward}
@@ -47,10 +36,6 @@ env:
   crash_object_penalty: ${reward.crash_object_penalty}
   crash_sidewalk_penalty: ${reward.crash_sidewalk_penalty}
   use_lateral_reward: ${reward.use_lateral_reward}
-
-model:
-  args_path: checkpoints/DP-Origin/args.json
-  checkpoint_path: checkpoints/DP-Origin/model.pth
 
 runtime:
   accelerator: cuda
