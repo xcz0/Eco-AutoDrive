@@ -90,6 +90,8 @@ just lint
 just format-check
 ```
 
+运行 `just test`、`just test-target`、`just test-sim` 或 `just test-gpu` 时应请求沙箱外执行，不要重建环境或改用 `uv run`。
+
 针对性验证通过且没有其他失败证据时停止。
 
 ## 文档写回
