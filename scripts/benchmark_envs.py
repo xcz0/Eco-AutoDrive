@@ -6,7 +6,10 @@ import argparse
 import json
 from pathlib import Path
 
-from eco_planner.benchmarks.env import BenchmarkAcceptanceError, benchmark_environment
+from eco_planner.evaluation.environment_benchmark import (
+    BenchmarkAcceptanceError,
+    benchmark_environment,
+)
 from eco_planner.models import OfficialDiffusionPlannerConfig
 
 

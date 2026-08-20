@@ -4,7 +4,7 @@ from typing import cast
 
 import pytest
 
-from eco_planner.benchmarks import env
+from eco_planner.evaluation import environment_benchmark as env
 from eco_planner.models import OfficialDiffusionPlannerConfig
 
 
