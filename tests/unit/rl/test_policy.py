@@ -18,18 +18,19 @@ def test_forward_returns_positive_finite_parameters_and_exact_value_shape(
 ) -> None:
     policy = ExplorationPolicy(exploration_policy_config)
     output = policy(exploration_policy_context)
+    parameters = output.distribution.parameters
 
-    assert output.parameters.alpha.shape == (3, 2)
-    assert output.parameters.beta.shape == (3, 2)
+    assert parameters.alpha.shape == (3, 2)
+    assert parameters.beta.shape == (3, 2)
     assert output.value.shape == (3,)
     assert output.value.dtype == exploration_policy_context.scene_tokens.dtype
     assert output.value.device == exploration_policy_context.scene_tokens.device
-    assert output.parameters.alpha.dtype == exploration_policy_context.scene_tokens.dtype
-    assert output.parameters.alpha.device == exploration_policy_context.scene_tokens.device
-    assert torch.isfinite(output.parameters.alpha).all()
-    assert torch.isfinite(output.parameters.beta).all()
-    assert torch.all(output.parameters.alpha > 0.0)
-    assert torch.all(output.parameters.beta > 0.0)
+    assert parameters.alpha.dtype == exploration_policy_context.scene_tokens.dtype
+    assert parameters.alpha.device == exploration_policy_context.scene_tokens.device
+    assert torch.isfinite(parameters.alpha).all()
+    assert torch.isfinite(parameters.beta).all()
+    assert torch.all(parameters.alpha > 0.0)
+    assert torch.all(parameters.beta > 0.0)
 
 
 def test_symmetric_initialization_has_zero_guidance_mean_and_nonzero_variance(
@@ -38,8 +39,8 @@ def test_symmetric_initialization_has_zero_guidance_mean_and_nonzero_variance(
 ) -> None:
     output = ExplorationPolicy(exploration_policy_config)(exploration_policy_context)
     action = output.distribution.action_mean()
-    alpha = output.parameters.alpha
-    beta = output.parameters.beta
+    alpha = output.distribution.parameters.alpha
+    beta = output.distribution.parameters.beta
     guidance_variance = 4.0 * alpha * beta / ((alpha + beta).square() * (alpha + beta + 1.0))
 
     torch.testing.assert_close(alpha, beta, rtol=0.0, atol=0.0)

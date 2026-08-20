@@ -36,10 +36,6 @@ class ExplorationPolicyOutput:
     distribution: AffineBeta
     value: torch.Tensor
 
-    @property
-    def parameters(self) -> AffineBetaParameters:
-        return self.distribution.parameters
-
 
 class _ReferenceMixerBlock(nn.Module):
     def __init__(

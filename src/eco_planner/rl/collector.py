@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal, Protocol
+from typing import Literal
 
 import numpy as np
 import torch
@@ -21,35 +21,12 @@ from eco_planner.rl.rollout import (
     build_training_transition,
     finalize_rollout_episode,
 )
-from eco_planner.rl.runtime import RolloutDecision
-
-
-class _RolloutRuntime(Protocol):
-    noise_seed: int
-    policy_action_seed: int
-    planner_config: object
-
-    def new_noise_generator(self) -> torch.Generator: ...
-
-    def new_policy_generator(self) -> torch.Generator: ...
-
-    def decide(
-        self,
-        observation: Mapping[str, torch.Tensor],
-        diffusion_generator: torch.Generator,
-        policy_generator: torch.Generator,
-    ) -> RolloutDecision: ...
-
-    def bootstrap_value(
-        self,
-        observation: Mapping[str, torch.Tensor],
-        diffusion_generator: torch.Generator,
-    ) -> torch.Tensor: ...
+from eco_planner.rl.runtime import FabricRolloutRuntime
 
 
 def collect_rollout_episode(
     spec: ScenarioConfig,
-    runtime: _RolloutRuntime,
+    runtime: FabricRolloutRuntime,
     env_config: Mapping[str, object],
     *,
     mode: Literal["no_traffic", "traffic"],

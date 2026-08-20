@@ -242,8 +242,8 @@ class FabricRolloutRuntime:
                 "guidance_action": (action.guidance_action, torch.float32),
                 "old_joint_guidance_log_prob": (action.joint_guidance_log_prob, torch.float32),
                 "old_value": (output.value, torch.float32),
-                "beta_alpha": (output.parameters.alpha, torch.float32),
-                "beta_beta": (output.parameters.beta, torch.float32),
+                "beta_alpha": (output.distribution.parameters.alpha, torch.float32),
+                "beta_beta": (output.distribution.parameters.beta, torch.float32),
             },
             self.device,
         )

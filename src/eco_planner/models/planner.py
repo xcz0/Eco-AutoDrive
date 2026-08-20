@@ -80,10 +80,6 @@ class PretrainedDiffusionPlanner(nn.Module):
         self.model = model
         self.sampler_config = sampler_config
         self.guidance_config = selected_guidance
-        self._config = config
-        self._model = model
-        self._sampler_config = sampler_config
-        self._guidance_config = selected_guidance
         self._sampler = DiffusionSampler(sampler_config)
         for parameter in self.model.parameters():
             parameter.requires_grad_(False)
@@ -99,13 +95,13 @@ class PretrainedDiffusionPlanner(nn.Module):
         """Generate the reference trajectory and, when configured, a guided trajectory."""
 
         batch = observation["ego_current_state"].shape[0]
-        participants = 1 + self._config.predicted_neighbor_num
-        inputs = self._config.observation_normalizer(observation)
-        encoding = self._model.encode(inputs)
-        route_encoding = self._model.encode_route(inputs)
+        participants = 1 + self.config.predicted_neighbor_num
+        inputs = self.config.observation_normalizer(observation)
+        encoding = self.model.encode(inputs)
+        route_encoding = self.model.encode_route(inputs)
         ego_current = inputs["ego_current_state"][:, None, :4]
         neighbors_current = inputs["neighbor_agents_past"][
-            :, : self._config.predicted_neighbor_num, -1, :4
+            :, : self.config.predicted_neighbor_num, -1, :4
         ]
         neighbor_current_mask = torch.sum(torch.ne(neighbors_current, 0), dim=-1) == 0
         current_states = torch.cat([ego_current, neighbors_current], dim=1)
@@ -115,24 +111,22 @@ class PretrainedDiffusionPlanner(nn.Module):
         ).reshape(batch, participants, -1)
 
         def denoiser(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
-            prediction = self._model.denoise(
+            prediction = self.model.denoise(
                 sample, timestep, encoding, route_encoding, neighbor_current_mask
             )
-            if self._sampler_config.name == "ddim5":
+            if self.sampler_config.name == "ddim5":
                 return prediction.to(dtype=sample.dtype)
             return prediction
 
         def constrain(sample: torch.Tensor) -> torch.Tensor:
-            constrained = sample.reshape(
-                batch, participants, self._config.future_len + 1, 4
-            ).clone()
+            constrained = sample.reshape(batch, participants, self.config.future_len + 1, 4).clone()
             constrained[:, :, 0] = current_states
             return constrained.reshape(batch, participants, -1)
 
         guidance_randomness = (
             self._sampler.prepare_guidance_randomness(initial, transition_generator)
             if isinstance(
-                self._guidance_config,
+                self.guidance_config,
                 (OrthogonalReferenceGuidanceConfig, OrthogonalPolicyGuidanceConfig),
             )
             else None
@@ -145,7 +139,7 @@ class PretrainedDiffusionPlanner(nn.Module):
             guidance_randomness=guidance_randomness,
         )
         prediction = self._prediction(normalized_sample, batch, participants)
-        if isinstance(self._guidance_config, NoGuidanceConfig):
+        if isinstance(self.guidance_config, NoGuidanceConfig):
             return PlannerInferenceResult(prediction=prediction)
         return self._run_guided(
             initial,
@@ -167,14 +161,14 @@ class PretrainedDiffusionPlanner(nn.Module):
         """Prepare one shared-encoding reference pass for a learned guidance action."""
 
         batch = observation["ego_current_state"].shape[0]
-        participants = 1 + self._config.predicted_neighbor_num
-        inputs = self._config.observation_normalizer(observation)
-        features = self._model.encode_policy_features(inputs)
+        participants = 1 + self.config.predicted_neighbor_num
+        inputs = self.config.observation_normalizer(observation)
+        features = self.model.encode_policy_features(inputs)
         encoding = features["scene_tokens"]
         route_encoding = features["route_encoding"]
         ego_current = inputs["ego_current_state"][:, None, :4]
         neighbors_current = inputs["neighbor_agents_past"][
-            :, : self._config.predicted_neighbor_num, -1, :4
+            :, : self.config.predicted_neighbor_num, -1, :4
         ]
         neighbor_current_mask = torch.sum(torch.ne(neighbors_current, 0), dim=-1) == 0
         current_states = torch.cat([ego_current, neighbors_current], dim=1)
@@ -184,15 +178,13 @@ class PretrainedDiffusionPlanner(nn.Module):
         ).reshape(batch, participants, -1)
 
         def denoiser(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
-            prediction = self._model.denoise(
+            prediction = self.model.denoise(
                 sample, timestep, encoding, route_encoding, neighbor_current_mask
             )
             return prediction.to(dtype=sample.dtype)
 
         def constrain(sample: torch.Tensor) -> torch.Tensor:
-            constrained = sample.reshape(
-                batch, participants, self._config.future_len + 1, 4
-            ).clone()
+            constrained = sample.reshape(batch, participants, self.config.future_len + 1, 4).clone()
             constrained[:, :, 0] = current_states
             return constrained.reshape(batch, participants, -1)
 
@@ -247,11 +239,11 @@ class PretrainedDiffusionPlanner(nn.Module):
 
     @property
     def runtime_device(self) -> torch.device:
-        return next(self._model.parameters()).device
+        return next(self.model.parameters()).device
 
     def _prediction(self, sample: torch.Tensor, batch: int, participants: int) -> torch.Tensor:
-        normalized = sample.reshape(batch, participants, self._config.future_len + 1, 4)
-        return self._config.state_normalizer.inverse(normalized)[:, :, 1:]
+        normalized = sample.reshape(batch, participants, self.config.future_len + 1, 4)
+        return self.config.state_normalizer.inverse(normalized)[:, :, 1:]
 
     def _run_guided(
         self,
@@ -264,7 +256,7 @@ class PretrainedDiffusionPlanner(nn.Module):
         current_states: torch.Tensor,
         guidance_action: torch.Tensor | None,
     ) -> PlannerInferenceResult:
-        config = self._guidance_config
+        config = self.guidance_config
         batch, participants, _ = initial.shape
         device = initial.device
         if guidance_action is None:
@@ -283,11 +275,11 @@ class PretrainedDiffusionPlanner(nn.Module):
                 guidance_diagnostics=zero_guidance_diagnostics(
                     config,
                     action,
-                    future_len=self._config.future_len,
+                    future_len=self.config.future_len,
                     num_steps=self._sampler.num_steps,
                 ),
             )
-        guidance = OrthogonalGuidance(config, self._config.state_normalizer)
+        guidance = OrthogonalGuidance(config, self.config.state_normalizer)
 
         def guidance_callback(sample: torch.Tensor, predicted_x_start: torch.Tensor) -> Any:
             return guidance.gradient(

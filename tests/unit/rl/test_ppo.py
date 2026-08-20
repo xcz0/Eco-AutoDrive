@@ -77,8 +77,8 @@ def _episode(policy: ExplorationPolicy):
                 guidance_action=action.guidance_action,
                 old_joint_guidance_log_prob=action.joint_guidance_log_prob,
                 state_value=output.value,
-                beta_alpha=output.parameters.alpha,
-                beta_beta=output.parameters.beta,
+                beta_alpha=output.distribution.parameters.alpha,
+                beta_beta=output.distribution.parameters.beta,
                 initial_noise=torch.zeros((1, 11, 80, 4)),
                 diffusion_rng_state=torch.ones(5, dtype=torch.uint8),
                 policy_rng_state=torch.ones(5, dtype=torch.uint8),
@@ -167,8 +167,8 @@ def test_torchrl_adapters_match_one_direct_policy_forward(exploration_policy_con
     actor.get_dist(adapted)
     adapted = critic(adapted)
 
-    torch.testing.assert_close(adapted["alpha"], expected.parameters.alpha)
-    torch.testing.assert_close(adapted["beta"], expected.parameters.beta)
+    torch.testing.assert_close(adapted["alpha"], expected.distribution.parameters.alpha)
+    torch.testing.assert_close(adapted["beta"], expected.distribution.parameters.beta)
     torch.testing.assert_close(adapted["state_value"], expected.value.unsqueeze(-1))
 
 

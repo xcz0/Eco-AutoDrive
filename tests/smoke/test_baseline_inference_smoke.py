@@ -16,9 +16,9 @@ def test_official_ema_checkpoint_cpu_smoke(
 ) -> None:
     generator = baseline_runtime.new_noise_generator()
 
-    first_result = baseline_runtime.infer(baseline_observation, generator)
+    first_result = baseline_runtime.infer(baseline_observation, generator).audit_result()
     replay_generator = baseline_runtime.new_noise_generator()
-    second_result = baseline_runtime.infer(baseline_observation, replay_generator)
+    second_result = baseline_runtime.infer(baseline_observation, replay_generator).audit_result()
     first = first_result.prediction
     second = second_result.prediction
 

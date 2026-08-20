@@ -280,8 +280,8 @@ def _probe_policy(
         context = _context_to_device(host_context, runtime.device)
         with torch.no_grad():
             output = runtime.policy(context)
-        alpha = output.parameters.alpha
-        beta = output.parameters.beta
+        alpha = output.distribution.parameters.alpha
+        beta = output.distribution.parameters.beta
         expanded = AffineBeta(alpha.expand(sample_count, -1), beta.expand(sample_count, -1))
         generator = runtime.new_policy_generator(diagnostic_seed + index)
         samples = expanded.sample(generator).base_action

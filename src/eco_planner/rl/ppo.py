@@ -95,14 +95,8 @@ class _PolicyOutputAdapter(nn.Module):
                 reference_trajectory=reference_trajectory,
             )
         )
-        return output.parameters.alpha, output.parameters.beta, output.value.unsqueeze(-1)
-
-
-class _PolicyValueAdapter(nn.Module):
-    def forward(self, state_value: torch.Tensor) -> torch.Tensor:
-        """Expose the actor adapter's shared policy value to the critic loss."""
-
-        return state_value
+        parameters = output.distribution.parameters
+        return parameters.alpha, parameters.beta, output.value.unsqueeze(-1)
 
 
 def _append_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> TensorDictBase:
@@ -328,9 +322,7 @@ def _build_torchrl_policy_adapters(
         log_prob_key="joint_guidance_log_prob",
     )
     actor = ProbabilisticTensorDictSequential(output_module, distribution_module)
-    critic = TensorDictModule(
-        _PolicyValueAdapter(), in_keys=["state_value"], out_keys=["state_value"]
-    )
+    critic = TensorDictModule(nn.Identity(), in_keys=["state_value"], out_keys=["state_value"])
     return actor, critic
 
 
