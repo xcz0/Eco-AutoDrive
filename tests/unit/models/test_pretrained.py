@@ -26,16 +26,21 @@ class _FakeDenoiser(nn.Module):
         super().__init__()
         self.anchor = nn.Parameter(torch.ones(()))
         self.samples: list[torch.Tensor] = []
+        self.route_encode_calls = 0
 
     def encode(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
         return torch.zeros((inputs["ego_current_state"].shape[0], 1, 1))
+
+    def encode_route(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
+        self.route_encode_calls += 1
+        return torch.zeros((inputs["ego_current_state"].shape[0], 1))
 
     def denoise(
         self,
         sample: torch.Tensor,
         timestep: torch.Tensor,
         encoding: torch.Tensor,
-        route_lanes: torch.Tensor,
+        route_encoding: torch.Tensor,
         current_mask: torch.Tensor,
     ) -> torch.Tensor:
         self.samples.append(sample.detach().clone())
@@ -47,17 +52,22 @@ class _IdentityDenoiser(nn.Module):
         super().__init__()
         self.anchor = nn.Parameter(torch.ones(()))
         self.encode_calls = 0
+        self.route_encode_calls = 0
 
     def encode(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
         self.encode_calls += 1
         return torch.zeros((inputs["ego_current_state"].shape[0], 1, 1))
+
+    def encode_route(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
+        self.route_encode_calls += 1
+        return torch.zeros((inputs["ego_current_state"].shape[0], 1))
 
     def denoise(
         self,
         sample: torch.Tensor,
         timestep: torch.Tensor,
         encoding: torch.Tensor,
-        route_lanes: torch.Tensor,
+        route_encoding: torch.Tensor,
         current_mask: torch.Tensor,
     ) -> torch.Tensor:
         return sample * self.anchor
@@ -188,6 +198,20 @@ def test_pretrained_ddim_applies_explicit_noise_scale_and_sampler_dtype_boundary
     assert result.guidance_diagnostics is None
 
 
+def test_pretrained_planner_encodes_route_once_per_denoising_cycle(
+    baseline_observation: dict[str, torch.Tensor],
+) -> None:
+    model = _FakeDenoiser()
+    planner = PretrainedDiffusionPlanner(  # type: ignore[arg-type]
+        _planner_config(), model, _ddim_config()
+    )
+
+    planner(baseline_observation, torch.ones((1, 11, 80, 4)))
+
+    assert len(model.samples) == 5
+    assert model.route_encode_calls == 1
+
+
 def test_neutral_reference_guidance_reuses_one_encoding_and_returns_reference_exactly(
     baseline_observation: dict[str, torch.Tensor],
 ) -> None:
@@ -205,6 +229,7 @@ def test_neutral_reference_guidance_reuses_one_encoding_and_returns_reference_ex
     result = planner(baseline_observation, noise)
 
     assert model.encode_calls == 1
+    assert model.route_encode_calls == 1
     assert result.reference_prediction is not None
     assert torch.equal(result.prediction, result.reference_prediction)
     assert result.guidance_action is not None
@@ -255,7 +280,9 @@ def test_signed_reference_guidance_moves_ego_left_and_right_without_parameter_gr
     assert left.guidance_diagnostics is not None
     assert left.guidance_diagnostics.applied_gradient_l2.shape == (1, 5)
     assert left_model.encode_calls == 1
+    assert left_model.route_encode_calls == 1
     assert right_model.encode_calls == 1
+    assert right_model.route_encode_calls == 1
     assert all(parameter.grad is None for parameter in left_planner.parameters())
     assert all(parameter.grad is None for parameter in right_planner.parameters())
 

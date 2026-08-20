@@ -28,11 +28,12 @@ def test_model_encode_and_denoise_shapes(
 
     with torch.no_grad():
         encoding = model.encode(inputs)
+        route_encoding = model.encode_route(inputs)
         prediction = model.denoise(
             torch.zeros((1, 11, 324)),
             torch.full((1,), 0.5),
             encoding,
-            inputs["route_lanes"],
+            route_encoding,
             torch.zeros((1, 10), dtype=torch.bool),
         )
 

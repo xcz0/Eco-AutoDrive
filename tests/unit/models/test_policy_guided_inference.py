@@ -43,15 +43,23 @@ def test_policy_guidance_prepares_one_frozen_encoding_and_reuses_the_reference(
     noise = torch.randn((1, 11, 80, 4), generator=torch.Generator().manual_seed(7))
     generator = torch.Generator().manual_seed(8)
 
-    with patch.object(
-        planner.model, "encode_policy_features", wraps=planner.model.encode_policy_features
-    ) as encode:
+    with (
+        patch.object(
+            planner.model, "encode_policy_features", wraps=planner.model.encode_policy_features
+        ) as encode,
+        patch.object(
+            planner.model.decoder.dit.route_encoder,
+            "encode_with_mask",
+            wraps=planner.model.decoder.dit.route_encoder.encode_with_mask,
+        ) as encode_route,
+    ):
         prepared = planner.prepare_policy_guidance(baseline_observation, noise, generator)
         result = planner.complete_policy_guidance(
             prepared, torch.zeros((1, 2), dtype=torch.float32)
         )
 
     assert encode.call_count == 1
+    assert encode_route.call_count == 1
     assert prepared.policy_context.reference_trajectory.shape == (1, 80, 4)
     assert result.reference_prediction is not None
     assert result.guidance_action is not None

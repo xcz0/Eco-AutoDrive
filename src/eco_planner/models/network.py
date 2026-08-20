@@ -393,7 +393,7 @@ class DiT(nn.Module):
         value: torch.Tensor,
         timestep: torch.Tensor,
         cross_context: torch.Tensor,
-        route_lanes: torch.Tensor,
+        route_encoding: torch.Tensor,
         neighbor_current_mask: torch.Tensor,
     ) -> torch.Tensor:
         batch, participants, _ = value.shape
@@ -406,7 +406,7 @@ class DiT(nn.Module):
             dim=0,
         )
         value = value + embedding[None].expand(batch, -1, -1)
-        condition = self.route_encoder(route_lanes) + self.t_embedder(timestep)
+        condition = route_encoding + self.t_embedder(timestep)
         mask = torch.zeros((batch, participants), dtype=torch.bool, device=value.device)
         mask[:, 1:] = neighbor_current_mask
         for block in self.blocks:
@@ -426,10 +426,10 @@ class Decoder(nn.Module):
         sample: torch.Tensor,
         timestep: torch.Tensor,
         encoding: torch.Tensor,
-        route_lanes: torch.Tensor,
+        route_encoding: torch.Tensor,
         current_mask: torch.Tensor,
     ) -> torch.Tensor:
-        return self.dit(sample, timestep, encoding, route_lanes, current_mask)
+        return self.dit(sample, timestep, encoding, route_encoding, current_mask)
 
 
 def initialize_module(module: nn.Module) -> None:
@@ -472,6 +472,9 @@ class DiffusionPlanner(nn.Module):
     def encode(self, inputs: Mapping[str, torch.Tensor]) -> torch.Tensor:
         return self.encoder(inputs)["encoding"]
 
+    def encode_route(self, inputs: Mapping[str, torch.Tensor]) -> torch.Tensor:
+        return self.decoder.dit.route_encoder(inputs["route_lanes"])
+
     def encode_policy_features(self, inputs: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         scene = self.encoder(inputs)
         navigation, navigation_padding_mask = self.decoder.dit.route_encoder.encode_with_mask(
@@ -480,6 +483,7 @@ class DiffusionPlanner(nn.Module):
         return {
             "scene_tokens": scene["encoding"],
             "scene_padding_mask": scene["padding_mask"],
+            "route_encoding": navigation,
             "navigation_tokens": navigation[:, None, :],
             "navigation_padding_mask": navigation_padding_mask[:, None],
         }
@@ -489,7 +493,7 @@ class DiffusionPlanner(nn.Module):
         sample: torch.Tensor,
         timestep: torch.Tensor,
         encoding: torch.Tensor,
-        route_lanes: torch.Tensor,
+        route_encoding: torch.Tensor,
         current_mask: torch.Tensor,
     ) -> torch.Tensor:
-        return self.decoder.denoise(sample, timestep, encoding, route_lanes, current_mask)
+        return self.decoder.denoise(sample, timestep, encoding, route_encoding, current_mask)

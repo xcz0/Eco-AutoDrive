@@ -130,7 +130,7 @@ CUDA 评测设置 `torch.set_float32_matmul_precision("high")`；该选择只影
 
 默认 `guidance=none`，DPM-10 与无 guidance DDIM-5 保持独立入口。可选 `guidance=orthogonal_reference` 只允许标准高斯 DDIM-5；DPM-10 或 `ddim5_project_noise` 与 active guidance 组合时必须失败。
 
-每个规划周期只使用一份严格加载、冻结且 eval-mode 的官方 EMA 模型，并只计算一次 scene encoding。reference 与 guided pass 共享当前 observation、initial noise 和 DDIM transition draws；在 reference 前显式取得每个非末步 `variance_noise`，并将同一组 tensor 传给两次 scheduler step；该随机流协调由 `PlanningSampler` 负责。reference 每个规划周期刷新。
+每个规划周期只使用一份严格加载、冻结且 eval-mode 的官方 EMA 模型，并只计算一次 scene 和 route encoding。reference 与 guided pass 共享当前 observation、这些 encoding、initial noise 和 DDIM transition draws；在 reference 前显式取得每个非末步 `variance_noise`，并将同一组 tensor 传给两次 scheduler step；该随机流协调由 `PlanningSampler` 负责。reference 每个规划周期刷新。
 
 reference 切向由其有限、非退化的 `[cos(h), sin(h)]` 归一化得到，左法向为 `[-sin(h), cos(h)]`。速度由当前物理点和 80 个未来物理点按 `0.1 s` 后向差分，单位为 m/s；重复点作为 `0 m/s` 保存和计数，不触发回退。非有限 reference 或 heading norm 不超过配置 epsilon 时立即失败。
 

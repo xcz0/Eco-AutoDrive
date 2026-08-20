@@ -102,6 +102,7 @@ class PretrainedDiffusionPlanner(nn.Module):
         participants = 1 + self._config.predicted_neighbor_num
         inputs = self._config.observation_normalizer(observation)
         encoding = self._model.encode(inputs)
+        route_encoding = self._model.encode_route(inputs)
         ego_current = inputs["ego_current_state"][:, None, :4]
         neighbors_current = inputs["neighbor_agents_past"][
             :, : self._config.predicted_neighbor_num, -1, :4
@@ -115,7 +116,7 @@ class PretrainedDiffusionPlanner(nn.Module):
 
         def denoiser(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
             prediction = self._model.denoise(
-                sample, timestep, encoding, inputs["route_lanes"], neighbor_current_mask
+                sample, timestep, encoding, route_encoding, neighbor_current_mask
             )
             if self._sampler_config.name == "ddim5":
                 return prediction.to(dtype=sample.dtype)
@@ -170,6 +171,7 @@ class PretrainedDiffusionPlanner(nn.Module):
         inputs = self._config.observation_normalizer(observation)
         features = self._model.encode_policy_features(inputs)
         encoding = features["scene_tokens"]
+        route_encoding = features["route_encoding"]
         ego_current = inputs["ego_current_state"][:, None, :4]
         neighbors_current = inputs["neighbor_agents_past"][
             :, : self._config.predicted_neighbor_num, -1, :4
@@ -183,7 +185,7 @@ class PretrainedDiffusionPlanner(nn.Module):
 
         def denoiser(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
             prediction = self._model.denoise(
-                sample, timestep, encoding, inputs["route_lanes"], neighbor_current_mask
+                sample, timestep, encoding, route_encoding, neighbor_current_mask
             )
             return prediction.to(dtype=sample.dtype)
 
