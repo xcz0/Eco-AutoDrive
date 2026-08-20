@@ -27,11 +27,10 @@ def test_real_checkpoint_features_feed_exploration_policy(
         baseline_checkpoint_dir / "model.pth",
         sampler,
     )
-    normalized = planner.config.observation_normalizer(baseline_observation)
     noise = torch.randn((1, 11, 80, 4), generator=torch.Generator().manual_seed(0))
     with torch.no_grad():
-        prepared = planner.model.prepare_policy_guidance(
-            normalized, noise, torch.Generator().manual_seed(1)
+        prepared = planner.prepare_policy_guidance(
+            baseline_observation, noise, torch.Generator().manual_seed(1)
         )
     context = ExplorationPolicyContext(
         scene_tokens=prepared.policy_context.scene_tokens,
