@@ -60,9 +60,9 @@ format:
 test:
     {{pytest}} -m "not gpu and not simulator and not slow"
 
-# Run a specific test file, directory, or node.
-test-target target:
-    {{pytest}} {{target}}
+# Run one or more specific test files, directories, or nodes.
+test-target +targets:
+    {{pytest}} {{targets}}
 
 # Simulator tests only.
 test-sim:
