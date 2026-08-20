@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -15,7 +15,14 @@ from torch import nn
 from eco_planner.evaluation.artifacts.models import FailurePhase
 from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.failures import EpisodeFailure
-from eco_planner.evaluation.runtime.contracts import HostGuidanceDiagnostics, HostInferenceResult
+from eco_planner.evaluation.runtime.contracts import (
+    DeferredHostTensors,
+    HostExecutionResult,
+    HostGuidanceDiagnostics,
+    HostInferenceResult,
+    copy_execution_trajectory,
+    defer_host_tensors,
+)
 from eco_planner.models import (
     CheckpointLoadReport,
     GuidanceConfig,
@@ -55,6 +62,33 @@ class _ResolvedRuntimeSettings:
     seed: int
 
 
+class HostInferenceDecision:
+    """Execution data plus an explicitly resolved full audit result."""
+
+    def __init__(
+        self,
+        execution: HostExecutionResult,
+        resolve_audit: Callable[[], HostInferenceResult],
+    ) -> None:
+        self._execution = execution
+        self._resolve_audit = resolve_audit
+        self._audit: HostInferenceResult | None = None
+
+    @property
+    def ego_trajectory(self) -> np.ndarray:
+        return self._execution.ego_trajectory
+
+    def full_audit(self) -> HostInferenceResult:
+        """Wait for and return the complete artifact/replay payload."""
+
+        if self._audit is None:
+            self._audit = self._resolve_audit()
+        return self._audit
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self.full_audit(), name)
+
+
 class FabricInferenceRuntime:
     """Own Fabric, the wrapped planner, and inference-time tensor placement."""
 
@@ -89,8 +123,8 @@ class FabricInferenceRuntime:
         self,
         observation: Mapping[str, torch.Tensor],
         generator: torch.Generator,
-    ) -> HostInferenceResult:
-        """Run one planner pass and transfer its auditable result to CPU once."""
+    ) -> HostInferenceDecision:
+        """Run one planner pass and synchronously transfer only its executable trajectory."""
 
         raw_observation = dict(observation)
         _validate_artifact_observation_fields(raw_observation, self.planner_config)
@@ -133,7 +167,7 @@ class FabricInferenceRuntime:
             self.sampler_report.num_steps,
             self.device,
         )
-        return _to_host_result(noise, result, self.device)
+        return _to_host_decision(noise, result, self.device)
 
 
 def create_fabric_inference_runtime(
@@ -248,11 +282,11 @@ def _validate_artifact_observation_fields(
             raise ValueError(f"raw observation field {name!r} must be finite")
 
 
-def _to_host_result(
+def _to_host_decision(
     noise: torch.Tensor,
     result: PlannerInferenceResult,
     device: torch.device,
-) -> HostInferenceResult:
+) -> HostInferenceDecision:
     tensors: dict[str, tuple[torch.Tensor, torch.dtype]] = {
         "initial_noise": (noise.detach(), torch.float32),
         "prediction": (result.prediction.detach(), torch.float32),
@@ -276,7 +310,19 @@ def _to_host_result(
             tensors[name] = (getattr(diagnostics, name).detach(), torch.float32)
         tensors["zero_speed_count"] = (diagnostics.zero_speed_count.detach(), torch.int64)
 
-    host_tensors = _copy_tensors_to_host(tensors, device)
+    deferred = defer_host_tensors(tensors, device)
+    execution = copy_execution_trajectory(result.prediction, device)
+    _validate_execution_trajectory(execution.ego_trajectory)
+    return HostInferenceDecision(
+        execution,
+        lambda: _host_result_from_tensors(deferred, diagnostics is not None),
+    )
+
+
+def _host_result_from_tensors(
+    deferred: DeferredHostTensors, diagnostics_present: bool
+) -> HostInferenceResult:
+    host_tensors = deferred.resolve()
     arrays = {name: tensor.numpy() for name, tensor in host_tensors.items()}
     for name, value in arrays.items():
         if value.dtype.kind in "fc" and not np.isfinite(value).all():
@@ -286,7 +332,7 @@ def _to_host_result(
             )
     host_diagnostics = (
         None
-        if diagnostics is None
+        if not diagnostics_present
         else HostGuidanceDiagnostics(
             lateral_target_offset_m=arrays["lateral_target_offset_m"],
             longitudinal_target_speed_fraction=arrays["longitudinal_target_speed_fraction"],
@@ -308,21 +354,12 @@ def _to_host_result(
     )
 
 
-def _copy_tensors_to_host(
-    tensors: Mapping[str, tuple[torch.Tensor, torch.dtype]],
-    device: torch.device,
-) -> dict[str, torch.Tensor]:
-    if device.type != "cuda":
-        return {
-            name: value.to(device="cpu", dtype=dtype) for name, (value, dtype) in tensors.items()
-        }
-    host: dict[str, torch.Tensor] = {}
-    for name, (value, dtype) in tensors.items():
-        destination = torch.empty(value.shape, dtype=dtype, device="cpu", pin_memory=True)
-        destination.copy_(value.to(dtype=dtype), non_blocking=True)
-        host[name] = destination
-    torch.cuda.current_stream(device).synchronize()
-    return host
+def _validate_execution_trajectory(trajectory: np.ndarray) -> None:
+    if not np.isfinite(trajectory).all():
+        raise EpisodeFailure(
+            FailurePhase.INFERENCE,
+            RuntimeError("Diffusion Planner ego trajectory contains non-finite values"),
+        )
 
 
 def resolve_runtime_settings(runtime_config: RuntimeConfig) -> _ResolvedRuntimeSettings:

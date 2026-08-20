@@ -14,6 +14,12 @@ from lightning.fabric import Fabric
 from eco_planner.evaluation.artifacts.models import FailurePhase
 from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.failures import EpisodeFailure
+from eco_planner.evaluation.runtime.contracts import (
+    DeferredHostTensors,
+    HostExecutionResult,
+    copy_execution_trajectory,
+    defer_host_tensors,
+)
 from eco_planner.evaluation.runtime.engine import InferenceRuntimeReport, resolve_runtime_settings
 from eco_planner.models import (
     CheckpointLoadReport,
@@ -51,6 +57,66 @@ class HostRolloutDecision:
     @property
     def ego_trajectory(self) -> np.ndarray:
         return self.prediction[0, 0]
+
+    def full_audit(self) -> HostRolloutDecision:
+        """Return this already-complete decision for protocol compatibility."""
+
+        return self
+
+
+class PendingRolloutDecision:
+    """Execution trajectory plus deferred CPU rollout storage fields."""
+
+    def __init__(
+        self,
+        execution: HostExecutionResult,
+        deferred: DeferredHostTensors,
+        diffusion_rng_state: torch.Tensor,
+        policy_rng_state: torch.Tensor,
+        policy_config: ExplorationPolicyConfig,
+    ) -> None:
+        self._execution = execution
+        self._deferred = deferred
+        self._diffusion_rng_state = diffusion_rng_state
+        self._policy_rng_state = policy_rng_state
+        self._policy_config = policy_config
+        self._audit: HostRolloutDecision | None = None
+
+    @property
+    def ego_trajectory(self) -> np.ndarray:
+        return self._execution.ego_trajectory
+
+    def full_audit(self) -> HostRolloutDecision:
+        """Wait for the stored PPO/replay payload after simulator execution."""
+
+        if self._audit is None:
+            host = self._deferred.resolve()
+            _validate_finite(host)
+            context = ExplorationPolicyContext(
+                scene_tokens=host["scene_tokens"],
+                scene_padding_mask=host["scene_padding_mask"],
+                navigation_tokens=host["navigation_tokens"],
+                navigation_padding_mask=host["navigation_padding_mask"],
+                reference_trajectory=host["reference_trajectory"],
+            )
+            _validate_rollout_context(context, self._policy_config)
+            self._audit = HostRolloutDecision(
+                prediction=host["prediction"].numpy(),
+                initial_noise=host["initial_noise"],
+                policy_context=context,
+                base_action=host["base_action"],
+                guidance_action=host["guidance_action"],
+                old_joint_guidance_log_prob=host["old_joint_guidance_log_prob"],
+                old_value=host["old_value"],
+                beta_alpha=host["beta_alpha"],
+                beta_beta=host["beta_beta"],
+                diffusion_rng_state=self._diffusion_rng_state,
+                policy_rng_state=self._policy_rng_state,
+            )
+        return self._audit
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self.full_audit(), name)
 
 
 class FabricRolloutRuntime:
@@ -126,8 +192,8 @@ class FabricRolloutRuntime:
         observation: Mapping[str, torch.Tensor],
         diffusion_generator: torch.Generator,
         policy_generator: torch.Generator,
-    ) -> HostRolloutDecision:
-        """Sample one learned action and planner prediction while retaining exact replay state."""
+    ) -> PendingRolloutDecision:
+        """Sample one action and defer replay storage until after trajectory execution."""
 
         raw_observation = dict(observation)
         planner_config = self._planner.config
@@ -157,7 +223,7 @@ class FabricRolloutRuntime:
         if result.guidance_action is None:
             raise RuntimeError("policy-guided planner did not return its guidance action")
         torch.testing.assert_close(result.guidance_action, action.guidance_action)
-        host = _copy_to_host(
+        deferred = defer_host_tensors(
             {
                 "prediction": (result.prediction, torch.float32),
                 "initial_noise": (noise, torch.float32),
@@ -175,27 +241,14 @@ class FabricRolloutRuntime:
             },
             self.device,
         )
-        _validate_finite(host)
-        host_context = ExplorationPolicyContext(
-            scene_tokens=host["scene_tokens"],
-            scene_padding_mask=host["scene_padding_mask"],
-            navigation_tokens=host["navigation_tokens"],
-            navigation_padding_mask=host["navigation_padding_mask"],
-            reference_trajectory=host["reference_trajectory"],
-        )
-        _validate_rollout_context(host_context, self._policy.config)
-        return HostRolloutDecision(
-            prediction=host["prediction"].numpy(),
-            initial_noise=host["initial_noise"],
-            policy_context=host_context,
-            base_action=host["base_action"],
-            guidance_action=host["guidance_action"],
-            old_joint_guidance_log_prob=host["old_joint_guidance_log_prob"],
-            old_value=host["old_value"],
-            beta_alpha=host["beta_alpha"],
-            beta_beta=host["beta_beta"],
+        execution = copy_execution_trajectory(result.prediction, self.device)
+        _validate_execution_trajectory(execution.ego_trajectory)
+        return PendingRolloutDecision(
+            execution,
+            deferred,
             diffusion_rng_state=diffusion_rng_state,
             policy_rng_state=policy_rng_state,
+            policy_config=self._policy.config,
         )
 
     def bootstrap_value(
@@ -226,9 +279,8 @@ class FabricRolloutRuntime:
                 reference_trajectory=prepared.policy_context.reference_trajectory,
             )
             value = self._policy(context).value
-        host = _copy_to_host({"bootstrap_value": (value, torch.float32)}, self.device)[
-            "bootstrap_value"
-        ]
+        deferred = defer_host_tensors({"bootstrap_value": (value, torch.float32)}, self.device)
+        host = deferred.resolve()["bootstrap_value"]
         _validate_finite({"bootstrap_value": host})
         return host
 
@@ -284,21 +336,12 @@ def create_fabric_rollout_runtime(
     )
 
 
-def _copy_to_host(
-    tensors: Mapping[str, tuple[torch.Tensor, torch.dtype]], device: torch.device
-) -> dict[str, torch.Tensor]:
-    if device.type != "cuda":
-        return {
-            name: value.detach().to(device="cpu", dtype=dtype)
-            for name, (value, dtype) in tensors.items()
-        }
-    copied: dict[str, torch.Tensor] = {}
-    for name, (value, dtype) in tensors.items():
-        destination = torch.empty(value.shape, dtype=dtype, device="cpu", pin_memory=True)
-        destination.copy_(value.detach().to(dtype=dtype), non_blocking=True)
-        copied[name] = destination
-    torch.cuda.current_stream(device).synchronize()
-    return copied
+def _validate_execution_trajectory(trajectory: np.ndarray) -> None:
+    if not np.isfinite(trajectory).all():
+        raise EpisodeFailure(
+            FailurePhase.INFERENCE,
+            RuntimeError("rollout ego trajectory contains non-finite values"),
+        )
 
 
 def _unwrap_exploration_policy(module: torch.nn.Module) -> ExplorationPolicy:

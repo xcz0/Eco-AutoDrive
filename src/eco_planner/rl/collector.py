@@ -22,7 +22,7 @@ from eco_planner.rl.rollout import (
     build_rollout_transition,
     finalize_rollout_episode,
 )
-from eco_planner.rl.runtime import HostRolloutDecision
+from eco_planner.rl.runtime import HostRolloutDecision, PendingRolloutDecision
 
 
 class _RolloutRuntime(Protocol):
@@ -39,7 +39,7 @@ class _RolloutRuntime(Protocol):
         observation: Mapping[str, torch.Tensor],
         diffusion_generator: torch.Generator,
         policy_generator: torch.Generator,
-    ) -> HostRolloutDecision: ...
+    ) -> HostRolloutDecision | PendingRolloutDecision: ...
 
     def bootstrap_value(
         self,
@@ -126,6 +126,7 @@ def collect_rollout_episode(
             observation = _build_observation(traffic_adapter, no_traffic_adapter, env)
             decision = runtime.decide(observation, diffusion_generator, policy_generator)
             _, _, terminated, truncated, info = env.step(decision.ego_trajectory)
+            decision = decision.full_audit()
             execution = TrajectoryExecutionRecord.from_info(info)
             if execution.substep_states.shape[0] != 1:
                 raise RuntimeError("rollout transition must execute exactly one substep")

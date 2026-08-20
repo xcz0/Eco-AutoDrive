@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +9,7 @@ import torch
 from torch import nn
 
 from eco_planner.evaluation.config import RuntimeConfig
+from eco_planner.evaluation.runtime import contracts
 from eco_planner.evaluation.runtime import engine as runtime
 from eco_planner.models import (
     CheckpointLoadReport,
@@ -148,3 +150,52 @@ def test_cpu_fabric_runtime_assembles_model_and_replays_noise(
     assert np.array_equal(first_result.initial_noise, second_result.initial_noise)
     assert np.array_equal(first_result.prediction, second_result.prediction)
     assert np.shares_memory(first_result.ego_trajectory, first_result.prediction)
+
+
+def test_cuda_execution_copy_does_not_wait_for_deferred_audit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the ego trajectory blocks the closed-loop path before full audit is requested."""
+
+    synchronizations: list[str] = []
+
+    class _Stream:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.waited_for: _Stream | None = None
+
+        def wait_stream(self, stream: _Stream) -> None:
+            self.waited_for = stream
+
+        def synchronize(self) -> None:
+            synchronizations.append(self.name)
+
+    current = _Stream("current")
+    transfer = _Stream("audit")
+    real_empty = torch.empty
+
+    def _empty(*args: object, **kwargs: object) -> torch.Tensor:
+        kwargs.pop("pin_memory", None)
+        return real_empty(*args, **kwargs)
+
+    @contextmanager
+    def _stream_context(stream: _Stream):
+        yield stream
+
+    monkeypatch.setattr(torch, "empty", _empty)
+    monkeypatch.setattr(torch.cuda, "current_stream", lambda device: current)
+    monkeypatch.setattr(torch.cuda, "Stream", lambda *, device: transfer)
+    monkeypatch.setattr(torch.cuda, "stream", _stream_context)
+    device = torch.device("cuda")
+
+    deferred = contracts.defer_host_tensors({"audit": (torch.ones(4), torch.float32)}, device)
+    execution = contracts.copy_execution_trajectory(torch.ones((1, 1, 2, 4)), device)
+
+    assert transfer.waited_for is current
+    assert synchronizations == ["current"]
+    np.testing.assert_array_equal(execution.ego_trajectory, np.ones((2, 4), dtype=np.float32))
+
+    audit = deferred.resolve()
+
+    assert synchronizations == ["current", "audit"]
+    torch.testing.assert_close(audit["audit"], torch.ones(4))

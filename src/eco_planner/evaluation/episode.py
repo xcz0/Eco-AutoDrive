@@ -103,10 +103,11 @@ def run_scenario(
             if traffic_adapter is not None:
                 traffic_adapter.append_frames(execution.traffic_frames)
             total_reward += float(reward)
+            audit_result = inference.full_audit()
             trace.append_cycle(
                 anchor,
                 raw_observation,
-                inference,
+                audit_result,
                 execution,
                 plan_index,
                 traffic_audit,
