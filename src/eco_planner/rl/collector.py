@@ -1,4 +1,4 @@
-"""Serial 10 Hz closed-loop rollout collection for a single scenario."""
+"""Closed-loop rollout collectors for serial and fixed-slot vector execution."""
 
 from __future__ import annotations
 
@@ -7,12 +7,15 @@ from typing import Literal
 
 import numpy as np
 import torch
+from tensordict import TensorDictBase
 
 from eco_planner.envs import (
     MetaDriveObservationAdapter,
     NoTrafficMetaDriveObservationAdapter,
     TrajectoryExecutionRecord,
     TrajectoryMetaDriveEnv,
+    VectorEnvScenario,
+    VectorMetaDriveEnv,
     collate_observations,
 )
 from eco_planner.evaluation.config import ScenarioConfig
@@ -163,6 +166,169 @@ def collect_rollout_episode(
         )
     finally:
         env.close()
+
+
+def collect_vector_rollout_episodes(
+    specs: tuple[ScenarioConfig, ...],
+    runtime: FabricRolloutRuntime,
+    env_config: Mapping[str, object],
+    *,
+    mode: Literal["no_traffic", "traffic"],
+    map_query_radius_m: float,
+    history_warmup_steps: int,
+    transitions_per_slot: int,
+    stopped_speed_threshold_mps: float,
+    diffusion_generators: tuple[torch.Generator, ...],
+    policy_generators: tuple[torch.Generator, ...],
+    noise_seeds: tuple[int, ...],
+    policy_action_seeds: tuple[int, ...],
+) -> tuple[tuple[RolloutEpisode, ...], ...]:
+    """Collect equal per-slot quotas with one batched planner decision per vector round."""
+
+    slot_count = len(specs)
+    if slot_count == 0:
+        raise ValueError("vector rollout requires at least one scenario")
+    if type(transitions_per_slot) is not int or transitions_per_slot <= 0:
+        raise ValueError("transitions_per_slot must be a positive integer")
+    _validate_vector_slots(
+        slot_count,
+        diffusion_generators,
+        policy_generators,
+        noise_seeds,
+        policy_action_seeds,
+    )
+    configured_envs = tuple({**env_config, "map": spec.map} for spec in specs)
+    scenarios = tuple(VectorEnvScenario(spec.name, spec.map, spec.seed) for spec in specs)
+    episodes: list[list[RolloutEpisode]] = [[] for _ in specs]
+    training: list[list[TensorDictBase]] = [[] for _ in specs]
+    audit: list[list[TensorDictBase]] = [[] for _ in specs]
+    collected = [0] * slot_count
+    episode_cycles = [0] * slot_count
+
+    with VectorMetaDriveEnv(
+        configured_envs,
+        mode=mode,
+        model_config=runtime.planner_config,
+        map_query_radius_m=map_query_radius_m,
+        history_warmup_steps=history_warmup_steps,
+    ) as envs:
+        resets = envs.reset(scenarios)
+        observations = [reset.observation for reset in resets]
+        previous_route_completion = [reset.route_completion for reset in resets]
+        while collected[0] < transitions_per_slot:
+            if any(count != collected[0] for count in collected):
+                raise RuntimeError("fixed-slot vector rollout consumed unequal transition counts")
+            decision = runtime.decide_batch(
+                collate_observations(observations), diffusion_generators, policy_generators
+            )
+            steps = envs.step(decision.ego_trajectories)
+            tails: list[tuple[int, Literal["terminated", "truncated", "rollout_limit"]]] = []
+            for slot, step in enumerate(steps):
+                slot_decision = decision.slot(slot)
+                execution = step.execution
+                if execution.substep_states.shape[0] != 1:
+                    raise RuntimeError("rollout transition must execute exactly one substep")
+                reward = float(execution.substep_rewards.sum())
+                training[slot].append(
+                    build_training_transition(
+                        slot_decision.training_decision,
+                        reward=reward,
+                        terminated=step.terminated,
+                        truncated=step.truncated,
+                    )
+                )
+                audit_result = slot_decision.audit_result()
+                audit[slot].append(
+                    build_rollout_audit(
+                        policy_context=audit_result.policy_context,
+                        base_action=audit_result.base_action,
+                        guidance_action=audit_result.guidance_action,
+                        old_joint_guidance_log_prob=audit_result.old_joint_guidance_log_prob,
+                        state_value=audit_result.old_value,
+                        beta_alpha=audit_result.beta_alpha,
+                        beta_beta=audit_result.beta_beta,
+                        initial_noise=audit_result.initial_noise,
+                        diffusion_rng_state=audit_result.diffusion_rng_state,
+                        policy_rng_state=audit_result.policy_rng_state,
+                        reward=reward,
+                        dense_reward=float(execution.substep_dense_rewards.sum()),
+                        terminal_override=float(
+                            (execution.substep_rewards - execution.substep_dense_rewards).sum()
+                        ),
+                        terminated=step.terminated,
+                        truncated=step.truncated,
+                        map_seed=specs[slot].seed,
+                        noise_seed=noise_seeds[slot],
+                        policy_action_seed=policy_action_seeds[slot],
+                        planning_cycle_index=episode_cycles[slot],
+                        **_transition_audit(
+                            execution,
+                            previous_route_completion[slot],
+                            stopped_speed_threshold_mps,
+                        ),
+                    )
+                )
+                collected[slot] += 1
+                episode_cycles[slot] += 1
+                previous_route_completion[slot] = execution.route_completion
+                if step.terminated:
+                    tails.append((slot, "terminated"))
+                elif step.truncated:
+                    tails.append((slot, "truncated"))
+                elif collected[slot] == transitions_per_slot:
+                    tails.append((slot, "rollout_limit"))
+
+            bootstrap_slots = [slot for slot, kind in tails if kind != "terminated"]
+            bootstrap_values: dict[int, torch.Tensor] = {}
+            if bootstrap_slots:
+                values = runtime.bootstrap_value_batch(
+                    collate_observations([steps[slot].observation for slot in bootstrap_slots]),
+                    tuple(diffusion_generators[slot] for slot in bootstrap_slots),
+                )
+                for index, slot in enumerate(bootstrap_slots):
+                    bootstrap_values[slot] = values[index : index + 1]
+            for slot, kind in tails:
+                episodes[slot].append(
+                    finalize_rollout_episode(
+                        training[slot],
+                        audit[slot],
+                        kind,
+                        torch.zeros(1) if kind == "terminated" else bootstrap_values[slot],
+                    )
+                )
+                training[slot] = []
+                audit[slot] = []
+                if collected[slot] < transitions_per_slot:
+                    reset = envs.reset_at(slot, scenarios[slot])
+                    observations[slot] = reset.observation
+                    previous_route_completion[slot] = reset.route_completion
+                    episode_cycles[slot] = 0
+            for slot, step in enumerate(steps):
+                if collected[slot] < transitions_per_slot and not any(
+                    tail_slot == slot for tail_slot, _ in tails
+                ):
+                    observations[slot] = step.observation
+
+    if any(training) or any(audit):
+        raise RuntimeError("vector rollout ended with an unfinished episode")
+    return tuple(tuple(slot_episodes) for slot_episodes in episodes)
+
+
+def _validate_vector_slots(
+    slot_count: int,
+    diffusion_generators: tuple[torch.Generator, ...],
+    policy_generators: tuple[torch.Generator, ...],
+    noise_seeds: tuple[int, ...],
+    policy_action_seeds: tuple[int, ...],
+) -> None:
+    for name, values in (
+        ("diffusion_generators", diffusion_generators),
+        ("policy_generators", policy_generators),
+        ("noise_seeds", noise_seeds),
+        ("policy_action_seeds", policy_action_seeds),
+    ):
+        if len(values) != slot_count:
+            raise ValueError(f"{name} must contain one value per vector slot")
 
 
 def _build_observation(

@@ -1,4 +1,4 @@
-"""General serial closed-loop PPO training orchestration."""
+"""Fixed-slot vector closed-loop PPO training orchestration."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from eco_planner.rl.checkpoint import (
     save_exploration_policy_checkpoint,
     save_training_checkpoint,
 )
-from eco_planner.rl.collector import collect_rollout_episode
+from eco_planner.rl.collector import collect_vector_rollout_episodes
 from eco_planner.rl.config import RLTrainingJobConfig
 from eco_planner.rl.distributions import AffineBeta
 from eco_planner.rl.policy import ExplorationPolicyContext
@@ -78,24 +78,22 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
     for update_index in range(start_update, config.training.update_count):
         update_episodes: list[RolloutEpisode] = []
         update_contexts: list[ExplorationPolicyContext] = []
-        for slot, scenario in enumerate(config.scenarios):
-            remaining = config.training.transitions_per_environment
-            episode_index = 0
-            while remaining:
-                episode = collect_rollout_episode(
-                    scenario,
-                    runtime,
-                    config.env,
-                    mode="no_traffic",
-                    map_query_radius_m=config.map_query_radius_m,
-                    history_warmup_steps=0,
-                    max_transitions=remaining,
-                    stopped_speed_threshold_mps=config.training.stopped_speed_threshold_mps,
-                    diffusion_generator=diffusion_generators[slot],
-                    policy_generator=policy_generators[slot],
-                    noise_seed=noise_seeds[slot],
-                    policy_action_seed=policy_seeds[slot],
-                )
+        slot_episodes = collect_vector_rollout_episodes(
+            config.scenarios,
+            runtime,
+            config.env,
+            mode="no_traffic",
+            map_query_radius_m=config.map_query_radius_m,
+            history_warmup_steps=0,
+            transitions_per_slot=config.training.transitions_per_environment,
+            stopped_speed_threshold_mps=config.training.stopped_speed_threshold_mps,
+            diffusion_generators=diffusion_generators,
+            policy_generators=policy_generators,
+            noise_seeds=noise_seeds,
+            policy_action_seeds=policy_seeds,
+        )
+        for slot, episodes in enumerate(slot_episodes):
+            for episode_index, episode in enumerate(episodes):
                 write_rollout_episode(
                     output_dir
                     / "updates"
@@ -116,8 +114,6 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
                     )
                 update_episodes.append(episode)
                 total_transitions += episode.transition_count
-                remaining -= episode.transition_count
-                episode_index += 1
         if probe_contexts is None:
             if len(update_contexts) != scenario_count:
                 raise RuntimeError("training did not capture one fixed probe context per scenario")

@@ -52,6 +52,7 @@ class VectorEnvReset:
     slot: int
     scenario: VectorEnvScenario
     observation: SingleObservation
+    route_completion: float
     programmatic_lane_speed_limit_audit: Mapping[str, object]
     timing: VectorEnvTiming
 
@@ -110,6 +111,7 @@ class _WorkerLaunch:
 class _WorkerResetPayload:
     scenario: VectorEnvScenario
     observation: SingleObservation
+    route_completion: float
     programmatic_lane_speed_limit_audit: Mapping[str, object]
 
 
@@ -317,6 +319,7 @@ class VectorMetaDriveEnv:
             slot=response.slot,
             scenario=payload.scenario,
             observation=payload.observation,
+            route_completion=payload.route_completion,
             programmatic_lane_speed_limit_audit=payload.programmatic_lane_speed_limit_audit,
             timing=VectorEnvTiming(
                 response.timing.environment_s,
@@ -439,7 +442,12 @@ def _reset_worker(
     observation = _build_observation(adapter, env)
     return _WorkerResponse(
         launch.slot,
-        _WorkerResetPayload(scenario, observation, env.programmatic_lane_speed_limit_audit),
+        _WorkerResetPayload(
+            scenario,
+            observation,
+            env.route_completion,
+            env.programmatic_lane_speed_limit_audit,
+        ),
         _WorkerTiming(environment_s, perf_counter() - observation_started),
     )
 

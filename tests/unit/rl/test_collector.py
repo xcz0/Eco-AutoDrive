@@ -9,7 +9,7 @@ from eco_planner.envs import TrajectoryExecutionRecord
 from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl import collector
-from eco_planner.rl.collector import collect_rollout_episode
+from eco_planner.rl.collector import collect_rollout_episode, collect_vector_rollout_episodes
 from eco_planner.rl.policy import ExplorationPolicyContext
 from eco_planner.rl.rollout import build_training_decision
 from eco_planner.rl.runtime import RolloutAudit, RolloutDecision
@@ -129,6 +129,154 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
         assert trajectory.dtype == np.float32
         assert np.isfinite(trajectory).all()
         assert np.all(np.linalg.norm(trajectory[:, 2:4], axis=-1) > 0.0)
+
+
+def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(monkeypatch) -> None:
+    class FakeVectorEnv:
+        terminal_first_slot = True
+        instances: list[FakeVectorEnv] = []
+
+        def __init__(self, *_: object, **__: object) -> None:
+            self.step_counts = [0, 0]
+            self.reset_counts = [0, 0]
+            self.step_batches: list[int] = []
+            FakeVectorEnv.instances.append(self)
+
+        def __enter__(self) -> FakeVectorEnv:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def reset(self, scenarios):
+            return tuple(self._reset(slot) for slot in range(len(scenarios)))
+
+        def reset_at(self, slot: int, _scenario):
+            self.reset_counts[slot] += 1
+            self.step_counts[slot] = 0
+            return self._reset(slot)
+
+        def step(self, trajectories):
+            self.step_batches.append(len(trajectories))
+            results = []
+            for slot in range(len(trajectories)):
+                self.step_counts[slot] += 1
+                terminated = (
+                    self.terminal_first_slot
+                    and slot == 0
+                    and self.reset_counts[slot] == 0
+                    and self.step_counts[slot] == 1
+                )
+                results.append(
+                    SimpleNamespace(
+                        observation=_observation(float(slot * 10 + self.step_counts[slot])),
+                        reward=0.25,
+                        terminated=terminated,
+                        truncated=False,
+                        execution=_info()["trajectory_execution"],
+                    )
+                )
+            return tuple(results)
+
+        def _reset(self, slot: int):
+            return SimpleNamespace(observation=_observation(float(slot * 10)), route_completion=0.0)
+
+    class FakeBatchDecision:
+        def __init__(self, decisions: list[_FakeRolloutDecision]) -> None:
+            self._decisions = decisions
+            self.ego_trajectories = np.tile(
+                collector._stationary_trajectory(), (len(decisions), 1, 1)
+            )
+
+        def slot(self, index: int) -> _FakeRolloutDecision:
+            return self._decisions[index]
+
+    class FakeRuntime:
+        planner_config = SimpleNamespace()
+
+        def __init__(self) -> None:
+            self.batch_sizes: list[int] = []
+            self.bootstrap_batch_sizes: list[int] = []
+
+        def decide_batch(self, observation, diffusion_generators, policy_generators):
+            batch = observation["ego_current_state"].shape[0]
+            self.batch_sizes.append(batch)
+            decisions = []
+            for slot in range(batch):
+                diffusion_state = diffusion_generators[slot].get_state()
+                policy_state = policy_generators[slot].get_state()
+                noise = torch.rand((), generator=diffusion_generators[slot]).item()
+                action = torch.rand((1, 2), generator=policy_generators[slot])
+                base = 0.2 + 0.6 * action
+                marker = float(observation["ego_current_state"][slot, 0])
+                audit = RolloutAudit(
+                    prediction=np.tile(collector._stationary_trajectory(), (1, 11, 1, 1)),
+                    initial_noise=torch.full((1, 11, 80, 4), noise),
+                    policy_context=_context(marker),
+                    base_action=base,
+                    guidance_action=2.0 * base - 1.0,
+                    old_joint_guidance_log_prob=torch.tensor([0.5]),
+                    old_value=torch.tensor([marker]),
+                    beta_alpha=torch.full((1, 2), 2.0),
+                    beta_beta=torch.full((1, 2), 2.0),
+                    diffusion_rng_state=diffusion_state,
+                    policy_rng_state=policy_state,
+                )
+                decisions.append(_FakeRolloutDecision(audit))
+            return FakeBatchDecision(decisions)
+
+        def bootstrap_value_batch(self, observation, diffusion_generators):
+            self.bootstrap_batch_sizes.append(observation["ego_current_state"].shape[0])
+            return torch.tensor(
+                [torch.rand((), generator=generator).item() for generator in diffusion_generators]
+            )
+
+    monkeypatch.setattr("eco_planner.rl.collector.VectorMetaDriveEnv", FakeVectorEnv)
+
+    def collect(terminal_first_slot: bool):
+        FakeVectorEnv.terminal_first_slot = terminal_first_slot
+        runtime = FakeRuntime()
+        episodes = collect_vector_rollout_episodes(
+            (
+                ScenarioConfig(name="first", map="S", seed=0),
+                ScenarioConfig(name="second", map="S", seed=1),
+            ),
+            runtime,
+            {"trajectory_execution_steps": 1},
+            mode="no_traffic",
+            map_query_radius_m=100.0,
+            history_warmup_steps=0,
+            transitions_per_slot=3,
+            stopped_speed_threshold_mps=0.1,
+            diffusion_generators=(
+                torch.Generator().manual_seed(10),
+                torch.Generator().manual_seed(11),
+            ),
+            policy_generators=(
+                torch.Generator().manual_seed(20),
+                torch.Generator().manual_seed(21),
+            ),
+            noise_seeds=(100, 101),
+            policy_action_seeds=(200, 201),
+        )
+        return episodes, runtime
+
+    reset_episodes, reset_runtime = collect(True)
+    baseline_episodes, baseline_runtime = collect(False)
+
+    assert reset_runtime.batch_sizes == [2, 2, 2]
+    assert reset_runtime.bootstrap_batch_sizes == [2]
+    assert FakeVectorEnv.instances[0].step_batches == [2, 2, 2]
+    assert [len(slot) for slot in reset_episodes] == [2, 1]
+    assert reset_episodes[0][0].tail_kind == "terminated"
+    assert reset_episodes[0][0].training["next", "done"][-1].item()
+    assert reset_episodes[0][1].tail_kind == "rollout_limit"
+    assert baseline_runtime.batch_sizes == [2, 2, 2]
+
+    reset_slot = reset_episodes[1][0].audit
+    baseline_slot = baseline_episodes[1][0].audit
+    for name in ("base_action", "initial_noise", "diffusion_rng_state", "policy_rng_state"):
+        torch.testing.assert_close(reset_slot[name], baseline_slot[name])
 
 
 def _context(marker: float) -> ExplorationPolicyContext:

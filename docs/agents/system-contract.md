@@ -119,7 +119,7 @@ jaxtyping `TypedDict` 表达，collator 运行时只拒绝空序列，不重复�
 
 `NoTrafficMetaDriveObservationAdapter` 只允许显式满足 `traffic_density=0`、`random_traffic=false`、`accident_prob=0` 的场景。reset 后若存在任何动态或静态交通对象必须失败；邻车历史和静态物体字段为全零 padding。该入口不得用于有交通场景。
 
-`VectorMetaDriveEnv.reset` 在 worker 内完成相同的 adapter reset 和 history warmup，再返回单 observation；`reset_at` 和 `step_at` 只影响指定 slot。slot scenario 的 map 必须与该 worker 的环境配置一致；worker 异常带回 slot 和 operation，并使整个 vector run 明确失败。
+`VectorMetaDriveEnv.reset` 在 worker 内完成相同的 adapter reset 和 history warmup，再返回单 observation 与 reset 时的 route completion；`reset_at` 和 `step_at` 只影响指定 slot。slot scenario 的 map 必须与该 worker 的环境配置一致；worker 异常带回 slot 和 operation，并使整个 vector run 明确失败。
 
 ## 扩散与随机性
 
@@ -151,7 +151,7 @@ guided trace 额外保存完整 reference joint prediction、action、横向目�
 
 ## Exploration Policy
 
-Exploration Policy 由 serial rollout collector 接入 learned-guidance closed loop，并由 PPO optimizer 更新；它不接入既有 evaluation runner。它的输入固定为：冻结 scene tokens `[B,N,H]` 及 bool padding mask、冻结 route/navigation token `[B,1,H]` 及 bool validity/padding mask，以及 ego-local physical reference trajectory `float [B,80,4]`。reference 使用 10 Hz、米和 `[cos(h),sin(h)]`。所有 feature 必须同 batch、dtype 和 device，且有限；每个 batch item 至少有一个有效 context token。完整的有限值和有效 token 校验发生在 rollout 回传 CPU 的边界或显式调试校验中；policy/PPO 热路径只检查结构契约。
+Exploration Policy 由 fixed-slot vector rollout collector（B=1 也走同一契约）接入 learned-guidance closed loop，并由 PPO optimizer 更新；它不接入既有 evaluation runner。它的输入固定为：冻结 scene tokens `[B,N,H]` 及 bool padding mask、冻结 route/navigation token `[B,1,H]` 及 bool validity/padding mask，以及 ego-local physical reference trajectory `float [B,80,4]`。reference 使用 10 Hz、米和 `[cos(h),sin(h)]`。所有 feature 必须同 batch、dtype 和 device，且有限；每个 batch item 至少有一个有效 context token。完整的有限值和有效 token 校验发生在 rollout 回传 CPU 的边界或显式调试校验中；policy/PPO 热路径只检查结构契约。
 
 rollout runtime 在 eval-mode、所有参数 `requires_grad=False` 的官方模型上，通过 `prepare_policy_guidance()` 一次准备 scene/navigation encoding 和 reference。输出 detach 后才进入 policy；policy backward 不得为 planner 产生 `.grad` 或改变 planner 权重。普通 planner `encode()`、fixed-guidance evaluation runner 和官方 checkpoint state-dict 层级保持不变。
 
@@ -169,9 +169,9 @@ policy action generator 不得改变 PyTorch 全局 RNG，且与 map/noise seed 
 
 ## Policy-guided rollout
 
-rollout 使用独立的 serial Fabric runtime 和 `guidance=orthogonal_policy`。一个 transition 先准备冻结 scene/navigation encoding 与 DDIM reference，以独立 policy generator 抽取 `rsample`，再用同一份 encoding、initial noise 与 DDIM transition randomness 完成 guided pass。planner 保持 eval/frozen；普通 evaluation 和固定 action guidance 路径不变。
+rollout 使用独立的 single-device Fabric runtime 和 `guidance=orthogonal_policy`。fixed-slot collector 每个 planning round collate 所有 slot observations，执行一次 batched inference，再把 ego trajectory scatter 回对应 worker；一个 transition 先准备冻结 scene/navigation encoding 与 DDIM reference，以独立 policy generator 抽取 `rsample`，再用同一份 encoding、initial noise 与 DDIM transition randomness 完成 guided pass。planner 保持 eval/frozen；普通 evaluation 和固定 action guidance 路径不变。
 
-collector 为每个 episode 构造两个按时间维组织的 TensorDict。PPO training trajectory 仅含 policy context、guidance action、old transformed joint log-prob/value、reward、terminated/truncated 及其 GAE `next` 边界；已脱离计算图的 PPO fields 在其收集设备上保留至 PPO update。CPU audit/replay trajectory 保留 policy context、base/guidance action、old transformed joint log-prob/value、Beta 参数、initial noise、消费前 diffusion/policy RNG state、map/noise/policy seed、planning-cycle index、reward/audit 以及 terminated/truncated。training 与 audit 在 episode 收集完成时分别按各自 schema 校验，不做逐字段运行时 equality audit。rollout 每次决策只同步复制供 MetaDrive 执行的 ego trajectory；其余 audit/replay 字段在 simulator step 后经独立 CUDA transfer stream 等待并写入，且其 CPU copy 不决定 training trajectory 的设备生命周期。rollout 必须设置`trajectory_execution_steps=1`；evaluation config 要求 5。不保存 DDIM denoise chain。纯 truncation 与 rollout-limit tail 保存最终状态的冻结 critic value；terminal tail 保存零。
+collector 为每个 slot episode 构造两个按时间维组织的 TensorDict。每个 slot 维持独立、持久的 noise/action generator；episode terminal 或 truncation 只 reset 该 slot，且 GAE 不跨其 episode boundary。PPO training trajectory 仅含 policy context、guidance action、old transformed joint log-prob/value、reward、terminated/truncated 及其 GAE `next` 边界；已脱离计算图的 PPO fields 在其收集设备上保留至 PPO update。CPU audit/replay trajectory 保留 policy context、base/guidance action、old transformed joint log-prob/value、Beta 参数、initial noise、消费前 diffusion/policy RNG state、map/noise/policy seed、planning-cycle index、reward/audit 以及 terminated/truncated。training 与 audit 在 episode 收集完成时分别按各自 schema 校验，不做逐字段运行时 equality audit。rollout 每次决策只同步复制供 MetaDrive 执行的 ego trajectory；其余 audit/replay 字段在 simulator step 后经独立 CUDA transfer stream 等待并写入，且其 CPU copy 不决定 training trajectory 的设备生命周期。rollout 必须设置`trajectory_execution_steps=1`；evaluation config 要求 5。不保存 DDIM denoise chain。纯 truncation 与 rollout-limit tail 通过同一 batched bootstrap pass 保存各 slot 最终状态的冻结 critic value；terminal tail 保存零。
 
 ## GAE、PPO 与训练
 
