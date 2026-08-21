@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from copy import copy
 from dataclasses import dataclass
 from typing import cast
@@ -88,7 +88,7 @@ class _DdimSampler:
         timesteps: torch.Tensor,
         num_steps: int,
         ddim_stochasticity: float,
-        generator: torch.Generator | None,
+        generator: torch.Generator | Sequence[torch.Generator | None] | None,
         *,
         variance_noises: tuple[torch.Tensor, ...] | None = None,
     ) -> torch.Tensor:
@@ -120,7 +120,7 @@ class _DdimSampler:
         timesteps: torch.Tensor,
         num_steps: int,
         ddim_stochasticity: float,
-        generator: torch.Generator | None,
+        generator: torch.Generator | Sequence[torch.Generator | None] | None,
         guidance: Callable[[torch.Tensor, torch.Tensor], GuidanceGradientResult],
         *,
         gradient_step_coefficient: float,
@@ -349,22 +349,40 @@ class DiffusionSampler:
     def prepare_guidance_randomness(
         self,
         initial_sample: torch.Tensor,
-        generator: torch.Generator | None,
+        generator: torch.Generator | Sequence[torch.Generator | None] | None,
     ) -> GuidanceSamplingRandomness:
         """Capture one DDIM random stream for semantically identical paired passes."""
 
         config = self._ddim_config()
         if config.ddim_stochasticity == 0.0:
             return GuidanceSamplingRandomness()
-        draws = tuple(
-            torch.randn(
-                initial_sample.shape,
-                dtype=initial_sample.dtype,
-                device=initial_sample.device,
-                generator=generator,
+        if isinstance(generator, Sequence):
+            if len(generator) != initial_sample.shape[0]:
+                raise ValueError("transition generators must contain one generator per batch item")
+            draws = tuple(
+                torch.cat(
+                    [
+                        torch.randn(
+                            initial_sample[index : index + 1].shape,
+                            dtype=initial_sample.dtype,
+                            device=initial_sample.device,
+                            generator=slot_generator,
+                        )
+                        for index, slot_generator in enumerate(generator)
+                    ]
+                )
+                for _ in range(config.num_steps - 1)
             )
-            for _ in range(config.num_steps - 1)
-        )
+        else:
+            draws = tuple(
+                torch.randn(
+                    initial_sample.shape,
+                    dtype=initial_sample.dtype,
+                    device=initial_sample.device,
+                    generator=generator,
+                )
+                for _ in range(config.num_steps - 1)
+            )
         return GuidanceSamplingRandomness(
             variance_noises=(*draws, torch.zeros_like(initial_sample))
         )

@@ -42,7 +42,7 @@ Hydra/OmegaConf 只存在于 CLI 配置边界。入口必须通过 `parse_evalua
 
 推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。单设备是运行时代码契约，不得在同一评测作业内启动多进程闭环。
 
-raw observation 在 CPU 边界按当前 observation/trace 契约的 shape、dtype 和有限性完整校验并原值写入 trace；Fabric 设备副本只供计算使用，可按 resolved mixed precision 转为 FP16/BF16。每个规划周期只同步把 batch-zero ego trajectory 转为执行所需的 host `float32`；完整 prediction、初始噪声、reference 与 guidance diagnostics 则在独立 CUDA transfer stream 排队，并由 artifact/replay 调用方在 simulator step 后显式取得 audit result、转为 trace 约定 dtype 后检查有限性。
+raw observation 在 CPU 边界按当前 observation/trace 契约的 shape、dtype 和有限性完整校验并原值写入 trace；Fabric 设备副本只供计算使用，可按 resolved mixed precision 转为 FP16/BF16。batch runtime 每个规划周期只同步把 ego execution trajectories `[B,T,4]` 转为执行所需的 host `float32`；串行 evaluation 与 rollout 入口从该 batch result 取其唯一 slot。完整 prediction、初始噪声、reference 与 guidance diagnostics 则在独立 CUDA transfer stream 排队，并由 artifact/replay 调用方在 simulator step 后显式取得 audit result、转为 trace 约定 dtype 后检查有限性。
 
 跨评测作业的进程并行由 ADR 0012 定义。traffic matrix 固定使用两个 Joblib `loky` worker；每个进程仍保持一个 MetaDrive、一个单设备 Fabric runtime 和一个 artifact writer。CPU 显式验证线程预算；CUDA 只允许两个进程共享一张可见 GPU，并要求确定性配置和正式运行前显存 preflight。smoke、no-traffic 和普通 full 运行保持串行，多 GPU 调度不属于该入口。
 
@@ -125,7 +125,7 @@ paths use this collator; it contains no MetaDrive, planner, or device-placement 
 
 sampler 配置必须显式记录固定值 `implementation=diffusers`。两种 `diffusers` scheduler 都使用由项目连续 VP-SDE 离散化的 `trained_betas`，而非其默认 beta schedule；项目不维护任何 local solver 数值更新公式。DPM10 使用 DPM-Solver++、二阶 multistep、均匀 lambda spacing，结束于最小训练 sigma 后额外以 `t=0.001` 预测一次 `x_start`；模型时间由 scheduler 的实际 sigma 恢复，不能直接使用其离散 timestep。DDIM-5 模型时间仍严格为 `[1.0, 0.8, 0.6, 0.4, 0.2]`。`PlanningSampler` 是规划器唯一的 sampler 边界：它封装 profile、backend 选择和 backend 专属参数，规划器不得按具体 sampler 类型分支。产物中的 sampler metadata 必须保存该后端选择。
 
-给定 observation 和初始噪声，baseline sampler 以及 `ddim_stochasticity=0` 的 DDIM 是确定性的。每个回合创建一个由噪声 seed 初始化的持久化 `torch.Generator`；每个规划周期先从中取得新的标准正态噪声，随机 DDIM transition 再从同一 generator 顺序取样。trace 保存未缩放的标准正态初始噪声；resolved config、作业 summary、回合 summary 和 runtime metadata 保存 sampler 名称、步数、初始尺度、stochasticity、timestep 与 parity 标签。地图 seed 与噪声 seed 必须分别记录。
+给定 observation 和初始噪声，baseline sampler 以及 `ddim_stochasticity=0` 的 DDIM 是确定性的。每个逻辑 slot 创建一个由噪声 seed 初始化的持久化 `torch.Generator`；每个规划周期先从对应 slot generator 取得新的标准正态噪声，随机 DDIM transition 再从同一 slot generator 顺序取样。batch runtime 接收每个 slot 各自的 generator，并在每个 transition 逐 slot 组织随机张量，使 batch composition 不改变其他 slot 的 RNG 消费。trace 保存未缩放的标准正态初始噪声；resolved config、作业 summary、回合 summary 和 runtime metadata 保存 sampler 名称、步数、初始尺度、stochasticity、timestep 与 parity 标签。地图 seed 与噪声 seed 必须分别记录。
 
 `runtime.seed` 必须传给 `Fabric.seed_everything`，并作为每回合噪声 generator 的 seed；地图 seed 仍由 scenario 独立指定。自动设备解析只允许 CPU 或 CUDA。`runtime.precision=auto` 在 CPU 上解析为 `32-true`，在 CUDA 上优先解析为 `bf16-mixed`，不支持 BF16 时解析为 `16-mixed`。实际设备和解析后精度必须写入产物；只有显式 `32-true` 可作为严格 FP32 数值基线。相同 seed 不保证跨设备或跨精度逐位一致。
 

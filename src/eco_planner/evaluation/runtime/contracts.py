@@ -24,7 +24,7 @@ class HostGuidanceDiagnostics:
 
 @dataclass(frozen=True)
 class HostExecutionResult:
-    """The only planner output required before advancing the simulator."""
+    """Batched ego trajectories required before advancing simulator workers."""
 
     ego_trajectory: np.ndarray
 
@@ -66,14 +66,14 @@ class HostInferenceResult:
 def copy_execution_trajectory(
     prediction: torch.Tensor, device: torch.device
 ) -> HostExecutionResult:
-    """Synchronously copy only the batch-zero ego trajectory required by MetaDrive."""
+    """Synchronously copy only the batched ego trajectories required by MetaDrive."""
 
     host = _copy_tensors_to_host(
         {"ego_trajectory": (prediction[:, 0].detach(), torch.float32)},
         device,
         synchronize=True,
     )
-    return HostExecutionResult(host["ego_trajectory"].numpy()[0])
+    return HostExecutionResult(host["ego_trajectory"].numpy())
 
 
 def defer_host_tensors(

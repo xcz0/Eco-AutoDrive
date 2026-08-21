@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -70,10 +70,36 @@ class InferenceDecision:
 
     @property
     def ego_trajectory(self) -> np.ndarray:
-        return self._execution.ego_trajectory
+        return self._execution.ego_trajectory[0]
 
     def audit_result(self) -> HostInferenceResult:
         """Wait for and return the complete artifact/replay payload."""
+
+        if self._audit is None:
+            self._audit = self._resolve_audit()
+        return self._audit
+
+
+class BatchInferenceDecision:
+    """Batched execution data plus an explicitly resolved audit result."""
+
+    def __init__(
+        self,
+        execution: HostExecutionResult,
+        resolve_audit: Callable[[], HostInferenceResult],
+    ) -> None:
+        self._execution = execution
+        self._resolve_audit = resolve_audit
+        self._audit: HostInferenceResult | None = None
+
+    @property
+    def ego_trajectories(self) -> np.ndarray:
+        """Return executable ego trajectories with shape ``[B, T, 4]``."""
+
+        return self._execution.ego_trajectory
+
+    def audit_result(self) -> HostInferenceResult:
+        """Wait for and return the complete batched artifact/replay payload."""
 
         if self._audit is None:
             self._audit = self._resolve_audit()
@@ -115,10 +141,42 @@ class FabricInferenceRuntime:
         observation: Mapping[str, torch.Tensor],
         generator: torch.Generator,
     ) -> InferenceDecision:
-        """Run one planner pass and synchronously transfer only its executable trajectory."""
+        """Run one planner pass through the shared batched inference path."""
+
+        config = self.planner_config
+        noise = torch.randn(
+            (1, 1 + config.predicted_neighbor_num, config.future_len, 4),
+            dtype=torch.float32,
+            device=self.device,
+            generator=generator,
+        )
+        batch_decision = self.infer_batch(observation, noise, (generator,))
+        return InferenceDecision(batch_decision._execution, batch_decision.audit_result)
+
+    def infer_batch(
+        self,
+        observation: Mapping[str, torch.Tensor],
+        standard_normal_noise: torch.Tensor,
+        transition_generators: Sequence[torch.Generator | None],
+    ) -> BatchInferenceDecision:
+        """Run a batch with independently owned per-slot diffusion RNG streams."""
 
         raw_observation = dict(observation)
-        _validate_artifact_observation_fields(raw_observation, self.planner_config)
+        batch = _validate_artifact_observation_fields(raw_observation, self.planner_config)
+        config = self.planner_config
+        expected_shape = (batch, 1 + config.predicted_neighbor_num, config.future_len, 4)
+        if tuple(standard_normal_noise.shape) != expected_shape:
+            raise ValueError(
+                f"standard_normal_noise has shape {tuple(standard_normal_noise.shape)}, "
+                f"expected {expected_shape}"
+            )
+        if (
+            standard_normal_noise.dtype != torch.float32
+            or standard_normal_noise.device != self.device
+        ):
+            raise TypeError("standard_normal_noise must be float32 on the runtime device")
+        if len(transition_generators) != batch:
+            raise ValueError("transition_generators must contain one generator per batch item")
 
         moved = self._fabric.to_device(raw_observation)
         if not isinstance(moved, dict) or not all(
@@ -127,23 +185,19 @@ class FabricInferenceRuntime:
         ):
             raise TypeError("Fabric must return a string-to-tensor observation mapping")
         device_observation = cast(dict[str, torch.Tensor], moved)
-        config = self.planner_config
-        noise = torch.randn(
-            (1, 1 + config.predicted_neighbor_num, config.future_len, 4),
-            dtype=torch.float32,
-            device=self.device,
-            generator=generator,
-        )
         if isinstance(self.guidance_config, NoGuidanceConfig):
             with torch.inference_mode():
-                result = self._planner(device_observation, noise, generator)
+                result = self._planner(
+                    device_observation, standard_normal_noise, transition_generators
+                )
         else:
             with torch.enable_grad():
-                result = self._planner(device_observation, noise, generator)
+                result = self._planner(
+                    device_observation, standard_normal_noise, transition_generators
+                )
         if not isinstance(result, PlannerInferenceResult):
             raise TypeError("Diffusion Planner forward must return PlannerInferenceResult")
         prediction = result.prediction.detach()
-        expected_shape = (1, 1 + config.predicted_neighbor_num, config.future_len, 4)
         if tuple(prediction.shape) != expected_shape:
             raise RuntimeError(
                 f"Diffusion Planner prediction has shape {tuple(prediction.shape)}, "
@@ -158,7 +212,7 @@ class FabricInferenceRuntime:
             self.sampler_report.num_steps,
             self.device,
         )
-        return _to_inference_decision(noise, result, self.device)
+        return _to_batch_inference_decision(standard_normal_noise, result, self.device)
 
 
 def create_fabric_inference_runtime(
@@ -258,10 +312,16 @@ def _validate_optional_guidance_result(
 def _validate_artifact_observation_fields(
     observation: Mapping[str, torch.Tensor],
     config: OfficialDiffusionPlannerConfig,
-) -> None:
+) -> int:
+    ego_current_state = observation.get("ego_current_state")
+    if not isinstance(ego_current_state, torch.Tensor) or ego_current_state.ndim < 1:
+        raise ValueError("raw observation field 'ego_current_state' must have a batch dimension")
+    batch = ego_current_state.shape[0]
+    if batch <= 0:
+        raise ValueError("raw observation batch dimension must be positive")
     extra_fields = {
-        "route_lanes_speed_limit": ((1, config.route_num, 1), torch.float32),
-        "route_lanes_has_speed_limit": ((1, config.route_num, 1), torch.bool),
+        "route_lanes_speed_limit": ((batch, config.route_num, 1), torch.float32),
+        "route_lanes_has_speed_limit": ((batch, config.route_num, 1), torch.bool),
     }
     for name, (shape, dtype) in extra_fields.items():
         value = observation.get(name)
@@ -271,13 +331,14 @@ def _validate_artifact_observation_fields(
             raise TypeError(f"raw observation field {name!r} has an invalid device or dtype")
         if dtype.is_floating_point and not torch.isfinite(value).all():
             raise ValueError(f"raw observation field {name!r} must be finite")
+    return batch
 
 
-def _to_inference_decision(
+def _to_batch_inference_decision(
     noise: torch.Tensor,
     result: PlannerInferenceResult,
     device: torch.device,
-) -> InferenceDecision:
+) -> BatchInferenceDecision:
     tensors: dict[str, tuple[torch.Tensor, torch.dtype]] = {
         "initial_noise": (noise.detach(), torch.float32),
         "prediction": (result.prediction.detach(), torch.float32),
@@ -304,7 +365,7 @@ def _to_inference_decision(
     deferred = defer_host_tensors(tensors, device)
     execution = copy_execution_trajectory(result.prediction, device)
     _validate_execution_trajectory(execution.ego_trajectory)
-    return InferenceDecision(
+    return BatchInferenceDecision(
         execution,
         lambda: _host_result_from_tensors(deferred, diagnostics is not None),
     )

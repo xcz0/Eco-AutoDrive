@@ -104,10 +104,9 @@ class _TinyPlanner(nn.Module):
         self,
         observation: dict[str, torch.Tensor],
         noise: torch.Tensor,
-        generator: torch.Generator,
+        generator: torch.Generator | tuple[torch.Generator, ...],
     ) -> PlannerInferenceResult:
         assert observation["ego_current_state"].device == self.anchor.device
-        assert generator.device == self.anchor.device
         return PlannerInferenceResult(prediction=noise * self.anchor)
 
 
@@ -152,6 +151,57 @@ def test_cpu_fabric_runtime_assembles_model_and_replays_noise(
     assert np.shares_memory(first_result.ego_trajectory, first_audit.prediction)
 
 
+@pytest.mark.parametrize("batch", [1, 2, 4, 8])
+def test_runtime_batch_inference_matches_independent_serial_slots(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    official_model_config: OfficialDiffusionPlannerConfig,
+    baseline_observation: dict[str, torch.Tensor],
+    batch: int,
+) -> None:
+    planner = _TinyPlanner(official_model_config)
+    monkeypatch.setattr(
+        runtime,
+        "load_official_diffusion_planner",
+        lambda args_path, checkpoint_path, sampler_config, guidance_config: (
+            planner,
+            CheckpointLoadReport(276, 6_042_628),
+        ),
+    )
+    fabric_runtime = runtime.create_fabric_inference_runtime(
+        _config(accelerator="cpu", precision="32-true"),
+        Dpm10SamplerConfig(),
+        NoGuidanceConfig(),
+        tmp_path,
+        tmp_path,
+    )
+    batched_observation = {
+        name: value.repeat((batch,) + (1,) * (value.ndim - 1))
+        for name, value in baseline_observation.items()
+    }
+    generators = tuple(torch.Generator().manual_seed(100 + index) for index in range(batch))
+    noise = torch.cat(
+        [
+            torch.randn(
+                (1, 11, 80, 4),
+                generator=torch.Generator().manual_seed(100 + index),
+            )
+            for index in range(batch)
+        ]
+    )
+
+    batched = fabric_runtime.infer_batch(batched_observation, noise, generators)
+
+    assert batched.ego_trajectories.shape == (batch, 80, 4)
+    np.testing.assert_array_equal(batched.ego_trajectories, noise[:, 0].numpy())
+    for index in range(batch):
+        serial = fabric_runtime.infer(
+            baseline_observation,
+            torch.Generator().manual_seed(100 + index),
+        )
+        np.testing.assert_array_equal(batched.ego_trajectories[index], serial.ego_trajectory)
+
+
 def test_cuda_execution_copy_does_not_wait_for_deferred_audit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -193,7 +243,7 @@ def test_cuda_execution_copy_does_not_wait_for_deferred_audit(
 
     assert transfer.waited_for is current
     assert synchronizations == ["current"]
-    np.testing.assert_array_equal(execution.ego_trajectory, np.ones((2, 4), dtype=np.float32))
+    np.testing.assert_array_equal(execution.ego_trajectory, np.ones((1, 2, 4), dtype=np.float32))
 
     audit = deferred.resolve()
 

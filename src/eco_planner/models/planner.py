@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -57,7 +57,7 @@ class PreparedPolicyGuidance:
     initial: torch.Tensor
     denoiser: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
     constrain: Callable[[torch.Tensor], torch.Tensor]
-    transition_generator: torch.Generator | None
+    transition_generator: torch.Generator | Sequence[torch.Generator | None] | None
     guidance_randomness: Any
     reference_prediction: torch.Tensor
     current_states: torch.Tensor
@@ -89,7 +89,7 @@ class PretrainedDiffusionPlanner(nn.Module):
         self,
         observation: Mapping[str, torch.Tensor],
         standard_normal_noise: torch.Tensor,
-        transition_generator: torch.Generator | None = None,
+        transition_generator: torch.Generator | Sequence[torch.Generator | None] | None = None,
         guidance_action: torch.Tensor | None = None,
     ) -> PlannerInferenceResult:
         """Generate the reference trajectory and, when configured, a guided trajectory."""
@@ -129,6 +129,7 @@ class PretrainedDiffusionPlanner(nn.Module):
                 self.guidance_config,
                 (OrthogonalReferenceGuidanceConfig, OrthogonalPolicyGuidanceConfig),
             )
+            or isinstance(transition_generator, Sequence)
             else None
         )
         normalized_sample = self._sampler.sample(
@@ -156,7 +157,7 @@ class PretrainedDiffusionPlanner(nn.Module):
         self,
         observation: Mapping[str, torch.Tensor],
         standard_normal_noise: torch.Tensor,
-        transition_generator: torch.Generator | None,
+        transition_generator: torch.Generator | Sequence[torch.Generator | None] | None,
     ) -> PreparedPolicyGuidance:
         """Prepare one shared-encoding reference pass for a learned guidance action."""
 
@@ -250,7 +251,7 @@ class PretrainedDiffusionPlanner(nn.Module):
         initial: torch.Tensor,
         denoiser: Any,
         constrain: Any,
-        transition_generator: torch.Generator | None,
+        transition_generator: torch.Generator | Sequence[torch.Generator | None] | None,
         guidance_randomness: Any,
         reference_prediction: torch.Tensor,
         current_states: torch.Tensor,

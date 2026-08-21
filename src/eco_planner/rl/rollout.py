@@ -104,11 +104,12 @@ def build_training_decision(
         "navigation_padding_mask": policy_context.navigation_padding_mask,
         "reference_trajectory": policy_context.reference_trajectory,
         "guidance_action": guidance_action,
-        "old_joint_guidance_log_prob": old_joint_guidance_log_prob.reshape(1, 1),
-        "state_value": state_value.reshape(1, 1),
+        "old_joint_guidance_log_prob": old_joint_guidance_log_prob.reshape(-1, 1),
+        "state_value": state_value.reshape(-1, 1),
     }
+    batch = policy_context.reference_trajectory.shape[0]
     return TensorDict(
-        {key: value.detach().clone() for key, value in values.items()}, batch_size=[1]
+        {key: value.detach().clone() for key, value in values.items()}, batch_size=[batch]
     )
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,9 +30,15 @@ from eco_planner.models import (
     sampler_report,
 )
 from eco_planner.rl.config import ExplorationPolicyConfig
+from eco_planner.rl.distributions import (
+    AffineBetaAction,
+    AffineBetaParameters,
+    ExplicitGeneratorBetaSampler,
+)
 from eco_planner.rl.policy import (
     ExplorationPolicy,
     ExplorationPolicyContext,
+    ExplorationPolicyOutput,
     validate_exploration_policy_context,
 )
 from eco_planner.rl.rollout import build_training_decision
@@ -81,7 +87,7 @@ class RolloutDecision:
 
     @property
     def ego_trajectory(self) -> np.ndarray:
-        return self._execution.ego_trajectory
+        return self._execution.ego_trajectory[0]
 
     @property
     def training_decision(self) -> TensorDictBase:
@@ -117,6 +123,75 @@ class RolloutDecision:
                 policy_rng_state=self._policy_rng_state,
             )
         return self._audit
+
+
+class BatchRolloutDecision:
+    """Batched policy-guided inference results for fixed vector-rollout slots."""
+
+    def __init__(
+        self,
+        execution: HostExecutionResult,
+        deferred: DeferredHostTensors,
+        diffusion_rng_states: tuple[torch.Tensor, ...],
+        policy_rng_states: tuple[torch.Tensor, ...],
+        policy_config: ExplorationPolicyConfig,
+        training_decision: TensorDictBase,
+    ) -> None:
+        self._execution = execution
+        self._deferred = deferred
+        self._diffusion_rng_states = diffusion_rng_states
+        self._policy_rng_states = policy_rng_states
+        self._policy_config = policy_config
+        self._training_decision = training_decision
+        self._audit: dict[str, torch.Tensor] | None = None
+
+    @property
+    def ego_trajectories(self) -> np.ndarray:
+        """Return executable trajectories with shape ``[B, T, 4]``."""
+
+        return self._execution.ego_trajectory
+
+    @property
+    def training_decision(self) -> TensorDictBase:
+        """Return batched PPO inputs without waiting for the audit transfer."""
+
+        return self._training_decision
+
+    def slot(self, index: int) -> RolloutDecision:
+        """Adapt one batch slot to the existing serial collector contract."""
+
+        batch = self.ego_trajectories.shape[0]
+        if not 0 <= index < batch:
+            raise IndexError(f"batch slot {index} is outside [0, {batch})")
+        return RolloutDecision(
+            HostExecutionResult(self.ego_trajectories[index : index + 1]),
+            _SlotDeferredHostTensors(self, index),
+            diffusion_rng_state=self._diffusion_rng_states[index],
+            policy_rng_state=self._policy_rng_states[index],
+            policy_config=self._policy_config,
+            training_decision=_training_decision_slot(self._training_decision, index),
+        )
+
+    def _resolve_audit(self) -> dict[str, torch.Tensor]:
+        if self._audit is None:
+            host = self._deferred.resolve()
+            _validate_finite(host)
+            self._audit = host
+        return self._audit
+
+
+class _SlotDeferredHostTensors:
+    """Expose one already-batched deferred host payload as a serial decision payload."""
+
+    def __init__(self, batch: BatchRolloutDecision, index: int) -> None:
+        self._batch = batch
+        self._index = index
+
+    def resolve(self) -> dict[str, torch.Tensor]:
+        return {
+            name: value[self._index : self._index + 1]
+            for name, value in self._batch._resolve_audit().items()
+        }
 
 
 class FabricRolloutRuntime:
@@ -193,23 +268,35 @@ class FabricRolloutRuntime:
         diffusion_generator: torch.Generator,
         policy_generator: torch.Generator,
     ) -> RolloutDecision:
-        """Sample one action and defer replay storage until after trajectory execution."""
+        """Sample one action through the shared batched runtime path."""
+
+        return self.decide_batch(
+            observation,
+            (diffusion_generator,),
+            (policy_generator,),
+        ).slot(0)
+
+    def decide_batch(
+        self,
+        observation: Mapping[str, torch.Tensor],
+        diffusion_generators: Sequence[torch.Generator],
+        policy_generators: Sequence[torch.Generator],
+    ) -> BatchRolloutDecision:
+        """Sample batched guidance actions with one independent RNG stream per slot."""
 
         raw_observation = dict(observation)
+        batch = _observation_batch_size(raw_observation)
+        _validate_slot_generators(diffusion_generators, batch, "diffusion_generators")
+        _validate_slot_generators(policy_generators, batch, "policy_generators")
         planner_config = self._planner.config
         moved = self._fabric.to_device(raw_observation)
         if not isinstance(moved, dict):
             raise TypeError("Fabric must move rollout observations as a dictionary")
-        diffusion_rng_state = diffusion_generator.get_state().detach().cpu().clone()
-        policy_rng_state = policy_generator.get_state().detach().cpu().clone()
-        noise = torch.randn(
-            (1, 1 + planner_config.predicted_neighbor_num, planner_config.future_len, 4),
-            dtype=torch.float32,
-            device=self.device,
-            generator=diffusion_generator,
-        )
+        diffusion_rng_states = tuple(_rng_state(generator) for generator in diffusion_generators)
+        policy_rng_states = tuple(_rng_state(generator) for generator in policy_generators)
+        noise = _slot_noise(planner_config, self.device, diffusion_generators)
         with torch.no_grad():
-            prepared = self._planner.prepare_policy_guidance(moved, noise, diffusion_generator)
+            prepared = self._planner.prepare_policy_guidance(moved, noise, diffusion_generators)
             policy_context = ExplorationPolicyContext(
                 scene_tokens=prepared.policy_context.scene_tokens,
                 scene_padding_mask=prepared.policy_context.scene_padding_mask,
@@ -217,7 +304,8 @@ class FabricRolloutRuntime:
                 navigation_padding_mask=prepared.policy_context.navigation_padding_mask,
                 reference_trajectory=prepared.policy_context.reference_trajectory,
             )
-            output, action = self._policy.act(policy_context, "rsample", policy_generator)
+            output = self._policy(policy_context)
+            action = _sample_policy_actions(output, policy_generators)
         with torch.enable_grad():
             result = self._planner.complete_policy_guidance(prepared, action.guidance_action)
         if result.guidance_action is None:
@@ -249,11 +337,11 @@ class FabricRolloutRuntime:
         )
         execution = copy_execution_trajectory(result.prediction, self.device)
         _validate_execution_trajectory(execution.ego_trajectory)
-        return RolloutDecision(
+        return BatchRolloutDecision(
             execution,
             deferred,
-            diffusion_rng_state=diffusion_rng_state,
-            policy_rng_state=policy_rng_state,
+            diffusion_rng_states=diffusion_rng_states,
+            policy_rng_states=policy_rng_states,
             policy_config=self._policy.config,
             training_decision=training_decision,
         )
@@ -263,21 +351,26 @@ class FabricRolloutRuntime:
         observation: Mapping[str, torch.Tensor],
         diffusion_generator: torch.Generator,
     ) -> torch.Tensor:
-        """Evaluate the old critic on a tail state without sampling or executing an action."""
+        """Evaluate one old critic value through the shared batched runtime path."""
+
+        return self.bootstrap_value_batch(observation, (diffusion_generator,))
+
+    def bootstrap_value_batch(
+        self,
+        observation: Mapping[str, torch.Tensor],
+        diffusion_generators: Sequence[torch.Generator],
+    ) -> torch.Tensor:
+        """Evaluate old critic values for a batch without sampling or executing actions."""
 
         raw_observation = dict(observation)
-        planner_config = self._planner.config
+        batch = _observation_batch_size(raw_observation)
+        _validate_slot_generators(diffusion_generators, batch, "diffusion_generators")
         moved = self._fabric.to_device(raw_observation)
         if not isinstance(moved, dict):
             raise TypeError("Fabric must move rollout observations as a dictionary")
-        noise = torch.randn(
-            (1, 1 + planner_config.predicted_neighbor_num, planner_config.future_len, 4),
-            dtype=torch.float32,
-            device=self.device,
-            generator=diffusion_generator,
-        )
+        noise = _slot_noise(self._planner.config, self.device, diffusion_generators)
         with torch.no_grad():
-            prepared = self._planner.prepare_policy_guidance(moved, noise, diffusion_generator)
+            prepared = self._planner.prepare_policy_guidance(moved, noise, diffusion_generators)
             context = ExplorationPolicyContext(
                 scene_tokens=prepared.policy_context.scene_tokens,
                 scene_padding_mask=prepared.policy_context.scene_padding_mask,
@@ -364,6 +457,76 @@ def _validate_rollout_context(
     context: ExplorationPolicyContext, config: ExplorationPolicyConfig
 ) -> None:
     validate_exploration_policy_context(context, config)
+
+
+def _observation_batch_size(observation: Mapping[str, torch.Tensor]) -> int:
+    value = observation.get("ego_current_state")
+    if not isinstance(value, torch.Tensor) or value.ndim < 1 or value.shape[0] <= 0:
+        raise ValueError(
+            "rollout observation must have a positive ego_current_state batch dimension"
+        )
+    return value.shape[0]
+
+
+def _validate_slot_generators(generators: Sequence[torch.Generator], batch: int, name: str) -> None:
+    if len(generators) != batch:
+        raise ValueError(f"{name} must contain one generator per batch item")
+    if any(not isinstance(generator, torch.Generator) for generator in generators):
+        raise TypeError(f"{name} must contain only torch.Generator values")
+
+
+def _slot_noise(
+    config: OfficialDiffusionPlannerConfig,
+    device: torch.device,
+    generators: Sequence[torch.Generator],
+) -> torch.Tensor:
+    shape = (1, 1 + config.predicted_neighbor_num, config.future_len, 4)
+    return torch.cat(
+        [
+            torch.randn(shape, dtype=torch.float32, device=device, generator=generator)
+            for generator in generators
+        ]
+    )
+
+
+def _sample_policy_actions(
+    output: ExplorationPolicyOutput, generators: Sequence[torch.Generator]
+) -> AffineBetaAction:
+    parameters = output.distribution.parameters
+    base_action = torch.cat(
+        [
+            ExplicitGeneratorBetaSampler.draw(
+                AffineBetaParameters(
+                    alpha=parameters.alpha[index : index + 1],
+                    beta=parameters.beta[index : index + 1],
+                ),
+                generator,
+                validate_args=False,
+            )
+            for index, generator in enumerate(generators)
+        ]
+    )
+    return output.distribution.evaluate_base_action(base_action)
+
+
+def _rng_state(generator: torch.Generator) -> torch.Tensor:
+    return generator.get_state().detach().cpu().clone()
+
+
+def _training_decision_slot(decision: TensorDictBase, index: int) -> TensorDictBase:
+    context = ExplorationPolicyContext(
+        scene_tokens=decision["scene_tokens"][index : index + 1],
+        scene_padding_mask=decision["scene_padding_mask"][index : index + 1],
+        navigation_tokens=decision["navigation_tokens"][index : index + 1],
+        navigation_padding_mask=decision["navigation_padding_mask"][index : index + 1],
+        reference_trajectory=decision["reference_trajectory"][index : index + 1],
+    )
+    return build_training_decision(
+        context,
+        decision["guidance_action"][index : index + 1],
+        decision["old_joint_guidance_log_prob"][index],
+        decision["state_value"][index],
+    )
 
 
 def _seed(value: int, name: str) -> int:

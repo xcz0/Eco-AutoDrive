@@ -148,7 +148,7 @@ class FakeRuntime:
             initial_noise=noise.numpy(),
             prediction=prediction.numpy(),
         )
-        return InferenceDecision(HostExecutionResult(audit.ego_trajectory), lambda: audit)
+        return InferenceDecision(HostExecutionResult(audit.ego_trajectory[None]), lambda: audit)
 
 
 @pytest.fixture
