@@ -40,7 +40,7 @@ Hydra/OmegaConf 只存在于 CLI 配置边界。入口必须通过 `parse_evalua
 
 仿真真实状态、模型观测、模型预测和能耗记录必须分别保存。模型预测不得覆盖仿真状态，不同能耗指标不得静默互换或混合累计。业务代码不得从 `ref/` 导入运行时实现。
 
-推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。单设备是运行时代码契约，不得在同一评测作业内启动多进程闭环。
+推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。`VectorMetaDriveEnv` 是独立的 CPU process-level 环境层：每个固定 slot 在一个 `spawn` worker 内持有一个 `TrajectoryMetaDriveEnv`、observation adapter、traffic history 和 map cache，主进程只传入 scenario/`float32 [80,4]` trajectory，并取回单 observation、reward、termination 和 `TrajectoryExecutionRecord`。worker 不加载 planner 或 CUDA state；每轮同步 dispatch 的环境、observation build 与 IPC send/receive 时间随结果返回。该层目前尚未接入 evaluation 或 PPO collector，后两者仍使用串行入口。
 
 raw observation 在 CPU 边界按当前 observation/trace 契约的 shape、dtype 和有限性完整校验并原值写入 trace；Fabric 设备副本只供计算使用，可按 resolved mixed precision 转为 FP16/BF16。batch runtime 每个规划周期只同步把 ego execution trajectories `[B,T,4]` 转为执行所需的 host `float32`；串行 evaluation 与 rollout 入口从该 batch result 取其唯一 slot。完整 prediction、初始噪声、reference 与 guidance diagnostics 则在独立 CUDA transfer stream 排队，并由 artifact/replay 调用方在 simulator step 后显式取得 audit result、转为 trace 约定 dtype 后检查有限性。
 
@@ -112,6 +112,8 @@ MetaDrive adapters produce one CPU `SingleObservation` without a planner batch d
 paths use this collator; it contains no MetaDrive, planner, or device-placement logic.
 
 `MetaDriveObservationAdapter` 使用 reset 帧和连续 0.1 s 交通快照构造严格的 21 帧历史。每个快照必须在仿真观测时刻捕获为不可变值；捕获边界校验 MetaDrive 参与者类型、位置、heading、速度和尺寸，内部编码链路直接消费已捕获的明确类型。批量追加历史只校验时间连续性，并在整批确认后一次性提交，失败时历史保持不变。
+
+`VectorMetaDriveEnv.reset` 在 worker 内完成相同的 adapter reset 和 history warmup，再返回单 observation；`reset_at` 和 `step_at` 只影响指定 slot。slot 的 scenario map 必须与该 worker 的环境配置一致，不会通过重建或重配其他 worker 隐式切换地图；worker 异常携带 slot 和 operation 回到主进程并使该 vector run 失败。
 
 当前帧查询半径内的对象按距离和 ID 排序。历史对象缺帧时使用从当前帧向过去保持最近可用状态的官方填充语义；当前帧不存在的对象不得被选入。首次交通推理前，当前实现固定 ego 并推进背景交通 20 个 0.1 s 子步，连同 reset 帧形成 21 帧历史。该预热不计入正式指标，必须保存状态、奖励、终止标志及动态/静态对象数量；ego 位移达到 `1e-3 m` 或预热提前结束时必须失败。
 

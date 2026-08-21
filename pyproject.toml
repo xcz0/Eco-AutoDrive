@@ -23,8 +23,8 @@ dependencies = [
     "shapely",
     "timm",
     "torch==2.12.1",
-    "tensordict",
-    "torchrl",
+    "tensordict==0.13.0",
+    "torchrl==0.13.3",
 ]
 
 [dependency-groups]
