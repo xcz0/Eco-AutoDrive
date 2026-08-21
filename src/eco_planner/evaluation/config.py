@@ -47,6 +47,7 @@ class RuntimeConfig(_StrictModel):
 
 class ExecutionConfig(_StrictModel):
     mode: Literal["serial", "parallel"]
+    vector_env_slots: StrictInt | None
     torch_threads_per_worker: StrictInt | None = Field(default=None, gt=0)
     deterministic: StrictBool
 
@@ -126,8 +127,16 @@ class EvaluationJobConfig(_StrictModel):
                 raise ValueError("no-traffic evaluation requires zero history warmup steps")
         else:
             self._validate_traffic_environment()
-        if evaluation.execution.mode == "parallel" and self.video.enabled:
+        execution = evaluation.execution
+        if execution.mode == "parallel" and self.video.enabled:
             raise ValueError("parallel execution requires video.enabled=false")
+        if execution.vector_env_slots is not None:
+            if execution.vector_env_slots <= 0:
+                raise ValueError("vector_env_slots must be positive when configured")
+            if execution.mode != "serial":
+                raise ValueError("vector evaluation requires execution.mode=serial")
+            if self.video.enabled:
+                raise ValueError("vector evaluation requires video.enabled=false")
         return self
 
     def _validate_traffic_environment(self) -> None:

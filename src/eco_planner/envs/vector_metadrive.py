@@ -19,6 +19,7 @@ from eco_planner.envs.metadrive_env import TrajectoryMetaDriveEnv
 from eco_planner.envs.observation_adapter import (
     MetaDriveObservationAdapter,
     NoTrafficMetaDriveObservationAdapter,
+    TrafficObservationAudit,
 )
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 from eco_planner.vector_worker_entry import worker_main
@@ -53,6 +54,11 @@ class VectorEnvReset:
     scenario: VectorEnvScenario
     observation: SingleObservation
     route_completion: float
+    route_length_m: float
+    warmup_initial_state: np.ndarray
+    initial_state: np.ndarray
+    warmup_executions: tuple[TrajectoryExecutionRecord, ...]
+    traffic_audit: TrafficObservationAudit | None
     programmatic_lane_speed_limit_audit: Mapping[str, object]
     timing: VectorEnvTiming
 
@@ -67,6 +73,7 @@ class VectorEnvStep:
     terminated: bool
     truncated: bool
     execution: TrajectoryExecutionRecord
+    traffic_audit: TrafficObservationAudit | None
     timing: VectorEnvTiming
 
 
@@ -112,6 +119,11 @@ class _WorkerResetPayload:
     scenario: VectorEnvScenario
     observation: SingleObservation
     route_completion: float
+    route_length_m: float
+    warmup_initial_state: np.ndarray
+    initial_state: np.ndarray
+    warmup_executions: tuple[TrajectoryExecutionRecord, ...]
+    traffic_audit: TrafficObservationAudit | None
     programmatic_lane_speed_limit_audit: Mapping[str, object]
 
 
@@ -122,6 +134,7 @@ class _WorkerStepPayload:
     terminated: bool
     truncated: bool
     execution: TrajectoryExecutionRecord
+    traffic_audit: TrafficObservationAudit | None
 
 
 class VectorMetaDriveWorkerError(RuntimeError):
@@ -208,9 +221,20 @@ class VectorMetaDriveEnv:
     def step(self, trajectories: Sequence[np.ndarray]) -> tuple[VectorEnvStep, ...]:
         """Step every slot once with its corresponding ego-local trajectory."""
 
-        if len(trajectories) != self.num_envs:
-            raise ValueError(f"expected {self.num_envs} trajectories, got {len(trajectories)}")
         slots = tuple(range(self.num_envs))
+        return self.step_slots(slots, trajectories)
+
+    def step_slots(
+        self, slots: Sequence[int], trajectories: Sequence[np.ndarray]
+    ) -> tuple[VectorEnvStep, ...]:
+        """Step a non-empty subset of active slots concurrently."""
+
+        if not slots or len(slots) != len(trajectories):
+            raise ValueError("step_slots requires equally sized non-empty slots and trajectories")
+        if len(set(slots)) != len(slots):
+            raise ValueError("step_slots must not repeat a slot")
+        for slot in slots:
+            self._validate_slot(slot)
         return tuple(
             self._step_result(item)
             for item in self._receive("step", slots, self._send("step", slots, trajectories))
@@ -320,6 +344,11 @@ class VectorMetaDriveEnv:
             scenario=payload.scenario,
             observation=payload.observation,
             route_completion=payload.route_completion,
+            route_length_m=payload.route_length_m,
+            warmup_initial_state=payload.warmup_initial_state,
+            initial_state=payload.initial_state,
+            warmup_executions=payload.warmup_executions,
+            traffic_audit=payload.traffic_audit,
             programmatic_lane_speed_limit_audit=payload.programmatic_lane_speed_limit_audit,
             timing=VectorEnvTiming(
                 response.timing.environment_s,
@@ -344,6 +373,7 @@ class VectorMetaDriveEnv:
             terminated=payload.terminated,
             truncated=payload.truncated,
             execution=payload.execution,
+            traffic_audit=payload.traffic_audit,
             timing=VectorEnvTiming(
                 response.timing.environment_s,
                 response.timing.observation_s,
@@ -432,20 +462,28 @@ def _reset_worker(
         )
     started = perf_counter()
     env.reset(seed=scenario.seed)
+    warmup_initial_state = _vehicle_state(env)
+    warmup_executions: tuple[TrajectoryExecutionRecord, ...]
     if isinstance(adapter, MetaDriveObservationAdapter):
         adapter.reset(env, env.initial_traffic_frame)
-        _warmup_traffic(env, adapter, launch.history_warmup_steps)
+        warmup_executions = _warmup_traffic(env, adapter, launch.history_warmup_steps)
     else:
         adapter.reset(env)
+        warmup_executions = ()
     environment_s = perf_counter() - started
     observation_started = perf_counter()
-    observation = _build_observation(adapter, env)
+    observation, traffic_audit = _build_observation(adapter, env)
     return _WorkerResponse(
         launch.slot,
         _WorkerResetPayload(
             scenario,
             observation,
             env.route_completion,
+            _route_length_m(env),
+            warmup_initial_state,
+            _vehicle_state(env),
+            warmup_executions,
+            traffic_audit,
             env.programmatic_lane_speed_limit_audit,
         ),
         _WorkerTiming(environment_s, perf_counter() - observation_started),
@@ -467,14 +505,16 @@ def _step_worker(
         adapter.append_frames(execution.traffic_frames)
     environment_s = perf_counter() - started
     observation_started = perf_counter()
+    observation, traffic_audit = _build_observation(adapter, env)
     return _WorkerResponse(
         slot,
         _WorkerStepPayload(
-            _build_observation(adapter, env),
+            observation,
             float(reward),
             bool(terminated),
             bool(truncated),
             execution,
+            traffic_audit,
         ),
         _WorkerTiming(environment_s, perf_counter() - observation_started),
     )
@@ -483,17 +523,17 @@ def _step_worker(
 def _build_observation(
     adapter: MetaDriveObservationAdapter | NoTrafficMetaDriveObservationAdapter,
     env: TrajectoryMetaDriveEnv,
-) -> SingleObservation:
+) -> tuple[SingleObservation, TrafficObservationAudit | None]:
     if isinstance(adapter, MetaDriveObservationAdapter):
-        observation, _ = adapter.build(env)
-        return observation
-    return adapter.build(env)
+        return adapter.build(env)
+    return adapter.build(env), None
 
 
 def _warmup_traffic(
     env: TrajectoryMetaDriveEnv, adapter: MetaDriveObservationAdapter, required_steps: int
-) -> None:
+) -> tuple[TrajectoryExecutionRecord, ...]:
     collected = 0
+    executions: list[TrajectoryExecutionRecord] = []
     initial_position = np.asarray(env.agent.position, dtype=np.float64).copy()
     while collected < required_steps:
         _, _, terminated, truncated, info = env.step(_stationary_trajectory())
@@ -508,9 +548,46 @@ def _warmup_traffic(
         ):
             raise RuntimeError("ego moved during stationary traffic history warmup")
         adapter.append_frames(execution.traffic_frames)
+        executions.append(execution)
         collected += execution.substep_states.shape[0]
     if collected != required_steps:
         raise RuntimeError("traffic history warmup overshot the required frame count")
+    return tuple(executions)
+
+
+def _vehicle_state(env: TrajectoryMetaDriveEnv) -> np.ndarray:
+    velocity = np.asarray(env.agent.velocity, dtype=np.float64)
+    return np.array(
+        [
+            *np.asarray(env.agent.position, dtype=np.float64),
+            float(env.agent.heading_theta),
+            *velocity,
+            float(env.agent.speed),
+            0.0,
+        ],
+        dtype=np.float64,
+    )
+
+
+def _route_length_m(env: TrajectoryMetaDriveEnv) -> float:
+    checkpoints = list(env.agent.navigation.checkpoints)
+    if len(checkpoints) < 2:
+        raise RuntimeError("MetaDrive navigation did not expose a complete route")
+    graph = env.current_map.road_network.graph
+    lengths: list[float] = []
+    for start, end in zip(checkpoints[:-1], checkpoints[1:], strict=True):
+        lanes = graph.get(start, {}).get(end, [])
+        if not lanes:
+            raise RuntimeError(f"route edge {(start, end)!r} has no lane")
+        length = getattr(lanes[0], "length", None)
+        if isinstance(length, (bool, np.bool_)) or not isinstance(
+            length, (int, float, np.integer, np.floating)
+        ):
+            raise RuntimeError(f"route edge {(start, end)!r} has an invalid length")
+        if not np.isfinite(length) or float(length) <= 0.0:
+            raise RuntimeError(f"route edge {(start, end)!r} has an invalid length")
+        lengths.append(float(length))
+    return float(sum(lengths))
 
 
 def _stationary_trajectory() -> np.ndarray:

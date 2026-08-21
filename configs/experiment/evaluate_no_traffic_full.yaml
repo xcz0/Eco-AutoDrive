@@ -19,6 +19,7 @@ evaluation:
   evaluated_horizon_steps: 200
   execution:
     mode: serial
+    vector_env_slots: null
     torch_threads_per_worker: null
     deterministic: false
 

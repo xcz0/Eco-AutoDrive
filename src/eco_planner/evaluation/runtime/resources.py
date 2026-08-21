@@ -18,6 +18,7 @@ class ExecutionReport:
     mode: str
     launcher: str
     worker_count: int
+    vector_env_slots: int | None
     torch_threads_per_worker: int | None
     deterministic: bool
     resolved_accelerator: str
@@ -62,6 +63,7 @@ def configure_job_execution(config: EvaluationJobConfig) -> ExecutionReport:
         mode=str(mode),
         launcher=launcher,
         worker_count=workers,
+        vector_env_slots=execution.vector_env_slots,
         torch_threads_per_worker=threads,
         deterministic=execution.deterministic,
         resolved_accelerator=settings.resolved_accelerator,

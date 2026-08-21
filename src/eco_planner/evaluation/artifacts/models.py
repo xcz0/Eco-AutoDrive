@@ -113,6 +113,7 @@ class ExecutionSummary(ArtifactModel):
     mode: Literal["serial", "parallel"]
     launcher: Literal["basic", "joblib"]
     worker_count: StrictInt = Field(gt=0)
+    vector_env_slots: StrictInt | None = Field(default=None, gt=0)
     torch_threads_per_worker: StrictInt | None = Field(default=None, gt=0)
     deterministic: StrictBool
     resolved_accelerator: Literal["cpu", "cuda"]

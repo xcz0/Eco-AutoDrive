@@ -34,6 +34,7 @@ def _config(*, accelerator: str = "cpu", video: bool = False, threads: int = 2):
                 "evaluated_horizon_steps": 5,
                 "execution": {
                     "mode": "parallel",
+                    "vector_env_slots": None,
                     "torch_threads_per_worker": threads,
                     "deterministic": True,
                 },

@@ -19,6 +19,7 @@ def _config() -> object:
                 "evaluated_horizon_steps": 5,
                 "execution": {
                     "mode": "serial",
+                    "vector_env_slots": None,
                     "torch_threads_per_worker": None,
                     "deterministic": False,
                 },
@@ -87,4 +88,41 @@ def test_parse_evaluation_config_rejects_cross_boundary_mismatch(mutate) -> None
     mutate(config)
 
     with pytest.raises(ValueError, match="env.horizon"):
+        parse_evaluation_config(config)
+
+
+def test_parse_evaluation_config_accepts_explicit_vector_slots() -> None:
+    config = _config()
+    config.evaluation.execution.vector_env_slots = 2
+
+    parsed = parse_evaluation_config(config)
+
+    assert parsed.evaluation.execution.vector_env_slots == 2
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda config: setattr(config.evaluation.execution, "vector_env_slots", 0), "positive"),
+        (
+            lambda config: (
+                setattr(config.evaluation.execution, "vector_env_slots", 2),
+                setattr(config.evaluation.execution, "mode", "parallel"),
+            ),
+            "mode=serial",
+        ),
+        (
+            lambda config: (
+                setattr(config.evaluation.execution, "vector_env_slots", 2),
+                setattr(config.video, "enabled", True),
+            ),
+            "video.enabled=false",
+        ),
+    ],
+)
+def test_parse_evaluation_config_rejects_invalid_vector_combinations(mutate, message: str) -> None:
+    config = _config()
+    mutate(config)
+
+    with pytest.raises(ValueError, match=message):
         parse_evaluation_config(config)

@@ -14,7 +14,11 @@ from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation import episode
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
 from eco_planner.evaluation.runtime.contracts import HostExecutionResult, HostInferenceResult
-from eco_planner.evaluation.runtime.engine import InferenceDecision, InferenceRuntimeReport
+from eco_planner.evaluation.runtime.engine import (
+    BatchInferenceDecision,
+    InferenceDecision,
+    InferenceRuntimeReport,
+)
 from eco_planner.models import CheckpointLoadReport, NoGuidanceConfig, SamplerReport
 
 
@@ -139,6 +143,10 @@ class FakeRuntime:
     def new_noise_generator(self) -> torch.Generator:
         return torch.Generator(device="cpu").manual_seed(self.report.seed)
 
+    @property
+    def device(self) -> torch.device:
+        return torch.device("cpu")
+
     def infer(
         self, observation: dict[str, torch.Tensor], generator: torch.Generator
     ) -> InferenceDecision:
@@ -150,6 +158,18 @@ class FakeRuntime:
             prediction=prediction.numpy(),
         )
         return InferenceDecision(HostExecutionResult(audit.ego_trajectory[None]), lambda: audit)
+
+    def infer_batch(
+        self,
+        observation: dict[str, torch.Tensor],
+        noise: torch.Tensor,
+        generators: tuple[torch.Generator, ...],
+    ) -> BatchInferenceDecision:
+        assert observation["ego_current_state"].shape[0] == noise.shape[0] == len(generators)
+        prediction = torch.zeros_like(noise)
+        prediction[..., 2] = 1.0
+        audit = HostInferenceResult(initial_noise=noise.numpy(), prediction=prediction.numpy())
+        return BatchInferenceDecision(HostExecutionResult(audit.prediction[:, 0]), lambda: audit)
 
 
 @pytest.fixture
@@ -164,6 +184,7 @@ def evaluation_config() -> object:
                 "evaluated_horizon_steps": 10,
                 "execution": {
                     "mode": "serial",
+                    "vector_env_slots": None,
                     "torch_threads_per_worker": None,
                     "deterministic": False,
                 },

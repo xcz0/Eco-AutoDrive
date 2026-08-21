@@ -5,7 +5,7 @@ import json
 import numpy as np
 import pytest
 
-from eco_planner.evaluation import runner
+from eco_planner.evaluation import episode, runner
 from eco_planner.evaluation.artifacts.models import FailurePhase
 from eco_planner.evaluation.config import parse_evaluation_config
 from eco_planner.evaluation.failures import EpisodeFailure
@@ -72,6 +72,30 @@ def test_run_evaluation_persists_episode_failure_and_continues(
     assert failure.termination.model_dump() == {"type": "runtime_error", "detail": "reset"}
     with np.load(tmp_path / "failed" / "trace.npz") as trace:
         assert trace["trace_status"].item() == "empty"
+
+
+def test_run_evaluation_selects_vector_runner_when_slots_are_configured(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    evaluation_config: object,
+    fake_runtime: object,
+    patch_episode_dependencies,
+) -> None:
+    evaluation_config.evaluation.execution.vector_env_slots = 1  # type: ignore[attr-defined]
+    patch_episode_dependencies()
+    _patch_runtime(monkeypatch, fake_runtime)
+    calls: list[tuple[str, ...]] = []
+
+    def vector_runner(specs, runtime, config, output_dir):
+        calls.append(tuple(spec.name for spec in specs))
+        return tuple(episode.run_scenario(spec, runtime, config, output_dir) for spec in specs)
+
+    monkeypatch.setattr(runner, "run_vector_scenarios", vector_runner)
+
+    summary = runner.run_evaluation(parse_evaluation_config(evaluation_config), tmp_path)
+
+    assert summary.status == "completed"
+    assert calls == [("fake",)]
 
 
 def test_run_evaluation_propagates_unclassified_errors(

@@ -40,7 +40,7 @@ Hydra/OmegaConf 只存在于 CLI 配置边界。入口必须通过 `parse_evalua
 
 仿真真实状态、模型观测、模型预测和能耗记录必须分别保存。模型预测不得覆盖仿真状态，不同能耗指标不得静默互换或混合累计。业务代码不得从 `ref/` 导入运行时实现。
 
-推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。普通 evaluation 保持单环境串行；`VectorMetaDriveEnv` 是独立的 CPU process-level 环境层，每个固定 slot 在一个 `spawn` worker 内持有一个 `TrajectoryMetaDriveEnv`、observation adapter、traffic history 和 map cache。主进程只传入 scenario/`float32 [80,4]` trajectory，并取回单 observation、reward、termination、`TrajectoryExecutionRecord` 与 env/observation/IPC timing；worker 不加载 planner 或 CUDA state。
+推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。普通 evaluation 在 `evaluation.execution.vector_env_slots=null` 时保持单环境串行；设置正 slot 数时，同一 evaluation job 用 `VectorMetaDriveEnv` 以固定 slots 同时推进 scenario，并由同一主进程 planner runtime 做 batch inference。每个 slot 在独立 `spawn` worker 内持有一个 `TrajectoryMetaDriveEnv`、observation adapter、traffic history 和 map cache。主进程只传入 scenario/`float32 [80,4]` trajectory，并取回单 observation、reward、termination、`TrajectoryExecutionRecord`、trace 所需的 planning anchor/traffic audit/warmup record 与 env/observation/IPC timing；worker 不加载 planner 或 CUDA state。vector evaluation 必须使用 `execution.mode=serial`、关闭 video，因而不与 Joblib job-level parallelism 嵌套。
 
 raw observation 在 CPU 边界按当前 observation/trace 契约的 shape、dtype 和有限性完整校验并原值写入 trace；Fabric 设备副本只供计算使用，可按 resolved mixed precision 转为 FP16/BF16。batch runtime 每个规划周期只同步把 ego execution trajectories `[B,T,4]` 转为执行所需的 host `float32`；串行 evaluation 与 rollout 入口从该 batch result 取其唯一 slot。完整 prediction、初始噪声、reference 与 guidance diagnostics 则在独立 CUDA transfer stream 排队，并由 artifact/replay 调用方在 simulator step 后显式取得 audit result、转为 trace 约定 dtype 后检查有限性。
 

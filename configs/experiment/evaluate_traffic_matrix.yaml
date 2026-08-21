@@ -13,6 +13,7 @@ evaluation:
     traffic_densities: [0.05, 0.10]
   execution:
     mode: parallel
+    vector_env_slots: null
     torch_threads_per_worker: 8
     deterministic: true
 

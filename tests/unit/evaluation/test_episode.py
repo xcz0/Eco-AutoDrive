@@ -6,7 +6,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from eco_planner.envs import TrajectoryExecutionRecord
+from eco_planner.envs import (
+    TrajectoryExecutionRecord,
+    VectorEnvReset,
+    VectorEnvScenario,
+    VectorEnvStep,
+    VectorEnvTiming,
+)
 from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation import episode
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
@@ -40,6 +46,92 @@ def test_run_scenario_replans_and_persists_trace(
     with zipfile.ZipFile(tmp_path / "fake" / "trace.npz") as archive:
         assert {entry.compress_type for entry in archive.infolist()} == {zipfile.ZIP_STORED}
     assert summary.map_input_audit.speed_limit_mps_min == pytest.approx(50.0 / 3.6)
+
+
+def test_vector_evaluation_batches_slots_and_writes_independent_traces(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_env_class: object,
+    fake_runtime: object,
+    evaluation_config: object,
+    patch_episode_dependencies,
+) -> None:
+    patch_episode_dependencies()
+
+    class FakeVectorEnv:
+        def __init__(self, configs: tuple[dict[str, object], ...], **kwargs: object) -> None:
+            self.envs = [fake_env_class(config) for config in configs]  # type: ignore[operator]
+
+        def __enter__(self) -> FakeVectorEnv:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            for env in self.envs:
+                env.close()
+
+        def reset(self, scenarios: tuple[VectorEnvScenario, ...]) -> tuple[VectorEnvReset, ...]:
+            resets = []
+            for slot, (env, scenario) in enumerate(zip(self.envs, scenarios, strict=True)):
+                env.reset(scenario.seed)
+                adapter = episode.NoTrafficMetaDriveObservationAdapter(None, 100.0)
+                adapter.reset(env)
+                state = episode.vehicle_state(env)
+                resets.append(
+                    VectorEnvReset(
+                        slot,
+                        scenario,
+                        adapter.build(env),
+                        0.0,
+                        100.0,
+                        state,
+                        state,
+                        (),
+                        None,
+                        env.programmatic_lane_speed_limit_audit,
+                        VectorEnvTiming(0.0, 0.0, 0.0, 0.0),
+                    )
+                )
+            return tuple(resets)
+
+        def step_slots(
+            self, slots: list[int], trajectories: np.ndarray
+        ) -> tuple[VectorEnvStep, ...]:
+            steps = []
+            for slot, trajectory in zip(slots, trajectories, strict=True):
+                env = self.envs[slot]
+                _, reward, terminated, truncated, info = env.step(trajectory)
+                adapter = episode.NoTrafficMetaDriveObservationAdapter(None, 100.0)
+                steps.append(
+                    VectorEnvStep(
+                        slot,
+                        adapter.build(env),
+                        reward,
+                        terminated,
+                        truncated,
+                        info["trajectory_execution"],
+                        None,
+                        VectorEnvTiming(0.0, 0.0, 0.0, 0.0),
+                    )
+                )
+            return tuple(steps)
+
+    monkeypatch.setattr(episode, "VectorMetaDriveEnv", FakeVectorEnv)
+    config = parse_evaluation_config(evaluation_config)
+    scenarios = (
+        ScenarioConfig(name="first", map="S", seed=3),
+        ScenarioConfig(name="second", map="S", seed=3),
+    )
+
+    summaries = episode.run_vector_scenarios(scenarios, fake_runtime, config, tmp_path)
+
+    assert [summary.scenario.name for summary in summaries] == ["first", "second"]
+    assert [(summary.plan_cycles, summary.simulator_steps) for summary in summaries] == [
+        (2, 10),
+        (2, 10),
+    ]
+    for scenario in scenarios:
+        with np.load(tmp_path / scenario.name / "trace.npz") as trace:
+            assert trace["initial_noise"].shape == (2, 11, 80, 4)
 
 
 def test_route_length_accepts_finite_numpy_lane_scalar() -> None:
