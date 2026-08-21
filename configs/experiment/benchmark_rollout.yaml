@@ -1,0 +1,24 @@
+# @package _global_
+
+defaults:
+  - /experiment/train_ppo_smoke
+  - /benchmark: rollout
+  - _self_
+
+name: policy_rollout_throughput_benchmark
+
+runtime:
+  seed: 0
+
+training:
+  replay_id: 0
+
+env:
+  start_seed: 0
+  num_scenarios: 8
+
+hydra:
+  run:
+    dir: outputs/benchmarks/rollout/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: false

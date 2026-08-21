@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import cast
 
 import numpy as np
@@ -48,6 +49,15 @@ class InferenceRuntimeReport:
 
 
 @dataclass(frozen=True)
+class BatchInferenceTiming:
+    """Synchronized component timings captured only for an explicit benchmark pass."""
+
+    host_to_device_s: float
+    execution_s: float
+    execution_to_host_s: float
+
+
+@dataclass(frozen=True)
 class _ResolvedRuntimeSettings:
     requested_accelerator: str
     resolved_accelerator: str
@@ -87,16 +97,24 @@ class BatchInferenceDecision:
         self,
         execution: HostExecutionResult,
         resolve_audit: Callable[[], HostInferenceResult],
+        timing: BatchInferenceTiming | None = None,
     ) -> None:
         self._execution = execution
         self._resolve_audit = resolve_audit
         self._audit: HostInferenceResult | None = None
+        self._timing = timing
 
     @property
     def ego_trajectories(self) -> np.ndarray:
         """Return executable ego trajectories with shape ``[B, T, 4]``."""
 
         return self._execution.ego_trajectory
+
+    @property
+    def timing(self) -> BatchInferenceTiming | None:
+        """Return synchronized component timing for an explicit profiled call."""
+
+        return self._timing
 
     def audit_result(self) -> HostInferenceResult:
         """Wait for and return the complete batched artifact/replay payload."""
@@ -158,6 +176,8 @@ class FabricInferenceRuntime:
         observation: Mapping[str, torch.Tensor],
         standard_normal_noise: torch.Tensor,
         transition_generators: Sequence[torch.Generator | None],
+        *,
+        profile: bool = False,
     ) -> BatchInferenceDecision:
         """Run a batch with independently owned per-slot diffusion RNG streams."""
 
@@ -178,13 +198,17 @@ class FabricInferenceRuntime:
         if len(transition_generators) != batch:
             raise ValueError("transition_generators must contain one generator per batch item")
 
+        h2d_started = perf_counter() if profile else 0.0
         moved = self._fabric.to_device(raw_observation)
+        _synchronize_if_cuda(self.device, profile)
+        host_to_device_s = perf_counter() - h2d_started if profile else 0.0
         if not isinstance(moved, dict) or not all(
             isinstance(name, str) and isinstance(value, torch.Tensor)
             for name, value in moved.items()
         ):
             raise TypeError("Fabric must return a string-to-tensor observation mapping")
         device_observation = cast(dict[str, torch.Tensor], moved)
+        execution_started = perf_counter() if profile else 0.0
         if isinstance(self.guidance_config, NoGuidanceConfig):
             with torch.inference_mode():
                 result = self._planner(
@@ -197,6 +221,8 @@ class FabricInferenceRuntime:
                 )
         if not isinstance(result, PlannerInferenceResult):
             raise TypeError("Diffusion Planner forward must return PlannerInferenceResult")
+        _synchronize_if_cuda(self.device, profile)
+        execution_s = perf_counter() - execution_started if profile else 0.0
         prediction = result.prediction.detach()
         if tuple(prediction.shape) != expected_shape:
             raise RuntimeError(
@@ -212,7 +238,22 @@ class FabricInferenceRuntime:
             self.sampler_report.num_steps,
             self.device,
         )
-        return _to_batch_inference_decision(standard_normal_noise, result, self.device)
+        execution, resolve_audit, execution_to_host_s = _prepare_batch_inference_decision(
+            standard_normal_noise,
+            result,
+            self.device,
+            profile=profile,
+        )
+        timing = (
+            BatchInferenceTiming(
+                host_to_device_s=host_to_device_s,
+                execution_s=execution_s,
+                execution_to_host_s=execution_to_host_s,
+            )
+            if profile
+            else None
+        )
+        return BatchInferenceDecision(execution, resolve_audit, timing)
 
 
 def create_fabric_inference_runtime(
@@ -334,11 +375,13 @@ def _validate_artifact_observation_fields(
     return batch
 
 
-def _to_batch_inference_decision(
+def _prepare_batch_inference_decision(
     noise: torch.Tensor,
     result: PlannerInferenceResult,
     device: torch.device,
-) -> BatchInferenceDecision:
+    *,
+    profile: bool,
+) -> tuple[HostExecutionResult, Callable[[], HostInferenceResult], float]:
     tensors: dict[str, tuple[torch.Tensor, torch.dtype]] = {
         "initial_noise": (noise.detach(), torch.float32),
         "prediction": (result.prediction.detach(), torch.float32),
@@ -363,10 +406,13 @@ def _to_batch_inference_decision(
         tensors["zero_speed_count"] = (diagnostics.zero_speed_count.detach(), torch.int64)
 
     deferred = defer_host_tensors(tensors, device)
+    d2h_started = perf_counter() if profile else 0.0
     execution = copy_execution_trajectory(result.prediction, device)
-    return BatchInferenceDecision(
+    execution_to_host_s = perf_counter() - d2h_started if profile else 0.0
+    return (
         execution,
         lambda: _host_result_from_tensors(deferred, diagnostics is not None),
+        execution_to_host_s,
     )
 
 
@@ -400,6 +446,11 @@ def _host_result_from_tensors(
         guidance_action=arrays.get("guidance_action"),
         guidance_diagnostics=host_diagnostics,
     )
+
+
+def _synchronize_if_cuda(device: torch.device, enabled: bool) -> None:
+    if enabled and device.type == "cuda":
+        torch.cuda.synchronize(device)
 
 
 def resolve_runtime_settings(runtime_config: RuntimeConfig) -> _ResolvedRuntimeSettings:

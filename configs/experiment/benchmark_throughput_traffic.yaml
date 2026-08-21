@@ -1,0 +1,22 @@
+# @package _global_
+
+defaults:
+  - /experiment/benchmark_throughput
+  - _self_
+
+name: traffic_throughput_benchmark
+
+evaluation:
+  mode: traffic
+  history_warmup_steps: 20
+  evaluated_horizon_steps: 100
+
+env:
+  traffic_density: 0.05
+  traffic_mode: trigger
+  horizon: 120
+
+scenarios:
+  - name: mixed
+    map: SCSCSCSCSC
+    seed: 0

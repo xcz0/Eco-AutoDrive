@@ -1,0 +1,19 @@
+# @package _global_
+
+defaults:
+  - /env: metadrive
+  - /planner/model
+  - /benchmark: environment
+  - _self_
+
+name: planner_facing_environment_benchmark
+
+env:
+  traffic_mode: trigger
+  horizon: 700
+
+hydra:
+  run:
+    dir: outputs/benchmarks/environment/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: false

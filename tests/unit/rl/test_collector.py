@@ -174,6 +174,11 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
                         terminated=terminated,
                         truncated=False,
                         execution=_info()["trajectory_execution"],
+                        timing=SimpleNamespace(
+                            environment_s=0.1,
+                            observation_s=0.2,
+                            worker_wait_s=0.3,
+                        ),
                     )
                 )
             return tuple(results)
@@ -233,9 +238,10 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
 
     monkeypatch.setattr("eco_planner.rl.collector.VectorMetaDriveEnv", FakeVectorEnv)
 
-    def collect(terminal_first_slot: bool):
+    def collect(terminal_first_slot: bool, *, profile: bool):
         FakeVectorEnv.terminal_first_slot = terminal_first_slot
         runtime = FakeRuntime()
+        timings = [] if profile else None
         episodes = collect_vector_rollout_episodes(
             (
                 ScenarioConfig(name="first", map="S", seed=0),
@@ -258,11 +264,17 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
             ),
             noise_seeds=(100, 101),
             policy_action_seeds=(200, 201),
+            timings=timings,
         )
-        return episodes, runtime
+        return episodes, runtime, timings
 
-    reset_episodes, reset_runtime = collect(True)
-    baseline_episodes, baseline_runtime = collect(False)
+    reset_episodes, reset_runtime, reset_timings = collect(True, profile=True)
+
+    def unexpected_timer() -> float:
+        raise AssertionError("unprofiled collector must not read the wall clock")
+
+    monkeypatch.setattr(collector, "perf_counter", unexpected_timer)
+    baseline_episodes, baseline_runtime, _ = collect(True, profile=False)
 
     assert reset_runtime.batch_sizes == [2, 2, 2]
     assert reset_runtime.bootstrap_batch_sizes == [2]
@@ -272,11 +284,32 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
     assert reset_episodes[0][0].training["next", "done"][-1].item()
     assert reset_episodes[0][1].tail_kind == "rollout_limit"
     assert baseline_runtime.batch_sizes == [2, 2, 2]
+    assert reset_timings is not None
+    assert [timing.phase for timing in reset_timings] == [
+        "decision",
+        "decision",
+        "decision",
+        "bootstrap",
+    ]
+    assert all(timing.capacity == 2 for timing in reset_timings)
+    assert [timing.active_slots for timing in reset_timings] == [2, 2, 2, 2]
+    assert all(timing.planner_wall_s >= 0.0 for timing in reset_timings)
+    assert all(timing.environment_wall_s >= 0.0 for timing in reset_timings)
+    assert all(timing.worker_wait_s >= 0.0 for timing in reset_timings)
 
-    reset_slot = reset_episodes[1][0].audit
-    baseline_slot = baseline_episodes[1][0].audit
-    for name in ("base_action", "initial_noise", "diffusion_rng_state", "policy_rng_state"):
-        torch.testing.assert_close(reset_slot[name], baseline_slot[name])
+    for reset_slot, baseline_slot in zip(reset_episodes, baseline_episodes, strict=True):
+        assert [item.tail_kind for item in reset_slot] == [item.tail_kind for item in baseline_slot]
+        assert [item.transition_count for item in reset_slot] == [
+            item.transition_count for item in baseline_slot
+        ]
+        for reset_episode, baseline_episode in zip(reset_slot, baseline_slot, strict=True):
+            for name in (
+                "base_action",
+                "initial_noise",
+                "diffusion_rng_state",
+                "policy_rng_state",
+            ):
+                torch.testing.assert_close(reset_episode.audit[name], baseline_episode.audit[name])
 
 
 def _context(marker: float) -> ExplorationPolicyContext:

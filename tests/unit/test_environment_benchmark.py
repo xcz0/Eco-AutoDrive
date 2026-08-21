@@ -1,31 +1,36 @@
 from __future__ import annotations
 
-from typing import cast
-
 import pytest
+from benchmarking.common import EnvironmentBenchmarkConfig
+from benchmarking.environment import BenchmarkAcceptanceError, _validate_baselines
 
-from eco_planner.evaluation import environment_benchmark as env
-from eco_planner.models import OfficialDiffusionPlannerConfig
+
+def _config(**update: object) -> EnvironmentBenchmarkConfig:
+    payload: dict[str, object] = {
+        "map": "S",
+        "seed": 0,
+        "map_query_radius_m": 100.0,
+        "traffic_density": 0.05,
+        "history_warmup_steps": 20,
+        "timing_warmup_cycles": 1,
+        "measured_cycles": 1,
+        "repeats": 1,
+        "traffic_baseline_ms": 20.0,
+        "no_traffic_baseline_ms": 5.0,
+        "traffic_required_improvement_fraction": 0.2,
+        "no_traffic_allowed_regression_fraction": 0.05,
+    }
+    payload.update(update)
+    return EnvironmentBenchmarkConfig.model_validate(payload)
 
 
-def test_environment_benchmark_is_importable_and_enforces_baselines(monkeypatch) -> None:
-    def measure(_: OfficialDiffusionPlannerConfig, *, traffic: bool) -> env.BenchmarkMeasurement:
-        median = 10.0 if traffic else 5.0
-        return {
-            "cycle_ms": [median],
-            "median_cycle_ms": median,
-            "minimum_cycle_ms": median,
-            "maximum_cycle_ms": median,
-        }
+def test_environment_baselines_use_configured_relative_thresholds() -> None:
+    report: dict[str, object] = {
+        "traffic": {"samples": [16.0], "median": 16.0, "minimum": 16.0, "maximum": 16.0},
+        "no_traffic": {"samples": [5.25], "median": 5.25, "minimum": 5.25, "maximum": 5.25},
+    }
 
-    monkeypatch.setattr(env, "_measure", measure)
-    model_config = cast(OfficialDiffusionPlannerConfig, object())
+    _validate_baselines(report, _config())
 
-    report = env.benchmark_environment(
-        model_config, traffic_baseline_ms=20.0, no_traffic_baseline_ms=5.0
-    )
-
-    assert report["traffic"]["median_cycle_ms"] == 10.0
-    assert report["no_traffic"]["median_cycle_ms"] == 5.0
-    with pytest.raises(env.BenchmarkAcceptanceError, match="traffic median"):
-        env.benchmark_environment(model_config, traffic_baseline_ms=10.0)
+    with pytest.raises(BenchmarkAcceptanceError, match="traffic median"):
+        _validate_baselines(report, _config(traffic_baseline_ms=19.0))

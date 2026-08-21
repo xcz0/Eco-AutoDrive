@@ -82,6 +82,7 @@ def test_vector_environment_fixed_slots_complete_no_traffic_lifecycle(
                 reset.timing.observation_s,
                 reset.timing.ipc_send_s,
                 reset.timing.ipc_receive_s,
+                reset.timing.worker_wait_s,
             )
             >= 0.0
         )

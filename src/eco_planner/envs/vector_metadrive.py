@@ -44,6 +44,7 @@ class VectorEnvTiming:
     observation_s: float
     ipc_send_s: float
     ipc_receive_s: float
+    worker_wait_s: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +82,7 @@ class VectorEnvStep:
 class _WorkerTiming:
     environment_s: float
     observation_s: float
+    wait_s: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,6 +357,7 @@ class VectorMetaDriveEnv:
                 response.timing.observation_s,
                 received.ipc_send_s,
                 received.ipc_receive_s,
+                response.timing.wait_s,
             ),
         )
 
@@ -379,6 +382,7 @@ class VectorMetaDriveEnv:
                 response.timing.observation_s,
                 received.ipc_send_s,
                 received.ipc_receive_s,
+                response.timing.wait_s,
             ),
         )
 
@@ -397,18 +401,20 @@ def _worker_main(connection: Connection, launch: _WorkerLaunch) -> None:
     try:
         env = TrajectoryMetaDriveEnv(launch.env_config)
         adapter = _create_adapter(launch)
-        connection.send(_WorkerResponse(launch.slot, None, _WorkerTiming(0.0, 0.0)))
+        connection.send(_WorkerResponse(launch.slot, None, _WorkerTiming(0.0, 0.0, 0.0)))
         while True:
+            wait_started = perf_counter()
             operation, payload = connection.recv()
+            wait_s = perf_counter() - wait_started
             if operation == "close":
                 env.close()
-                connection.send(_WorkerResponse(launch.slot, None, _WorkerTiming(0.0, 0.0)))
+                connection.send(_WorkerResponse(launch.slot, None, _WorkerTiming(0.0, 0.0, wait_s)))
                 return
             try:
                 if operation == "reset":
-                    response = _reset_worker(env, adapter, launch, payload)
+                    response = _reset_worker(env, adapter, launch, payload, wait_s)
                 elif operation == "step":
-                    response = _step_worker(env, adapter, launch.slot, payload)
+                    response = _step_worker(env, adapter, launch.slot, payload, wait_s)
                 else:
                     raise ValueError(f"unknown vector environment operation {operation!r}")
                 connection.send(response)
@@ -453,6 +459,7 @@ def _reset_worker(
     adapter: MetaDriveObservationAdapter | NoTrafficMetaDriveObservationAdapter,
     launch: _WorkerLaunch,
     scenario: object,
+    wait_s: float,
 ) -> _WorkerResponse:
     if not isinstance(scenario, VectorEnvScenario):
         raise TypeError("reset requires a VectorEnvScenario")
@@ -486,7 +493,7 @@ def _reset_worker(
             traffic_audit,
             env.programmatic_lane_speed_limit_audit,
         ),
-        _WorkerTiming(environment_s, perf_counter() - observation_started),
+        _WorkerTiming(environment_s, perf_counter() - observation_started, wait_s),
     )
 
 
@@ -495,6 +502,7 @@ def _step_worker(
     adapter: MetaDriveObservationAdapter | NoTrafficMetaDriveObservationAdapter,
     slot: int,
     trajectory: object,
+    wait_s: float,
 ) -> _WorkerResponse:
     started = perf_counter()
     _, reward, terminated, truncated, info = env.step(trajectory)
@@ -516,7 +524,7 @@ def _step_worker(
             execution,
             traffic_audit,
         ),
-        _WorkerTiming(environment_s, perf_counter() - observation_started),
+        _WorkerTiming(environment_s, perf_counter() - observation_started, wait_s),
     )
 
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
+from time import perf_counter
 from typing import Literal
 
 import numpy as np
@@ -26,6 +28,20 @@ from eco_planner.rl.rollout import (
     finalize_rollout_episode,
 )
 from eco_planner.rl.runtime import FabricRolloutRuntime
+
+
+@dataclass(frozen=True)
+class VectorRolloutRoundTiming:
+    """One fixed-slot collection round, exposed for throughput profiling only."""
+
+    phase: Literal["decision", "bootstrap"]
+    active_slots: int
+    capacity: int
+    planner_wall_s: float
+    environment_wall_s: float
+    worker_busy_s: float
+    worker_wait_s: float
+    worker_imbalance_s: float
 
 
 def collect_rollout_episode(
@@ -182,6 +198,7 @@ def collect_vector_rollout_episodes(
     policy_generators: tuple[torch.Generator, ...],
     noise_seeds: tuple[int, ...],
     policy_action_seeds: tuple[int, ...],
+    timings: list[VectorRolloutRoundTiming] | None = None,
 ) -> tuple[tuple[RolloutEpisode, ...], ...]:
     """Collect equal per-slot quotas with one batched planner decision per vector round."""
 
@@ -218,10 +235,32 @@ def collect_vector_rollout_episodes(
         while collected[0] < transitions_per_slot:
             if any(count != collected[0] for count in collected):
                 raise RuntimeError("fixed-slot vector rollout consumed unequal transition counts")
+            profile = timings is not None
+            planner_started = perf_counter() if profile else 0.0
             decision = runtime.decide_batch(
                 collate_observations(observations), diffusion_generators, policy_generators
             )
+            planner_s = perf_counter() - planner_started if profile else 0.0
+            environment_started = perf_counter() if profile else 0.0
             steps = envs.step(decision.ego_trajectories)
+            environment_s = perf_counter() - environment_started if profile else 0.0
+            if timings is not None:
+                worker_busy = tuple(
+                    step.timing.environment_s + step.timing.observation_s for step in steps
+                )
+                slowest = max(worker_busy)
+                timings.append(
+                    VectorRolloutRoundTiming(
+                        phase="decision",
+                        active_slots=len(steps),
+                        capacity=slot_count,
+                        planner_wall_s=planner_s,
+                        environment_wall_s=environment_s,
+                        worker_busy_s=sum(worker_busy),
+                        worker_wait_s=sum(step.timing.worker_wait_s for step in steps),
+                        worker_imbalance_s=sum(slowest - value for value in worker_busy),
+                    )
+                )
             tails: list[tuple[int, Literal["terminated", "truncated", "rollout_limit"]]] = []
             for slot, step in enumerate(steps):
                 slot_decision = decision.slot(slot)
@@ -281,10 +320,24 @@ def collect_vector_rollout_episodes(
             bootstrap_slots = [slot for slot, kind in tails if kind != "terminated"]
             bootstrap_values: dict[int, torch.Tensor] = {}
             if bootstrap_slots:
+                bootstrap_started = perf_counter() if timings is not None else 0.0
                 values = runtime.bootstrap_value_batch(
                     collate_observations([steps[slot].observation for slot in bootstrap_slots]),
                     tuple(diffusion_generators[slot] for slot in bootstrap_slots),
                 )
+                if timings is not None:
+                    timings.append(
+                        VectorRolloutRoundTiming(
+                            phase="bootstrap",
+                            active_slots=len(bootstrap_slots),
+                            capacity=slot_count,
+                            planner_wall_s=perf_counter() - bootstrap_started,
+                            environment_wall_s=0.0,
+                            worker_busy_s=0.0,
+                            worker_wait_s=0.0,
+                            worker_imbalance_s=0.0,
+                        )
+                    )
                 for index, slot in enumerate(bootstrap_slots):
                     bootstrap_values[slot] = values[index : index + 1]
             for slot, kind in tails:

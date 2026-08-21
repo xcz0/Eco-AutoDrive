@@ -1,0 +1,6 @@
+# Shared measurement controls; benchmark scale is explicit and never becomes a runtime default.
+batch_sizes: [1, 2, 4, 8, 16]
+worker_counts: [1, 2, 4, 8]
+warmup_cycles: 3
+measured_cycles: 10
+repeats: 3

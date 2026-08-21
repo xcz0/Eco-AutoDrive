@@ -1,0 +1,12 @@
+map: SCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSC
+seed: 0
+map_query_radius_m: 100.0
+traffic_density: 0.05
+history_warmup_steps: 20
+timing_warmup_cycles: 10
+measured_cycles: 100
+repeats: 5
+traffic_baseline_ms: null
+no_traffic_baseline_ms: null
+traffic_required_improvement_fraction: 0.2
+no_traffic_allowed_regression_fraction: 0.05

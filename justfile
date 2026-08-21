@@ -122,8 +122,23 @@ train-smoke seed="0" replay="0":
 # Analysis / diagnostics
 # ---------------------------------------------------------------------------
 
-benchmark-env:
-    {{python}} scripts/benchmark_envs.py
+benchmark-env *overrides:
+    {{python}} scripts/benchmark_envs.py {{overrides}}
+
+# Reference-only planner batch and vector-environment scaling. Append Hydra overrides.
+benchmark-throughput *overrides:
+    {{python}} scripts/benchmark_throughput.py {{overrides}}
+
+benchmark-throughput-traffic *overrides:
+    {{python}} scripts/benchmark_throughput.py --config-name experiment/benchmark_throughput_traffic {{overrides}}
+
+# Policy-guided fixed-slot rollout and PPO-update scaling. Append Hydra overrides.
+benchmark-rollout *overrides:
+    {{python}} scripts/benchmark_rollout.py {{overrides}}
+
+# Consolidate completed serial, Hydra job-level, and vector evaluation measurements.
+benchmark-eval-report serial job_level vector serial_wall_s job_level_wall_s vector_wall_s:
+    {{python}} scripts/report_evaluation_benchmark.py {{serial}} {{job_level}} {{vector}} --serial-wall-s {{serial_wall_s}} --job-level-wall-s {{job_level_wall_s}} --vector-wall-s {{vector_wall_s}}
 
 summarize-training root:
     {{python}} scripts/summarize_training.py {{root}}

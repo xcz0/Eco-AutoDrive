@@ -88,7 +88,7 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
                         (),
                         None,
                         env.programmatic_lane_speed_limit_audit,
-                        VectorEnvTiming(0.0, 0.0, 0.0, 0.0),
+                        VectorEnvTiming(0.0, 0.0, 0.0, 0.0, 0.0),
                     )
                 )
             return tuple(resets)
@@ -110,7 +110,7 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
                         truncated,
                         info["trajectory_execution"],
                         None,
-                        VectorEnvTiming(0.0, 0.0, 0.0, 0.0),
+                        VectorEnvTiming(0.0, 0.0, 0.0, 0.0, 0.0),
                     )
                 )
             return tuple(steps)
@@ -132,6 +132,25 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
     for scenario in scenarios:
         with np.load(tmp_path / scenario.name / "trace.npz") as trace:
             assert trace["initial_noise"].shape == (2, 11, 80, 4)
+
+    initialize = episode._initialize_vector_slot
+
+    def fail_first_reset(reset, runtime, selected_config):
+        if reset.scenario.name == "first":
+            raise episode.EpisodeFailure(
+                episode.FailurePhase.RESET, RuntimeError("invalid route length")
+            )
+        return initialize(reset, runtime, selected_config)
+
+    monkeypatch.setattr(episode, "_initialize_vector_slot", fail_first_reset)
+    failure_root = tmp_path / "reset-failure"
+
+    failure_summaries = episode.run_vector_scenarios(scenarios, fake_runtime, config, failure_root)
+
+    assert [summary.status for summary in failure_summaries] == ["failed", "completed"]
+    assert failure_summaries[0].failure.phase == episode.FailurePhase.RESET
+    assert (failure_root / "first" / "summary.json").exists()
+    assert (failure_root / "second" / "summary.json").exists()
 
 
 def test_route_length_accepts_finite_numpy_lane_scalar() -> None:

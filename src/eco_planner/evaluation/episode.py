@@ -217,9 +217,27 @@ def run_vector_scenarios(
         history_warmup_steps=config.evaluation.history_warmup_steps,
     ) as envs:
         resets = envs.reset(scenarios)
-        slots = [_initialize_vector_slot(reset, runtime, config) for reset in resets]
-        active = list(range(len(slots)))
-        summaries: list[CompletedEpisodeSummary | FailedEpisodeSummary | None] = [None] * len(slots)
+        slots: dict[int, _VectorEvaluationSlot] = {}
+        summaries: list[CompletedEpisodeSummary | FailedEpisodeSummary | None] = [None] * len(
+            resets
+        )
+        for slot_index, reset in enumerate(resets):
+            try:
+                slots[slot_index] = _initialize_vector_slot(reset, runtime, config)
+            except EpisodeFailure as failure:
+                summaries[slot_index] = _write_vector_failure(
+                    ScenarioConfig(
+                        name=reset.scenario.name,
+                        map=reset.scenario.map,
+                        seed=reset.scenario.seed,
+                    ),
+                    EpisodeTraceRecorder.empty(),
+                    failure,
+                    runtime,
+                    config,
+                    output_root,
+                )
+        active = list(slots)
         while active:
             observations = [slots[index].observation for index in active]
             generators = tuple(slots[index].generator for index in active)
@@ -407,10 +425,21 @@ def _fail_vector_slot(
     config: EvaluationJobConfig,
     output_root: Path,
 ) -> FailedEpisodeSummary:
-    trace_status = "partial" if slot.trace.has_recorded_steps else "empty"
-    trace_arrays = slot.trace.finalize(trace_status)
+    return _write_vector_failure(slot.spec, slot.trace, failure, runtime, config, output_root)
+
+
+def _write_vector_failure(
+    spec: ScenarioConfig,
+    trace: EpisodeTraceRecorder,
+    failure: EpisodeFailure,
+    runtime: FabricInferenceRuntime,
+    config: EvaluationJobConfig,
+    output_root: Path,
+) -> FailedEpisodeSummary:
+    trace_status = "partial" if trace.has_recorded_steps else "empty"
+    trace_arrays = trace.finalize(trace_status)
     summary = build_failed_episode_summary(
-        _scenario_payload(slot.spec),
+        _scenario_payload(spec),
         noise_seed=runtime.report.seed,
         evaluation_mode=config.evaluation.mode,
         traffic_density=float(config.env["traffic_density"]),
@@ -421,7 +450,7 @@ def _fail_vector_slot(
         cause=failure.cause,
         traceback_text=traceback.format_exc(),
     )
-    write_episode_artifacts(output_root / slot.spec.name, trace_arrays, [], summary, config.video)
+    write_episode_artifacts(output_root / spec.name, trace_arrays, [], summary, config.video)
     return summary
 
 

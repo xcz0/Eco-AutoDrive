@@ -197,11 +197,20 @@ def test_runtime_batch_inference_matches_independent_serial_slots(
         ]
     )
 
-    batched = fabric_runtime.infer_batch(batched_observation, noise, generators)
+    batched = fabric_runtime.infer_batch(batched_observation, noise, generators, profile=True)
+    unprofiled = fabric_runtime.infer_batch(batched_observation, noise, generators)
 
     assert batched.ego_trajectories.shape == (batch, 80, 4)
     _assert_trajectory_contract(batched.ego_trajectories)
     np.testing.assert_array_equal(batched.ego_trajectories, noise[:, 0].numpy())
+    np.testing.assert_array_equal(unprofiled.ego_trajectories, batched.ego_trajectories)
+    assert unprofiled.timing is None
+    assert batched.timing is not None
+    assert batched.timing.host_to_device_s >= 0.0
+    assert batched.timing.execution_s >= 0.0
+    assert batched.timing.execution_to_host_s >= 0.0
+    with pytest.raises(AttributeError):
+        batched.timing = None  # type: ignore[misc]
     for index in range(batch):
         serial = fabric_runtime.infer(
             baseline_observation,

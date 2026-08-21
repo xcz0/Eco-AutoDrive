@@ -45,7 +45,7 @@ explicit = true
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]
-pythonpath = ["src"]
+pythonpath = ["src", "scripts"]
 testpaths = ["tests"]
 strict_markers = true
 xfail_strict = true
