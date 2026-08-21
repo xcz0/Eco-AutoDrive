@@ -51,6 +51,15 @@ def test_route_length_accepts_finite_numpy_lane_scalar() -> None:
     assert episode.route_length_m(env) == pytest.approx(123.5)
 
 
+def test_stationary_trajectory_satisfies_execution_contract() -> None:
+    trajectory = episode.stationary_trajectory()
+
+    assert trajectory.shape == (80, 4)
+    assert trajectory.dtype == np.float32
+    assert np.isfinite(trajectory).all()
+    assert np.all(np.linalg.norm(trajectory[:, 2:4], axis=-1) > 0.0)
+
+
 def test_traffic_warmup_records_stationary_history() -> None:
     class WarmupEnv:
         def __init__(self) -> None:

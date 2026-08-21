@@ -20,6 +20,13 @@ from eco_planner.models import (
 from eco_planner.models.planner import PlannerInferenceResult
 
 
+def _assert_trajectory_contract(trajectory: np.ndarray) -> None:
+    assert trajectory.shape[-2:] == (80, 4)
+    assert trajectory.dtype == np.float32
+    assert np.isfinite(trajectory).all()
+    assert np.all(np.linalg.norm(trajectory[..., 2:4], axis=-1) > 0.0)
+
+
 def _config(**overrides: object) -> RuntimeConfig:
     values: dict[str, object] = {
         "accelerator": "auto",
@@ -193,6 +200,7 @@ def test_runtime_batch_inference_matches_independent_serial_slots(
     batched = fabric_runtime.infer_batch(batched_observation, noise, generators)
 
     assert batched.ego_trajectories.shape == (batch, 80, 4)
+    _assert_trajectory_contract(batched.ego_trajectories)
     np.testing.assert_array_equal(batched.ego_trajectories, noise[:, 0].numpy())
     for index in range(batch):
         serial = fabric_runtime.infer(
@@ -239,11 +247,14 @@ def test_cuda_execution_copy_does_not_wait_for_deferred_audit(
     device = torch.device("cuda")
 
     deferred = contracts.defer_host_tensors({"audit": (torch.ones(4), torch.float32)}, device)
-    execution = contracts.copy_execution_trajectory(torch.ones((1, 1, 2, 4)), device)
+    execution = contracts.copy_execution_trajectory(
+        torch.ones((2, 11, 80, 4), dtype=torch.float64), device
+    )
 
     assert transfer.waited_for is current
     assert synchronizations == ["current"]
-    np.testing.assert_array_equal(execution.ego_trajectory, np.ones((1, 2, 4), dtype=np.float32))
+    np.testing.assert_array_equal(execution.ego_trajectory, np.ones((2, 80, 4), dtype=np.float32))
+    _assert_trajectory_contract(execution.ego_trajectory)
 
     audit = deferred.resolve()
 

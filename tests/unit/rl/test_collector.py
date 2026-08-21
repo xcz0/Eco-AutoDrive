@@ -8,10 +8,20 @@ import torch
 from eco_planner.envs import TrajectoryExecutionRecord
 from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation.config import ScenarioConfig
+from eco_planner.rl import collector
 from eco_planner.rl.collector import collect_rollout_episode
 from eco_planner.rl.policy import ExplorationPolicyContext
 from eco_planner.rl.rollout import build_training_decision
 from eco_planner.rl.runtime import RolloutAudit, RolloutDecision
+
+
+def test_stationary_trajectory_satisfies_execution_contract() -> None:
+    trajectory = collector._stationary_trajectory()
+
+    assert trajectory.shape == (80, 4)
+    assert trajectory.dtype == np.float32
+    assert np.isfinite(trajectory).all()
+    assert np.all(np.linalg.norm(trajectory[:, 2:4], axis=-1) > 0.0)
 
 
 def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
@@ -50,7 +60,7 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
             self.env = env
 
         def build(self, env: FakeEnv) -> dict[str, torch.Tensor]:
-            return {"marker": torch.tensor([env.step_count], dtype=torch.float32)}
+            return _observation(float(env.step_count))
 
     class FakeRuntime:
         noise_seed = 4
@@ -68,7 +78,7 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
             return torch.Generator().manual_seed(self.policy_action_seed)
 
         def decide(self, observation, diffusion_generator, policy_generator) -> RolloutDecision:
-            marker = int(observation["marker"].item())
+            marker = int(observation["ego_current_state"][0, 0].item())
             self.observation_markers.append(marker)
             context = _context(float(marker))
             trajectory = np.zeros((1, 11, 80, 4), dtype=np.float32)
@@ -90,7 +100,7 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
             return _FakeRolloutDecision(audit)
 
         def bootstrap_value(self, observation, diffusion_generator) -> torch.Tensor:
-            self.bootstrap_marker = int(observation["marker"].item())
+            self.bootstrap_marker = int(observation["ego_current_state"][0, 0].item())
             return torch.tensor([float(self.bootstrap_marker)], dtype=torch.float32)
 
     monkeypatch.setattr("eco_planner.rl.collector.TrajectoryMetaDriveEnv", FakeEnv)
@@ -114,7 +124,11 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
     assert episode.tail_bootstrap_value.item() == 2.0
     assert episode.training["state_value"].squeeze(-1).tolist() == [0.0, 1.0]
     assert len(FakeEnv.instances[0].trajectories) == 2
-    assert all(trajectory.shape == (80, 4) for trajectory in FakeEnv.instances[0].trajectories)
+    for trajectory in FakeEnv.instances[0].trajectories:
+        assert trajectory.shape == (80, 4)
+        assert trajectory.dtype == np.float32
+        assert np.isfinite(trajectory).all()
+        assert np.all(np.linalg.norm(trajectory[:, 2:4], axis=-1) > 0.0)
 
 
 def _context(marker: float) -> ExplorationPolicyContext:
@@ -125,6 +139,22 @@ def _context(marker: float) -> ExplorationPolicyContext:
         navigation_padding_mask=torch.zeros((1, 1), dtype=torch.bool),
         reference_trajectory=torch.zeros((1, 80, 4), dtype=torch.float32),
     )
+
+
+def _observation(marker: float) -> dict[str, torch.Tensor]:
+    ego = torch.zeros(10, dtype=torch.float32)
+    ego[0] = marker
+    return {
+        "ego_current_state": ego,
+        "neighbor_agents_past": torch.zeros((32, 21, 11), dtype=torch.float32),
+        "static_objects": torch.zeros((5, 10), dtype=torch.float32),
+        "lanes": torch.zeros((70, 20, 12), dtype=torch.float32),
+        "lanes_speed_limit": torch.zeros((70, 1), dtype=torch.float32),
+        "lanes_has_speed_limit": torch.zeros((70, 1), dtype=torch.bool),
+        "route_lanes": torch.zeros((25, 20, 12), dtype=torch.float32),
+        "route_lanes_speed_limit": torch.zeros((25, 1), dtype=torch.float32),
+        "route_lanes_has_speed_limit": torch.zeros((25, 1), dtype=torch.bool),
+    }
 
 
 class _FakeRolloutDecision:

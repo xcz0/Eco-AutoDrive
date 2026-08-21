@@ -336,7 +336,6 @@ class FabricRolloutRuntime:
             self.device,
         )
         execution = copy_execution_trajectory(result.prediction, self.device)
-        _validate_execution_trajectory(execution.ego_trajectory)
         return BatchRolloutDecision(
             execution,
             deferred,
@@ -431,11 +430,6 @@ def create_fabric_rollout_runtime(
         sampler=sampler_report(sampler_config),
         guidance_config=guidance_config,
     )
-
-
-def _validate_execution_trajectory(trajectory: np.ndarray) -> None:
-    if not np.isfinite(trajectory).all():
-        raise RuntimeError("rollout ego trajectory contains non-finite values")
 
 
 def _unwrap_exploration_policy(module: torch.nn.Module) -> ExplorationPolicy:

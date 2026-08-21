@@ -1,4 +1,4 @@
-"""Trajectory validation, kinematic execution, and typed MetaDrive results."""
+"""Kinematic trajectory execution and typed MetaDrive results."""
 
 from __future__ import annotations
 
@@ -10,6 +10,18 @@ import numpy as np
 from metadrive.policy.base_policy import BasePolicy
 from metadrive.policy.replay_policy import ReplayTrafficParticipantPolicy
 
+from eco_planner.envs.array_types import (
+    ExecutionBooleanArray,
+    ExecutionPointArray,
+    ExecutionScalarArray,
+    ExecutionStateArray,
+    TrajectoryArray,
+    WorldAngularVelocityArray,
+    WorldHeadingArray,
+    WorldPointArray,
+    WorldVectorArray,
+    WorldVelocityArray,
+)
 from eco_planner.envs.geometry import (
     local_points_to_world,
     rear_axle_position,
@@ -24,24 +36,23 @@ ROLLOUT_EXECUTION_STEPS = 1
 TRAJECTORY_TIMESTEP_S = 0.1
 
 _ALLOWED_EXECUTION_STEPS = frozenset({ROLLOUT_EXECUTION_STEPS, TRAJECTORY_EXECUTION_STEPS})
-_MIN_HEADING_NORM = 1e-6
 
 
 @dataclass(frozen=True, slots=True)
 class TrajectoryExecutionRecord:
-    start_center: np.ndarray
+    start_center: WorldVectorArray
     start_heading: float
-    world_centers: np.ndarray
-    world_headings: np.ndarray
-    substep_states: np.ndarray
-    target_centers: np.ndarray
-    target_headings: np.ndarray
-    position_errors_m: np.ndarray
-    heading_errors_rad: np.ndarray
-    substep_rewards: np.ndarray
-    substep_dense_rewards: np.ndarray
-    substep_terminated: np.ndarray
-    substep_truncated: np.ndarray
+    world_centers: WorldPointArray
+    world_headings: WorldHeadingArray
+    substep_states: ExecutionStateArray
+    target_centers: ExecutionPointArray
+    target_headings: ExecutionScalarArray
+    position_errors_m: ExecutionScalarArray
+    heading_errors_rad: ExecutionScalarArray
+    substep_rewards: ExecutionScalarArray
+    substep_dense_rewards: ExecutionScalarArray
+    substep_terminated: ExecutionBooleanArray
+    substep_truncated: ExecutionBooleanArray
     traffic_frames: tuple[TrafficFrame, ...]
     route_completion: float
     arrive_dest: bool
@@ -55,19 +66,19 @@ class TrajectoryExecutionRecord:
 
 @dataclass(frozen=True, slots=True)
 class WorldTrajectory:
-    centers: np.ndarray
-    headings: np.ndarray
-    velocities: np.ndarray
-    angular_velocities: np.ndarray
+    centers: WorldPointArray
+    headings: WorldHeadingArray
+    velocities: WorldVelocityArray
+    angular_velocities: WorldAngularVelocityArray
 
 
 @dataclass(slots=True)
 class TrajectoryExecutionRecorder:
-    states: np.ndarray
-    rewards: np.ndarray
-    dense_rewards: np.ndarray
-    terminated: np.ndarray
-    truncated: np.ndarray
+    states: ExecutionStateArray
+    rewards: ExecutionScalarArray
+    dense_rewards: ExecutionScalarArray
+    terminated: ExecutionBooleanArray
+    truncated: ExecutionBooleanArray
     traffic_frames: list[TrafficFrame]
     count: int
 
@@ -147,25 +158,10 @@ class TrajectoryExecutionRecorder:
         return result
 
 
-def validate_trajectory(trajectory: object, horizon: int) -> np.ndarray:
-    if not isinstance(trajectory, np.ndarray):
-        raise TypeError("trajectory must be a numpy.ndarray")
-    if trajectory.dtype != np.float32:
-        raise TypeError("trajectory must use numpy.float32")
-    if trajectory.shape != (horizon, 4):
-        raise ValueError(f"trajectory must have shape ({horizon}, 4)")
-    if not np.isfinite(trajectory).all():
-        raise ValueError("trajectory must contain only finite values")
-    heading_norms = np.linalg.norm(trajectory[:, 2:4], axis=1)
-    if np.any(heading_norms <= _MIN_HEADING_NORM):
-        raise ValueError("trajectory heading vectors must be non-zero")
-    return trajectory.copy()
-
-
 def to_world_trajectory(
-    trajectory: np.ndarray,
+    trajectory: TrajectoryArray,
     *,
-    center_position: np.ndarray,
+    center_position: WorldVectorArray,
     center_heading: float,
     rear_wheelbase: float,
     timestep_s: float,

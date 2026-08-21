@@ -109,7 +109,9 @@ lane 长度与宽度必须接受 Python 或 NumPy 的真实数值标量，同时
 MetaDrive adapters produce one CPU `SingleObservation` without a planner batch dimension.
 `collate_observations` is the sole batch boundary: it stacks a same-schema sequence into a
 `BatchObservation` with leading `[B, ...]` dimensions. B=1 planner, evaluation, and rollout
-paths use this collator; it contains no MetaDrive, planner, or device-placement logic.
+paths use this collator; `SingleObservation` / `BatchObservation` 的字段、shape 和 dtype 由
+jaxtyping `TypedDict` 表达，collator 运行时只拒绝空序列，不重复校验 schema 或 tensor 类型。
+它不包含 MetaDrive、planner 或 device-placement 逻辑。
 
 `MetaDriveObservationAdapter` 使用 reset 帧和连续 0.1 s 交通快照构造严格的 21 帧历史。每个快照必须在仿真观测时刻捕获为不可变值；捕获边界校验 MetaDrive 参与者类型、位置、heading、速度和尺寸，内部编码链路直接消费已捕获的明确类型。批量追加历史只校验时间连续性，并在整批确认后一次性提交，失败时历史保持不变。
 
@@ -181,13 +183,13 @@ RL 训练输出与 evaluation 输出使用各自独立的数据边界。每个�
 
 ## 轨迹执行
 
-运动学接口只接收有限的 `float32 [80,4]` ego 后轴局部轨迹。混合精度 forward 的 ego trajectory 必须在进入环境前原值转换为 `float32`；完整 prediction 在 audit result 边界转换并保存 trace。每次 action 只校验并转换一次，环境与运动学 policy 共享同一份已准备的世界轨迹。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。
+运动学接口的静态契约是有限的 `float32 [80,4]` ego 后轴局部轨迹。混合精度 forward 的 ego trajectory 必须在 evaluation/rollout host producer 中原值转换为 `float32`；完整 prediction 在 audit result 边界转换并保存 trace。shape、dtype、有限性和非零 heading 由 producer 测试保证，执行路径不做运行时重复校验；环境与运动学 policy 共享同一份已准备的世界轨迹。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。
 
 `TrajectoryMetaDriveEnv` 的 Gym observation 只是一元素 `float32` 零数组；planner 输入必须由本项目 traffic/no-traffic observation adapter 构造。headless 无交通环境不初始化传感器；有交通环境只保留背景 IDM policy 必需的共享 lidar，不把它作为 planner observation。headless、非录制执行把每个 0.1 s 对外子步的五个 `0.02 s` Bullet substep 交给一次原生 `doPhysics` 调用；渲染或 MetaDrive episode recording 继续使用上游通用 step 路径。
 
 该接口不生成 steering、throttle 或 brake，也不证明低层车辆动力学可执行性。原始轨迹必须原样执行和保存；不得平滑、裁剪、限幅、旋转、投影到中心线、选择最佳噪声 seed、切换回退控制器，或在异常时返回零轨迹。
 
-`TrajectoryMetaDriveEnv.step` 在环境边界直接用本次执行缓冲、交通快照和 MetaDrive 终止字段构造不可变的 `TrajectoryExecutionRecord`，并通过 `info["trajectory_execution"]` 返回；不再先展开为逐字段 `info` 数组后由调用方二次解析。数组的 shape/dtype 由固定容量执行缓冲和 trajectory 入口契约保证；evaluation、RL、trace、rendering 和 summary 组件只消费该 record，不读取原始轨迹字段。
+`TrajectoryMetaDriveEnv.step` 在环境边界直接用本次执行缓冲、交通快照和 MetaDrive 终止字段构造不可变的 `TrajectoryExecutionRecord`，并通过 `info["trajectory_execution"]` 返回；不再先展开为逐字段 `info` 数组后由调用方二次解析。数组的 shape/dtype 由固定容量执行缓冲、jaxtyping 接口契约和 producer 测试保证；evaluation、RL、trace、rendering 和 summary 组件只消费该 record，不读取原始轨迹字段。
 
 ## 能耗记录
 

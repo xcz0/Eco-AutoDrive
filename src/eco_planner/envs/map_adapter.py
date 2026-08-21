@@ -9,6 +9,12 @@ import numpy as np
 from shapely import LineString, box
 from shapely.strtree import STRtree
 
+from eco_planner.envs.array_types import (
+    EncodedLaneArray,
+    LaneGeometryArray,
+    NumpyMapObservation,
+    WorldVectorArray,
+)
 from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
 from eco_planner.envs.lane_speed import model_lane_speed_limit_mps
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
@@ -22,9 +28,9 @@ class _LaneSnapshot:
     lane: Any
     stable_id: str
     road: tuple[Any, Any]
-    centers_world: np.ndarray
-    left_boundary_world: np.ndarray
-    right_boundary_world: np.ndarray
+    centers_world: LaneGeometryArray
+    left_boundary_world: LaneGeometryArray
+    right_boundary_world: LaneGeometryArray
     speed_limit_mps: float
     has_speed_limit: bool
 
@@ -37,10 +43,6 @@ class MetaDriveMapAdapter:
         model_config: OfficialDiffusionPlannerConfig,
         query_radius_m: float,
     ) -> None:
-        if not isinstance(model_config, OfficialDiffusionPlannerConfig):
-            raise TypeError("model_config must be an OfficialDiffusionPlannerConfig")
-        if type(query_radius_m) not in {int, float}:
-            raise TypeError("query_radius_m must be numeric")
         if not np.isfinite(query_radius_m) or query_radius_m <= 0.0:
             raise ValueError("query_radius_m must be finite and positive")
         if model_config.lane_state_dim != _LANE_FEATURE_DIM:
@@ -71,7 +73,7 @@ class MetaDriveMapAdapter:
             for snapshot in snapshots
         )
 
-    def build_arrays(self, env: Any) -> dict[str, np.ndarray]:
+    def build_arrays(self, env: Any) -> NumpyMapObservation:
         """Build raw NumPy map fields before the common observation output boundary."""
 
         current_map, _, ego, navigation = self._environment_parts(env)
@@ -88,7 +90,7 @@ class MetaDriveMapAdapter:
         route_snapshots = self._select_route_lanes(lane_snapshots, navigation)
         arrays = self._allocate_arrays()
         encoded = self._encode_lanes(lane_snapshots, rear_axle, center_heading)
-        encoded_by_id: dict[str, tuple[np.ndarray, float, bool]] = {}
+        encoded_by_id: dict[str, tuple[EncodedLaneArray, float, bool]] = {}
         for index, (snapshot, values) in enumerate(zip(lane_snapshots, encoded, strict=True)):
             features, speed_limit, has_speed_limit = values
             arrays["lanes"][index] = features
@@ -151,7 +153,7 @@ class MetaDriveMapAdapter:
         )
 
     def _select_lanes(
-        self, snapshots: tuple[_LaneSnapshot, ...], rear_axle: np.ndarray
+        self, snapshots: tuple[_LaneSnapshot, ...], rear_axle: WorldVectorArray
     ) -> list[_LaneSnapshot]:
         candidates: list[tuple[float, _LaneSnapshot]] = []
         for snapshot in snapshots:
@@ -168,7 +170,7 @@ class MetaDriveMapAdapter:
             raise RuntimeError("no lanes were found within the configured map query radius")
         return selected
 
-    def _candidate_snapshots(self, rear_axle: np.ndarray) -> tuple[_LaneSnapshot, ...]:
+    def _candidate_snapshots(self, rear_axle: WorldVectorArray) -> tuple[_LaneSnapshot, ...]:
         if (
             self._lane_snapshots is None
             or self._lane_tree is None
@@ -209,7 +211,7 @@ class MetaDriveMapAdapter:
             raise RuntimeError("navigation route did not resolve to a selected local lane")
         return selected[: self._config.route_num]
 
-    def _allocate_arrays(self) -> dict[str, np.ndarray]:
+    def _allocate_arrays(self) -> NumpyMapObservation:
         config = self._config
         return {
             "lanes": np.zeros(
@@ -227,9 +229,9 @@ class MetaDriveMapAdapter:
     def _encode_lanes(
         self,
         snapshots: list[_LaneSnapshot],
-        rear_axle: np.ndarray,
+        rear_axle: WorldVectorArray,
         ego_heading: float,
-    ) -> list[tuple[np.ndarray, float, bool]]:
+    ) -> list[tuple[EncodedLaneArray, float, bool]]:
         centers_world = np.stack([snapshot.centers_world for snapshot in snapshots])
         left_world = np.stack([snapshot.left_boundary_world for snapshot in snapshots])
         right_world = np.stack([snapshot.right_boundary_world for snapshot in snapshots])
@@ -249,7 +251,7 @@ class MetaDriveMapAdapter:
             .reshape(shape)
             .astype(np.float32)
         )
-        results: list[tuple[np.ndarray, float, bool]] = []
+        results: list[tuple[EncodedLaneArray, float, bool]] = []
         for index, snapshot in enumerate(snapshots):
             features = np.zeros((self._config.lane_len, _LANE_FEATURE_DIM), dtype=np.float32)
             features[:, :2] = centers_local[index]

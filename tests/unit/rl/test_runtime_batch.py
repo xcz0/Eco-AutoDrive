@@ -11,6 +11,13 @@ from eco_planner.rl.policy import ExplorationPolicy, ExplorationPolicyContext
 from eco_planner.rl.runtime import FabricRolloutRuntime
 
 
+def _assert_trajectory_contract(trajectory: np.ndarray) -> None:
+    assert trajectory.shape[-2:] == (80, 4)
+    assert trajectory.dtype == np.float32
+    assert np.isfinite(trajectory).all()
+    assert np.all(np.linalg.norm(trajectory[..., 2:4], axis=-1) > 0.0)
+
+
 class _CpuFabric:
     device = torch.device("cpu")
 
@@ -85,6 +92,7 @@ def test_rollout_batch_runtime_matches_independent_serial_slots(
     )
 
     assert batched.ego_trajectories.shape == (batch, 80, 4)
+    _assert_trajectory_contract(batched.ego_trajectories)
     for index in range(batch):
         single_observation = {name: value[index : index + 1] for name, value in observation.items()}
         serial = serial_runtime.decide(

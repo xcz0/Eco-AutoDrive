@@ -11,8 +11,12 @@ from metadrive.envs.metadrive_env import MetaDriveEnv
 from metadrive.obs.observation_base import BaseObservation
 from metadrive.utils import Config, concat_step_infos, merge_dicts
 
+from eco_planner.envs.array_types import (
+    PlannerOnlyObservationArray,
+    TrajectoryArray,
+    WorldVectorArray,
+)
 from eco_planner.envs.execution import (
-    TRAJECTORY_HORIZON,
     TRAJECTORY_TIMESTEP_S,
     KinematicTrajectoryPolicy,
     TrajectoryExecutionRecorder,
@@ -20,13 +24,12 @@ from eco_planner.envs.execution import (
     execution_steps_from_config,
     finite_info_scalar,
     to_world_trajectory,
-    validate_trajectory,
 )
 from eco_planner.envs.lane_speed import ProgrammaticLaneSpeedAdapter
 from eco_planner.envs.traffic_state import TrafficFrame, capture_traffic_frame
 
-_PLANNER_ONLY_OBSERVATION = np.zeros(1, dtype=np.float32)
-_ZERO_VELOCITY = np.zeros(2, dtype=np.float64)
+_PLANNER_ONLY_OBSERVATION: PlannerOnlyObservationArray = np.zeros(1, dtype=np.float32)
+_ZERO_VELOCITY: WorldVectorArray = np.zeros(2, dtype=np.float64)
 
 
 class _PlannerOnlyObservation(BaseObservation):
@@ -36,7 +39,7 @@ class _PlannerOnlyObservation(BaseObservation):
     def observation_space(self) -> gym.spaces.Box:
         return gym.spaces.Box(0.0, 0.0, shape=(1,), dtype=np.float32)
 
-    def observe(self, *args: Any, **kwargs: Any) -> np.ndarray:
+    def observe(self, *args: Any, **kwargs: Any) -> PlannerOnlyObservationArray:
         return _PLANNER_ONLY_OBSERVATION.copy()
 
 
@@ -134,13 +137,12 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         self._initial_traffic_frame = capture_traffic_frame(self)
         return result
 
-    def step(self, trajectory: np.ndarray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
-        validated = validate_trajectory(trajectory, TRAJECTORY_HORIZON)
+    def step(self, trajectory: TrajectoryArray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
         rear_wheelbase = self.agent.REAR_WHEELBASE
         if rear_wheelbase is None:
             raise RuntimeError("controlled vehicle does not define REAR_WHEELBASE")
         world_trajectory = to_world_trajectory(
-            validated,
+            trajectory,
             center_position=np.asarray(self.agent.position, dtype=np.float64),
             center_heading=float(self.agent.heading_theta),
             rear_wheelbase=float(rear_wheelbase),
@@ -173,7 +175,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
 
     def _step_once(
         self, action: WorldTrajectory | None
-    ) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+    ) -> tuple[PlannerOnlyObservationArray, float, bool, bool, dict[str, Any]]:
         actions = {DEFAULT_AGENT: action}
         engine_info = self._step_planner_simulator(actions)
         agent_id, agent = next(iter(self.agents.items()))

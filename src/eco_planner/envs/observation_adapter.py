@@ -14,6 +14,18 @@ from metadrive.component.traffic_participants.base_traffic_participant import (
 )
 from metadrive.component.vehicle.base_vehicle import BaseVehicle
 
+from eco_planner.envs.array_types import (
+    EgoStateArray,
+    EncodedParticipantHistoryArray,
+    NeighborAgentsArray,
+    NumpyObservation,
+    ParticipantHistoryArray,
+    ParticipantRowsArray,
+    SingleObservation,
+    StaticObjectArray,
+    StaticObjectsArray,
+    WorldVectorArray,
+)
 from eco_planner.envs.geometry import rear_axle_position, world_vectors_to_local
 from eco_planner.envs.map_adapter import MetaDriveMapAdapter
 from eco_planner.envs.traffic_state import (
@@ -22,7 +34,9 @@ from eco_planner.envs.traffic_state import (
 )
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
-_EGO_CURRENT_STATE = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+_EGO_CURRENT_STATE: EgoStateArray = np.array(
+    [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,12 +52,22 @@ class TrafficObservationAudit:
 @dataclass(frozen=True, slots=True)
 class _EncodedParticipantFrame:
     ids: tuple[str, ...]
-    rows: np.ndarray
+    rows: ParticipantRowsArray
     index_by_id: dict[str, int]
 
 
-def _to_cpu_tensors(arrays: dict[str, np.ndarray]) -> dict[str, torch.Tensor]:
-    return {name: torch.from_numpy(value) for name, value in arrays.items()}
+def _to_cpu_tensors(arrays: NumpyObservation) -> SingleObservation:
+    return {
+        "ego_current_state": torch.from_numpy(arrays["ego_current_state"]),
+        "neighbor_agents_past": torch.from_numpy(arrays["neighbor_agents_past"]),
+        "static_objects": torch.from_numpy(arrays["static_objects"]),
+        "lanes": torch.from_numpy(arrays["lanes"]),
+        "lanes_speed_limit": torch.from_numpy(arrays["lanes_speed_limit"]),
+        "lanes_has_speed_limit": torch.from_numpy(arrays["lanes_has_speed_limit"]),
+        "route_lanes": torch.from_numpy(arrays["route_lanes"]),
+        "route_lanes_speed_limit": torch.from_numpy(arrays["route_lanes_speed_limit"]),
+        "route_lanes_has_speed_limit": torch.from_numpy(arrays["route_lanes_has_speed_limit"]),
+    }
 
 
 class MetaDriveObservationAdapter:
@@ -93,7 +117,7 @@ class MetaDriveObservationAdapter:
         if frames:
             self._latest_frame = frames[-1]
 
-    def build(self, env: Any) -> tuple[dict[str, torch.Tensor], TrafficObservationAudit]:
+    def build(self, env: Any) -> tuple[SingleObservation, TrafficObservationAudit]:
         """Return one observation and its traffic-selection audit."""
 
         if len(self._encoded_history) != self._config.time_len:
@@ -116,17 +140,17 @@ class MetaDriveObservationAdapter:
             static_object_count_in_radius=static_count,
             nearest_participant_distance_m=neighbor_audit.nearest_participant_distance_m,
         )
-        observation = {
+        observation: NumpyObservation = {
             "ego_current_state": _EGO_CURRENT_STATE.copy(),
             "neighbor_agents_past": neighbor_agents,
             "static_objects": static_objects,
+            **self._map_adapter.build_arrays(env),
         }
-        observation.update(self._map_adapter.build_arrays(env))
         return _to_cpu_tensors(observation), audit
 
     def _build_neighbor_agents(
         self, latest: TrafficFrame
-    ) -> tuple[np.ndarray, TrafficObservationAudit]:
+    ) -> tuple[NeighborAgentsArray, TrafficObservationAudit]:
         anchor_xy, anchor_heading = _rear_axle_anchor(latest)
         current = self._encoded_history[-1]
         distances_array = np.linalg.norm(current.rows[:, :2] - anchor_xy, axis=1)
@@ -165,7 +189,7 @@ class MetaDriveObservationAdapter:
             nearest_participant_distance_m=nearest,
         )
 
-    def _build_static_objects(self, latest: TrafficFrame) -> tuple[np.ndarray, int]:
+    def _build_static_objects(self, latest: TrafficFrame) -> tuple[StaticObjectsArray, int]:
         anchor_xy, anchor_heading = _rear_axle_anchor(latest)
         unique = {state.object_id: state for state in latest.static_objects}
         distances = {
@@ -235,17 +259,17 @@ def _register_artifact_participant_ids(frame: TrafficFrame, artifact_ids: dict[s
         artifact_ids[object_id] = f"participant-{len(artifact_ids):06d}"
 
 
-def _rear_axle_anchor(frame: TrafficFrame) -> tuple[np.ndarray, float]:
+def _rear_axle_anchor(frame: TrafficFrame) -> tuple[WorldVectorArray, float]:
     heading = frame.ego_heading_rad
     center = np.asarray(frame.ego_center_xy_m, dtype=np.float64)
     return rear_axle_position(center, heading, frame.ego_rear_wheelbase_m), heading
 
 
 def _encoded_participant_history_features(
-    histories: np.ndarray,
-    anchor_xy: np.ndarray,
+    histories: ParticipantHistoryArray,
+    anchor_xy: WorldVectorArray,
     anchor_heading: float,
-) -> np.ndarray:
+) -> EncodedParticipantHistoryArray:
     shape = histories.shape[:2]
     positions = histories[..., :2]
     velocities = histories[..., 3:5]
@@ -268,8 +292,8 @@ def _encoded_participant_history_features(
 
 
 def _static_object_features(
-    state: StaticTrafficObjectState, anchor_xy: np.ndarray, anchor_heading: float
-) -> np.ndarray:
+    state: StaticTrafficObjectState, anchor_xy: WorldVectorArray, anchor_heading: float
+) -> StaticObjectArray:
     position = world_vectors_to_local(
         (np.asarray(state.position_xy_m) - anchor_xy)[None], anchor_heading
     )[0]
@@ -300,8 +324,6 @@ class NoTrafficMetaDriveObservationAdapter:
         model_config: OfficialDiffusionPlannerConfig,
         query_radius_m: float,
     ) -> None:
-        if not isinstance(model_config, OfficialDiffusionPlannerConfig):
-            raise TypeError("model_config must be an OfficialDiffusionPlannerConfig")
         self._config = model_config
         self._map_adapter = MetaDriveMapAdapter(model_config, query_radius_m)
 
@@ -310,14 +332,14 @@ class NoTrafficMetaDriveObservationAdapter:
 
         self._map_adapter.reset(env)
 
-    def build(self, env: Any) -> dict[str, torch.Tensor]:
+    def build(self, env: Any) -> SingleObservation:
         """Return one observation and reject any non-empty traffic scene."""
 
         self._validate_environment_config(env)
         self._validate_scene_is_empty(env)
 
         config = self._config
-        observation = {
+        observation: NumpyObservation = {
             "ego_current_state": _EGO_CURRENT_STATE.copy(),
             "neighbor_agents_past": np.zeros(
                 (config.agent_num, config.time_len, config.agent_state_dim), dtype=np.float32
@@ -325,8 +347,8 @@ class NoTrafficMetaDriveObservationAdapter:
             "static_objects": np.zeros(
                 (config.static_objects_num, config.static_objects_state_dim), dtype=np.float32
             ),
+            **self._map_adapter.build_arrays(env),
         }
-        observation.update(self._map_adapter.build_arrays(env))
         return _to_cpu_tensors(observation)
 
     @staticmethod

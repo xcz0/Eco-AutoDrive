@@ -364,7 +364,6 @@ def _to_batch_inference_decision(
 
     deferred = defer_host_tensors(tensors, device)
     execution = copy_execution_trajectory(result.prediction, device)
-    _validate_execution_trajectory(execution.ego_trajectory)
     return BatchInferenceDecision(
         execution,
         lambda: _host_result_from_tensors(deferred, diagnostics is not None),
@@ -401,11 +400,6 @@ def _host_result_from_tensors(
         guidance_action=arrays.get("guidance_action"),
         guidance_diagnostics=host_diagnostics,
     )
-
-
-def _validate_execution_trajectory(trajectory: np.ndarray) -> None:
-    if not np.isfinite(trajectory).all():
-        raise RuntimeError("Diffusion Planner ego trajectory contains non-finite values")
 
 
 def resolve_runtime_settings(runtime_config: RuntimeConfig) -> _ResolvedRuntimeSettings:
