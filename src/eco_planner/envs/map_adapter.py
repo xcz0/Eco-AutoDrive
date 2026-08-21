@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -11,14 +11,128 @@ from shapely import LineString, box
 from shapely.strtree import STRtree
 
 from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
-from eco_planner.envs.lane_speed import model_lane_speed_limit_mps
+from eco_planner.envs.lane_speed import (
+    MAX_LANE_SPEED_LIMIT_KMH,
+    PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH,
+    model_lane_speed_limit_mps,
+    validated_programmatic_speed_limit_kmh,
+)
+from eco_planner.envs.observation import to_cpu_torch_observation
+from eco_planner.envs.validation import is_real_scalar
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 _LANE_FEATURE_DIM = 12
 _TRAFFIC_LIGHT_UNKNOWN = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
 
 
-@dataclass(frozen=True)
+@dataclass(slots=True)
+class ProgrammaticLaneSpeedAdapter:
+    """Replace only PGMap's unset-speed sentinel after a map has been created."""
+
+    configured_speed_limit_kmh: float
+    _sentinel_lane_ids: frozenset[str] | None = field(default=None, init=False)
+    _map: object | None = field(default=None, init=False)
+    _audit: dict[str, object] | None = field(default=None, init=False)
+
+    def __post_init__(self) -> None:
+        self.configured_speed_limit_kmh = validated_programmatic_speed_limit_kmh(
+            self.configured_speed_limit_kmh
+        )
+
+    @property
+    def audit(self) -> dict[str, object]:
+        if self._audit is None:
+            raise RuntimeError("programmatic lane speed limits are unavailable before reset")
+        return dict(self._audit)
+
+    def clear_audit(self) -> None:
+        """Invalidate the previous reset's audit before beginning a new lifecycle."""
+
+        self._audit = None
+
+    def apply(self, current_map: object) -> None:
+        """Configure the current map and retain its verified speed-limit audit."""
+
+        road_network = getattr(current_map, "road_network", None)
+        if road_network is None or not hasattr(road_network, "get_all_lanes"):
+            raise RuntimeError("current map does not expose a lane road network")
+        lanes = road_network.get_all_lanes()
+        if not isinstance(lanes, list) or not lanes:
+            raise RuntimeError("current map road network has no lanes")
+
+        lane_ids = [repr(getattr(lane, "index", None)) for lane in lanes]
+        if len(set(lane_ids)) != len(lane_ids):
+            raise RuntimeError("current map exposes duplicate lane identifiers")
+        if current_map is not self._map:
+            self._sentinel_lane_ids = frozenset(
+                lane_id
+                for lane_id, lane in zip(lane_ids, lanes, strict=True)
+                if getattr(lane, "speed_limit", None) == PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH
+            )
+            self._map = current_map
+        if self._sentinel_lane_ids is None:
+            raise RuntimeError("programmatic sentinel state was not initialized")
+
+        replaced_lane_ids: set[str] = set()
+        preserved_speed_limits_kmh: dict[str, float] = {}
+        for lane_id, lane in zip(lane_ids, lanes, strict=True):
+            speed_limit = getattr(lane, "speed_limit", None)
+            if not is_real_scalar(speed_limit) or not np.isfinite(speed_limit):
+                raise ValueError(f"lane {lane_id} speed limit must be a finite numeric km/h value")
+            original_kmh = float(speed_limit)
+            if lane_id in self._sentinel_lane_ids:
+                if original_kmh not in {
+                    self.configured_speed_limit_kmh,
+                    PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH,
+                }:
+                    raise RuntimeError(
+                        f"lane {lane_id} no longer has the configured programmatic speed limit"
+                    )
+                setter = getattr(lane, "set_speed_limit", None)
+                if not callable(setter):
+                    raise RuntimeError(f"lane {lane_id} cannot set its programmatic speed limit")
+                setter(self.configured_speed_limit_kmh)
+                replaced_lane_ids.add(lane_id)
+            elif 0.0 < original_kmh <= MAX_LANE_SPEED_LIMIT_KMH:
+                preserved_speed_limits_kmh[lane_id] = original_kmh
+            else:
+                raise ValueError(
+                    f"lane {lane_id} speed limit {original_kmh} km/h is neither the "
+                    "programmatic unset sentinel nor a legal explicit speed limit"
+                )
+
+        final_speed_limits_kmh: list[float] = []
+        for lane_id, lane in zip(lane_ids, lanes, strict=True):
+            speed_limit = getattr(lane, "speed_limit", None)
+            if not is_real_scalar(speed_limit) or not np.isfinite(speed_limit):
+                raise RuntimeError(f"lane {lane_id} returned an invalid configured speed limit")
+            final_kmh = float(speed_limit)
+            if final_kmh == PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH:
+                raise RuntimeError(f"lane {lane_id} retained the programmatic speed-limit sentinel")
+            if lane_id in replaced_lane_ids and final_kmh != self.configured_speed_limit_kmh:
+                raise RuntimeError(f"lane {lane_id} did not retain the configured speed limit")
+            if (
+                lane_id in preserved_speed_limits_kmh
+                and final_kmh != preserved_speed_limits_kmh[lane_id]
+            ):
+                raise RuntimeError(f"lane {lane_id} explicit speed limit was unexpectedly modified")
+            final_speed_limits_kmh.append(final_kmh)
+
+        counts: dict[str, int] = {}
+        for speed_limit_kmh in final_speed_limits_kmh:
+            label = f"{speed_limit_kmh:g}"
+            counts[label] = counts.get(label, 0) + 1
+        self._audit = {
+            "speed_limit_sentinel_replaced_count": len(replaced_lane_ids),
+            "speed_limit_existing_preserved_count": len(preserved_speed_limits_kmh),
+            "configured_programmatic_lane_speed_limit_kmh": self.configured_speed_limit_kmh,
+            "lane_speed_limit_kmh_counts": dict(
+                sorted(counts.items(), key=lambda item: float(item[0]))
+            ),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class _LaneSnapshot:
     lane: Any
     stable_id: str
@@ -30,7 +144,7 @@ class _LaneSnapshot:
     has_speed_limit: bool
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _LaneRecord:
     snapshot: _LaneSnapshot
     distance: float
@@ -85,6 +199,13 @@ class MetaDriveMapAdapter:
         )
 
     def build(self, env: Any) -> dict[str, torch.Tensor]:
+        """Build one CPU-tensor map observation for direct adapter use."""
+
+        return to_cpu_torch_observation(self.build_arrays(env))
+
+    def build_arrays(self, env: Any) -> dict[str, np.ndarray]:
+        """Build raw NumPy map fields before the common observation output boundary."""
+
         current_map, _, ego, navigation = self._environment_parts(env)
         if self._lane_snapshots is None:
             self.reset(env)
@@ -111,7 +232,7 @@ class MetaDriveMapAdapter:
             arrays["route_lanes"][index] = features
             arrays["route_lanes_speed_limit"][index, 0] = speed_limit
             arrays["route_lanes_has_speed_limit"][index, 0] = has_speed_limit
-        return {name: torch.as_tensor(value) for name, value in arrays.items()}
+        return arrays
 
     @staticmethod
     def _environment_parts(env: Any) -> tuple[Any, Any, Any, Any]:

@@ -7,6 +7,7 @@ from typing import Any
 
 import gymnasium as gym
 import numpy as np
+from jaxtyping import Bool, Float
 from metadrive.policy.base_policy import BasePolicy
 from metadrive.policy.replay_policy import ReplayTrafficParticipantPolicy
 
@@ -16,6 +17,11 @@ from eco_planner.envs.geometry import (
     shortest_angle_delta,
 )
 from eco_planner.envs.traffic_state import TrafficFrame
+from eco_planner.envs.validation import (
+    is_real_scalar,
+    require_finite_array,
+    require_finite_real_scalar,
+)
 
 TRAJECTORY_HORIZON = 80
 TRAJECTORY_EXECUTION_STEPS = 5
@@ -25,22 +31,33 @@ TRAJECTORY_TIMESTEP_S = 0.1
 _ALLOWED_EXECUTION_STEPS = frozenset({ROLLOUT_EXECUTION_STEPS, TRAJECTORY_EXECUTION_STEPS})
 _MIN_HEADING_NORM = 1e-6
 
+TrajectoryArray = Float[np.ndarray, "trajectory_horizon 4"]
+WorldVectorArray = Float[np.ndarray, "2"]
+WorldPointArray = Float[np.ndarray, "trajectory_points 2"]
+WorldHeadingArray = Float[np.ndarray, "trajectory_points"]
+ExecutionStateArray = Float[np.ndarray, "execution_steps 7"]
+ExecutionPointArray = Float[np.ndarray, "execution_steps 2"]
+ExecutionScalarArray = Float[np.ndarray, "execution_steps"]
+ExecutionBooleanArray = Bool[np.ndarray, "execution_steps"]
+VelocityArray = Float[np.ndarray, "trajectory_horizon 2"]
+AngularVelocityArray = Float[np.ndarray, "trajectory_horizon"]
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, slots=True)
 class TrajectoryExecutionRecord:
-    start_center: np.ndarray
+    start_center: WorldVectorArray
     start_heading: float
-    world_centers: np.ndarray
-    world_headings: np.ndarray
-    substep_states: np.ndarray
-    target_centers: np.ndarray
-    target_headings: np.ndarray
-    position_errors_m: np.ndarray
-    heading_errors_rad: np.ndarray
-    substep_rewards: np.ndarray
-    substep_dense_rewards: np.ndarray
-    substep_terminated: np.ndarray
-    substep_truncated: np.ndarray
+    world_centers: WorldPointArray
+    world_headings: WorldHeadingArray
+    substep_states: ExecutionStateArray
+    target_centers: ExecutionPointArray
+    target_headings: ExecutionScalarArray
+    position_errors_m: ExecutionScalarArray
+    heading_errors_rad: ExecutionScalarArray
+    substep_rewards: ExecutionScalarArray
+    substep_dense_rewards: ExecutionScalarArray
+    substep_terminated: ExecutionBooleanArray
+    substep_truncated: ExecutionBooleanArray
     traffic_frames: tuple[TrafficFrame, ...]
     route_completion: float
     arrive_dest: bool
@@ -52,12 +69,12 @@ class TrajectoryExecutionRecord:
     max_step: bool
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class WorldTrajectory:
-    centers: np.ndarray
-    headings: np.ndarray
-    velocities: np.ndarray
-    angular_velocities: np.ndarray
+    centers: WorldPointArray
+    headings: WorldHeadingArray
+    velocities: VelocityArray
+    angular_velocities: AngularVelocityArray
 
 
 @dataclass
@@ -146,19 +163,17 @@ class TrajectoryExecutionRecorder:
         return result
 
 
-def validate_trajectory(trajectory: object, horizon: int) -> np.ndarray:
-    if not isinstance(trajectory, np.ndarray):
-        raise TypeError("trajectory must be a numpy.ndarray")
-    if trajectory.dtype != np.float32:
-        raise TypeError("trajectory must use numpy.float32")
-    if trajectory.shape != (horizon, 4):
-        raise ValueError(f"trajectory must have shape ({horizon}, 4)")
-    if not np.isfinite(trajectory).all():
-        raise ValueError("trajectory must contain only finite values")
-    heading_norms = np.linalg.norm(trajectory[:, 2:4], axis=1)
+def validate_trajectory(trajectory: object, horizon: int) -> TrajectoryArray:
+    validated = require_finite_array(
+        trajectory,
+        "trajectory",
+        dtype=np.dtype(np.float32),
+        shape=(horizon, 4),
+    )
+    heading_norms = np.linalg.norm(validated[:, 2:4], axis=1)
     if np.any(heading_norms <= _MIN_HEADING_NORM):
         raise ValueError("trajectory heading vectors must be non-zero")
-    return trajectory.copy()
+    return validated.copy()
 
 
 def to_world_trajectory(
@@ -297,11 +312,6 @@ def _validated_timestep(config: Any) -> float:
 
 def finite_info_scalar(info: dict[str, Any], name: str) -> float:
     value = info.get(name)
-    if isinstance(value, (bool, np.bool_)) or not isinstance(
-        value, (int, float, np.integer, np.floating)
-    ):
+    if not is_real_scalar(value):
         raise TypeError(f"{name} must be a finite numeric scalar")
-    result = float(value)
-    if not np.isfinite(result):
-        raise ValueError(f"{name} must be finite")
-    return result
+    return require_finite_real_scalar(value, name)

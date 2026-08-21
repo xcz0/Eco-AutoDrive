@@ -9,7 +9,7 @@ import torch
 
 from eco_planner.envs import collate_observations
 from eco_planner.envs.lane_speed import model_lane_speed_limit_mps
-from eco_planner.envs.map_adapter import MetaDriveMapAdapter
+from eco_planner.envs.map_adapter import MetaDriveMapAdapter, ProgrammaticLaneSpeedAdapter
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 
@@ -51,6 +51,9 @@ class _StubLane:
         self.distance_calls += 1
         assert position.shape == (2,)
         return self._distance
+
+    def set_speed_limit(self, speed_limit: float) -> None:
+        self.speed_limit = speed_limit
 
 
 class _StubRoadNetwork:
@@ -190,6 +193,27 @@ def test_speed_limit_conversion_accepts_finite_numpy_scalar() -> None:
 def test_speed_limit_conversion_rejects_unconfigured_programmatic_sentinel() -> None:
     with pytest.raises(RuntimeError, match="programmatic lane speed limit was not configured"):
         model_lane_speed_limit_mps(_lane(0, speed_limit=1000.0))
+
+
+def test_programmatic_speed_adapter_replaces_only_sentinel_and_preserves_explicit_limits() -> None:
+    programmatic = _lane(0, speed_limit=1000.0)
+    explicit = _lane(1, speed_limit=20.0)
+    current_map = _StubMap(_StubRoadNetwork([programmatic, explicit]))
+    adapter = ProgrammaticLaneSpeedAdapter(50.0)
+
+    adapter.apply(current_map)
+    first_audit = adapter.audit
+    adapter.apply(current_map)
+
+    assert programmatic.speed_limit == 50.0
+    assert explicit.speed_limit == 20.0
+    assert adapter.audit == first_audit
+    assert first_audit["speed_limit_sentinel_replaced_count"] == 1
+    assert first_audit["speed_limit_existing_preserved_count"] == 1
+
+    adapter.clear_audit()
+    with pytest.raises(RuntimeError, match="unavailable"):
+        _ = adapter.audit
 
 
 def test_map_adapter_preserves_mixed_explicit_speed_limit_encoding(

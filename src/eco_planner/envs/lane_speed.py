@@ -6,14 +6,10 @@ from typing import Any
 
 import numpy as np
 
+from eco_planner.envs.validation import is_real_scalar
+
 PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH = 1000.0
 MAX_LANE_SPEED_LIMIT_KMH = 130.0
-
-
-def is_real_scalar(value: object) -> bool:
-    return not isinstance(value, (bool, np.bool_)) and isinstance(
-        value, (int, float, np.integer, np.floating)
-    )
 
 
 def validated_programmatic_speed_limit_kmh(value: object) -> float:

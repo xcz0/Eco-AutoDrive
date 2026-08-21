@@ -22,12 +22,7 @@ from eco_planner.envs.execution import (
     to_world_trajectory,
     validate_trajectory,
 )
-from eco_planner.envs.lane_speed import (
-    MAX_LANE_SPEED_LIMIT_KMH,
-    PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH,
-    is_real_scalar,
-    validated_programmatic_speed_limit_kmh,
-)
+from eco_planner.envs.map_adapter import ProgrammaticLaneSpeedAdapter
 from eco_planner.envs.traffic_state import TrafficFrame, capture_traffic_frame
 
 _PLANNER_ONLY_OBSERVATION = np.zeros(1, dtype=np.float32)
@@ -90,12 +85,9 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         if self.config["manual_control"]:
             raise ValueError("TrajectoryMetaDriveEnv does not support manual control")
         self._execution_steps = execution_steps_from_config(self.config)
-        self._programmatic_lane_speed_limit_kmh = validated_programmatic_speed_limit_kmh(
+        self._programmatic_lane_speed_adapter = ProgrammaticLaneSpeedAdapter(
             self.config["programmatic_lane_speed_limit_kmh"]
         )
-        self._programmatic_lane_speed_limit_audit: dict[str, object] | None = None
-        self._programmatic_sentinel_lane_ids: frozenset[str] | None = None
-        self._programmatic_sentinel_map: object | None = None
         self._initial_traffic_frame: TrafficFrame | None = None
 
     def _post_process_config(self, config: Config) -> Config:
@@ -112,9 +104,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
     def programmatic_lane_speed_limit_audit(self) -> dict[str, object]:
         """Return the verified lane-speed metadata written during the latest reset."""
 
-        if self._programmatic_lane_speed_limit_audit is None:
-            raise RuntimeError("programmatic lane speed limits are unavailable before reset")
-        return dict(self._programmatic_lane_speed_limit_audit)
+        return self._programmatic_lane_speed_adapter.audit
 
     @property
     def initial_traffic_frame(self) -> TrafficFrame:
@@ -135,7 +125,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
 
     def reset(self, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
         self._initial_traffic_frame = None
-        self._programmatic_lane_speed_limit_audit = None
+        self._programmatic_lane_speed_adapter.clear_audit()
         result = super().reset(*args, **kwargs)
         self._configure_programmatic_lane_speed_limits()
         self._initial_traffic_frame = capture_traffic_frame(self)
@@ -147,85 +137,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         current_map = self.current_map
         if current_map is None:
             raise RuntimeError("MetaDrive did not create a current map during reset")
-        road_network = getattr(current_map, "road_network", None)
-        if road_network is None or not hasattr(road_network, "get_all_lanes"):
-            raise RuntimeError("current map does not expose a lane road network")
-        lanes = road_network.get_all_lanes()
-        if not isinstance(lanes, list) or not lanes:
-            raise RuntimeError("current map road network has no lanes")
-
-        configured_kmh = self._programmatic_lane_speed_limit_kmh
-        lane_ids = [repr(getattr(lane, "index", None)) for lane in lanes]
-        if len(set(lane_ids)) != len(lane_ids):
-            raise RuntimeError("current map exposes duplicate lane identifiers")
-        if current_map is not self._programmatic_sentinel_map:
-            self._programmatic_sentinel_lane_ids = frozenset(
-                repr(getattr(lane, "index", None))
-                for lane in lanes
-                if getattr(lane, "speed_limit", None) == PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH
-            )
-            self._programmatic_sentinel_map = current_map
-        if self._programmatic_sentinel_lane_ids is None:
-            raise RuntimeError("programmatic sentinel state was not initialized")
-        replaced_lane_ids: set[str] = set()
-        preserved_speed_limits_kmh: dict[str, float] = {}
-        for lane in lanes:
-            lane_id = repr(getattr(lane, "index", None))
-            speed_limit = getattr(lane, "speed_limit", None)
-            if not is_real_scalar(speed_limit) or not np.isfinite(speed_limit):
-                raise ValueError(f"lane {lane_id} speed limit must be a finite numeric km/h value")
-            original_kmh = float(speed_limit)
-            if lane_id in self._programmatic_sentinel_lane_ids:
-                if original_kmh not in {
-                    configured_kmh,
-                    PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH,
-                }:
-                    raise RuntimeError(
-                        f"lane {lane_id} no longer has the configured programmatic speed limit"
-                    )
-                setter = getattr(lane, "set_speed_limit", None)
-                if not callable(setter):
-                    raise RuntimeError(f"lane {lane_id} cannot set its programmatic speed limit")
-                setter(configured_kmh)
-                replaced_lane_ids.add(lane_id)
-            elif 0.0 < original_kmh <= MAX_LANE_SPEED_LIMIT_KMH:
-                preserved_speed_limits_kmh[lane_id] = original_kmh
-            else:
-                raise ValueError(
-                    f"lane {lane_id} speed limit {original_kmh} km/h is neither the "
-                    "programmatic unset sentinel nor a legal explicit speed limit"
-                )
-
-        final_speed_limits_kmh: list[float] = []
-        for lane in lanes:
-            lane_id = repr(getattr(lane, "index", None))
-            speed_limit = getattr(lane, "speed_limit", None)
-            if not is_real_scalar(speed_limit) or not np.isfinite(speed_limit):
-                raise RuntimeError(f"lane {lane_id} returned an invalid configured speed limit")
-            final_kmh = float(speed_limit)
-            if final_kmh == PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH:
-                raise RuntimeError(f"lane {lane_id} retained the programmatic speed-limit sentinel")
-            if lane_id in replaced_lane_ids and final_kmh != configured_kmh:
-                raise RuntimeError(f"lane {lane_id} did not retain the configured speed limit")
-            if lane_id in preserved_speed_limits_kmh:
-                if final_kmh != preserved_speed_limits_kmh[lane_id]:
-                    raise RuntimeError(
-                        f"lane {lane_id} explicit speed limit was unexpectedly modified"
-                    )
-            final_speed_limits_kmh.append(final_kmh)
-
-        counts: dict[str, int] = {}
-        for speed_limit_kmh in final_speed_limits_kmh:
-            label = f"{speed_limit_kmh:g}"
-            counts[label] = counts.get(label, 0) + 1
-        self._programmatic_lane_speed_limit_audit = {
-            "speed_limit_sentinel_replaced_count": len(replaced_lane_ids),
-            "speed_limit_existing_preserved_count": len(preserved_speed_limits_kmh),
-            "configured_programmatic_lane_speed_limit_kmh": configured_kmh,
-            "lane_speed_limit_kmh_counts": dict(
-                sorted(counts.items(), key=lambda item: float(item[0]))
-            ),
-        }
+        self._programmatic_lane_speed_adapter.apply(current_map)
 
     def step(self, trajectory: np.ndarray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
         validated = validate_trajectory(trajectory, TRAJECTORY_HORIZON)

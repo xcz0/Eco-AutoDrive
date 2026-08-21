@@ -22,13 +22,13 @@ from metadrive.component.traffic_participants.pedestrian import (
 )
 from metadrive.component.vehicle.base_vehicle import BaseVehicle
 
-from eco_planner.envs.lane_speed import is_real_scalar
+from eco_planner.envs.validation import is_real_scalar
 
 ParticipantKind = Literal["vehicle", "pedestrian", "bicycle"]
 StaticObjectKind = Literal["barrier", "traffic_cone", "generic"]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TrafficParticipantState:
     """One dynamic traffic participant in world coordinates."""
 
@@ -41,7 +41,7 @@ class TrafficParticipantState:
     length_m: float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StaticTrafficObjectState:
     """One supported static traffic object in world coordinates."""
 
@@ -53,7 +53,7 @@ class StaticTrafficObjectState:
     length_m: float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TrafficFrame:
     """Ego anchor and traffic objects captured after one 0.1 s simulator step."""
 

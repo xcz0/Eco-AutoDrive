@@ -20,14 +20,14 @@ from eco_planner.envs.traffic_state import (
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 
-def _map_observation(config: OfficialDiffusionPlannerConfig) -> dict[str, torch.Tensor]:
+def _map_observation(config: OfficialDiffusionPlannerConfig) -> dict[str, np.ndarray]:
     return {
-        "lanes": torch.zeros((config.lane_num, config.lane_len, 12)),
-        "lanes_speed_limit": torch.zeros((config.lane_num, 1)),
-        "lanes_has_speed_limit": torch.zeros((config.lane_num, 1), dtype=torch.bool),
-        "route_lanes": torch.zeros((config.route_num, config.route_len, 12)),
-        "route_lanes_speed_limit": torch.zeros((config.route_num, 1)),
-        "route_lanes_has_speed_limit": torch.zeros((config.route_num, 1), dtype=torch.bool),
+        "lanes": np.zeros((config.lane_num, config.lane_len, 12), dtype=np.float32),
+        "lanes_speed_limit": np.zeros((config.lane_num, 1), dtype=np.float32),
+        "lanes_has_speed_limit": np.zeros((config.lane_num, 1), dtype=np.bool_),
+        "route_lanes": np.zeros((config.route_num, config.route_len, 12), dtype=np.float32),
+        "route_lanes_speed_limit": np.zeros((config.route_num, 1), dtype=np.float32),
+        "route_lanes_has_speed_limit": np.zeros((config.route_num, 1), dtype=np.bool_),
     }
 
 
@@ -59,7 +59,7 @@ def test_no_traffic_adapter_builds_official_padding(
     adapter = NoTrafficMetaDriveObservationAdapter(official_model_config, 100.0)
     monkeypatch.setattr(
         adapter._map_adapter,
-        "build",
+        "build_arrays",
         lambda env: _map_observation(official_model_config),
     )
 
@@ -149,7 +149,7 @@ def test_traffic_adapter_builds_rotated_history_and_reverse_padding(
     adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
     monkeypatch.setattr(
         adapter._map_adapter,
-        "build",
+        "build_arrays",
         lambda env: _map_observation(official_model_config),
     )
     frames = []
@@ -196,7 +196,7 @@ def test_traffic_adapter_sorts_and_truncates_current_participants(
     adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
     monkeypatch.setattr(
         adapter._map_adapter,
-        "build",
+        "build_arrays",
         lambda env: _map_observation(official_model_config),
     )
     participants = tuple(
@@ -224,7 +224,7 @@ def test_traffic_adapter_artifact_ids_do_not_depend_on_metadrive_uuid(
         adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
         monkeypatch.setattr(
             adapter._map_adapter,
-            "build",
+            "build_arrays",
             lambda env: _map_observation(official_model_config),
         )
         frames = tuple(
@@ -273,5 +273,5 @@ def test_traffic_adapter_rejects_nonconsecutive_batch_atomically(
     with pytest.raises(ValueError, match="consecutive"):
         adapter.append_frames(frames)
 
-    assert tuple(frame.simulator_step for frame in adapter._history) == (0,)
-    assert adapter._artifact_participant_ids == {}
+    assert tuple(frame.simulator_step for frame in adapter._history.frames) == (0,)
+    assert adapter._history.artifact_participant_ids == {}
