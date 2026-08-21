@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -16,11 +16,9 @@ from metadrive.component.vehicle.base_vehicle import BaseVehicle
 
 from eco_planner.envs.geometry import rear_axle_position, world_vectors_to_local
 from eco_planner.envs.map_adapter import MetaDriveMapAdapter
-from eco_planner.envs.observation import to_cpu_torch_observation
 from eco_planner.envs.traffic_state import (
     StaticTrafficObjectState,
     TrafficFrame,
-    TrafficParticipantState,
 )
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
@@ -29,7 +27,7 @@ _EGO_CURRENT_STATE = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 @dataclass(frozen=True, slots=True)
 class TrafficObservationAudit:
-    """Selection metadata for the most recently built traffic observation."""
+    """Selection metadata returned with one traffic observation."""
 
     selected_participant_ids: tuple[str, ...]
     participant_count_in_radius: int
@@ -44,58 +42,8 @@ class _EncodedParticipantFrame:
     index_by_id: dict[str, int]
 
 
-@dataclass(slots=True)
-class _TrafficHistory:
-    """Synchronize raw frames, encoded frames, and stable artifact identities."""
-
-    time_len: int
-    frames: deque[TrafficFrame] = field(init=False)
-    encoded_frames: deque[_EncodedParticipantFrame] = field(init=False)
-    artifact_participant_ids: dict[str, str] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        self.frames = deque(maxlen=self.time_len)
-        self.encoded_frames = deque(maxlen=self.time_len)
-
-    def __len__(self) -> int:
-        return len(self.frames)
-
-    @property
-    def latest(self) -> TrafficFrame:
-        if not self.frames:
-            raise RuntimeError("traffic history is empty")
-        return self.frames[-1]
-
-    @property
-    def current_encoded(self) -> _EncodedParticipantFrame:
-        if not self.encoded_frames:
-            raise RuntimeError("encoded traffic history is empty")
-        return self.encoded_frames[-1]
-
-    def reset(self, initial_frame: TrafficFrame) -> None:
-        self.frames.clear()
-        self.encoded_frames.clear()
-        self.artifact_participant_ids.clear()
-        _register_artifact_participant_ids(initial_frame, self.artifact_participant_ids)
-        self.frames.append(initial_frame)
-        self.encoded_frames.append(_encode_participants(initial_frame))
-
-    def append(self, frames: tuple[TrafficFrame, ...]) -> None:
-        previous_step = self.latest.simulator_step
-        encoded_frames: list[_EncodedParticipantFrame] = []
-        staged_artifact_ids = dict(self.artifact_participant_ids)
-        for frame in frames:
-            if frame.simulator_step != previous_step + 1:
-                raise ValueError(
-                    "traffic history simulator steps must be consecutive: "
-                    f"expected {previous_step + 1}, got {frame.simulator_step}"
-                )
-            _register_artifact_participant_ids(frame, staged_artifact_ids)
-            encoded_frames.append(_encode_participants(frame))
-            previous_step = frame.simulator_step
-        self.artifact_participant_ids = staged_artifact_ids
-        self.frames.extend(frames)
-        self.encoded_frames.extend(encoded_frames)
+def _to_cpu_tensors(arrays: dict[str, np.ndarray]) -> dict[str, torch.Tensor]:
+    return {name: torch.from_numpy(value) for name, value in arrays.items()}
 
 
 class MetaDriveObservationAdapter:
@@ -109,47 +57,60 @@ class MetaDriveObservationAdapter:
         self._config = model_config
         self._query_radius_m = float(query_radius_m)
         self._map_adapter = MetaDriveMapAdapter(model_config, self._query_radius_m)
-        self._history = _TrafficHistory(model_config.time_len)
-        self._last_audit: TrafficObservationAudit | None = None
+        self._latest_frame: TrafficFrame | None = None
+        self._encoded_history: deque[_EncodedParticipantFrame] = deque(maxlen=model_config.time_len)
+        self._artifact_participant_ids: dict[str, str] = {}
 
-    @property
-    def last_audit(self) -> TrafficObservationAudit:
-        """Return selection metadata from the most recent successful build."""
+    def reset(self, env: Any, initial_frame: TrafficFrame) -> None:
+        """Reset map state and seed traffic history with the simulator reset frame."""
 
-        if self._last_audit is None:
-            raise RuntimeError("traffic observation audit is unavailable before build")
-        return self._last_audit
-
-    def reset(self, initial_frame: TrafficFrame, *, env: Any | None = None) -> None:
-        """Clear prior episode state and seed history with the reset frame."""
-
-        self._history.reset(initial_frame)
-        if env is not None:
-            self._map_adapter.reset(env)
-        self._last_audit = None
+        self._latest_frame = initial_frame
+        self._encoded_history.clear()
+        self._encoded_history.append(_encode_participants(initial_frame))
+        self._artifact_participant_ids.clear()
+        _register_artifact_participant_ids(initial_frame, self._artifact_participant_ids)
+        self._map_adapter.reset(env)
 
     def append_frames(self, frames: tuple[TrafficFrame, ...]) -> None:
         """Append consecutive 10 Hz frames returned by one trajectory action."""
 
-        self._history.append(frames)
-        self._last_audit = None
+        if self._latest_frame is None:
+            raise RuntimeError("traffic history is unavailable before reset")
+        previous_step = self._latest_frame.simulator_step
+        encoded_frames: list[_EncodedParticipantFrame] = []
+        staged_artifact_ids = dict(self._artifact_participant_ids)
+        for frame in frames:
+            if frame.simulator_step != previous_step + 1:
+                raise ValueError(
+                    "traffic history simulator steps must be consecutive: "
+                    f"expected {previous_step + 1}, got {frame.simulator_step}"
+                )
+            _register_artifact_participant_ids(frame, staged_artifact_ids)
+            encoded_frames.append(_encode_participants(frame))
+            previous_step = frame.simulator_step
+        self._artifact_participant_ids = staged_artifact_ids
+        self._encoded_history.extend(encoded_frames)
+        if frames:
+            self._latest_frame = frames[-1]
 
-    def build(self, env: Any) -> dict[str, torch.Tensor]:
-        """Return one official observation anchored at the latest ego rear axle."""
+    def build(self, env: Any) -> tuple[dict[str, torch.Tensor], TrafficObservationAudit]:
+        """Return one observation and its traffic-selection audit."""
 
-        if len(self._history) != self._config.time_len:
+        if len(self._encoded_history) != self._config.time_len:
             raise RuntimeError(
                 f"traffic history must contain exactly {self._config.time_len} frames; "
-                f"received {len(self._history)}"
+                f"received {len(self._encoded_history)}"
             )
+        if self._latest_frame is None:
+            raise RuntimeError("traffic history is unavailable before reset")
         current_step = getattr(getattr(env, "engine", None), "episode_step", None)
-        latest = self._history.latest
+        latest = self._latest_frame
         if current_step != latest.simulator_step:
             raise RuntimeError("latest traffic frame does not match the current simulator step")
 
         neighbor_agents, neighbor_audit = self._build_neighbor_agents(latest)
         static_objects, static_count = self._build_static_objects(latest)
-        self._last_audit = TrafficObservationAudit(
+        audit = TrafficObservationAudit(
             selected_participant_ids=neighbor_audit.selected_participant_ids,
             participant_count_in_radius=neighbor_audit.participant_count_in_radius,
             static_object_count_in_radius=static_count,
@@ -161,13 +122,13 @@ class MetaDriveObservationAdapter:
             "static_objects": static_objects,
         }
         observation.update(self._map_adapter.build_arrays(env))
-        return to_cpu_torch_observation(observation)
+        return _to_cpu_tensors(observation), audit
 
     def _build_neighbor_agents(
         self, latest: TrafficFrame
     ) -> tuple[np.ndarray, TrafficObservationAudit]:
         anchor_xy, anchor_heading = _rear_axle_anchor(latest)
-        current = self._history.current_encoded
+        current = self._encoded_history[-1]
         distances_array = np.linalg.norm(current.rows[:, :2] - anchor_xy, axis=1)
         distances = dict(zip(current.ids, distances_array, strict=True))
         in_radius = [
@@ -181,7 +142,7 @@ class MetaDriveObservationAdapter:
             (self._config.agent_num, self._config.time_len, self._config.agent_state_dim),
             dtype=np.float32,
         )
-        histories = tuple(self._history.encoded_frames)
+        histories = tuple(self._encoded_history)
         selected_rows = np.empty((len(selected), len(histories), 8), dtype=np.float64)
         for output_index, object_id in enumerate(selected):
             filled = current.rows[current.index_by_id[object_id]]
@@ -197,7 +158,7 @@ class MetaDriveObservationAdapter:
         nearest = min((distances[object_id] for object_id in in_radius), default=None)
         return result, TrafficObservationAudit(
             selected_participant_ids=tuple(
-                self._history.artifact_participant_ids[object_id] for object_id in selected
+                self._artifact_participant_ids[object_id] for object_id in selected
             ),
             participant_count_in_radius=len(in_radius),
             static_object_count_in_radius=0,
@@ -228,17 +189,11 @@ class MetaDriveObservationAdapter:
         return result, len(in_radius)
 
 
-def _unique_participants(frame: TrafficFrame) -> dict[str, TrafficParticipantState]:
-    return {state.object_id: state for state in frame.participants}
-
-
 def _encode_participants(frame: TrafficFrame) -> _EncodedParticipantFrame:
-    unique = _unique_participants(frame)
-    ids = tuple(unique)
+    ids = tuple(state.object_id for state in frame.participants)
     rows = np.empty((len(ids), 8), dtype=np.float64)
     kind_codes = {"vehicle": 0.0, "pedestrian": 1.0, "bicycle": 2.0}
-    for index, object_id in enumerate(ids):
-        state = unique[object_id]
+    for index, state in enumerate(frame.participants):
         rows[index] = (
             *state.position_xy_m,
             state.heading_rad,
@@ -255,22 +210,22 @@ def _encode_participants(frame: TrafficFrame) -> _EncodedParticipantFrame:
     )
 
 
-def _participant_identity_key(state: TrafficParticipantState) -> tuple[object, ...]:
-    """Return a UUID-independent first-observation key for artifact identity."""
-
-    return (
-        state.kind,
-        *state.position_xy_m,
-        state.heading_rad,
-        *state.velocity_xy_mps,
-        state.width_m,
-        state.length_m,
-    )
-
-
 def _register_artifact_participant_ids(frame: TrafficFrame, artifact_ids: dict[str, str]) -> None:
     unseen = [state for state in frame.participants if state.object_id not in artifact_ids]
-    keyed = sorted((_participant_identity_key(state), state.object_id) for state in unseen)
+    keyed = sorted(
+        (
+            (
+                state.kind,
+                *state.position_xy_m,
+                state.heading_rad,
+                *state.velocity_xy_mps,
+                state.width_m,
+                state.length_m,
+            ),
+            state.object_id,
+        )
+        for state in unseen
+    )
     for previous, current in zip(keyed, keyed[1:], strict=False):
         if previous[0] == current[0]:
             raise RuntimeError(
@@ -284,10 +239,6 @@ def _rear_axle_anchor(frame: TrafficFrame) -> tuple[np.ndarray, float]:
     heading = frame.ego_heading_rad
     center = np.asarray(frame.ego_center_xy_m, dtype=np.float64)
     return rear_axle_position(center, heading, frame.ego_rear_wheelbase_m), heading
-
-
-def _to_local_vector(vector: np.ndarray, anchor_heading: float) -> np.ndarray:
-    return world_vectors_to_local(vector[None], anchor_heading)[0]
 
 
 def _encoded_participant_history_features(
@@ -319,7 +270,9 @@ def _encoded_participant_history_features(
 def _static_object_features(
     state: StaticTrafficObjectState, anchor_xy: np.ndarray, anchor_heading: float
 ) -> np.ndarray:
-    position = _to_local_vector(np.asarray(state.position_xy_m) - anchor_xy, anchor_heading)
+    position = world_vectors_to_local(
+        (np.asarray(state.position_xy_m) - anchor_xy)[None], anchor_heading
+    )[0]
     relative_heading = state.heading_rad - anchor_heading
     type_features = {
         "barrier": (0.0, 1.0, 0.0, 0.0),
@@ -374,7 +327,7 @@ class NoTrafficMetaDriveObservationAdapter:
             ),
         }
         observation.update(self._map_adapter.build_arrays(env))
-        return to_cpu_torch_observation(observation)
+        return _to_cpu_tensors(observation)
 
     @staticmethod
     def _validate_environment_config(env: Any) -> None:

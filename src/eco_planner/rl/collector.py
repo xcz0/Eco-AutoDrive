@@ -82,7 +82,7 @@ def collect_rollout_episode(
     try:
         env.reset(seed=spec.seed)
         if traffic_adapter is not None:
-            traffic_adapter.reset(env.initial_traffic_frame, env=env)
+            traffic_adapter.reset(env, env.initial_traffic_frame)
             _warmup_traffic(env, traffic_adapter, history_warmup_steps)
         elif no_traffic_adapter is not None:
             if history_warmup_steps != 0:
@@ -171,7 +171,8 @@ def _build_observation(
     env: TrajectoryMetaDriveEnv,
 ) -> Mapping[str, torch.Tensor]:
     if traffic_adapter is not None:
-        return collate_observations([traffic_adapter.build(env)])
+        observation, _ = traffic_adapter.build(env)
+        return collate_observations([observation])
     if no_traffic_adapter is not None:
         return collate_observations([no_traffic_adapter.build(env)])
     raise RuntimeError("rollout did not create an observation adapter")

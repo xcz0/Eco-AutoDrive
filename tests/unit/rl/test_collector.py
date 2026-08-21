@@ -5,7 +5,8 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
+from eco_planner.envs import TrajectoryExecutionRecord
+from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl.collector import collect_rollout_episode
 from eco_planner.rl.policy import ExplorationPolicyContext

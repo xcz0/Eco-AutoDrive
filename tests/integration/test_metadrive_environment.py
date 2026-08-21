@@ -6,12 +6,12 @@ import torch
 from metadrive.utils import merge_dicts
 
 from eco_planner.envs import (
-    MetaDriveMapAdapter,
     MetaDriveObservationAdapter,
     NoTrafficMetaDriveObservationAdapter,
     TrajectoryMetaDriveEnv,
     collate_observations,
 )
+from eco_planner.envs.map_adapter import MetaDriveMapAdapter
 from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.runtime.engine import (
     FabricInferenceRuntime,
@@ -233,18 +233,18 @@ def test_traffic_adapter_builds_after_real_two_second_warmup(
     try:
         env.reset(seed=0)
         start_position = np.asarray(env.agent.position, dtype=np.float64).copy()
-        adapter.reset(env.initial_traffic_frame)
+        adapter.reset(env, env.initial_traffic_frame)
         for _ in range(4):
             _, _, terminated, truncated, info = env.step(_stationary_trajectory())
             assert not terminated
             assert not truncated
             adapter.append_frames(info["trajectory_execution"].traffic_frames)
 
-        observation = adapter.build(env)
+        observation, audit = adapter.build(env)
 
         assert observation["neighbor_agents_past"].shape == (32, 21, 11)
         assert torch.count_nonzero(observation["neighbor_agents_past"]).item() > 0
-        assert adapter.last_audit.participant_count_in_radius > 0
+        assert audit.participant_count_in_radius > 0
         np.testing.assert_allclose(env.agent.position, start_position, atol=1e-3)
     finally:
         env.close()
@@ -262,13 +262,12 @@ def _traffic_observation_sequence(
     records: list[tuple[dict[str, torch.Tensor], object, np.ndarray, float]] = []
     try:
         env.reset(seed=0)
-        adapter.reset(env.initial_traffic_frame, env=env)
+        adapter.reset(env, env.initial_traffic_frame)
         for _ in range(4):
             _, _, _, _, info = env.step(_stationary_trajectory())
             adapter.append_frames(info["trajectory_execution"].traffic_frames)
         for _ in range(8):
-            observation = adapter.build(env)
-            audit = adapter.last_audit
+            observation, audit = adapter.build(env)
             _, _, terminated, truncated, info = env.step(_straight_trajectory(5.0))
             assert not terminated
             assert not truncated
@@ -360,17 +359,17 @@ def test_map_adapter_is_deterministic_on_programmatic_maps(
     adapter = MetaDriveMapAdapter(official_model_config, query_radius_m=100.0)
     try:
         env.reset(seed=0)
-        first = adapter.build(env)
+        first = adapter.build_arrays(env)
         env.reset(seed=0)
-        second = adapter.build(env)
+        second = adapter.build_arrays(env)
 
         assert first["lanes"].shape == (70, 20, 12)
         assert first["route_lanes"].shape == (25, 20, 12)
-        assert torch.count_nonzero(first["route_lanes"]).item() > 0
+        assert np.count_nonzero(first["route_lanes"]) > 0
         for name in first:
-            if first[name].dtype == torch.float32:
-                assert torch.isfinite(first[name]).all()
-            torch.testing.assert_close(first[name], second[name], rtol=0.0, atol=0.0)
+            if first[name].dtype == np.float32:
+                assert np.isfinite(first[name]).all()
+            np.testing.assert_array_equal(first[name], second[name])
     finally:
         env.close()
 
@@ -389,12 +388,10 @@ def test_indexed_map_adapter_matches_full_lane_scan(
         reference._candidate_snapshots = lambda _: reference._lane_snapshots  # type: ignore[method-assign]
 
         for _ in range(3):
-            indexed_result = indexed.build(env)
-            reference_result = reference.build(env)
+            indexed_result = indexed.build_arrays(env)
+            reference_result = reference.build_arrays(env)
             for name in indexed_result:
-                torch.testing.assert_close(
-                    indexed_result[name], reference_result[name], rtol=0.0, atol=0.0
-                )
+                np.testing.assert_array_equal(indexed_result[name], reference_result[name])
             env.step(_straight_trajectory(5.0))
     finally:
         env.close()
@@ -408,9 +405,9 @@ def test_programmatic_map_adapter_encodes_configured_speed_limit_semantics(
     adapter = MetaDriveMapAdapter(official_model_config, query_radius_m=100.0)
     try:
         env.reset(seed=0)
-        observation = adapter.build(env)
+        observation = adapter.build_arrays(env)
         valid = observation["lanes_has_speed_limit"]
-        observed_speed_limits = observation["lanes_speed_limit"][valid].detach().cpu().numpy()
+        observed_speed_limits = observation["lanes_speed_limit"][valid]
 
         assert observed_speed_limits.size > 0
         assert not np.isclose(observed_speed_limits, 1000.0 / 3.6).any()
@@ -466,12 +463,12 @@ def test_cuda_bf16_completes_traffic_warmup_and_first_inference(
     adapter = MetaDriveObservationAdapter(runtime.planner_config, 100.0)
     try:
         env.reset(seed=0)
-        adapter.reset(env.initial_traffic_frame, env=env)
+        adapter.reset(env, env.initial_traffic_frame)
         for _ in range(4):
             _, _, terminated, truncated, info = env.step(_stationary_trajectory())
             assert not terminated and not truncated
             adapter.append_frames(info["trajectory_execution"].traffic_frames)
-        observation = adapter.build(env)
+        observation, _ = adapter.build(env)
 
         result = runtime.infer(collate_observations([observation]), runtime.new_noise_generator())
 

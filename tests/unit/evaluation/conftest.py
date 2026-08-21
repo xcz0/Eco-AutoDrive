@@ -8,8 +8,9 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
+from eco_planner.envs import TrajectoryExecutionRecord
 from eco_planner.envs.observation_adapter import TrafficObservationAudit
+from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation import episode
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
 from eco_planner.evaluation.runtime.contracts import HostExecutionResult, HostInferenceResult

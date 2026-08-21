@@ -52,6 +52,15 @@ def _environment(objects: dict[str, object] | None = None) -> SimpleNamespace:
     )
 
 
+def _reset_traffic_adapter(
+    adapter: MetaDriveObservationAdapter,
+    initial_frame: TrafficFrame,
+    env: SimpleNamespace,
+) -> None:
+    adapter._map_adapter.reset = lambda _: None
+    adapter.reset(env, initial_frame)
+
+
 def test_no_traffic_adapter_builds_official_padding(
     official_model_config: OfficialDiffusionPlannerConfig,
     monkeypatch: pytest.MonkeyPatch,
@@ -167,10 +176,10 @@ def test_traffic_adapter_builds_rotated_history_and_reverse_padding(
         )
         frames.append(_traffic_frame(step, participants, static))
     env = SimpleNamespace(engine=SimpleNamespace(episode_step=20))
-    adapter.reset(frames[0])
+    _reset_traffic_adapter(adapter, frames[0], env)
     adapter.append_frames(tuple(frames[1:]))
 
-    result = adapter.build(env)
+    result, audit = adapter.build(env)
 
     history = result["neighbor_agents_past"][0]
     np.testing.assert_allclose(history[:11, 0].numpy(), 3.0, atol=1e-6)
@@ -182,7 +191,7 @@ def test_traffic_adapter_builds_rotated_history_and_reverse_padding(
     assert static[0].item() == pytest.approx(2.0)
     assert static[1].item() == pytest.approx(1.0)
     torch.testing.assert_close(static[6:], torch.tensor([0.0, 0.0, 1.0, 0.0]))
-    assert adapter.last_audit.selected_participant_ids == ("participant-000000",)
+    assert audit.selected_participant_ids == ("participant-000000",)
     batch = collate_observations([result, result])
     for name, value in result.items():
         assert batch[name].shape == (2, *value.shape)
@@ -203,15 +212,16 @@ def test_traffic_adapter_sorts_and_truncates_current_participants(
         _participant(f"vehicle-{index:02d}", y=11.0 + index) for index in range(33)
     )
     frames = tuple(_traffic_frame(step, participants) for step in range(21))
-    adapter.reset(frames[0])
+    env = SimpleNamespace(engine=SimpleNamespace(episode_step=20))
+    _reset_traffic_adapter(adapter, frames[0], env)
     adapter.append_frames(frames[1:])
 
-    adapter.build(SimpleNamespace(engine=SimpleNamespace(episode_step=20)))
+    _, audit = adapter.build(env)
 
-    assert len(adapter.last_audit.selected_participant_ids) == 32
-    assert adapter.last_audit.selected_participant_ids[0] == "participant-000000"
-    assert adapter.last_audit.selected_participant_ids[-1] == "participant-000031"
-    assert adapter.last_audit.participant_count_in_radius == 33
+    assert len(audit.selected_participant_ids) == 32
+    assert audit.selected_participant_ids[0] == "participant-000000"
+    assert audit.selected_participant_ids[-1] == "participant-000031"
+    assert audit.participant_count_in_radius == 33
 
 
 def test_traffic_adapter_artifact_ids_do_not_depend_on_metadrive_uuid(
@@ -231,10 +241,12 @@ def test_traffic_adapter_artifact_ids_do_not_depend_on_metadrive_uuid(
             _traffic_frame(step, (_participant(object_id, y=11.0 + 0.1 * step),))
             for step in range(21)
         )
-        adapter.reset(frames[0])
+        env = SimpleNamespace(engine=SimpleNamespace(episode_step=20))
+        _reset_traffic_adapter(adapter, frames[0], env)
         adapter.append_frames(frames[1:])
-        observations.append(adapter.build(SimpleNamespace(engine=SimpleNamespace(episode_step=20))))
-        audits.append(adapter.last_audit)
+        observation, audit = adapter.build(env)
+        observations.append(observation)
+        audits.append(audit)
 
     torch.testing.assert_close(
         observations[0]["neighbor_agents_past"],
@@ -253,18 +265,26 @@ def test_traffic_adapter_requires_consecutive_complete_history(
     official_model_config: OfficialDiffusionPlannerConfig,
 ) -> None:
     adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
-    adapter.reset(_traffic_frame(0, ()))
+    env = SimpleNamespace(engine=SimpleNamespace(episode_step=0))
+    _reset_traffic_adapter(adapter, _traffic_frame(0, ()), env)
     with pytest.raises(ValueError, match="consecutive"):
         adapter.append_frames((_traffic_frame(2, ()),))
     with pytest.raises(RuntimeError, match="exactly 21"):
-        adapter.build(SimpleNamespace(engine=SimpleNamespace(episode_step=0)))
+        adapter.build(env)
 
 
 def test_traffic_adapter_rejects_nonconsecutive_batch_atomically(
     official_model_config: OfficialDiffusionPlannerConfig,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
-    adapter.reset(_traffic_frame(0, ()))
+    monkeypatch.setattr(
+        adapter._map_adapter,
+        "build_arrays",
+        lambda env: _map_observation(official_model_config),
+    )
+    env = SimpleNamespace(engine=SimpleNamespace(episode_step=20))
+    _reset_traffic_adapter(adapter, _traffic_frame(0, ()), env)
     frames = (
         _traffic_frame(1, (_participant("new-id", y=12.0),)),
         _traffic_frame(3, (_participant("new-id", y=12.0),)),
@@ -273,5 +293,8 @@ def test_traffic_adapter_rejects_nonconsecutive_batch_atomically(
     with pytest.raises(ValueError, match="consecutive"):
         adapter.append_frames(frames)
 
-    assert tuple(frame.simulator_step for frame in adapter._history.frames) == (0,)
-    assert adapter._history.artifact_participant_ids == {}
+    adapter.append_frames(tuple(_traffic_frame(step, ()) for step in range(1, 21)))
+    observation, audit = adapter.build(env)
+
+    assert torch.count_nonzero(observation["neighbor_agents_past"]).item() == 0
+    assert audit.selected_participant_ids == ()

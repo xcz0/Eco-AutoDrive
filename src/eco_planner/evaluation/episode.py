@@ -72,7 +72,7 @@ def run_scenario(
             guided=not isinstance(runtime.guidance_config, NoGuidanceConfig),
         )
         if traffic_adapter is not None:
-            traffic_adapter.reset(env.initial_traffic_frame, env=env)
+            traffic_adapter.reset(env, env.initial_traffic_frame)
             run_traffic_warmup(
                 env,
                 traffic_adapter,
@@ -89,8 +89,7 @@ def run_scenario(
         plan_index = 0
         while not terminated and not truncated:
             if traffic_adapter is not None:
-                raw_observation = traffic_adapter.build(env)
-                traffic_audit = traffic_adapter.last_audit
+                raw_observation, traffic_audit = traffic_adapter.build(env)
             elif no_traffic_adapter is not None:
                 raw_observation = no_traffic_adapter.build(env)
                 traffic_audit = None

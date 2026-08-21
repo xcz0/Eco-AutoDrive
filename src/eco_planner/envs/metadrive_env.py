@@ -22,14 +22,14 @@ from eco_planner.envs.execution import (
     to_world_trajectory,
     validate_trajectory,
 )
-from eco_planner.envs.map_adapter import ProgrammaticLaneSpeedAdapter
+from eco_planner.envs.lane_speed import ProgrammaticLaneSpeedAdapter
 from eco_planner.envs.traffic_state import TrafficFrame, capture_traffic_frame
 
 _PLANNER_ONLY_OBSERVATION = np.zeros(1, dtype=np.float32)
 _ZERO_VELOCITY = np.zeros(2, dtype=np.float64)
 
 
-class PlannerOnlyObservation(BaseObservation):
+class _PlannerOnlyObservation(BaseObservation):
     """Minimal Gym observation for an environment observed through project adapters."""
 
     @property
@@ -78,7 +78,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             raise ValueError("agent_policy must be KinematicTrajectoryPolicy")
         configured = dict(config)
         configured["agent_policy"] = KinematicTrajectoryPolicy
-        configured["agent_observation"] = PlannerOnlyObservation
+        configured["agent_observation"] = _PlannerOnlyObservation
         super().__init__(configured)
         if self.config["is_multi_agent"]:
             raise ValueError("TrajectoryMetaDriveEnv supports only single-agent operation")
@@ -127,17 +127,12 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         self._initial_traffic_frame = None
         self._programmatic_lane_speed_adapter.clear_audit()
         result = super().reset(*args, **kwargs)
-        self._configure_programmatic_lane_speed_limits()
-        self._initial_traffic_frame = capture_traffic_frame(self)
-        return result
-
-    def _configure_programmatic_lane_speed_limits(self) -> None:
-        """Replace only PGMap's explicit 1000 km/h unset-speed sentinel after map creation."""
-
         current_map = self.current_map
         if current_map is None:
             raise RuntimeError("MetaDrive did not create a current map during reset")
         self._programmatic_lane_speed_adapter.apply(current_map)
+        self._initial_traffic_frame = capture_traffic_frame(self)
+        return result
 
     def step(self, trajectory: np.ndarray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
         validated = validate_trajectory(trajectory, TRAJECTORY_HORIZON)

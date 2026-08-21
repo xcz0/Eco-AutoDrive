@@ -6,7 +6,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from eco_planner.envs import TrafficFrame, TrajectoryExecutionRecord
+from eco_planner.envs import TrajectoryExecutionRecord
+from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation import episode
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
 from eco_planner.evaluation.config import ScenarioConfig, parse_evaluation_config

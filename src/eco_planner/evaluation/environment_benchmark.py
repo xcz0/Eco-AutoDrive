@@ -97,7 +97,7 @@ def _run_once(model_config: OfficialDiffusionPlannerConfig, *, traffic: bool) ->
         env.reset(seed=0)
         if traffic:
             adapter = MetaDriveObservationAdapter(model_config, 100.0)
-            adapter.reset(env.initial_traffic_frame, env=env)
+            adapter.reset(env, env.initial_traffic_frame)
             for _ in range(_WARMUP_HISTORY_STEPS // 5):
                 _, _, terminated, truncated, info = env.step(trajectory)
                 if terminated or truncated:
