@@ -11,6 +11,14 @@ from eco_planner.envs.observation_adapter import (
 )
 from eco_planner.envs.execution import TrajectoryExecutionRecord
 from eco_planner.envs.metadrive_env import TrajectoryMetaDriveEnv
+from eco_planner.envs.vector_metadrive import (
+    VectorEnvReset,
+    VectorEnvScenario,
+    VectorEnvStep,
+    VectorEnvTiming,
+    VectorMetaDriveEnv,
+    VectorMetaDriveWorkerError,
+)
 
 __all__ = [
     "collate_observations",
@@ -19,4 +27,10 @@ __all__ = [
     "TrafficObservationAudit",
     "TrajectoryMetaDriveEnv",
     "TrajectoryExecutionRecord",
+    "VectorEnvReset",
+    "VectorEnvScenario",
+    "VectorEnvStep",
+    "VectorEnvTiming",
+    "VectorMetaDriveEnv",
+    "VectorMetaDriveWorkerError",
 ]

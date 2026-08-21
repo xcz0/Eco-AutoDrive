@@ -40,7 +40,7 @@ Hydra/OmegaConf 只存在于 CLI 配置边界。入口必须通过 `parse_evalua
 
 仿真真实状态、模型观测、模型预测和能耗记录必须分别保存。模型预测不得覆盖仿真状态，不同能耗指标不得静默互换或混合累计。业务代码不得从 `ref/` 导入运行时实现。
 
-推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。单设备是运行时代码契约，不得在同一评测作业内启动多进程闭环。
+推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。普通 evaluation 保持单环境串行；`VectorMetaDriveEnv` 是独立的 CPU process-level 环境层，每个固定 slot 在一个 `spawn` worker 内持有一个 `TrajectoryMetaDriveEnv`、observation adapter、traffic history 和 map cache。主进程只传入 scenario/`float32 [80,4]` trajectory，并取回单 observation、reward、termination、`TrajectoryExecutionRecord` 与 env/observation/IPC timing；worker 不加载 planner 或 CUDA state。
 
 raw observation 在 CPU 边界按当前 observation/trace 契约的 shape、dtype 和有限性完整校验并原值写入 trace；Fabric 设备副本只供计算使用，可按 resolved mixed precision 转为 FP16/BF16。batch runtime 每个规划周期只同步把 ego execution trajectories `[B,T,4]` 转为执行所需的 host `float32`；串行 evaluation 与 rollout 入口从该 batch result 取其唯一 slot。完整 prediction、初始噪声、reference 与 guidance diagnostics 则在独立 CUDA transfer stream 排队，并由 artifact/replay 调用方在 simulator step 后显式取得 audit result、转为 trace 约定 dtype 后检查有限性。
 
@@ -118,6 +118,8 @@ jaxtyping `TypedDict` 表达，collator 运行时只拒绝空序列，不重复�
 当前帧查询半径内的对象按距离和 ID 排序。历史对象缺帧时使用从当前帧向过去保持最近可用状态的官方填充语义；当前帧不存在的对象不得被选入。首次交通推理前，当前实现固定 ego 并推进背景交通 20 个 0.1 s 子步，连同 reset 帧形成 21 帧历史。该预热不计入正式指标，必须保存状态、奖励、终止标志及动态/静态对象数量；ego 位移达到 `1e-3 m` 或预热提前结束时必须失败。
 
 `NoTrafficMetaDriveObservationAdapter` 只允许显式满足 `traffic_density=0`、`random_traffic=false`、`accident_prob=0` 的场景。reset 后若存在任何动态或静态交通对象必须失败；邻车历史和静态物体字段为全零 padding。该入口不得用于有交通场景。
+
+`VectorMetaDriveEnv.reset` 在 worker 内完成相同的 adapter reset 和 history warmup，再返回单 observation；`reset_at` 和 `step_at` 只影响指定 slot。slot scenario 的 map 必须与该 worker 的环境配置一致；worker 异常带回 slot 和 operation，并使整个 vector run 明确失败。
 
 ## 扩散与随机性
 
