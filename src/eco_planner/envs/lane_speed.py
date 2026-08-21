@@ -7,8 +7,6 @@ from typing import Any
 
 import numpy as np
 
-from eco_planner.envs.validation import is_real_scalar
-
 PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH = 1000.0
 MAX_LANE_SPEED_LIMIT_KMH = 130.0
 
@@ -23,10 +21,6 @@ class ProgrammaticLaneSpeedAdapter:
     _audit: dict[str, object] | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
-        value = self.configured_speed_limit_kmh
-        if not is_real_scalar(value):
-            raise TypeError("programmatic_lane_speed_limit_kmh must be a numeric km/h value")
-        self.configured_speed_limit_kmh = float(value)
         if (
             not np.isfinite(self.configured_speed_limit_kmh)
             or self.configured_speed_limit_kmh <= 0.0
@@ -70,10 +64,10 @@ class ProgrammaticLaneSpeedAdapter:
         preserved_count = 0
         counts: dict[str, int] = {}
         for lane_id, lane in zip(lane_ids, lanes, strict=True):
-            speed_limit = getattr(lane, "speed_limit", None)
-            if not is_real_scalar(speed_limit) or not np.isfinite(speed_limit):
+            speed_limit: float = lane.speed_limit
+            if not np.isfinite(speed_limit):
                 raise ValueError(f"lane {lane_id} speed limit must be a finite numeric km/h value")
-            current_kmh = float(speed_limit)
+            current_kmh = speed_limit
             if lane_id in self._sentinel_lane_ids:
                 if current_kmh == PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH:
                     setter = getattr(lane, "set_speed_limit", None)
@@ -94,8 +88,8 @@ class ProgrammaticLaneSpeedAdapter:
                     "programmatic unset sentinel nor a legal explicit speed limit"
                 )
 
-            final_speed_limit = getattr(lane, "speed_limit", None)
-            if not is_real_scalar(final_speed_limit) or not np.isfinite(final_speed_limit):
+            final_speed_limit: float = lane.speed_limit
+            if not np.isfinite(final_speed_limit):
                 raise RuntimeError(f"lane {lane_id} returned an invalid configured speed limit")
             final_kmh = float(final_speed_limit)
             if final_kmh == PROGRAMMATIC_SPEED_LIMIT_SENTINEL_KMH:
@@ -118,11 +112,9 @@ class ProgrammaticLaneSpeedAdapter:
 def model_lane_speed_limit_mps(lane: Any) -> tuple[float, bool]:
     """Return the raw model value and mask while rejecting unconfigured sentinels."""
 
-    speed_limit = getattr(lane, "speed_limit", None)
+    speed_limit: float | None = lane.speed_limit
     if speed_limit is None:
         return 0.0, False
-    if not is_real_scalar(speed_limit):
-        raise TypeError(f"lane {lane.index!r} speed limit must be numeric or None")
     speed_limit_kmh = float(speed_limit)
     if not np.isfinite(speed_limit_kmh) or speed_limit_kmh < 0.0:
         raise ValueError(f"lane {lane.index!r} speed limit must be finite and non-negative")

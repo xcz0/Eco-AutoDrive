@@ -28,7 +28,6 @@ from eco_planner.envs.geometry import (
     shortest_angle_delta,
 )
 from eco_planner.envs.traffic_state import TrafficFrame
-from eco_planner.envs.validation import is_real_scalar
 
 TRAJECTORY_HORIZON = 80
 TRAJECTORY_EXECUTION_STEPS = 5
@@ -293,10 +292,7 @@ def _validated_timestep(config: Any) -> float:
 
 
 def finite_info_scalar(info: dict[str, Any], name: str) -> float:
-    value = info.get(name)
-    if not is_real_scalar(value):
-        raise TypeError(f"{name} must be a finite numeric scalar")
-    result = float(value)
-    if not np.isfinite(result):
+    value: float = info[name]
+    if not np.isfinite(value):
         raise ValueError(f"{name} must be finite")
-    return result
+    return float(value)
