@@ -476,8 +476,9 @@ def test_cuda_bf16_completes_traffic_warmup_and_first_inference(
             value.dtype in {torch.float32, torch.bool} and value.device.type == "cpu"
             for value in observation.values()
         )
-        assert result.initial_noise.dtype == np.float32
-        prediction = result.audit_result().prediction
+        audit = result.audit_result()
+        assert audit.initial_noise.dtype == np.float32
+        prediction = audit.prediction
         assert prediction.dtype == np.float32
         assert prediction.shape == (1, 11, 80, 4)
     finally:
