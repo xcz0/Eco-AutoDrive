@@ -106,6 +106,11 @@ lane 长度与宽度必须接受 Python 或 NumPy 的真实数值标量，同时
 
 ## 交通观测
 
+MetaDrive adapters produce one CPU `SingleObservation` without a planner batch dimension.
+`collate_observations` is the sole batch boundary: it stacks a same-schema sequence into a
+`BatchObservation` with leading `[B, ...]` dimensions. B=1 planner, evaluation, and rollout
+paths use this collator; it contains no MetaDrive, planner, or device-placement logic.
+
 `MetaDriveObservationAdapter` 使用 reset 帧和连续 0.1 s 交通快照构造严格的 21 帧历史。每个快照必须在仿真观测时刻捕获为不可变值；捕获边界校验 MetaDrive 参与者类型、位置、heading、速度和尺寸，内部编码链路直接消费已捕获的明确类型。批量追加历史只校验时间连续性，并在整批确认后一次性提交，失败时历史保持不变。
 
 当前帧查询半径内的对象按距离和 ID 排序。历史对象缺帧时使用从当前帧向过去保持最近可用状态的官方填充语义；当前帧不存在的对象不得被选入。首次交通推理前，当前实现固定 ego 并推进背景交通 20 个 0.1 s 子步，连同 reset 帧形成 21 帧历史。该预热不计入正式指标，必须保存状态、奖励、终止标志及动态/静态对象数量；ego 位移达到 `1e-3 m` 或预热提前结束时必须失败。

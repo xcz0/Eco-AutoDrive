@@ -111,7 +111,7 @@ class MetaDriveMapAdapter:
             arrays["route_lanes"][index] = features
             arrays["route_lanes_speed_limit"][index, 0] = speed_limit
             arrays["route_lanes_has_speed_limit"][index, 0] = has_speed_limit
-        return {name: torch.as_tensor(value).unsqueeze(0) for name, value in arrays.items()}
+        return {name: torch.as_tensor(value) for name, value in arrays.items()}
 
     @staticmethod
     def _environment_parts(env: Any) -> tuple[Any, Any, Any, Any]:

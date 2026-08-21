@@ -13,6 +13,7 @@ from eco_planner.envs import (
     NoTrafficMetaDriveObservationAdapter,
     TrajectoryExecutionRecord,
     TrajectoryMetaDriveEnv,
+    collate_observations,
 )
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl.rollout import (
@@ -170,9 +171,9 @@ def _build_observation(
     env: TrajectoryMetaDriveEnv,
 ) -> Mapping[str, torch.Tensor]:
     if traffic_adapter is not None:
-        return traffic_adapter.build(env)
+        return collate_observations([traffic_adapter.build(env)])
     if no_traffic_adapter is not None:
-        return no_traffic_adapter.build(env)
+        return collate_observations([no_traffic_adapter.build(env)])
     raise RuntimeError("rollout did not create an observation adapter")
 
 

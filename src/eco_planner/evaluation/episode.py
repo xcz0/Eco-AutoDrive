@@ -13,6 +13,7 @@ from eco_planner.envs import (
     NoTrafficMetaDriveObservationAdapter,
     TrajectoryExecutionRecord,
     TrajectoryMetaDriveEnv,
+    collate_observations,
 )
 from eco_planner.evaluation.artifacts.io import write_episode_artifacts
 from eco_planner.evaluation.artifacts.models import (
@@ -95,7 +96,7 @@ def run_scenario(
                 traffic_audit = None
             else:
                 raise RuntimeError("evaluation mode did not create an observation adapter")
-            inference = runtime.infer(raw_observation, generator)
+            inference = runtime.infer(collate_observations([raw_observation]), generator)
             ego_trajectory = inference.ego_trajectory
             anchor = vehicle_state(env)
             _, reward, terminated, truncated, info = env.step(ego_trajectory)

@@ -12,15 +12,15 @@ from eco_planner.evaluation.runtime.contracts import HostGuidanceDiagnostics, Ho
 
 def _observation() -> dict[str, torch.Tensor]:
     return {
-        "ego_current_state": torch.zeros((1, 10)),
-        "neighbor_agents_past": torch.zeros((1, 32, 21, 11)),
-        "static_objects": torch.zeros((1, 5, 10)),
-        "lanes": torch.zeros((1, 70, 20, 12)),
-        "lanes_speed_limit": torch.zeros((1, 70, 1)),
-        "lanes_has_speed_limit": torch.zeros((1, 70, 1), dtype=torch.bool),
-        "route_lanes": torch.zeros((1, 25, 20, 12)),
-        "route_lanes_speed_limit": torch.full((1, 25, 1), 13.0),
-        "route_lanes_has_speed_limit": torch.ones((1, 25, 1), dtype=torch.bool),
+        "ego_current_state": torch.zeros(10),
+        "neighbor_agents_past": torch.zeros((32, 21, 11)),
+        "static_objects": torch.zeros((5, 10)),
+        "lanes": torch.zeros((70, 20, 12)),
+        "lanes_speed_limit": torch.zeros((70, 1)),
+        "lanes_has_speed_limit": torch.zeros((70, 1), dtype=torch.bool),
+        "route_lanes": torch.zeros((25, 20, 12)),
+        "route_lanes_speed_limit": torch.full((25, 1), 13.0),
+        "route_lanes_has_speed_limit": torch.ones((25, 1), dtype=torch.bool),
     }
 
 

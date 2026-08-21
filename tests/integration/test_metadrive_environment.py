@@ -10,6 +10,7 @@ from eco_planner.envs import (
     MetaDriveObservationAdapter,
     NoTrafficMetaDriveObservationAdapter,
     TrajectoryMetaDriveEnv,
+    collate_observations,
 )
 from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.runtime.engine import (
@@ -241,7 +242,7 @@ def test_traffic_adapter_builds_after_real_two_second_warmup(
 
         observation = adapter.build(env)
 
-        assert observation["neighbor_agents_past"].shape == (1, 32, 21, 11)
+        assert observation["neighbor_agents_past"].shape == (32, 21, 11)
         assert torch.count_nonzero(observation["neighbor_agents_past"]).item() > 0
         assert adapter.last_audit.participant_count_in_radius > 0
         np.testing.assert_allclose(env.agent.position, start_position, atol=1e-3)
@@ -363,8 +364,8 @@ def test_map_adapter_is_deterministic_on_programmatic_maps(
         env.reset(seed=0)
         second = adapter.build(env)
 
-        assert first["lanes"].shape == (1, 70, 20, 12)
-        assert first["route_lanes"].shape == (1, 25, 20, 12)
+        assert first["lanes"].shape == (70, 20, 12)
+        assert first["route_lanes"].shape == (25, 20, 12)
         assert torch.count_nonzero(first["route_lanes"]).item() > 0
         for name in first:
             if first[name].dtype == torch.float32:
@@ -431,9 +432,9 @@ def test_official_planner_executes_no_traffic_closed_loop_cycle(
     try:
         env.reset(seed=0)
         observation = adapter.build(env)
-        planner_result = baseline_runtime.infer(observation, generator)
-        prediction = planner_result.prediction
+        planner_result = baseline_runtime.infer(collate_observations([observation]), generator)
         ego_trajectory = planner_result.ego_trajectory
+        prediction = planner_result.audit_result().prediction
         _, _, terminated, truncated, info = env.step(ego_trajectory)
 
         assert prediction.shape == (1, 11, 80, 4)
@@ -472,14 +473,15 @@ def test_cuda_bf16_completes_traffic_warmup_and_first_inference(
             adapter.append_frames(info["trajectory_execution"].traffic_frames)
         observation = adapter.build(env)
 
-        result = runtime.infer(observation, runtime.new_noise_generator())
+        result = runtime.infer(collate_observations([observation]), runtime.new_noise_generator())
 
         assert all(
             value.dtype in {torch.float32, torch.bool} and value.device.type == "cpu"
             for value in observation.values()
         )
         assert result.initial_noise.dtype == np.float32
-        assert result.prediction.dtype == np.float32
-        assert result.prediction.shape == (1, 11, 80, 4)
+        prediction = result.audit_result().prediction
+        assert prediction.dtype == np.float32
+        assert prediction.shape == (1, 11, 80, 4)
     finally:
         env.close()

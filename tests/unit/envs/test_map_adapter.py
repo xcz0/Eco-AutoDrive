@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 import torch
 
+from eco_planner.envs import collate_observations
 from eco_planner.envs.lane_speed import model_lane_speed_limit_mps
 from eco_planner.envs.map_adapter import MetaDriveMapAdapter
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
@@ -111,25 +112,30 @@ def test_map_adapter_builds_official_raw_tensor_contract(
 
     result = adapter.build(env)
 
-    assert result["lanes"].shape == (1, 70, 20, 12)
-    assert result["lanes_speed_limit"].shape == (1, 70, 1)
-    assert result["lanes_has_speed_limit"].shape == (1, 70, 1)
-    assert result["route_lanes"].shape == (1, 25, 20, 12)
-    assert result["route_lanes_speed_limit"].shape == (1, 25, 1)
-    assert result["route_lanes_has_speed_limit"].shape == (1, 25, 1)
+    assert result["lanes"].shape == (70, 20, 12)
+    assert result["lanes_speed_limit"].shape == (70, 1)
+    assert result["lanes_has_speed_limit"].shape == (70, 1)
+    assert result["route_lanes"].shape == (25, 20, 12)
+    assert result["route_lanes_speed_limit"].shape == (25, 1)
+    assert result["route_lanes_has_speed_limit"].shape == (25, 1)
     assert result["lanes"].dtype == torch.float32
     assert result["lanes_has_speed_limit"].dtype == torch.bool
-    assert result["lanes_speed_limit"][0, 0, 0].item() == pytest.approx(10.0)
-    assert result["lanes_has_speed_limit"][0, 0, 0].item() is True
+    assert result["lanes_speed_limit"][0, 0].item() == pytest.approx(10.0)
+    assert result["lanes_has_speed_limit"][0, 0].item() is True
 
-    first_lane = result["lanes"][0, 0]
+    first_lane = result["lanes"][0]
     torch.testing.assert_close(first_lane[0, :2], torch.tensor([0.0, 0.0]))
     torch.testing.assert_close(first_lane[0, 4:6], torch.tensor([0.0, 2.0]))
     torch.testing.assert_close(first_lane[0, 6:8], torch.tensor([0.0, -2.0]))
     torch.testing.assert_close(first_lane[0, 8:12], torch.tensor([0.0, 0.0, 0.0, 1.0]))
     torch.testing.assert_close(first_lane[-1, 2:4], torch.zeros(2))
-    assert torch.count_nonzero(result["lanes"][0, 2:]) == 0
-    torch.testing.assert_close(result["route_lanes"][0, :2], result["lanes"][0, :2])
+    assert torch.count_nonzero(result["lanes"][2:]) == 0
+    torch.testing.assert_close(result["route_lanes"][:2], result["lanes"][:2])
+    batch = collate_observations([result, result])
+    for name, value in result.items():
+        assert batch[name].shape == (2, *value.shape)
+        assert batch[name].dtype == value.dtype
+        torch.testing.assert_close(batch[name][0], value, rtol=0.0, atol=0.0)
 
 
 def test_map_adapter_caches_world_geometry_but_recomputes_exact_distance(
@@ -157,8 +163,8 @@ def test_map_adapter_marks_missing_speed_limit_explicitly(
     env = _StubEnv([_lane(0, speed_limit=None)], ["A", "B"])
     result = MetaDriveMapAdapter(official_model_config, 100.0).build(env)
 
-    assert result["lanes_speed_limit"][0, 0, 0].item() == 0.0
-    assert result["lanes_has_speed_limit"][0, 0, 0].item() is False
+    assert result["lanes_speed_limit"][0, 0].item() == 0.0
+    assert result["lanes_has_speed_limit"][0, 0].item() is False
 
 
 @pytest.mark.parametrize(
@@ -197,9 +203,9 @@ def test_map_adapter_preserves_mixed_explicit_speed_limit_encoding(
     result = MetaDriveMapAdapter(official_model_config, 100.0).build(env)
 
     np.testing.assert_allclose(
-        result["lanes_speed_limit"][0, :2, 0].numpy(), [50.0 / 3.6, 20.0 / 3.6], atol=1e-6
+        result["lanes_speed_limit"][:2, 0].numpy(), [50.0 / 3.6, 20.0 / 3.6], atol=1e-6
     )
-    assert result["lanes_has_speed_limit"][0, :2, 0].tolist() == [True, True]
+    assert result["lanes_has_speed_limit"][:2, 0].tolist() == [True, True]
 
 
 def test_map_adapter_filters_radius_and_keeps_connected_route(
@@ -214,8 +220,8 @@ def test_map_adapter_filters_radius_and_keeps_connected_route(
     env = _StubEnv(lanes, ["A", "B", "C", "D", "E"])
     result = MetaDriveMapAdapter(official_model_config, 100.0).build(env)
 
-    assert torch.count_nonzero(result["lanes"][0, :, 0, 11]).item() == 3
-    assert torch.count_nonzero(result["route_lanes"][0, :, 0, 11]).item() == 2
+    assert torch.count_nonzero(result["lanes"][:, 0, 11]).item() == 3
+    assert torch.count_nonzero(result["route_lanes"][:, 0, 11]).item() == 2
 
 
 def test_map_adapter_truncates_lane_and_route_capacity(
@@ -227,8 +233,8 @@ def test_map_adapter_truncates_lane_and_route_capacity(
     env = _StubEnv(lanes, ["A", "B"])
     result = MetaDriveMapAdapter(official_model_config, 100.0).build(env)
 
-    assert torch.count_nonzero(result["lanes"][0, :, 0, 11]).item() == 70
-    assert torch.count_nonzero(result["route_lanes"][0, :, 0, 11]).item() == 25
+    assert torch.count_nonzero(result["lanes"][:, 0, 11]).item() == 70
+    assert torch.count_nonzero(result["route_lanes"][:, 0, 11]).item() == 25
 
 
 def test_map_adapter_rejects_missing_navigation(

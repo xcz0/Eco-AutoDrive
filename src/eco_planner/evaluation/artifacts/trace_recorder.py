@@ -302,14 +302,14 @@ def _raw_observation_for_trace(
     raw: dict[str, np.ndarray] = {}
     for name, (shape, dtype) in _OBSERVATION_ARRAYS.items():
         value = observation.get(name)
-        if not isinstance(value, torch.Tensor) or tuple(value.shape) != (1, *shape):
-            raise ValueError(f"raw observation {name} has an invalid batch-one shape")
+        if not isinstance(value, torch.Tensor) or tuple(value.shape) != shape:
+            raise ValueError(f"raw observation {name} has an invalid single-observation shape")
         if value.device.type != "cpu":
             raise ValueError(f"raw observation {name} must remain on CPU")
         array = value.detach().numpy()
         if array.dtype != dtype:
             raise TypeError(f"raw observation {name} has an invalid dtype")
-        raw[name] = array[0]
+        raw[name] = array
     return raw
 
 

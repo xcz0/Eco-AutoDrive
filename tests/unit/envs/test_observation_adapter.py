@@ -7,6 +7,7 @@ import pytest
 import torch
 from metadrive.component.static_object.traffic_object import TrafficCone
 
+from eco_planner.envs import collate_observations
 from eco_planner.envs.observation_adapter import (
     MetaDriveObservationAdapter,
     NoTrafficMetaDriveObservationAdapter,
@@ -21,12 +22,12 @@ from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 def _map_observation(config: OfficialDiffusionPlannerConfig) -> dict[str, torch.Tensor]:
     return {
-        "lanes": torch.zeros((1, config.lane_num, config.lane_len, 12)),
-        "lanes_speed_limit": torch.zeros((1, config.lane_num, 1)),
-        "lanes_has_speed_limit": torch.zeros((1, config.lane_num, 1), dtype=torch.bool),
-        "route_lanes": torch.zeros((1, config.route_num, config.route_len, 12)),
-        "route_lanes_speed_limit": torch.zeros((1, config.route_num, 1)),
-        "route_lanes_has_speed_limit": torch.zeros((1, config.route_num, 1), dtype=torch.bool),
+        "lanes": torch.zeros((config.lane_num, config.lane_len, 12)),
+        "lanes_speed_limit": torch.zeros((config.lane_num, 1)),
+        "lanes_has_speed_limit": torch.zeros((config.lane_num, 1), dtype=torch.bool),
+        "route_lanes": torch.zeros((config.route_num, config.route_len, 12)),
+        "route_lanes_speed_limit": torch.zeros((config.route_num, 1)),
+        "route_lanes_has_speed_limit": torch.zeros((config.route_num, 1), dtype=torch.bool),
     }
 
 
@@ -66,12 +67,15 @@ def test_no_traffic_adapter_builds_official_padding(
 
     torch.testing.assert_close(
         result["ego_current_state"],
-        torch.tensor([[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]),
+        torch.tensor([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     )
-    assert result["neighbor_agents_past"].shape == (1, 32, 21, 11)
-    assert result["static_objects"].shape == (1, 5, 10)
+    assert result["neighbor_agents_past"].shape == (32, 21, 11)
+    assert result["static_objects"].shape == (5, 10)
     assert torch.count_nonzero(result["neighbor_agents_past"]).item() == 0
     assert torch.count_nonzero(result["static_objects"]).item() == 0
+    batch = collate_observations([result])
+    for name, value in result.items():
+        torch.testing.assert_close(batch[name][0], value, rtol=0.0, atol=0.0)
 
 
 @pytest.mark.parametrize(
@@ -168,17 +172,21 @@ def test_traffic_adapter_builds_rotated_history_and_reverse_padding(
 
     result = adapter.build(env)
 
-    history = result["neighbor_agents_past"][0, 0]
+    history = result["neighbor_agents_past"][0]
     np.testing.assert_allclose(history[:11, 0].numpy(), 3.0, atol=1e-6)
     assert history[-1, 0].item() == pytest.approx(4.0)
     assert history[-1, 1].item() == pytest.approx(0.0, abs=1e-6)
     assert history[-1, 4].item() == pytest.approx(2.0)
     torch.testing.assert_close(history[-1, 8:], torch.tensor([1.0, 0.0, 0.0]))
-    static = result["static_objects"][0, 0]
+    static = result["static_objects"][0]
     assert static[0].item() == pytest.approx(2.0)
     assert static[1].item() == pytest.approx(1.0)
     torch.testing.assert_close(static[6:], torch.tensor([0.0, 0.0, 1.0, 0.0]))
     assert adapter.last_audit.selected_participant_ids == ("participant-000000",)
+    batch = collate_observations([result, result])
+    for name, value in result.items():
+        assert batch[name].shape == (2, *value.shape)
+        torch.testing.assert_close(batch[name][1], value, rtol=0.0, atol=0.0)
 
 
 def test_traffic_adapter_sorts_and_truncates_current_participants(

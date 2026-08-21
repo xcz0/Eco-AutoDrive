@@ -3,6 +3,7 @@
 from eco_planner.envs.execution import KinematicTrajectoryPolicy, TrajectoryExecutionRecord
 from eco_planner.envs.map_adapter import MetaDriveMapAdapter
 from eco_planner.envs.metadrive_env import TrajectoryMetaDriveEnv
+from eco_planner.envs.observation import collate_observations
 from eco_planner.envs.observation_adapter import (
     MetaDriveObservationAdapter,
     NoTrafficMetaDriveObservationAdapter,
@@ -16,6 +17,7 @@ from eco_planner.envs.traffic_state import (
 
 __all__ = [
     "KinematicTrajectoryPolicy",
+    "collate_observations",
     "MetaDriveMapAdapter",
     "MetaDriveObservationAdapter",
     "NoTrafficMetaDriveObservationAdapter",

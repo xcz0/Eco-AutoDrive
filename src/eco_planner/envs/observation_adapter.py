@@ -103,7 +103,7 @@ class MetaDriveObservationAdapter:
         self._last_audit = None
 
     def build(self, env: Any) -> dict[str, torch.Tensor]:
-        """Return a batch-one official observation anchored at the latest ego rear axle."""
+        """Return one official observation anchored at the latest ego rear axle."""
 
         if len(self._history) != self._config.time_len:
             raise RuntimeError(
@@ -124,9 +124,9 @@ class MetaDriveObservationAdapter:
             nearest_participant_distance_m=neighbor_audit.nearest_participant_distance_m,
         )
         observation = {
-            "ego_current_state": torch.tensor([_EGO_CURRENT_STATE], dtype=torch.float32),
-            "neighbor_agents_past": torch.from_numpy(neighbor_agents)[None],
-            "static_objects": torch.from_numpy(static_objects)[None],
+            "ego_current_state": torch.tensor(_EGO_CURRENT_STATE, dtype=torch.float32),
+            "neighbor_agents_past": torch.from_numpy(neighbor_agents),
+            "static_objects": torch.from_numpy(static_objects),
         }
         observation.update(self._map_adapter.build(env))
         return observation
@@ -329,7 +329,7 @@ class NoTrafficMetaDriveObservationAdapter:
         self._map_adapter.reset(env)
 
     def build(self, env: Any) -> dict[str, torch.Tensor]:
-        """Return a batch-one observation and reject any non-empty traffic scene."""
+        """Return one observation and reject any non-empty traffic scene."""
 
         self._validate_environment_config(env)
         self._validate_scene_is_empty(env)
@@ -337,15 +337,15 @@ class NoTrafficMetaDriveObservationAdapter:
         config = self._config
         observation = {
             "ego_current_state": torch.tensor(
-                [_EGO_CURRENT_STATE],
+                _EGO_CURRENT_STATE,
                 dtype=torch.float32,
             ),
             "neighbor_agents_past": torch.zeros(
-                (1, config.agent_num, config.time_len, config.agent_state_dim),
+                (config.agent_num, config.time_len, config.agent_state_dim),
                 dtype=torch.float32,
             ),
             "static_objects": torch.zeros(
-                (1, config.static_objects_num, config.static_objects_state_dim),
+                (config.static_objects_num, config.static_objects_state_dim),
                 dtype=torch.float32,
             ),
         }
