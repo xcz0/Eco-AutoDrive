@@ -52,4 +52,4 @@ jobs:
   - id: traffic_follow
     experiment: experiment/evaluate_energy_traffic
     scenarios:
-      - {name: traffic_follow, map: SSS, seed: 5, traffic_condition: low_density_trigger_0.05}
+      - {name: traffic_follow, map: SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS, seed: 5, traffic_condition: low_density_trigger_0.05}

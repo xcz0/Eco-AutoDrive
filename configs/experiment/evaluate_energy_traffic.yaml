@@ -28,7 +28,7 @@ env:
   accident_prob: 0.0
 runtime: {seed: 0}
 scenarios:
-  - {name: traffic_follow, map: SSS, seed: 5}
+  - {name: traffic_follow, map: SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS, seed: 5}
 video: {enabled: false}
 hydra:
   run:

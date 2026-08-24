@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
+from hydra import compose, initialize_config_dir
 from metadrive.utils import merge_dicts
 
 from eco_planner.envs import (
@@ -12,7 +15,8 @@ from eco_planner.envs import (
     collate_observations,
 )
 from eco_planner.envs.map_adapter import MetaDriveMapAdapter
-from eco_planner.evaluation.config import RuntimeConfig
+from eco_planner.evaluation.config import RuntimeConfig, parse_evaluation_config
+from eco_planner.evaluation.episode import route_length_m
 from eco_planner.evaluation.runtime.engine import (
     FabricInferenceRuntime,
     create_fabric_inference_runtime,
@@ -366,6 +370,24 @@ def test_programmatic_lane_speed_limit_profile_follows_generated_blocks() -> Non
         assert audit["block_speed_limit_profile_applied_lane_count"] > 0
         assert 30.0 in lane_limits
         assert 50.0 in lane_limits
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
+def test_energy_traffic_scenario_satisfies_route_length_contract() -> None:
+    config_dir = Path(__file__).resolve().parents[2] / "configs"
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
+        config = compose(config_name="experiment/evaluate_energy_traffic")
+    parsed = parse_evaluation_config(config)
+    scenario = parsed.scenarios[0]
+    env_config = dict(parsed.env)
+    env_config["map"] = scenario.map
+    env = TrajectoryMetaDriveEnv(env_config)
+    try:
+        env.reset(seed=scenario.seed)
+
+        assert 2_000.0 <= route_length_m(env) <= 5_000.0
     finally:
         env.close()
 

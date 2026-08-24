@@ -52,6 +52,22 @@ def test_energy_matrix_resolved_contract_matches_structures_config() -> None:
     _validate_resolved_config(resolved, matrix, job)
 
 
+def test_energy_matrix_traffic_scenario_matches_hydra_config() -> None:
+    matrix = _load_matrix(ROOT / "configs" / "benchmark" / "energy_matrix.yaml")
+    job = next(item for item in matrix["jobs"] if item["id"] == "traffic_follow")
+    scenario = job["scenarios"][0]
+    resolved = OmegaConf.to_container(
+        OmegaConf.load(ROOT / "configs" / "experiment" / "evaluate_energy_traffic.yaml"),
+        resolve=False,
+    )
+    assert isinstance(resolved, dict)
+
+    hydra_scenario = resolved["scenarios"][0]
+    assert scenario["name"] == hydra_scenario["name"] == "traffic_follow"
+    assert scenario["map"] == hydra_scenario["map"] == "S" * 40
+    assert scenario["seed"] == hydra_scenario["seed"] == 5
+
+
 def test_energy_matrix_rejects_resolved_sampler_drift() -> None:
     matrix = _load_matrix(ROOT / "configs" / "benchmark" / "energy_matrix.yaml")
     job = matrix["jobs"][0]
