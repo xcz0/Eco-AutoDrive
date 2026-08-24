@@ -62,25 +62,29 @@ jobs:
         map: SSS
         seed: 0
         map_features: [straight, cruise]
-        nominal_termination: arrive_dest_or_time_truncation
+        traffic_condition: no_traffic
+        termination_type: arrive_dest_or_time_truncation
         energy_metric: metadrive_episode_energy
       - name: curve
         map: SCS
         seed: 0
         map_features: [straight, curve]
-        nominal_termination: arrive_dest_or_time_truncation
+        traffic_condition: no_traffic
+        termination_type: arrive_dest_or_time_truncation
         energy_metric: metadrive_episode_energy
       - name: intersection
         map: SXS
         seed: 0
         map_features: [straight, intersection]
-        nominal_termination: arrive_dest_or_time_truncation
+        traffic_condition: no_traffic
+        termination_type: arrive_dest_or_time_truncation
         energy_metric: metadrive_episode_energy
       - name: merge_lane_change
         map: SyS
         seed: 0
         map_features: [straight, merge, lane_change]
-        nominal_termination: arrive_dest_or_time_truncation
+        traffic_condition: no_traffic
+        termination_type: arrive_dest_or_time_truncation
         energy_metric: metadrive_episode_energy
   - id: speed_limit_30
     experiment: experiment/evaluate_energy_speed_30
@@ -91,7 +95,8 @@ jobs:
         map: SSS
         seed: 0
         map_features: [straight, cruise, speed_limit_30_kmh]
-        nominal_termination: arrive_dest_or_time_truncation
+        traffic_condition: no_traffic
+        termination_type: arrive_dest_or_time_truncation
         energy_metric: metadrive_episode_energy
   - id: speed_limit_50
     experiment: experiment/evaluate_energy_speed_50
@@ -102,7 +107,8 @@ jobs:
         map: SSS
         seed: 0
         map_features: [straight, cruise, speed_limit_50_kmh]
-        nominal_termination: arrive_dest_or_time_truncation
+        traffic_condition: no_traffic
+        termination_type: arrive_dest_or_time_truncation
         energy_metric: metadrive_episode_energy
   - id: low_density_traffic
     experiment: experiment/evaluate_energy_traffic
@@ -113,5 +119,6 @@ jobs:
         map: SCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSC
         seed: 0
         map_features: [straight, curve, low_density_traffic]
-        nominal_termination: time_truncation_or_driving_termination
+        traffic_condition: low_density_trigger_0.05
+        termination_type: time_truncation_or_driving_termination
         energy_metric: metadrive_episode_energy
