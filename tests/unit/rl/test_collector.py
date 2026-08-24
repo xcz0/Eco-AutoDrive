@@ -374,6 +374,8 @@ def _info() -> dict[str, object]:
             heading_errors_rad=np.zeros(1),
             substep_rewards=np.asarray([0.25]),
             substep_dense_rewards=np.asarray([0.25]),
+            substep_energy_ml=np.asarray([0.0]),
+            substep_episode_energy_ml=np.asarray([0.0]),
             substep_terminated=np.asarray([False]),
             substep_truncated=np.asarray([False]),
             traffic_frames=(TrafficFrame(1, (0.0, 0.0), 0.0, 1.0, (), ()),),

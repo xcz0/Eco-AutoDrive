@@ -50,6 +50,8 @@ class TrajectoryExecutionRecord:
     heading_errors_rad: ExecutionScalarArray
     substep_rewards: ExecutionScalarArray
     substep_dense_rewards: ExecutionScalarArray
+    substep_energy_ml: ExecutionScalarArray
+    substep_episode_energy_ml: ExecutionScalarArray
     substep_terminated: ExecutionBooleanArray
     substep_truncated: ExecutionBooleanArray
     traffic_frames: tuple[TrafficFrame, ...]
@@ -76,6 +78,8 @@ class TrajectoryExecutionRecorder:
     states: ExecutionStateArray
     rewards: ExecutionScalarArray
     dense_rewards: ExecutionScalarArray
+    step_energy_ml: ExecutionScalarArray
+    episode_energy_ml: ExecutionScalarArray
     terminated: ExecutionBooleanArray
     truncated: ExecutionBooleanArray
     traffic_frames: list[TrafficFrame]
@@ -87,6 +91,8 @@ class TrajectoryExecutionRecorder:
             states=np.empty((execution_steps, 7), dtype=np.float64),
             rewards=np.empty(execution_steps, dtype=np.float64),
             dense_rewards=np.empty(execution_steps, dtype=np.float64),
+            step_energy_ml=np.empty(execution_steps, dtype=np.float64),
+            episode_energy_ml=np.empty(execution_steps, dtype=np.float64),
             terminated=np.empty(execution_steps, dtype=np.bool_),
             truncated=np.empty(execution_steps, dtype=np.bool_),
             traffic_frames=[],
@@ -98,6 +104,8 @@ class TrajectoryExecutionRecorder:
         agent: Any,
         reward: float,
         dense_reward: float,
+        step_energy_ml: float,
+        episode_energy_ml: float,
         terminated: bool,
         truncated: bool,
         angular_velocity: float,
@@ -111,6 +119,8 @@ class TrajectoryExecutionRecorder:
         self.states[index, 6] = angular_velocity
         self.rewards[index] = reward
         self.dense_rewards[index] = dense_reward
+        self.step_energy_ml[index] = step_energy_ml
+        self.episode_energy_ml[index] = episode_energy_ml
         self.terminated[index] = terminated
         self.truncated[index] = truncated
         self.traffic_frames.append(traffic_frame)
@@ -138,6 +148,8 @@ class TrajectoryExecutionRecorder:
             heading_errors_rad=np.abs(shortest_angle_delta(state_array[:, 2] - target_headings)),
             substep_rewards=self.rewards[:executed_steps].copy(),
             substep_dense_rewards=self.dense_rewards[:executed_steps].copy(),
+            substep_energy_ml=self.step_energy_ml[:executed_steps].copy(),
+            substep_episode_energy_ml=self.episode_energy_ml[:executed_steps].copy(),
             substep_terminated=self.terminated[:executed_steps].copy(),
             substep_truncated=self.truncated[:executed_steps].copy(),
             traffic_frames=tuple(self.traffic_frames),

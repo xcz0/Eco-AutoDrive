@@ -47,6 +47,8 @@ _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
     "initial_state_valid": TraceFieldSpec((), np.dtype(np.bool_), finite=False),
     "warmup_states": TraceFieldSpec((_WARMUP, 7), np.dtype(np.float64)),
     "warmup_rewards": TraceFieldSpec((_WARMUP,), np.dtype(np.float64)),
+    "warmup_step_energy_ml": TraceFieldSpec((_WARMUP,), np.dtype(np.float64)),
+    "warmup_episode_energy_ml": TraceFieldSpec((_WARMUP,), np.dtype(np.float64)),
     "warmup_terminated": TraceFieldSpec((_WARMUP,), np.dtype(np.bool_), finite=False),
     "warmup_truncated": TraceFieldSpec((_WARMUP,), np.dtype(np.bool_), finite=False),
     "warmup_participant_counts": TraceFieldSpec((_WARMUP,), np.dtype(np.int64), finite=False),
@@ -63,6 +65,8 @@ _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
     ),
     "executed_states": TraceFieldSpec((_SIMULATOR, 7), np.dtype(np.float64)),
     "executed_rewards": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
+    "executed_step_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
+    "executed_episode_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "executed_terminated": TraceFieldSpec((_SIMULATOR,), np.dtype(np.bool_), finite=False),
     "executed_truncated": TraceFieldSpec((_SIMULATOR,), np.dtype(np.bool_), finite=False),
     "executed_plan_indices": TraceFieldSpec((_SIMULATOR,), np.dtype(np.int64), finite=False),
@@ -236,10 +240,14 @@ def validate_trace_arrays(
     for name in (
         "warmup_participant_counts",
         "warmup_static_object_counts",
+        "warmup_step_energy_ml",
+        "warmup_episode_energy_ml",
         "executed_plan_indices",
         "traffic_participant_counts",
         "traffic_static_object_counts",
         "guidance_zero_speed_count",
+        "executed_step_energy_ml",
+        "executed_episode_energy_ml",
     ):
         if name in mapping and np.any(mapping[name] < 0):
             raise ValueError(f"trace array {name!r} must be non-negative")
@@ -257,6 +265,11 @@ def validate_trace_arrays(
     terminal = mapping["executed_terminated"] | mapping["executed_truncated"]
     if terminal[:-1].any():
         raise ValueError("trace contains a terminal flag before its final simulator step")
+    episode_energy = np.concatenate(
+        (mapping["warmup_episode_energy_ml"], mapping["executed_episode_energy_ml"])
+    )
+    if np.any(np.diff(episode_energy) < 0.0):
+        raise ValueError("trace episode energy must be cumulative")
     if require_traffic and not np.any(mapping["traffic_participant_counts"] > 0):
         raise ValueError("trace never observed traffic within the query radius")
     nearest = mapping["traffic_nearest_distance_m"][mapping["traffic_has_nearest"]]

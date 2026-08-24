@@ -54,6 +54,7 @@
 | [E-016](records/e-016-machine-benchmark-rx-a4000.md) | 2026-08-21 | 本机性能基线（远程训练机） | 在 RTX A4000 / Xeon w5-2455X 上复现 planner、vector env、rollout scaling | 本机建议有效（B=8–16；workers 2–4）；planner 饱和点、三式 evaluation 墙钟对照已完成 |
 | [E-017](records/e-017-energy-guidance-baseline.md) | 2026-08-24 | 正式固定 seed 基线 | 6 场景、4 guidance 的 CUDA BF16 能耗矩阵与重复运行 | 48 回合逐值可重复；Issue #1 基线完成 |
 | [E-018](records/e-018-energy-benchmark-bringup.md) | 2026-08-24 | 本机验证与诊断 | Issue #1 fuel-proxy、分段限速与 DDIM5 guidance bring-up | 历史诊断有效；完整矩阵由 E-017 补全 |
+| [E-019](records/e-019-metadrive-native-energy-proxy-comparison.md) | 2026-08-24 | 正式固定 seed 指标审计 | MetaDrive 原生 energy 与执行 trace proxy 对照 | 原生值在当前 kinematic execution 下恒为零；#59 使用 trace proxy 的 provisional scale |
 
 ## 服务器训练与正式实验登记模板
 

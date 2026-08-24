@@ -105,6 +105,13 @@ def test_trajectory_environment_executes_five_simulator_steps() -> None:
         assert info["trajectory_execution"] is execution
         assert "trajectory_substep_states" not in info
         assert execution.substep_states.shape == (5, 7)
+        assert execution.substep_energy_ml.shape == (5,)
+        assert execution.substep_episode_energy_ml.shape == (5,)
+        assert np.isfinite(execution.substep_energy_ml).all()
+        assert np.isfinite(execution.substep_episode_energy_ml).all()
+        assert np.all(execution.substep_energy_ml >= 0.0)
+        assert np.all(np.diff(execution.substep_episode_energy_ml) >= 0.0)
+        assert execution.substep_episode_energy_ml[-1] == pytest.approx(info["episode_energy"])
         assert execution.route_completion == pytest.approx(info["route_completion"])
         np.testing.assert_allclose(
             execution.substep_states[-1, :2],

@@ -253,6 +253,8 @@ def _warmup_execution(frames: tuple[TrafficFrame, ...]) -> TrajectoryExecutionRe
         heading_errors_rad=np.zeros(5),
         substep_rewards=np.zeros(5),
         substep_dense_rewards=np.zeros(5),
+        substep_energy_ml=np.zeros(5),
+        substep_episode_energy_ml=np.zeros(5),
         substep_terminated=np.zeros(5, dtype=np.bool_),
         substep_truncated=np.zeros(5, dtype=np.bool_),
         traffic_frames=frames,

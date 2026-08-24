@@ -200,7 +200,7 @@ RL 训练输出与 evaluation 输出使用各自独立的数据边界。每个�
 ## 能耗记录
 
 * 每种能耗指标使用独立名称、单位和累计边界。
-* `metadrive_fuel_proxy` 按 MetaDrive `BaseVehicle` 的公式，从实际保存的 0.1 s kinematic execution trace 的相邻位置和执行速度重算；不得读取 kinematic `set_position()` 链路中的上游 `step_energy` 或 `episode_energy`。
+* `metadrive_fuel_proxy` 按 MetaDrive `BaseVehicle` 的公式，从实际保存的 0.1 s kinematic execution trace 的相邻位置和执行速度重算；标准指标的 `total_ml` 不得由 kinematic `set_position()` 链路中的上游值替代。trace 另存上游 `step_energy` 和 reset 后累计的 `episode_energy`（均为 mL），仅供 formula/cumulative-boundary 审计和指标比较。
 * 该指标记录 `total_ml`、`distance_m` 和 `ml_per_km`，后者在零距离时为 null。失败回合若存在 partial trace 也记录已产生的能耗；空 trace 没有能耗值。
 * MetaDrive 代理能耗与 FASTSim 等精细模型不得混用。
 * 能耗结果必须关联实际执行 trace、采样间隔、车辆配置、场景特征和终止类型。
@@ -211,7 +211,7 @@ RL 训练输出与 evaluation 输出使用各自独立的数据边界。每个�
 
 每个评测作业必须保存 resolved config、Hydra overrides、runtime Git metadata、tracked diff、地图/场景 seed、噪声 seed、Fabric 请求与解析后的 accelerator/precision、实际设备、依赖环境和场景特征。`tracked_diff.patch` 必须存在，但干净工作区时允许为空。
 
-每个回合至少保存 `summary.json` 和 `trace.npz`；开启视频时保存闭环 GIF。trace 必须包含 raw observation、初始噪声、完整联合预测、规划锚点、目标与实际状态、逐点误差、奖励、终止标志；交通回合还保存预热、对象 ID、交通数量、最近交通距离和历史有效性。
+每个回合至少保存 `summary.json` 和 `trace.npz`；开启视频时保存闭环 GIF。trace 必须包含 raw observation、初始噪声、完整联合预测、规划锚点、目标与实际状态、逐点误差、奖励、逐子步 MetaDrive `step_energy`/`episode_energy`、终止标志；交通回合还保存预热、对象 ID、交通数量、最近交通距离和历史有效性。
 
 trace recorder 必须在回合开始时按最大 planning/warmup 容量，根据当前 trace field contract 预分配数组并直接写入槽位；`finalize()` 只暴露已记录切片。`trace.npz` 使用标准未压缩 NPZ，以降低长程写盘墙钟。
 

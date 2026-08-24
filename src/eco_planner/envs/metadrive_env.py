@@ -165,6 +165,8 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
                 self.agent,
                 float(reward),
                 finite_info_scalar(info, "step_reward"),
+                finite_info_scalar(info, "step_energy"),
+                finite_info_scalar(info, "episode_energy"),
                 terminated,
                 truncated,
                 float(world_trajectory.angular_velocities[index]),

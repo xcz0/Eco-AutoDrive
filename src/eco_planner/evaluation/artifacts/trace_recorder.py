@@ -262,6 +262,8 @@ def _execution_arrays(execution: TrajectoryExecutionRecord) -> dict[str, np.ndar
     return {
         "states": execution.substep_states,
         "rewards": execution.substep_rewards,
+        "step_energy_ml": execution.substep_energy_ml,
+        "episode_energy_ml": execution.substep_episode_energy_ml,
         "terminated": execution.substep_terminated,
         "truncated": execution.substep_truncated,
     }

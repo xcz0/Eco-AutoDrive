@@ -73,6 +73,8 @@ class FakeEnv:
             heading_errors_rad=np.zeros(5),
             substep_rewards=np.ones(5),
             substep_dense_rewards=np.ones(5),
+            substep_energy_ml=np.full(5, 0.1),
+            substep_episode_energy_ml=np.arange(start + 1, start + 6, dtype=np.float64) / 10.0,
             substep_terminated=np.array([False, False, False, False, terminated]),
             substep_truncated=np.zeros(5, dtype=np.bool_),
             traffic_frames=tuple(
