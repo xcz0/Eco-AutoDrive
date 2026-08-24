@@ -201,6 +201,21 @@ def to_world_trajectory(
     return WorldTrajectory(centers, headings, velocities, angular_velocities)
 
 
+def metadrive_fuel_proxy_step_energy_ml(
+    start_position: WorldVectorArray,
+    end_position: WorldVectorArray,
+    speed_mps: float,
+) -> float:
+    """Re-evaluate MetaDrive's fuel proxy on an actually executed kinematic substep."""
+
+    distance_km = float(np.linalg.norm(end_position - start_position)) / 1000.0
+    speed_kmh = float(speed_mps) * 3.6
+    energy_ml = 3.25 * float(np.exp(0.01 * speed_kmh)) * distance_km / 100.0 * 1000.0
+    if not np.isfinite(energy_ml) or energy_ml < 0.0:
+        raise ValueError("MetaDrive fuel proxy energy must be finite and non-negative")
+    return energy_ml
+
+
 class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
     """Execute an ego-local rear-axle trajectory by directly updating vehicle state."""
 
