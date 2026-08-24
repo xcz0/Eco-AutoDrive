@@ -207,15 +207,20 @@ def run_vector_scenarios(
     config: EvaluationJobConfig,
     output_root: Path,
 ) -> tuple[CompletedEpisodeSummary | FailedEpisodeSummary, ...]:
-    """Evaluate fixed scenario slots with one centralized batch planner runtime."""
+    """Evaluate a scenario queue with persistent fixed slots and batched planning."""
 
     if not specs:
         raise ValueError("vector evaluation requires at least one scenario")
     if config.video.enabled:
         raise ValueError("vector evaluation requires video.enabled=false")
     mode = config.evaluation.mode
-    configured_envs = tuple({**config.env, "map": spec.map} for spec in specs)
-    scenarios = tuple(VectorEnvScenario(spec.name, spec.map, spec.seed) for spec in specs)
+    configured_slots = config.evaluation.execution.vector_env_slots or len(specs)
+    slot_count = min(configured_slots, len(specs))
+    initial_specs = specs[:slot_count]
+    configured_envs = tuple({**config.env, "map": spec.map} for spec in initial_specs)
+    initial_scenarios = tuple(
+        VectorEnvScenario(spec.name, spec.map, spec.seed) for spec in initial_specs
+    )
     with VectorMetaDriveEnv(
         configured_envs,
         mode=mode,
@@ -223,27 +228,50 @@ def run_vector_scenarios(
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.evaluation.history_warmup_steps,
     ) as envs:
-        resets = envs.reset(scenarios)
+        resets = envs.reset(initial_scenarios)
         slots: dict[int, _VectorEvaluationSlot] = {}
-        summaries: list[CompletedEpisodeSummary | FailedEpisodeSummary | None] = [None] * len(
-            resets
-        )
+        slot_scenario_indices: dict[int, int] = {}
+        summaries: list[CompletedEpisodeSummary | FailedEpisodeSummary | None] = [None] * len(specs)
+        next_scenario_index = slot_count
+
+        def assign_next(slot_index: int) -> bool:
+            nonlocal next_scenario_index
+            while next_scenario_index < len(specs):
+                scenario_index = next_scenario_index
+                spec = specs[scenario_index]
+                next_scenario_index += 1
+                reset = envs.reset_at(slot_index, VectorEnvScenario(spec.name, spec.map, spec.seed))
+                try:
+                    slots[slot_index] = _initialize_vector_slot(reset, runtime, config)
+                except EpisodeFailure as failure:
+                    summaries[scenario_index] = _write_vector_failure(
+                        spec,
+                        EpisodeTraceRecorder.empty(),
+                        failure,
+                        runtime,
+                        config,
+                        output_root,
+                    )
+                    continue
+                slot_scenario_indices[slot_index] = scenario_index
+                return True
+            return False
+
         for slot_index, reset in enumerate(resets):
             try:
                 slots[slot_index] = _initialize_vector_slot(reset, runtime, config)
             except EpisodeFailure as failure:
                 summaries[slot_index] = _write_vector_failure(
-                    ScenarioConfig(
-                        name=reset.scenario.name,
-                        map=reset.scenario.map,
-                        seed=reset.scenario.seed,
-                    ),
+                    initial_specs[slot_index],
                     EpisodeTraceRecorder.empty(),
                     failure,
                     runtime,
                     config,
                     output_root,
                 )
+                assign_next(slot_index)
+            else:
+                slot_scenario_indices[slot_index] = slot_index
         active = list(slots)
         while active:
             observations = [slots[index].observation for index in active]
@@ -268,8 +296,9 @@ def run_vector_scenarios(
                 slot.total_reward += step.reward
                 slot.plan_index += 1
                 if step.terminated or step.truncated:
+                    scenario_index = slot_scenario_indices.pop(slot_index)
                     try:
-                        summaries[slot_index] = _complete_vector_slot(
+                        summaries[scenario_index] = _complete_vector_slot(
                             slot,
                             step.execution,
                             step.terminated,
@@ -279,9 +308,11 @@ def run_vector_scenarios(
                             output_root,
                         )
                     except EpisodeFailure as failure:
-                        summaries[slot_index] = _fail_vector_slot(
+                        summaries[scenario_index] = _fail_vector_slot(
                             slot, failure, runtime, config, output_root
                         )
+                    if assign_next(slot_index):
+                        next_active.append(slot_index)
                     continue
                 slot.observation = step.observation
                 slot.traffic_audit = step.traffic_audit

@@ -81,7 +81,12 @@ def test_run_evaluation_selects_vector_runner_when_slots_are_configured(
     fake_runtime: object,
     patch_episode_dependencies,
 ) -> None:
-    evaluation_config.evaluation.execution.vector_env_slots = 1  # type: ignore[attr-defined]
+    evaluation_config.evaluation.execution.vector_env_slots = 2  # type: ignore[attr-defined]
+    evaluation_config.scenarios = [  # type: ignore[attr-defined]
+        {"name": "first", "map": "S", "seed": 3},
+        {"name": "second", "map": "S", "seed": 3},
+        {"name": "third", "map": "S", "seed": 3},
+    ]
     patch_episode_dependencies()
     _patch_runtime(monkeypatch, fake_runtime)
     calls: list[tuple[str, ...]] = []
@@ -95,7 +100,7 @@ def test_run_evaluation_selects_vector_runner_when_slots_are_configured(
     summary = runner.run_evaluation(parse_evaluation_config(evaluation_config), tmp_path)
 
     assert summary.status == "completed"
-    assert calls == [("fake",)]
+    assert calls == [("first", "second", "third")]
 
 
 def test_run_evaluation_propagates_unclassified_errors(

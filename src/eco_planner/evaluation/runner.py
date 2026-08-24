@@ -47,13 +47,7 @@ def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
     if vector_slots is None:
         summaries = [run_scenario(spec, runtime, config, output_dir) for spec in scenarios]
     else:
-        summaries = [
-            summary
-            for start in range(0, len(scenarios), vector_slots)
-            for summary in run_vector_scenarios(
-                scenarios[start : start + vector_slots], runtime, config, output_dir
-            )
-        ]
+        summaries = run_vector_scenarios(scenarios, runtime, config, output_dir)
     summary = JobSummary.model_validate(
         {
             "status": (
