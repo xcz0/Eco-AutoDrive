@@ -130,10 +130,6 @@ class EvaluationJobConfig(_StrictModel):
         else:
             self._validate_traffic_environment()
         execution = evaluation.execution
-        if execution.mode == "parallel" and self.resources is None:
-            raise ValueError("parallel evaluation requires a resource profile")
-        if execution.mode == "parallel" and self.video.enabled:
-            raise ValueError("parallel execution requires video.enabled=false")
         if execution.vector_env_slots is not None:
             if execution.vector_env_slots <= 0:
                 raise ValueError("vector_env_slots must be positive when configured")
@@ -141,6 +137,10 @@ class EvaluationJobConfig(_StrictModel):
                 raise ValueError("vector evaluation requires execution.mode=serial")
             if self.video.enabled:
                 raise ValueError("vector evaluation requires video.enabled=false")
+        if execution.mode == "parallel" and self.resources is None:
+            raise ValueError("parallel evaluation requires a resource profile")
+        if execution.mode == "parallel" and self.video.enabled:
+            raise ValueError("parallel execution requires video.enabled=false")
         return self
 
     def _validate_traffic_environment(self) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -246,9 +247,13 @@ def matrix_trace_arrays() -> dict[str, np.ndarray]:
     recorder = EpisodeTraceRecorder.from_initial_state(
         np.zeros(7), max_plan_cycles=1, max_warmup_steps=20, guided=False
     )
-    for _ in range(4):
-        recorder.append_warmup(
+    for index in range(4):
+        warmup_execution = replace(
             execution,
+            substep_episode_energy_ml=execution.substep_episode_energy_ml + index * 0.5,
+        )
+        recorder.append_warmup(
+            warmup_execution,
             np.ones(execution.substep_states.shape[0], dtype=np.int64),
             np.zeros(execution.substep_states.shape[0], dtype=np.int64),
         )
@@ -258,7 +263,7 @@ def matrix_trace_arrays() -> dict[str, np.ndarray]:
         np.zeros(7),
         observation,
         HostInferenceResult(initial_noise=np.zeros_like(prediction), prediction=prediction),
-        execution,
+        replace(execution, substep_episode_energy_ml=execution.substep_episode_energy_ml + 2.0),
         0,
         TrafficObservationAudit(("participant-000000",), 1, 0, 1.0),
     )

@@ -77,7 +77,7 @@ def test_artifact_comparison_matches_jobs_by_grid_and_arrays_exactly(tmp_path: P
 
     report = compare_artifact_trees(serial, parallel)
 
-    assert report == {"job_count": 1, "episode_count": 1, "array_count": 38, "equal": True}
+    assert report == {"job_count": 1, "episode_count": 1, "array_count": 42, "equal": True}
 
 
 def test_artifact_comparison_reports_array_path(tmp_path: Path) -> None:
