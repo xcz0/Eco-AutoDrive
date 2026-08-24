@@ -82,6 +82,13 @@ def _validate_resolved_config(
         raise RuntimeError(f"resolved scenarios disagree with matrix job {job['id']!r}")
     if resolved["runtime"]["seed"] != matrix["planner_noise_seed"]:
         raise RuntimeError("resolved planner noise seed disagrees with energy matrix")
+    sampler = resolved["sampler"]
+    expected_sampler = matrix["sampler"]
+    if (
+        sampler["name"] != expected_sampler["name"]
+        or sampler["ddim_stochasticity"] != expected_sampler["ddim_stochasticity"]
+    ):
+        raise RuntimeError("resolved sampler disagrees with energy matrix")
     environment = resolved["env"]
     timing = matrix["execution"]
     for name, expected in (
@@ -151,6 +158,7 @@ def run_matrix(matrix_path: Path, output_root: Path) -> int:
                 sys.executable,
                 str(ROOT / "scripts" / "evaluate.py"),
                 f"--config-name={job['experiment']}",
+                f"planner/sampler={matrix['sampler']['name']}",
                 f"planner/guidance={guidance['config']}",
                 f"hydra.run.dir={run_dir.as_posix()}",
             ]
