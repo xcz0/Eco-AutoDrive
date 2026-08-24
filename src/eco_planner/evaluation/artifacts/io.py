@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+# Torch must load before MetaDrive/Panda3D on Windows to avoid DLL initialization
+# failures in per-job worker processes that import this module first.
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
 
 import numpy as np
+import torch  # noqa: I001, F401 (must precede metadrive import)
 from metadrive.utils.doc_utils import generate_gif
 from pydantic import BaseModel, TypeAdapter
 

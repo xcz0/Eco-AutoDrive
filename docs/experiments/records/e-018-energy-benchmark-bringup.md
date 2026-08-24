@@ -1,4 +1,6 @@
-# E-016 固定能耗 benchmark bring-up
+# E-018 固定能耗 benchmark bring-up
+
+[返回实验索引](../README.md)
 
 **日期 / 类型 / 目的**：2026-08-24 / 本机验证与诊断 / 验证 Issue #1 的执行轨迹能耗口径、分段限速场景和 paired guidance 运行入口。
 
@@ -29,4 +31,4 @@ just energy-matrix outputs/energy_matrix/issue-1-20260824-ddim5
 - `outputs/energy_matrix/issue-1-20260824-guidance-cpu-smoke/`
 - `outputs/energy_matrix/issue-1-20260824-rerun/`（失败 bring-up）
 
-**结论边界**：CUDA BF16 的 DDIM5 guidance 路径及 sampler 启动契约已验证；能耗计算和限速 profile audit 在 structures 与 speed-limit 条件下有效。traffic-follow 场景尚未满足 traffic evaluation 路线长度契约，因此这仍不是完整 6 场景 guidance matrix，也不能据此关闭 Issue #1 的“可观测 guidance 差异”验收项。
+**结论边界**：CUDA BF16 的 DDIM5 guidance 路径及 sampler 启动契约已验证；能耗计算和限速 profile audit 在 structures 与 speed-limit 条件下有效。traffic-follow 场景尚未满足 traffic evaluation 路线长度契约，因此这仍不是完整 6 场景 guidance matrix；该缺口已由 [E-017](e-017-energy-guidance-baseline.md) 补全。

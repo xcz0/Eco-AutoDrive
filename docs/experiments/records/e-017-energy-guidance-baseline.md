@@ -72,8 +72,9 @@ positive 在 6/6 场景提高 mean speed 和 mL/km，在 intersection/traffic_fo
 因此 longitudinal guidance 对执行速度/进度有明确可观察作用，但 negative 的较低 total energy
 主要与少走和提前失败混合，不能解释为节能改善。
 
-**验证**：相关配置与新增长路线定向测试 21 passed；`just test` 为 233 passed、33 deselected；
-`just test-sim` 为 21 passed、245 deselected；`just lint` 与 `just format-check` 通过。
+**验证**：相关配置与新增长路线定向测试 21 passed；实验工作区的 `just test` 为 233 passed、
+33 deselected，合并远端 import-order 回归后最终为 234 passed、33 deselected；`just test-sim`
+为 21 passed、245 deselected；`just lint` 与 `just format-check` 通过。
 
 **产物**：
 

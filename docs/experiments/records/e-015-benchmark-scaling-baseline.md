@@ -8,10 +8,7 @@ evaluation 执行模式的正式墙钟对照尚未完成。
 
 ## 代码与环境
 
-- Git HEAD：`a1186e5223f509e0904b3be06363ad1b597d1da0`。
-- 运行时存在未提交修改；每个正式报告均保存了当时的 `git status --short` 与完整
-  `tracked_diff.patch`，因此本记录不把 HEAD 单独视为可复现实验版本。
-- 上游 MetaDrive 源码：`a3a621f0b724c5fa6447f7a2fbaf9e0387bd35df`。
+
 - Windows 10 build 26200；Python 3.10.20；PyTorch 2.12.1+cu126；Lightning 2.6.5；
   MetaDrive 0.4.3；Pydantic 2.13.4。
 - CPU：AMD64 Family 25 Model 80，16 logical cores；PyTorch intra-op/inter-op threads
@@ -140,4 +137,3 @@ Issue #55 / #49 仍需完成：
 1. 在 B>16 继续 planner scaling，直到测到吞吐或显存饱和；
 2. 在远程训练机复现实验并给出该机器的 worker/batch 建议；
 3. 对相同 scenario matrix 正式运行 serial、job-level 和 vector evaluation 墙钟对照。
-
