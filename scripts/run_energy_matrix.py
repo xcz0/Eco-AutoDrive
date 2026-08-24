@@ -36,8 +36,14 @@ def _validate_matrix(matrix: dict[str, Any]) -> None:
     }:
         raise ValueError("energy matrix execution timing must encode 10 Hz / 2 Hz evaluation")
     metric = matrix["energy_metric"]
-    if metric["name"] != "metadrive_episode_energy" or metric["unit"] != "mL":
-        raise ValueError("energy matrix must use MetaDrive episode_energy in mL")
+    if (
+        metric["name"] != "metadrive_episode_energy"
+        or metric["implementation"]
+        != "recompute_metadrive_base_vehicle_formula_on_executed_trace"
+        or metric["unit"] != "mL"
+        or metric["sampling_interval_s"] != 0.1
+    ):
+        raise ValueError("energy matrix must use the 0.1 s MetaDrive fuel proxy contract")
     guidance = matrix["guidance_profiles"]
     ids = [item["id"] for item in guidance]
     if ids != ["none", "longitudinal_negative", "longitudinal_zero", "longitudinal_positive"]:
@@ -188,7 +194,7 @@ def run_matrix(matrix_path: Path, output_root: Path) -> int:
                 str(ROOT / "scripts" / "evaluate.py"),
                 f"--config-name={job['experiment']}",
                 f"guidance={guidance['config']}",
-                f"hydra.run.dir={run_dir}",
+                f"hydra.run.dir={run_dir.as_posix()}",
             ]
             completed = subprocess.run(command, cwd=ROOT, check=False)
             record = _collect_run(matrix, job, guidance, run_dir, completed.returncode)
