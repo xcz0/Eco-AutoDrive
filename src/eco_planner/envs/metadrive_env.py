@@ -23,6 +23,7 @@ from eco_planner.envs.execution import (
     WorldTrajectory,
     execution_steps_from_config,
     finite_info_scalar,
+    metadrive_fuel_proxy_step_energy_ml,
     to_world_trajectory,
 )
 from eco_planner.envs.lane_speed import ProgrammaticLaneSpeedAdapter
@@ -92,6 +93,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             self.config["programmatic_lane_speed_limit_kmh"]
         )
         self._initial_traffic_frame: TrafficFrame | None = None
+        self._episode_energy_ml = 0.0
 
     def _post_process_config(self, config: Config) -> Config:
         processed = super()._post_process_config(config)
@@ -128,6 +130,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
 
     def reset(self, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
         self._initial_traffic_frame = None
+        self._episode_energy_ml = 0.0
         self._programmatic_lane_speed_adapter.clear_audit()
         result = super().reset(*args, **kwargs)
         current_map = self.current_map
@@ -157,8 +160,15 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             # this intervening physics phase, including when a new trajectory is supplied.
             self.agent.set_velocity(_ZERO_VELOCITY)
             self.agent.set_angular_velocity(0.0)
+            previous_position = np.asarray(self.agent.position, dtype=np.float64).copy()
             observation, reward, terminated, truncated, info = self._step_once(action)
             total_reward += float(reward)
+            step_energy_ml = metadrive_fuel_proxy_step_energy_ml(
+                previous_position,
+                np.asarray(self.agent.position, dtype=np.float64),
+                float(self.agent.speed),
+            )
+            self._episode_energy_ml += step_energy_ml
             step_record.append(
                 self.agent,
                 float(reward),
@@ -167,8 +177,8 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
                 truncated,
                 float(world_trajectory.angular_velocities[index]),
                 capture_traffic_frame(self),
-                finite_info_scalar(info, "step_energy"),
-                finite_info_scalar(info, "episode_energy"),
+                step_energy_ml,
+                self._episode_energy_ml,
             )
             if terminated or truncated:
                 break
