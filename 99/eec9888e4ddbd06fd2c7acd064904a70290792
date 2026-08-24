@@ -1,0 +1,21 @@
+docs/experiments/records/e-016-machine-benchmark-rx-a4000.md
+  s_272477ed14ee13::t_7eef99c1ed625d 1-140
+docs/experiments/README.md
+  s_272477ed14ee13::t_79a13865a3b1a6 54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "99eec9888e4ddbd06fd2c7acd064904a70290792",
+  "prompts": {},
+  "sessions": {
+    "s_272477ed14ee13": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fdc33b8feffeCtQjiWzOyH0OwS",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
