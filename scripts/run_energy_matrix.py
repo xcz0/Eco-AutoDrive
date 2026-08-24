@@ -85,7 +85,8 @@ def _validate_matrix(matrix: dict[str, Any]) -> None:
         "low_density_traffic",
     }
     if not required_features <= feature_names:
-        raise ValueError(f"energy matrix is missing features: {sorted(required_features - feature_names)}")
+        missing = sorted(required_features - feature_names)
+        raise ValueError(f"energy matrix is missing features: {missing}")
 
 
 def _write_json(path: Path, payload: object) -> None:
