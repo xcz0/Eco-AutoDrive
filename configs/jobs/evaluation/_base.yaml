@@ -5,41 +5,26 @@ defaults:
   - /planner/model
   - /runtime: fabric
   - /resources: rtx3050_laptop
-  - /runtime/evaluation_video
+  - /video: default
   - /planner/sampler: dpm10
   - /planner/guidance: none
   - _self_
 
-name: official_no_traffic_closed_loop
 map_query_radius_m: 100.0
 
 evaluation:
-  mode: no_traffic
-  profile: full
-  history_warmup_steps: 0
-  evaluated_horizon_steps: 200
   execution:
     mode: serial
     vector_env_slots: ${resources.evaluation_vector_env_slots}
     torch_threads_per_worker: ${resources.torch_threads_per_worker}
     deterministic: false
 
-env:
-  horizon: 200
-
 runtime:
   seed: 0
 
-scenarios:
-  - name: straight
-    map: S
-    seed: 0
-  - name: gentle_curve
-    map: SC
-    seed: 0
+video:
+  enabled: false
 
 hydra:
-  run:
-    dir: outputs/no_traffic/${now:%Y-%m-%d}/${now:%H-%M-%S}
   job:
     chdir: false

@@ -5,7 +5,7 @@ defaults:
   - /planner/model
   - /runtime: fabric
   - /resources: rtx3050_laptop
-  - /runtime/evaluation_video
+  - /video: default
   - /planner/sampler: dpm10
   - /planner/guidance: none
   - /benchmark: throughput

@@ -3,16 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import energy_matrix
 import pytest
-import run_energy_matrix
+from energy_matrix import _load_matrix, _validate_resolved_config
 from omegaconf import OmegaConf
-from run_energy_matrix import _load_matrix, _validate_resolved_config
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_energy_matrix_declares_fixed_coverage_and_guidance_profiles() -> None:
-    matrix = _load_matrix(ROOT / "configs" / "benchmark" / "energy_matrix.yaml")
+    matrix = _load_matrix(ROOT / "configs" / "matrices" / "energy.yaml")
 
     assert matrix["planner_noise_seed"] == 0
     assert matrix["sampler"] == {"name": "ddim5", "ddim_stochasticity": 0.0}
@@ -26,7 +26,7 @@ def test_energy_matrix_declares_fixed_coverage_and_guidance_profiles() -> None:
 
 
 def test_energy_matrix_resolved_contract_matches_structures_config() -> None:
-    matrix = _load_matrix(ROOT / "configs" / "benchmark" / "energy_matrix.yaml")
+    matrix = _load_matrix(ROOT / "configs" / "matrices" / "energy.yaml")
     job = matrix["jobs"][0]
     resolved = OmegaConf.to_container(
         OmegaConf.create(
@@ -53,11 +53,11 @@ def test_energy_matrix_resolved_contract_matches_structures_config() -> None:
 
 
 def test_energy_matrix_traffic_scenario_matches_hydra_config() -> None:
-    matrix = _load_matrix(ROOT / "configs" / "benchmark" / "energy_matrix.yaml")
+    matrix = _load_matrix(ROOT / "configs" / "matrices" / "energy.yaml")
     job = next(item for item in matrix["jobs"] if item["id"] == "traffic_follow")
     scenario = job["scenarios"][0]
     resolved = OmegaConf.to_container(
-        OmegaConf.load(ROOT / "configs" / "experiment" / "evaluate_energy_traffic.yaml"),
+        OmegaConf.load(ROOT / "configs" / "jobs" / "evaluation" / "energy_traffic.yaml"),
         resolve=False,
     )
     assert isinstance(resolved, dict)
@@ -69,7 +69,7 @@ def test_energy_matrix_traffic_scenario_matches_hydra_config() -> None:
 
 
 def test_energy_matrix_rejects_resolved_sampler_drift() -> None:
-    matrix = _load_matrix(ROOT / "configs" / "benchmark" / "energy_matrix.yaml")
+    matrix = _load_matrix(ROOT / "configs" / "matrices" / "energy.yaml")
     job = matrix["jobs"][0]
     resolved = {
         "runtime": {"seed": 0},
@@ -99,17 +99,21 @@ def test_energy_matrix_launcher_pins_declared_sampler(
         commands.append(command)
         return SimpleNamespace(returncode=0)
 
-    monkeypatch.setattr(run_energy_matrix.subprocess, "run", capture_run)
+    monkeypatch.setattr(energy_matrix.subprocess, "run", capture_run)
     monkeypatch.setattr(
-        run_energy_matrix,
+        energy_matrix,
         "_collect_run",
         lambda *_: {"status": "completed"},
     )
 
-    returncode = run_energy_matrix.run_matrix(
-        ROOT / "configs" / "benchmark" / "energy_matrix.yaml", tmp_path / "matrix"
+    returncode = energy_matrix.run_matrix(
+        ROOT / "configs" / "matrices" / "energy.yaml", tmp_path / "matrix"
     )
 
     assert returncode == 0
     assert len(commands) == 12
     assert all("planner/sampler=ddim5" in command for command in commands)
+    assert all(
+        any(argument.startswith("--config-name=jobs/evaluation/") for argument in command)
+        for command in commands
+    )

@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - /experiment/evaluate_traffic_full
+  - /jobs/evaluation/traffic
   - override /hydra/launcher: joblib_evaluation
   - _self_
 

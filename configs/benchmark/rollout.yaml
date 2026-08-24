@@ -1,3 +1,4 @@
+kind: rollout
 batch_sizes: [1, 2, 4, 8]
 collector_modes: [serial, vector]
 mode: no_traffic

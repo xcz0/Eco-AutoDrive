@@ -13,7 +13,7 @@ def _config():
     config_dir = Path(__file__).parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
         return compose(
-            config_name="experiment/train_ppo_smoke",
+            config_name="jobs/training/ppo_smoke",
             overrides=["runtime.seed=0", "training.replay_id=0"],
         )
 

@@ -1,0 +1,22 @@
+# @package _global_
+
+defaults:
+  - /jobs/evaluation/_energy
+  - _self_
+
+name: energy_low_density_traffic_closed_loop
+evaluation:
+  mode: traffic
+  history_warmup_steps: 20
+  evaluated_horizon_steps: 600
+env:
+  start_seed: 5
+  num_scenarios: 1
+  horizon: 620
+  traffic_density: 0.05
+  traffic_mode: trigger
+scenarios:
+  - {name: traffic_follow, map: SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS, seed: 5}
+hydra:
+  run:
+    dir: outputs/energy_matrix/traffic/${now:%Y-%m-%d}/${now:%H-%M-%S}

@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - /experiment/benchmark_throughput
+  - /jobs/benchmark/throughput
   - _self_
 
 name: traffic_throughput_benchmark

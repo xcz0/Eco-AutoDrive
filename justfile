@@ -27,127 +27,86 @@ default:
     @just --list
 
 
-# ---------------------------------------------------------------------------
-# Environment
-# ---------------------------------------------------------------------------
-
-# Create/update the local development environment.
-# Not intended as a routine Agent preflight.
+# Create/update the local development environment. Not intended as a routine Agent preflight.
+[group('development')]
 setup:
     uv sync --all-groups
 
-
-# ---------------------------------------------------------------------------
-# Static checks
-# ---------------------------------------------------------------------------
-
+[group('development')]
 lint:
     {{ruff}} check .
 
+[group('development')]
 format-check:
     {{ruff}} format --check .
 
+[group('development')]
 format:
     {{ruff}} check --fix .
     {{ruff}} format .
 
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
 # Default fast test set.
+[group('development')]
 test:
     {{pytest}} -m "not gpu and not simulator and not slow"
 
 # Run one or more specific test files, directories, or nodes.
+[group('development')]
 test-target +targets:
     {{pytest}} {{targets}}
 
 # Simulator tests only.
+[group('development')]
 test-sim:
     {{pytest}} -m "simulator and not gpu and not slow"
 
 # GPU tests only.
+[group('development')]
 test-gpu:
     {{pytest}} -m "gpu and not slow"
 
 # Full lightweight repository validation.
+[group('development')]
 check: lint format-check test
 
 
-# ---------------------------------------------------------------------------
-# Evaluation
-# ---------------------------------------------------------------------------
+# Run one evaluation job profile. Append Hydra overrides as needed.
+[group('evaluation')]
+evaluate profile="no_traffic" *overrides:
+    {{python}} scripts/evaluate.py --config-name jobs/evaluation/{{profile}} {{overrides}}
 
-# Fast no-traffic smoke evaluation. Append Hydra overrides as needed.
-eval-smoke *overrides:
-    {{python}} scripts/evaluate.py --config-name experiment/evaluate_no_traffic_smoke {{overrides}}
+# Run a no-traffic or traffic Hydra matrix.
+[group('evaluation')]
+evaluate-matrix mode="traffic" *overrides:
+    {{python}} scripts/evaluate.py --config-name jobs/evaluation/{{mode}}_matrix --multirun {{overrides}}
 
-# Fast traffic smoke evaluation. Append Hydra overrides as needed.
-eval-traffic-smoke *overrides:
-    {{python}} scripts/evaluate.py --config-name experiment/evaluate_traffic_smoke {{overrides}}
-
-# Standard no-traffic evaluation. Append Hydra overrides as needed.
-eval *overrides:
-    {{python}} scripts/evaluate.py --config-name experiment/evaluate_no_traffic_full {{overrides}}
-
-# Standard traffic evaluation. Append Hydra overrides as needed.
-eval-traffic *overrides:
-    {{python}} scripts/evaluate.py --config-name experiment/evaluate_traffic_full {{overrides}}
-
-# Predefined no-traffic matrix. Append Hydra overrides as needed.
-eval-no-traffic-matrix *overrides:
-    {{python}} scripts/evaluate.py --config-name experiment/evaluate_no_traffic_matrix --multirun {{overrides}}
-
-# Predefined traffic matrix. Append Hydra overrides as needed.
-eval-matrix *overrides:
-    {{python}} scripts/evaluate.py --config-name experiment/evaluate_traffic_matrix --multirun {{overrides}}
-
-energy-matrix output_root:
-    {{python}} scripts/run_energy_matrix.py --output-root {{output_root}}
-
-# Smoke test for reference-centered guidance. Append scale or other overrides as needed.
-eval-guidance *overrides:
-    {{python}} scripts/evaluate.py --config-name experiment/evaluate_no_traffic_smoke planner/sampler=ddim5 planner/guidance=orthogonal_reference {{overrides}}
+# Run the fixed-seed energy matrix.
+[group('evaluation')]
+energy output_root *options:
+    {{python}} scripts/energy_matrix.py --output-root "{{output_root}}" {{options}}
 
 
-# ---------------------------------------------------------------------------
-# Training
-# ---------------------------------------------------------------------------
-
-# Closed-loop PPO smoke training. Optional arguments: seed, replay ID.
-train-smoke seed="0" replay="0":
-    {{python}} scripts/train.py --config-name experiment/train_ppo_smoke runtime.seed={{seed}} training.replay_id={{replay}}
+# Run one training profile with explicit seed and replay identity.
+[group('training')]
+train profile="ppo_smoke" seed="0" replay="0" *overrides:
+    {{python}} scripts/train.py --config-name jobs/training/{{profile}} runtime.seed={{seed}} training.replay_id={{replay}} {{overrides}}
 
 
-# ---------------------------------------------------------------------------
-# Analysis / diagnostics
-# ---------------------------------------------------------------------------
+# Run one reusable benchmark profile.
+[group('benchmark')]
+benchmark profile="throughput" *overrides:
+    {{python}} scripts/benchmark.py --config-name jobs/benchmark/{{profile}} {{overrides}}
 
-benchmark-env *overrides:
-    {{python}} scripts/benchmark_envs.py {{overrides}}
+# Consolidate serial, job-level, and vector evaluation measurements.
+[group('benchmark')]
+benchmark-report serial job_level vector serial_wall_s job_level_wall_s vector_wall_s:
+    {{python}} scripts/benchmark_report.py "{{serial}}" "{{job_level}}" "{{vector}}" --serial-wall-s {{serial_wall_s}} --job-level-wall-s {{job_level_wall_s}} --vector-wall-s {{vector_wall_s}}
 
-# Reference-only planner batch and vector-environment scaling. Append Hydra overrides.
-benchmark-throughput *overrides:
-    {{python}} scripts/benchmark_throughput.py {{overrides}}
 
-benchmark-throughput-traffic *overrides:
-    {{python}} scripts/benchmark_throughput.py --config-name experiment/benchmark_throughput_traffic {{overrides}}
+[group('analysis')]
+summarize-matrix root *options:
+    {{python}} scripts/summarize_matrix.py "{{root}}" {{options}}
 
-# Policy-guided fixed-slot rollout and PPO-update scaling. Append Hydra overrides.
-benchmark-rollout *overrides:
-    {{python}} scripts/benchmark_rollout.py {{overrides}}
-
-# Consolidate completed serial, Hydra job-level, and vector evaluation measurements.
-benchmark-eval-report serial job_level vector serial_wall_s job_level_wall_s vector_wall_s:
-    {{python}} scripts/report_evaluation_benchmark.py {{serial}} {{job_level}} {{vector}} --serial-wall-s {{serial_wall_s}} --job-level-wall-s {{job_level_wall_s}} --vector-wall-s {{vector_wall_s}}
-
+[group('analysis')]
 summarize-training root:
-    {{python}} scripts/summarize_training.py {{root}}
-
-summarize-matrix root:
-    {{python}} scripts/summarize_traffic_matrix.py {{root}}
-
-compare-eval serial parallel:
-    {{python}} scripts/compare_evaluation_artifacts.py {{serial}} {{parallel}}
+    {{python}} scripts/summarize_training.py "{{root}}"

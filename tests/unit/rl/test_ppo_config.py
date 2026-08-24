@@ -3,22 +3,28 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
 from eco_planner.rl.config import parse_ppo_config
 
 
 def _config() -> object:
-    path = Path(__file__).parents[3] / "configs" / "rl" / "ppo_smoke.yaml"
-    return OmegaConf.load(path)
+    config_dir = Path(__file__).parents[3] / "configs"
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
+        config = compose(
+            config_name="jobs/training/ppo_smoke",
+            overrides=["runtime.seed=0", "training.replay_id=0"],
+        )
+    return OmegaConf.create(OmegaConf.to_container(config.rl, resolve=True))
 
 
 def test_ppo_smoke_config_is_strict_and_complete() -> None:
     parsed = parse_ppo_config(_config())  # type: ignore[arg-type]
     assert parsed.gamma == pytest.approx(0.99)
     assert parsed.gae_lambda == pytest.approx(0.95)
-    assert parsed.optimizer_steps_per_update == 4
-    assert parsed.scheduler_total_optimizer_steps == 4
+    assert parsed.optimizer_steps_per_update == 8
+    assert parsed.scheduler_total_optimizer_steps == 32
 
 
 @pytest.mark.parametrize(

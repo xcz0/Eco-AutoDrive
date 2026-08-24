@@ -26,7 +26,7 @@ def test_evaluation_composes_every_sampler_profile(profile: str, scale: float, l
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
         config = compose(
-            config_name="experiment/evaluate_no_traffic_full",
+            config_name="jobs/evaluation/no_traffic",
             overrides=[f"planner/sampler={profile}"],
         )
 
@@ -38,9 +38,9 @@ def test_evaluation_composes_every_sampler_profile(profile: str, scale: float, l
 def test_evaluation_defaults_to_none_guidance_and_composes_active_profile() -> None:
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        baseline = compose(config_name="experiment/evaluate_no_traffic_full")
+        baseline = compose(config_name="jobs/evaluation/no_traffic")
         active = compose(
-            config_name="experiment/evaluate_no_traffic_full",
+            config_name="jobs/evaluation/no_traffic",
             overrides=["planner/sampler=ddim5", "planner/guidance=orthogonal_reference"],
         )
 
@@ -55,7 +55,7 @@ def test_energy_guidance_profiles_compose_with_expected_longitudinal_scales() ->
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
         configs = [
             compose(
-                config_name="experiment/evaluate_energy_structures",
+                config_name="jobs/evaluation/energy_structures",
                 overrides=[f"planner/guidance=energy_longitudinal_{name}"],
             )
             for name in ("negative", "zero", "positive")
@@ -71,7 +71,7 @@ def test_energy_guidance_profiles_compose_with_expected_longitudinal_scales() ->
 def test_traffic_matrix_composes_joblib_execution_grid() -> None:
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        config = compose(config_name="experiment/evaluate_traffic_matrix", return_hydra_config=True)
+        config = compose(config_name="jobs/evaluation/traffic_matrix", return_hydra_config=True)
 
     assert config.evaluation.profile == "matrix"
     assert list(config.evaluation.matrix.seeds) == [0, 1, 2]
@@ -86,7 +86,7 @@ def test_traffic_matrix_launcher_tracks_resolved_job_worker_count() -> None:
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
         config = compose(
-            config_name="experiment/evaluate_traffic_matrix",
+            config_name="jobs/evaluation/traffic_matrix",
             overrides=["resources.evaluation_job_worker_count=3"],
             return_hydra_config=True,
         )
@@ -98,10 +98,10 @@ def test_traffic_matrix_launcher_tracks_resolved_job_worker_count() -> None:
 def test_resource_profile_switch_keeps_evaluation_semantics_and_changes_execution_budget() -> None:
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        baseline = parse_evaluation_config(compose(config_name="experiment/evaluate_traffic_full"))
+        baseline = parse_evaluation_config(compose(config_name="jobs/evaluation/traffic"))
         profiled = parse_evaluation_config(
             compose(
-                config_name="experiment/evaluate_traffic_full",
+                config_name="jobs/evaluation/traffic",
                 overrides=["resources=rtx_a4000"],
             )
         )
@@ -118,24 +118,23 @@ def test_resource_profile_switch_keeps_evaluation_semantics_and_changes_executio
 @pytest.mark.parametrize(
     ("name", "mode", "profile", "horizon", "video_enabled"),
     [
-        ("evaluate_no_traffic_smoke", "no_traffic", "smoke", 20, False),
-        ("evaluate_traffic_smoke", "traffic", "smoke", 100, False),
-        ("evaluate_no_traffic_full", "no_traffic", "full", 200, False),
-        ("evaluate_traffic_full", "traffic", "full", 3000, False),
-        ("evaluate_no_traffic_matrix", "no_traffic", "matrix", 200, False),
-        ("evaluate_traffic_matrix", "traffic", "matrix", 300, False),
-        ("evaluate_energy_structures", "no_traffic", "energy_matrix", 300, False),
-        ("evaluate_energy_speed_profile", "no_traffic", "energy_matrix", 300, False),
-        ("evaluate_energy_traffic", "traffic", "energy_matrix", 600, False),
-        ("benchmark_vector_refill", "traffic", "vector_refill_benchmark", 300, False),
+        ("no_traffic_smoke", "no_traffic", "smoke", 20, False),
+        ("traffic_smoke", "traffic", "smoke", 100, False),
+        ("no_traffic", "no_traffic", "full", 200, False),
+        ("traffic", "traffic", "full", 3000, False),
+        ("no_traffic_matrix", "no_traffic", "matrix", 200, False),
+        ("traffic_matrix", "traffic", "matrix", 300, False),
+        ("energy_structures", "no_traffic", "energy_matrix", 300, False),
+        ("energy_speed_profile", "no_traffic", "energy_matrix", 300, False),
+        ("energy_traffic", "traffic", "energy_matrix", 600, False),
     ],
 )
-def test_experiment_profiles_compose_complete_evaluation_jobs(
+def test_evaluation_job_profiles_compose_complete_jobs(
     name: str, mode: str, profile: str, horizon: int, video_enabled: bool
 ) -> None:
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        config = compose(config_name=f"experiment/{name}")
+        config = compose(config_name=f"jobs/evaluation/{name}")
 
     parsed = parse_evaluation_config(config)
     assert parsed.evaluation.mode == mode

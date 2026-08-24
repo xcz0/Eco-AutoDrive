@@ -14,7 +14,7 @@ os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 from eco_planner.rl import parse_training_config, train
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="experiment/train_ppo_smoke")
+@hydra.main(version_base="1.3", config_path="../configs", config_name="jobs/training/ppo_smoke")
 def main(config: DictConfig) -> None:
     output_dir = Path(HydraConfig.get().runtime.output_dir)
     parsed = parse_training_config(config)

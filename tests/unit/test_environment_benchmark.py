@@ -7,6 +7,7 @@ from benchmarking.environment import BenchmarkAcceptanceError, _validate_baselin
 
 def _config(**update: object) -> EnvironmentBenchmarkConfig:
     payload: dict[str, object] = {
+        "kind": "environment",
         "map": "S",
         "seed": 0,
         "map_query_radius_m": 100.0,

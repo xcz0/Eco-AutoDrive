@@ -1,0 +1,23 @@
+# @package _global_
+
+defaults:
+  - /jobs/evaluation/_energy
+  - _self_
+
+name: energy_structures_closed_loop
+evaluation:
+  mode: no_traffic
+  history_warmup_steps: 0
+  evaluated_horizon_steps: 300
+env:
+  start_seed: 0
+  num_scenarios: 6
+  horizon: 300
+scenarios:
+  - {name: cruise, map: SSS, seed: 0}
+  - {name: curve, map: SCS, seed: 1}
+  - {name: intersection, map: SXS, seed: 2}
+  - {name: merge_lane_change, map: SyS, seed: 3}
+hydra:
+  run:
+    dir: outputs/energy_matrix/structures/${now:%Y-%m-%d}/${now:%H-%M-%S}

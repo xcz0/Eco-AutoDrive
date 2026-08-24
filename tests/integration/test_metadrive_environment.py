@@ -385,7 +385,7 @@ def test_programmatic_lane_speed_limit_profile_follows_generated_blocks() -> Non
 def test_energy_traffic_scenario_satisfies_route_length_contract() -> None:
     config_dir = Path(__file__).resolve().parents[2] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        config = compose(config_name="experiment/evaluate_energy_traffic")
+        config = compose(config_name="jobs/evaluation/energy_traffic")
     parsed = parse_evaluation_config(config)
     scenario = parsed.scenarios[0]
     env_config = dict(parsed.env)

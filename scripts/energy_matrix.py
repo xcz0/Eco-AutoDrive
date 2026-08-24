@@ -12,7 +12,7 @@ from typing import Any
 from omegaconf import OmegaConf
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MATRIX = ROOT / "configs" / "benchmark" / "energy_matrix.yaml"
+DEFAULT_MATRIX = ROOT / "configs" / "matrices" / "energy.yaml"
 
 
 def _load_matrix(path: Path) -> dict[str, Any]:
@@ -157,7 +157,7 @@ def run_matrix(matrix_path: Path, output_root: Path) -> int:
             command = [
                 sys.executable,
                 str(ROOT / "scripts" / "evaluate.py"),
-                f"--config-name={job['experiment']}",
+                f"--config-name=jobs/evaluation/{job['profile']}",
                 f"planner/sampler={matrix['sampler']['name']}",
                 f"planner/guidance={guidance['config']}",
                 f"hydra.run.dir={run_dir.as_posix()}",

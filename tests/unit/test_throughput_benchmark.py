@@ -48,6 +48,7 @@ def test_measurement_rejects_negative_samples() -> None:
 )
 def test_scaling_config_rejects_invalid_controls(update: dict[str, object]) -> None:
     payload: dict[str, object] = {
+        "kind": "throughput",
         "batch_sizes": [1, 2],
         "worker_counts": [1, 2],
         "warmup_cycles": 1,

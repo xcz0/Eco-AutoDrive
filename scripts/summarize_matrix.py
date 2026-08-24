@@ -5,9 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any
 
-from eco_planner.evaluation.analysis.matrix import summarize_matrix as _summarize_matrix
+from eco_planner.evaluation.analysis.matrix import summarize_matrix
 
 
 def _parse_args() -> argparse.Namespace:
@@ -19,12 +18,6 @@ def _parse_args() -> argparse.Namespace:
         help="summarize only jobs with complete job-level summaries without claiming full coverage",
     )
     return parser.parse_args()
-
-
-def summarize_matrix(matrix_root: Path, *, partial: bool = False) -> dict[str, Any]:
-    """Compatibility wrapper for the importable matrix implementation."""
-
-    return _summarize_matrix(matrix_root, partial=partial)
 
 
 def main() -> None:

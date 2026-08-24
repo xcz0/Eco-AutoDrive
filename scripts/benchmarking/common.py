@@ -36,6 +36,7 @@ class StrictBenchmarkModel(BaseModel):
 
 
 class ScalingBenchmarkConfig(StrictBenchmarkModel):
+    kind: Literal["throughput"]
     batch_sizes: tuple[StrictInt, ...]
     worker_counts: tuple[StrictInt, ...]
     warmup_cycles: StrictInt = Field(gt=0)
@@ -55,6 +56,7 @@ class ScalingBenchmarkConfig(StrictBenchmarkModel):
 
 
 class RolloutBenchmarkConfig(StrictBenchmarkModel):
+    kind: Literal["rollout"]
     batch_sizes: tuple[StrictInt, ...]
     collector_modes: tuple[Literal["serial", "vector"], ...]
     mode: Literal["no_traffic", "traffic"]
@@ -86,6 +88,7 @@ class RolloutBenchmarkConfig(StrictBenchmarkModel):
 
 
 class EnvironmentBenchmarkConfig(StrictBenchmarkModel):
+    kind: Literal["environment"]
     map: str = Field(min_length=1)
     seed: StrictInt = Field(ge=0)
     map_query_radius_m: StrictFloat = Field(gt=0.0)

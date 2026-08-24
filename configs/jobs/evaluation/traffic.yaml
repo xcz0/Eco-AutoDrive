@@ -1,38 +1,22 @@
 # @package _global_
 
 defaults:
-  - /env: metadrive
-  - /planner/model
-  - /runtime: fabric
-  - /resources: rtx3050_laptop
-  - /runtime/evaluation_video
-  - /planner/sampler: dpm10
-  - /planner/guidance: none
+  - /jobs/evaluation/_base
   - _self_
 
 name: official_traffic_long_closed_loop
-map_query_radius_m: 100.0
 
 evaluation:
   mode: traffic
   profile: full
   history_warmup_steps: 20
   evaluated_horizon_steps: 3000
-  execution:
-    mode: serial
-    vector_env_slots: ${resources.evaluation_vector_env_slots}
-    torch_threads_per_worker: ${resources.torch_threads_per_worker}
-    deterministic: false
-
 env:
   start_seed: 0
   num_scenarios: 5
   traffic_density: 0.05
   traffic_mode: trigger
   horizon: 3020
-
-runtime:
-  seed: 0
 
 scenarios:
   - name: long_straight
@@ -48,5 +32,3 @@ hydra:
   sweep:
     dir: outputs/traffic/${now:%Y-%m-%d}/${now:%H-%M-%S}-long-seeds-0-4
     subdir: ${hydra.job.num}
-  job:
-    chdir: false
