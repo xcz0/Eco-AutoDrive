@@ -8,7 +8,15 @@ from eco_planner.evaluation.config import parse_evaluation_config
 from eco_planner.evaluation.runtime.resources import configure_job_execution
 
 
-def _config(*, accelerator: str = "cpu", video: bool = False, threads: int = 2):
+def _config(
+    *,
+    accelerator: str = "cpu",
+    video: bool = False,
+    threads: int = 2,
+    workers: int = 2,
+    mode: str = "parallel",
+    deterministic: bool = True,
+):
     config = OmegaConf.create(
         {
             "name": "execution-test",
@@ -33,10 +41,10 @@ def _config(*, accelerator: str = "cpu", video: bool = False, threads: int = 2):
                 "history_warmup_steps": 20,
                 "evaluated_horizon_steps": 5,
                 "execution": {
-                    "mode": "parallel",
+                    "mode": mode,
                     "vector_env_slots": None,
                     "torch_threads_per_worker": threads,
-                    "deterministic": True,
+                    "deterministic": deterministic,
                 },
             },
             "env": {
@@ -53,7 +61,7 @@ def _config(*, accelerator: str = "cpu", video: bool = False, threads: int = 2):
             "resources": {
                 "name": "test-host",
                 "rollout_worker_count": 1,
-                "evaluation_job_worker_count": 2,
+                "evaluation_job_worker_count": workers,
                 "evaluation_vector_env_slots": 1,
                 "torch_threads_per_worker": threads,
             },
@@ -88,7 +96,17 @@ def test_cpu_parallel_execution_rejects_oversubscribed_threads(
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
 
     with pytest.raises(ValueError, match="thread budget"):
-        configure_job_execution(_config(threads=4))
+        configure_job_execution(_config(threads=3, workers=2))
+
+
+def test_cpu_parallel_execution_uses_profile_worker_count_for_thread_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("eco_planner.evaluation.runtime.resources.os.cpu_count", lambda: 8)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+
+    with pytest.raises(ValueError, match="thread budget"):
+        configure_job_execution(_config(threads=3, workers=3))
 
 
 def test_cuda_parallel_execution_requires_one_visible_gpu_and_determinism(
@@ -109,6 +127,21 @@ def test_cuda_parallel_execution_requires_one_visible_gpu_and_determinism(
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
     with pytest.raises(ValueError, match="exactly one visible CUDA GPU"):
         configure_job_execution(_config(accelerator="cuda"))
+
+
+def test_cuda_serial_execution_applies_requested_determinism(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: True)
+    monkeypatch.setattr(torch, "set_num_threads", lambda value: None)
+    deterministic: list[bool] = []
+    monkeypatch.setattr(torch, "use_deterministic_algorithms", deterministic.append)
+
+    report = configure_job_execution(_config(accelerator="cuda", mode="serial"))
+
+    assert report.mode == "serial"
+    assert deterministic == [True]
 
 
 def test_parallel_execution_rejects_video() -> None:

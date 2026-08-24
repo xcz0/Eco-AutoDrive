@@ -126,6 +126,8 @@ just eval-matrix "hydra/launcher=basic" "evaluation.execution.mode=serial" "eval
 - 短矩阵下 vector（196.8 s）比 serial（127.6 s）慢，与 E-015/E-016 rollout 中 “vector overhead 在短运行占主导”的结论一致；本矩阵不构成否定 #54 vector 的依据，也不据此修改 evaluation 默认 execution。
 - job-level（2-worker 并行，deterministic=true，145.2 s）在本短矩阵下未跑赢与它设置不直接可比的 serial（127.6 s，deterministic=false）。job 层面真实并行的存在性已确认（2 worker 并发完成 6 job，外壁钟 = 2 批串行的和，job 各自墙钟中位 33.2 s），但本矩阵配置下不构成把 job-level 并行设为默认的依据，也不据此修改 evaluation 默认 execution。
 
+此处的 serial/job-level 墙钟不是严格同配置 benchmark，不能用于 profile 选择或默认 mode 决策。Issue #66 后，A4000 的可执行 job-level profile 是 `evaluation_job_worker_count=2`、`torch_threads_per_worker=12`；它仅定义资源预算，仍须以 deterministic、precision、scenario matrix、sampler/guidance、render、horizon/warmup 与 CUDA/PyTorch 线程设置完全一致的实测结果验证。
+
 ### job-level 阻塞根因与修复
 
 `joblib_two`（2 个 loky 并发进程）启动 worker 时此前于 `torch` 加载 `c10.dll` 处崩溃，报 `OSError WinError 1114` 与 `Windows fatal exception: access violation`，仅在 `n_jobs=2` 触发且沙箱内外一致复现。

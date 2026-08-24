@@ -77,9 +77,22 @@ def test_traffic_matrix_composes_joblib_execution_grid() -> None:
     assert list(config.evaluation.matrix.seeds) == [0, 1, 2]
     assert list(config.evaluation.matrix.traffic_densities) == [0.05, 0.10]
     assert config.evaluation.execution.mode == "parallel"
-    assert config.hydra.launcher.n_jobs == 2
+    assert config.hydra.launcher.n_jobs == config.resources.evaluation_job_worker_count
     assert config.hydra.launcher.backend == "loky"
     assert config.video.enabled is False
+
+
+def test_traffic_matrix_launcher_tracks_resolved_job_worker_count() -> None:
+    config_dir = Path(__file__).resolve().parents[3] / "configs"
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
+        config = compose(
+            config_name="experiment/evaluate_traffic_matrix",
+            overrides=["resources.evaluation_job_worker_count=3"],
+            return_hydra_config=True,
+        )
+
+    assert config.resources.evaluation_job_worker_count == 3
+    assert config.hydra.launcher.n_jobs == 3
 
 
 def test_resource_profile_switch_keeps_evaluation_semantics_and_changes_execution_budget() -> None:

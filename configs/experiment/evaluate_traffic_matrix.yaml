@@ -2,7 +2,7 @@
 
 defaults:
   - /experiment/evaluate_traffic_full
-  - override /hydra/launcher: joblib_two
+  - override /hydra/launcher: joblib_evaluation
   - _self_
 
 evaluation:

@@ -48,17 +48,19 @@ def configure_job_execution(config: EvaluationJobConfig) -> ExecutionReport:
                 )
         torch.set_num_threads(threads)
 
-    if mode == "parallel" and settings.resolved_accelerator == "cuda":
-        if torch.cuda.device_count() != 1:
-            raise ValueError("CUDA parallel execution requires exactly one visible CUDA GPU")
-        if not execution.deterministic:
-            raise ValueError("CUDA parallel execution requires deterministic=true")
+    if settings.resolved_accelerator == "cuda" and execution.deterministic:
         workspace = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
         if workspace not in {None, ":4096:8"}:
             raise ValueError("CUBLAS_WORKSPACE_CONFIG must be ':4096:8'")
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
         torch.backends.cudnn.benchmark = False
         torch.use_deterministic_algorithms(True)
+
+    if mode == "parallel" and settings.resolved_accelerator == "cuda":
+        if torch.cuda.device_count() != 1:
+            raise ValueError("CUDA parallel execution requires exactly one visible CUDA GPU")
+        if not execution.deterministic:
+            raise ValueError("CUDA parallel execution requires deterministic=true")
 
     return ExecutionReport(
         mode=str(mode),

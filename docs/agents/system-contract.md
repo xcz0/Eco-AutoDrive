@@ -46,7 +46,7 @@ raw observation 在 CPU 边界按当前 observation/trace 契约的 shape、dtyp
 
 Benchmark 是 `scripts/` 下的非安装诊断工具，不属于 evaluation 或 RL 的稳定公共 API。它只通过显式关闭的 profiling hook 在现有 planner、vector worker 和 PPO 边界计时，不改变调度、随机流或数值语义；关闭 profiling 时不得增加 CUDA 同步。planner 的同步 execution trajectory device→CPU 与延迟 audit transfer 分开解释；vector worker 的 command wait、busy、IPC、busy imbalance 和 batch wall 是不同边界，不得互相换名；policy rollout 的 decision 与 bootstrap batch 必须分开统计，serial/vector 对照必须调用各自真实 collector。evaluation 模式汇总只接受 execution mode 与 resolved config/runtime metadata 一致、且 scenario workload 完全相同的输入。所有测量规模、warmup、正式样本和 repeats 均由 benchmark 配置显式给出，保留原始样本及统计中位数/极值；结果不得反向成为未验证的运行时默认值。
 
-跨评测作业的进程并行由 ADR 0012 定义。traffic matrix 固定使用两个 Joblib `loky` worker；每个进程仍保持一个 MetaDrive、一个单设备 Fabric runtime 和一个 artifact writer。CPU 显式验证线程预算；CUDA 只允许两个进程共享一张可见 GPU，并要求确定性配置和正式运行前显存 preflight。smoke、no-traffic 和普通 full 运行保持串行，多 GPU 调度不属于该入口。
+跨评测作业的进程并行由 ADR 0012 定义。traffic matrix 的 Joblib `loky` worker 数仅由 resolved resource profile 的 `evaluation_job_worker_count` 决定；launcher 的 `n_jobs`、每个 job 的 CPU 线程预算验证和 runtime metadata 的 `worker_count` 都使用该值。每个进程仍保持一个 MetaDrive、一个单设备 Fabric runtime 和一个 artifact writer。CPU 显式验证 worker 数与每 worker PyTorch 线程数的乘积；CUDA 只允许这些进程共享一张可见 GPU，并要求确定性配置和正式运行前显存 preflight。显式 `deterministic=true` 在 serial 和 job-level CUDA 路径都启用同一 PyTorch/CuDNN/CUBLAS 确定性设置，job-level 另要求该字段为真。smoke、no-traffic 和普通 full 运行保持串行，多 GPU 调度不属于该入口。
 
 ## Checkpoint 与模型输入
 
