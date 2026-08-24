@@ -15,9 +15,9 @@ from omegaconf import DictConfig
 
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl.collector import (
+    VectorRolloutCollector,
     VectorRolloutRoundTiming,
     collect_rollout_episode,
-    collect_vector_rollout_episodes,
 )
 from eco_planner.rl.config import RLTrainingJobConfig, parse_training_config
 from eco_planner.rl.ppo import PPOUpdater
@@ -80,6 +80,10 @@ def _measure_batch_size(
     collection_samples: list[float] = []
     update_samples: list[float] = []
     timing_samples: list[tuple[VectorRolloutRoundTiming, ...]] = []
+    cold_collection_samples: list[float] = []
+    cold_update_samples: list[float] = []
+    cold_timing_samples: list[tuple[VectorRolloutRoundTiming, ...]] = []
+    worker_pool_startup_samples: list[float] = []
 
     for _ in range(benchmark.repeats):
         ppo_config = config.rl.model_copy(
@@ -115,17 +119,23 @@ def _measure_batch_size(
         )
         diffusion_generators = tuple(runtime.new_noise_generator(seed) for seed in noise_seeds)
         policy_generators = tuple(runtime.new_policy_generator(seed) for seed in policy_seeds)
+        vector_collector: VectorRolloutCollector | None = None
         for update_index in range(update_count):
             timings: list[VectorRolloutRoundTiming] = []
             started = perf_counter()
             if collector_mode == "vector":
-                slots = collect_vector_rollout_episodes(
-                    specs,
-                    runtime,
-                    config.env,
-                    mode=benchmark.mode,
-                    map_query_radius_m=config.map_query_radius_m,
-                    history_warmup_steps=benchmark.history_warmup_steps,
+                if vector_collector is None:
+                    startup_started = perf_counter()
+                    vector_collector = VectorRolloutCollector(
+                        specs,
+                        runtime,
+                        config.env,
+                        mode=benchmark.mode,
+                        map_query_radius_m=config.map_query_radius_m,
+                        history_warmup_steps=benchmark.history_warmup_steps,
+                    )
+                    worker_pool_startup_samples.append(perf_counter() - startup_started)
+                slots = vector_collector.collect(
                     transitions_per_slot=benchmark.transitions_per_slot,
                     stopped_speed_threshold_mps=config.training.stopped_speed_threshold_mps,
                     diffusion_generators=diffusion_generators,
@@ -151,12 +161,18 @@ def _measure_batch_size(
             update_started = perf_counter()
             updater.update(tuple(episode for slot in slots for episode in slot))
             update_s = perf_counter() - update_started
+            if update_index == 0:
+                cold_collection_samples.append(collection_s)
+                cold_update_samples.append(update_s)
+                cold_timing_samples.append(tuple(timings) if collector_mode == "vector" else ())
             if update_index >= benchmark.warmup_updates:
                 collection_samples.append(collection_s)
                 update_samples.append(update_s)
                 timing_samples.append(tuple(timings) if collector_mode == "vector" else ())
+        if vector_collector is not None:
+            vector_collector.close()
 
-    return _rollout_result(
+    result = _rollout_result(
         collector_mode,
         batch_size,
         sample_count,
@@ -164,6 +180,18 @@ def _measure_batch_size(
         update_samples,
         timing_samples,
     )
+    result["cold_start_update"] = _rollout_result(
+        collector_mode,
+        batch_size,
+        sample_count,
+        cold_collection_samples,
+        cold_update_samples,
+        cold_timing_samples,
+    )
+    result["worker_pool_startup_wall_s"] = (
+        measurement(worker_pool_startup_samples) if worker_pool_startup_samples else None
+    )
+    return result
 
 
 def _collect_serial_slots(

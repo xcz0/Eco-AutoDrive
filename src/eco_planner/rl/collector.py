@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Literal
+from weakref import finalize
 
 import numpy as np
 import torch
@@ -184,51 +185,80 @@ def collect_rollout_episode(
         env.close()
 
 
-def collect_vector_rollout_episodes(
-    specs: tuple[ScenarioConfig, ...],
-    runtime: FabricRolloutRuntime,
-    env_config: Mapping[str, object],
-    *,
-    mode: Literal["no_traffic", "traffic"],
-    map_query_radius_m: float,
-    history_warmup_steps: int,
-    transitions_per_slot: int,
-    stopped_speed_threshold_mps: float,
-    diffusion_generators: tuple[torch.Generator, ...],
-    policy_generators: tuple[torch.Generator, ...],
-    noise_seeds: tuple[int, ...],
-    policy_action_seeds: tuple[int, ...],
-    timings: list[VectorRolloutRoundTiming] | None = None,
-) -> tuple[tuple[RolloutEpisode, ...], ...]:
-    """Collect equal per-slot quotas with one batched planner decision per vector round."""
+class VectorRolloutCollector:
+    """Own a fixed MetaDrive worker pool across one or more PPO collections."""
 
-    slot_count = len(specs)
-    if slot_count == 0:
-        raise ValueError("vector rollout requires at least one scenario")
-    if type(transitions_per_slot) is not int or transitions_per_slot <= 0:
-        raise ValueError("transitions_per_slot must be a positive integer")
-    _validate_vector_slots(
-        slot_count,
-        diffusion_generators,
-        policy_generators,
-        noise_seeds,
-        policy_action_seeds,
-    )
-    configured_envs = tuple({**env_config, "map": spec.map} for spec in specs)
-    scenarios = tuple(VectorEnvScenario(spec.name, spec.map, spec.seed) for spec in specs)
-    episodes: list[list[RolloutEpisode]] = [[] for _ in specs]
-    training: list[list[TensorDictBase]] = [[] for _ in specs]
-    audit: list[list[TensorDictBase]] = [[] for _ in specs]
-    collected = [0] * slot_count
-    episode_cycles = [0] * slot_count
+    def __init__(
+        self,
+        specs: tuple[ScenarioConfig, ...],
+        runtime: FabricRolloutRuntime,
+        env_config: Mapping[str, object],
+        *,
+        mode: Literal["no_traffic", "traffic"],
+        map_query_radius_m: float,
+        history_warmup_steps: int,
+    ) -> None:
+        if not specs:
+            raise ValueError("vector rollout requires at least one scenario")
+        if env_config.get("trajectory_execution_steps") != 1:
+            raise ValueError("rollout requires env.trajectory_execution_steps=1")
+        self._specs = specs
+        self._runtime = runtime
+        self._scenarios = tuple(VectorEnvScenario(spec.name, spec.map, spec.seed) for spec in specs)
+        configured_envs = tuple({**env_config, "map": spec.map} for spec in specs)
+        self._envs = VectorMetaDriveEnv(
+            configured_envs,
+            mode=mode,
+            model_config=runtime.planner_config,
+            map_query_radius_m=map_query_radius_m,
+            history_warmup_steps=history_warmup_steps,
+        )
+        self._close_finalizer = finalize(self, self._envs.close)
 
-    with VectorMetaDriveEnv(
-        configured_envs,
-        mode=mode,
-        model_config=runtime.planner_config,
-        map_query_radius_m=map_query_radius_m,
-        history_warmup_steps=history_warmup_steps,
-    ) as envs:
+    def __enter__(self) -> VectorRolloutCollector:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        """Close the worker pool owned by this collector."""
+
+        self._close_finalizer()
+
+    def collect(
+        self,
+        *,
+        transitions_per_slot: int,
+        stopped_speed_threshold_mps: float,
+        diffusion_generators: tuple[torch.Generator, ...],
+        policy_generators: tuple[torch.Generator, ...],
+        noise_seeds: tuple[int, ...],
+        policy_action_seeds: tuple[int, ...],
+        timings: list[VectorRolloutRoundTiming] | None = None,
+    ) -> tuple[tuple[RolloutEpisode, ...], ...]:
+        """Collect one PPO batch while retaining workers for a subsequent call."""
+
+        specs = self._specs
+        runtime = self._runtime
+        envs = self._envs
+        slot_count = len(specs)
+        if type(transitions_per_slot) is not int or transitions_per_slot <= 0:
+            raise ValueError("transitions_per_slot must be a positive integer")
+        _validate_vector_slots(
+            slot_count,
+            diffusion_generators,
+            policy_generators,
+            noise_seeds,
+            policy_action_seeds,
+        )
+        scenarios = self._scenarios
+        episodes: list[list[RolloutEpisode]] = [[] for _ in specs]
+        training: list[list[TensorDictBase]] = [[] for _ in specs]
+        audit: list[list[TensorDictBase]] = [[] for _ in specs]
+        collected = [0] * slot_count
+        episode_cycles = [0] * slot_count
+
         resets = envs.reset(scenarios)
         observations = [reset.observation for reset in resets]
         previous_route_completion = [reset.route_completion for reset in resets]
@@ -362,9 +392,50 @@ def collect_vector_rollout_episodes(
                 ):
                     observations[slot] = step.observation
 
-    if any(training) or any(audit):
-        raise RuntimeError("vector rollout ended with an unfinished episode")
-    return tuple(tuple(slot_episodes) for slot_episodes in episodes)
+        if any(training) or any(audit):
+            raise RuntimeError("vector rollout ended with an unfinished episode")
+        return tuple(tuple(slot_episodes) for slot_episodes in episodes)
+
+
+def collect_vector_rollout_episodes(
+    specs: tuple[ScenarioConfig, ...],
+    runtime: FabricRolloutRuntime,
+    env_config: Mapping[str, object],
+    *,
+    mode: Literal["no_traffic", "traffic"],
+    map_query_radius_m: float,
+    history_warmup_steps: int,
+    transitions_per_slot: int,
+    stopped_speed_threshold_mps: float,
+    diffusion_generators: tuple[torch.Generator, ...],
+    policy_generators: tuple[torch.Generator, ...],
+    noise_seeds: tuple[int, ...],
+    policy_action_seeds: tuple[int, ...],
+    timings: list[VectorRolloutRoundTiming] | None = None,
+) -> tuple[tuple[RolloutEpisode, ...], ...]:
+    """Collect one PPO batch with a temporary vector worker pool.
+
+    Training should use :class:`VectorRolloutCollector` directly to reuse workers across
+    PPO updates. This function preserves the one-shot collector API for callers that need it.
+    """
+
+    with VectorRolloutCollector(
+        specs,
+        runtime,
+        env_config,
+        mode=mode,
+        map_query_radius_m=map_query_radius_m,
+        history_warmup_steps=history_warmup_steps,
+    ) as rollout_collector:
+        return rollout_collector.collect(
+            transitions_per_slot=transitions_per_slot,
+            stopped_speed_threshold_mps=stopped_speed_threshold_mps,
+            diffusion_generators=diffusion_generators,
+            policy_generators=policy_generators,
+            noise_seeds=noise_seeds,
+            policy_action_seeds=policy_action_seeds,
+            timings=timings,
+        )
 
 
 def _validate_vector_slots(

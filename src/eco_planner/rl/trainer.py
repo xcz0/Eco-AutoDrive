@@ -24,7 +24,7 @@ from eco_planner.rl.checkpoint import (
     save_exploration_policy_checkpoint,
     save_training_checkpoint,
 )
-from eco_planner.rl.collector import collect_vector_rollout_episodes
+from eco_planner.rl.collector import VectorRolloutCollector
 from eco_planner.rl.config import RLTrainingJobConfig
 from eco_planner.rl.distributions import AffineBeta
 from eco_planner.rl.policy import ExplorationPolicyContext
@@ -75,16 +75,18 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
     if start_update == 0:
         save_exploration_policy_checkpoint(output_dir / "policy-initial.pt", runtime.policy)
 
+    rollout_collector = VectorRolloutCollector(
+        config.scenarios,
+        runtime,
+        config.env,
+        mode="no_traffic",
+        map_query_radius_m=config.map_query_radius_m,
+        history_warmup_steps=0,
+    )
     for update_index in range(start_update, config.training.update_count):
         update_episodes: list[RolloutEpisode] = []
         update_contexts: list[ExplorationPolicyContext] = []
-        slot_episodes = collect_vector_rollout_episodes(
-            config.scenarios,
-            runtime,
-            config.env,
-            mode="no_traffic",
-            map_query_radius_m=config.map_query_radius_m,
-            history_warmup_steps=0,
+        slot_episodes = rollout_collector.collect(
             transitions_per_slot=config.training.transitions_per_environment,
             stopped_speed_threshold_mps=config.training.stopped_speed_threshold_mps,
             diffusion_generators=diffusion_generators,
@@ -144,6 +146,7 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
                 initial_policy_hash,
             ),
         )
+    rollout_collector.close()
 
     if probe_contexts is None or probe_before is None:
         raise RuntimeError("training did not capture fixed probe contexts")

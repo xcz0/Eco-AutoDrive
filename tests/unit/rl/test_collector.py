@@ -9,7 +9,11 @@ from eco_planner.envs import TrajectoryExecutionRecord
 from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl import collector
-from eco_planner.rl.collector import collect_rollout_episode, collect_vector_rollout_episodes
+from eco_planner.rl.collector import (
+    VectorRolloutCollector,
+    collect_rollout_episode,
+    collect_vector_rollout_episodes,
+)
 from eco_planner.rl.policy import ExplorationPolicyContext
 from eco_planner.rl.rollout import build_training_decision
 from eco_planner.rl.runtime import RolloutAudit, RolloutDecision
@@ -135,6 +139,7 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
     class FakeVectorEnv:
         terminal_first_slot = True
         instances: list[FakeVectorEnv] = []
+        close_count = 0
 
         def __init__(self, *_: object, **__: object) -> None:
             self.step_counts = [0, 0]
@@ -147,6 +152,9 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
 
         def __exit__(self, *_: object) -> None:
             return None
+
+        def close(self) -> None:
+            FakeVectorEnv.close_count += 1
 
         def reset(self, scenarios):
             return tuple(self._reset(slot) for slot in range(len(scenarios)))
@@ -310,6 +318,37 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
                 "policy_rng_state",
             ):
                 torch.testing.assert_close(reset_episode.audit[name], baseline_episode.audit[name])
+
+    persistent_runtime = FakeRuntime()
+    with VectorRolloutCollector(
+        (
+            ScenarioConfig(name="first", map="S", seed=0),
+            ScenarioConfig(name="second", map="S", seed=1),
+        ),
+        persistent_runtime,
+        {"trajectory_execution_steps": 1},
+        mode="no_traffic",
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+    ) as persistent_collector:
+        for _ in range(2):
+            persistent_collector.collect(
+                transitions_per_slot=3,
+                stopped_speed_threshold_mps=0.1,
+                diffusion_generators=(
+                    torch.Generator().manual_seed(10),
+                    torch.Generator().manual_seed(11),
+                ),
+                policy_generators=(
+                    torch.Generator().manual_seed(20),
+                    torch.Generator().manual_seed(21),
+                ),
+                noise_seeds=(100, 101),
+                policy_action_seeds=(200, 201),
+            )
+
+    assert len(FakeVectorEnv.instances) == 3
+    assert FakeVectorEnv.close_count == 3
 
 
 def _context(marker: float) -> ExplorationPolicyContext:
