@@ -55,6 +55,7 @@
 | [E-017](records/e-017-energy-guidance-baseline.md) | 2026-08-24 | 正式固定 seed 基线 | 6 场景、4 guidance 的 CUDA BF16 能耗矩阵与重复运行 | 48 回合逐值可重复；Issue #1 基线完成 |
 | [E-018](records/e-018-energy-benchmark-bringup.md) | 2026-08-24 | 本机验证与诊断 | Issue #1 fuel-proxy、分段限速与 DDIM5 guidance bring-up | 历史诊断有效；完整矩阵由 E-017 补全 |
 | [E-019](records/e-019-metadrive-native-energy-proxy-comparison.md) | 2026-08-24 | 正式固定 seed 指标审计 | MetaDrive 原生 energy 与执行 trace proxy 对照 | 原生值在当前 kinematic execution 下恒为零；#59 使用 trace proxy 的 provisional scale |
+| [E-020](records/e-020-persistent-vector-rollout-rtx3050.md) | 2026-08-24 | 本机验证 | Issue #63 持久 vector rollout worker pool | 稳态 vector 吞吐超过同次 serial；首轮启动成本单独记录 |
 
 ## 服务器训练与正式实验登记模板
 
