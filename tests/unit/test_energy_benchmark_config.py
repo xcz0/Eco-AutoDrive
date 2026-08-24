@@ -4,7 +4,7 @@ from pathlib import Path
 
 from omegaconf import OmegaConf
 
-from scripts.run_energy_matrix import _load_matrix, _validate_resolved_config
+from run_energy_matrix import _load_matrix, _validate_resolved_config
 
 ROOT = Path(__file__).resolve().parents[2]
 
