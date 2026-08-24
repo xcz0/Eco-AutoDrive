@@ -257,6 +257,8 @@ class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
             self._trajectory = external_action
             self._cache_last_update = self.engine.episode_step
         elif self._trajectory is None or self._cache_last_update is None:
+            if self.engine.episode_step == 0:
+                return None
             raise RuntimeError("trajectory continuation requested without a cached trajectory")
 
         if self._trajectory is None or self._cache_last_update is None:

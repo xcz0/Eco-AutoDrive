@@ -127,6 +127,7 @@ def test_resource_profile_switch_keeps_evaluation_semantics_and_changes_executio
         ("evaluate_energy_structures", "no_traffic", "energy_matrix", 300, False),
         ("evaluate_energy_speed_profile", "no_traffic", "energy_matrix", 300, False),
         ("evaluate_energy_traffic", "traffic", "energy_matrix", 600, False),
+        ("benchmark_vector_refill", "traffic", "vector_refill_benchmark", 300, False),
     ],
 )
 def test_experiment_profiles_compose_complete_evaluation_jobs(

@@ -1,0 +1,45 @@
+# @package _global_
+
+defaults:
+  - /experiment/evaluate_traffic_full
+  - _self_
+
+name: benchmark_vector_refill
+
+evaluation:
+  profile: vector_refill_benchmark
+  evaluated_horizon_steps: 300
+  execution:
+    mode: serial
+    vector_env_slots: 2
+    torch_threads_per_worker: ${resources.torch_threads_per_worker}
+    deterministic: true
+
+env:
+  horizon: 320
+
+scenarios:
+  - name: straight_seed_0
+    map: SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+    seed: 0
+  - name: mixed_seed_0
+    map: SCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSC
+    seed: 0
+  - name: straight_seed_1
+    map: SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+    seed: 1
+  - name: mixed_seed_1
+    map: SCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSC
+    seed: 1
+  - name: straight_seed_2
+    map: SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+    seed: 2
+  - name: mixed_seed_2
+    map: SCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSC
+    seed: 2
+
+hydra:
+  run:
+    dir: outputs/benchmarks/vector-refill/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: false
