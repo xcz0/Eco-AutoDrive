@@ -1,0 +1,45 @@
+docs/experiments/records/e-016-machine-benchmark-rx-a4000.md
+  s_d1f9fbfde659d3::t_47b78176e9b987 109-122,124,126,136
+  s_d1f9fbfde659d3::t_5c15ecf91f60a5 45-62
+  s_d060cf8e976e81::t_d02986e9eb238b 5
+  s_d060cf8e976e81::t_084b564c43f1a8 9
+  s_d060cf8e976e81::t_6b008c186904c0 143
+  s_d1f9fbfde659d3::t_eba477acc29965 142,145
+  s_d060cf8e976e81::t_0fce8d8a8f4d44 123,125,127-135
+  s_272477ed14ee13::t_7eef99c1ed625d 1-4,7-8,10-44,63-108,137-141,144,146-148,150
+  s_d060cf8e976e81::t_00a65c5bc230bd 149,151
+docs/experiments/README.md
+  s_d060cf8e976e81::t_841dbb859544b2 54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "20bc75398f971fd2ccb1d8f765d6221a501f0a24",
+  "prompts": {},
+  "sessions": {
+    "s_272477ed14ee13": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fdc33b8feffeCtQjiWzOyH0OwS",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    },
+    "s_d060cf8e976e81": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fce4e97daffep9LZtJkyXezUK2",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    },
+    "s_d1f9fbfde659d3": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fdc060d43ffes7nFg5hUazZ2zH",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
