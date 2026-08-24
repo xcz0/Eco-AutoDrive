@@ -62,7 +62,8 @@ def _validate_matrix(matrix: dict[str, Any]) -> None:
                 "map",
                 "seed",
                 "map_features",
-                "nominal_termination",
+                "traffic_condition",
+                "termination_type",
                 "energy_metric",
             }
             if set(scenario) != required:
