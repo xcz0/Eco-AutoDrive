@@ -108,6 +108,11 @@ def build_episode_summary(
                 "mean": float(speeds.mean()),
                 "maximum": float(speeds.max()),
             },
+            "energy": {
+                "metric": "metadrive_episode_energy",
+                "unit": "mL",
+                "value": final_execution.episode_energy_ml,
+            },
             "route_completion": final_execution.route_completion,
             "arrive_dest": final_execution.arrive_dest,
             "out_of_road": final_execution.out_of_road,

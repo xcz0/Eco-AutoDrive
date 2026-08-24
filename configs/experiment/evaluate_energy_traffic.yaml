@@ -1,0 +1,58 @@
+# @package _global_
+
+defaults:
+  - /env: metadrive
+  - /planner/model
+  - /runtime: fabric
+  - /runtime/evaluation_video
+  - /planner/sampler: dpm10
+  - /planner/guidance: none
+  - _self_
+
+name: energy_low_density_traffic_closed_loop
+map_query_radius_m: 100.0
+
+evaluation:
+  mode: traffic
+  profile: energy_matrix
+  history_warmup_steps: 20
+  evaluated_horizon_steps: 600
+  execution:
+    mode: serial
+    vector_env_slots: null
+    torch_threads_per_worker: null
+    deterministic: false
+
+env:
+  start_seed: 0
+  num_scenarios: 1
+  horizon: 620
+  traffic_density: 0.05
+  traffic_mode: trigger
+  random_traffic: false
+  random_agent_model: false
+  accident_prob: 0.0
+  programmatic_lane_speed_limit_kmh: 50.0
+  vehicle_config:
+    wheel_friction: 0.9
+    max_engine_force: 800
+    max_brake_force: 150
+    max_steering: 40
+    max_speed_km_h: 80
+
+runtime:
+  seed: 0
+
+scenarios:
+  - name: low_density_mixed
+    map: SCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSC
+    seed: 0
+
+video:
+  enabled: false
+
+hydra:
+  run:
+    dir: outputs/energy_matrix/traffic/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: false

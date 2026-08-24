@@ -167,6 +167,8 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
                 truncated,
                 float(world_trajectory.angular_velocities[index]),
                 capture_traffic_frame(self),
+                finite_info_scalar(info, "step_energy"),
+                finite_info_scalar(info, "episode_energy"),
             )
             if terminated or truncated:
                 break

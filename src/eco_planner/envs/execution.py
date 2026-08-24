@@ -61,6 +61,8 @@ class TrajectoryExecutionRecord:
     crash_building: bool
     crash_human: bool
     max_step: bool
+    trajectory_energy_ml: float = 0.0
+    episode_energy_ml: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +78,8 @@ class TrajectoryExecutionRecorder:
     states: ExecutionStateArray
     rewards: ExecutionScalarArray
     dense_rewards: ExecutionScalarArray
+    energy_ml: ExecutionScalarArray
+    episode_energy_ml: ExecutionScalarArray
     terminated: ExecutionBooleanArray
     truncated: ExecutionBooleanArray
     traffic_frames: list[TrafficFrame]
@@ -87,6 +91,8 @@ class TrajectoryExecutionRecorder:
             states=np.empty((execution_steps, 7), dtype=np.float64),
             rewards=np.empty(execution_steps, dtype=np.float64),
             dense_rewards=np.empty(execution_steps, dtype=np.float64),
+            energy_ml=np.empty(execution_steps, dtype=np.float64),
+            episode_energy_ml=np.empty(execution_steps, dtype=np.float64),
             terminated=np.empty(execution_steps, dtype=np.bool_),
             truncated=np.empty(execution_steps, dtype=np.bool_),
             traffic_frames=[],
@@ -102,6 +108,8 @@ class TrajectoryExecutionRecorder:
         truncated: bool,
         angular_velocity: float,
         traffic_frame: TrafficFrame,
+        step_energy_ml: float,
+        episode_energy_ml: float,
     ) -> None:
         index = self.count
         self.states[index, :2] = np.asarray(agent.position, dtype=np.float64)
@@ -111,6 +119,8 @@ class TrajectoryExecutionRecorder:
         self.states[index, 6] = angular_velocity
         self.rewards[index] = reward
         self.dense_rewards[index] = dense_reward
+        self.energy_ml[index] = step_energy_ml
+        self.episode_energy_ml[index] = episode_energy_ml
         self.terminated[index] = terminated
         self.truncated[index] = truncated
         self.traffic_frames.append(traffic_frame)
@@ -126,6 +136,8 @@ class TrajectoryExecutionRecorder:
         state_array = self.states[:executed_steps].copy()
         target_centers = world_trajectory.centers[1 : executed_steps + 1]
         target_headings = world_trajectory.headings[1 : executed_steps + 1]
+        trajectory_energy_ml = float(self.energy_ml[:executed_steps].sum(dtype=np.float64))
+        episode_energy_ml = float(self.episode_energy_ml[executed_steps - 1])
         execution = TrajectoryExecutionRecord(
             start_center=world_trajectory.centers[0].copy(),
             start_heading=float(world_trajectory.headings[0]),
@@ -149,10 +161,14 @@ class TrajectoryExecutionRecorder:
             crash_building=bool(final_info["crash_building"]),
             crash_human=bool(final_info["crash_human"]),
             max_step=bool(final_info["max_step"]),
+            trajectory_energy_ml=trajectory_energy_ml,
+            episode_energy_ml=episode_energy_ml,
         )
         result = dict(final_info)
         result["trajectory_execution_steps"] = executed_steps
         result["trajectory_reward_sum"] = total_reward
+        result["trajectory_energy_ml"] = trajectory_energy_ml
+        result["episode_energy_ml"] = episode_energy_ml
         result["trajectory_execution"] = execution
         return result
 

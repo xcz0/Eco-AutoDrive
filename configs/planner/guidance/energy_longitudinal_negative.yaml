@@ -1,0 +1,16 @@
+# @package guidance
+
+name: orthogonal_reference
+formula_label: centered_energy_gradient_delta_v1
+lateral_scale: 0.0
+longitudinal_scale: -1.0
+lateral_max_offset_m: 2.5
+longitudinal_max_speed_fraction: 0.25
+trajectory_dt_s: 0.1
+gradient_step_coefficient: 1.0
+reference_refresh_cycles: 1
+share_scene_encoding: true
+share_initial_noise: true
+share_transition_noise: true
+heading_norm_epsilon: 0.000001
+zero_speed_tolerance_mps: 0.000001

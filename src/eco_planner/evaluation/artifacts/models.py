@@ -146,6 +146,12 @@ class SpeedSummary(ArtifactModel):
     maximum: StrictFloat
 
 
+class EnergySummary(ArtifactModel):
+    metric: Literal["metadrive_episode_energy"]
+    unit: Literal["mL"]
+    value: StrictFloat = Field(ge=0.0)
+
+
 class ErrorValues(ArtifactModel):
     maximum: StrictFloat
     mean: StrictFloat
@@ -191,6 +197,7 @@ class CompletedEpisodeSummary(ArtifactModel):
     total_reward: StrictFloat
     distance_m: StrictFloat = Field(ge=0.0)
     speed_mps: SpeedSummary
+    energy: EnergySummary
     route_completion: StrictFloat
     arrive_dest: StrictBool
     out_of_road: StrictBool
