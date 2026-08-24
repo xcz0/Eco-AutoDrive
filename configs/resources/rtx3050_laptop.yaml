@@ -1,0 +1,5 @@
+name: rtx3050_laptop
+rollout_worker_count: 4
+evaluation_job_worker_count: 2
+evaluation_vector_env_slots: 4
+torch_threads_per_worker: 8

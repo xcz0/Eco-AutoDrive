@@ -66,7 +66,7 @@ PPO closed-loop smoke training：
 just train-smoke 0 0
 ```
 
-这些入口均由 `justfile` 调用 Hydra 配置，可在命令末尾追加 override。sampler、precision、随机性、时间尺度、并行和 artifact 的精确语义以 [system-contract.md](docs/agents/system-contract.md) 和实际 resolved config 为准，不在 README 重复维护。
+这些入口均由 `justfile` 调用 Hydra 配置，可在命令末尾追加 override。机器资源通过版本化 profile 选择，例如 `resources=rtx_a4000`；它只改变 worker、slot 和线程预算，不改变 PPO、reward、sampler 或 guidance。仓库本身不读取 `.env`；若在命令包装层使用它，其中只能保存本机的 profile 选择（例如 `ECO_RESOURCE_PROFILE=rtx_a4000`），不能保存未版本化的实验配置。sampler、precision、随机性、时间尺度、并行和 artifact 的精确语义以 [system-contract.md](docs/agents/system-contract.md) 和实际 resolved config 为准，不在 README 重复维护。
 
 ## 结果与实验记录
 

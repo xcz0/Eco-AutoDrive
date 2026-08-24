@@ -119,6 +119,7 @@ class ExecutionSummary(ArtifactModel):
     resolved_accelerator: Literal["cpu", "cuda"]
     process_id: StrictInt = Field(gt=0)
     logical_cpu_count: StrictInt = Field(gt=0)
+    resource_profile: str | None = None
 
 
 class CudaMemorySummary(ArtifactModel):

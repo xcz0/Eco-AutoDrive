@@ -412,6 +412,12 @@ def _worker_main(connection: Connection, launch: _WorkerLaunch) -> None:
                 return
             try:
                 if operation == "reset":
+                    if not isinstance(payload, VectorEnvScenario):
+                        raise TypeError("reset requires a VectorEnvScenario")
+                    if payload.map != env.config["map"]:
+                        env.close()
+                        env = TrajectoryMetaDriveEnv({**launch.env_config, "map": payload.map})
+                        adapter = _create_adapter(launch)
                     response = _reset_worker(env, adapter, launch, payload, wait_s)
                 elif operation == "step":
                     response = _step_worker(env, adapter, launch.slot, payload, wait_s)

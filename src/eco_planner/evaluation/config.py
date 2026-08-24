@@ -21,6 +21,7 @@ from eco_planner.models import (
     parse_guidance_config,
     parse_sampler_config,
 )
+from eco_planner.runtime_resources import ResourceProfileConfig
 
 
 class _StrictModel(BaseModel):
@@ -104,6 +105,7 @@ class EvaluationJobConfig(_StrictModel):
     runtime: RuntimeConfig
     sampler: SamplerConfig
     guidance: GuidanceConfig
+    resources: ResourceProfileConfig | None = None
     scenarios: tuple[ScenarioConfig, ...]
     video: VideoConfig
 
@@ -128,6 +130,8 @@ class EvaluationJobConfig(_StrictModel):
         else:
             self._validate_traffic_environment()
         execution = evaluation.execution
+        if execution.mode == "parallel" and self.resources is None:
+            raise ValueError("parallel evaluation requires a resource profile")
         if execution.mode == "parallel" and self.video.enabled:
             raise ValueError("parallel execution requires video.enabled=false")
         if execution.vector_env_slots is not None:

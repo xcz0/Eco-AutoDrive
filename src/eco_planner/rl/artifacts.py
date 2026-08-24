@@ -16,6 +16,7 @@ from eco_planner.artifacts import collect_repository_metadata, write_json, write
 from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.ppo import PPOUpdateReport
 from eco_planner.rl.rollout import RolloutEpisode
+from eco_planner.runtime_resources import ResourceProfileConfig
 
 
 class _ArtifactModel(BaseModel):
@@ -143,7 +144,9 @@ def build_update_summary(
     return TrainingUpdateSummary.model_validate(payload)
 
 
-def write_training_runtime_metadata(path: Path, runtime: object) -> None:
+def write_training_runtime_metadata(
+    path: Path, runtime: object, resources: ResourceProfileConfig
+) -> None:
     """Record common reproducibility metadata plus the RL runtime selections."""
 
     repository_root = Path(to_absolute_path("."))
@@ -153,6 +156,7 @@ def write_training_runtime_metadata(path: Path, runtime: object) -> None:
         "checkpoint": asdict(runtime.checkpoint_report),
         "sampler": asdict(runtime.sampler_report),
         "guidance": asdict(runtime.guidance_config),
+        "resources": resources.model_dump(mode="json"),
     }
     write_json(path, metadata)
     write_tracked_diff(path.parent / "tracked_diff.patch", repository_root)

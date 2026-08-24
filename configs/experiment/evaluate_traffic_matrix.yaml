@@ -14,7 +14,7 @@ evaluation:
   execution:
     mode: parallel
     vector_env_slots: null
-    torch_threads_per_worker: 8
+    torch_threads_per_worker: ${resources.torch_threads_per_worker}
     deterministic: true
 
 env:

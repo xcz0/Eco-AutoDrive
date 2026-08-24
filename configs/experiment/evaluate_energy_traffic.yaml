@@ -4,6 +4,7 @@ defaults:
   - /env: metadrive
   - /planner/model
   - /runtime: fabric
+  - /resources: rtx3050_laptop
   - /runtime/evaluation_video
   - /planner/sampler: ddim5
   - /planner/guidance: none
@@ -16,7 +17,11 @@ evaluation:
   profile: energy_matrix
   history_warmup_steps: 20
   evaluated_horizon_steps: 600
-  execution: {mode: serial, vector_env_slots: null, torch_threads_per_worker: null, deterministic: false}
+  execution:
+    mode: serial
+    vector_env_slots: ${resources.evaluation_vector_env_slots}
+    torch_threads_per_worker: ${resources.torch_threads_per_worker}
+    deterministic: false
 env:
   start_seed: 5
   num_scenarios: 1

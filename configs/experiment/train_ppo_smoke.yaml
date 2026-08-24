@@ -4,6 +4,7 @@ defaults:
   - /env: metadrive
   - /planner/model
   - /runtime: fabric
+  - /resources: rtx3050_laptop
   - /planner/sampler: ddim5
   - /planner/guidance: orthogonal_policy
   - /rl/exploration_policy

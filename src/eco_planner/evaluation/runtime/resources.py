@@ -24,6 +24,7 @@ class ExecutionReport:
     resolved_accelerator: str
     process_id: int
     logical_cpu_count: int
+    resource_profile: str | None
 
 
 def configure_job_execution(config: EvaluationJobConfig) -> ExecutionReport:
@@ -32,7 +33,7 @@ def configure_job_execution(config: EvaluationJobConfig) -> ExecutionReport:
     execution = config.evaluation.execution
     mode = execution.mode
     launcher = "basic" if mode == "serial" else "joblib"
-    workers = 1 if mode == "serial" else 2
+    workers = 1 if mode == "serial" else config.resources.evaluation_job_worker_count
     threads = execution.torch_threads_per_worker
 
     settings = resolve_runtime_settings(config.runtime)
@@ -69,4 +70,5 @@ def configure_job_execution(config: EvaluationJobConfig) -> ExecutionReport:
         resolved_accelerator=settings.resolved_accelerator,
         process_id=os.getpid(),
         logical_cpu_count=logical_cpus,
+        resource_profile=None if config.resources is None else config.resources.name,
     )

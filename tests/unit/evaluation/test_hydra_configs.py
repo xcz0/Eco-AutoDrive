@@ -82,6 +82,26 @@ def test_traffic_matrix_composes_joblib_execution_grid() -> None:
     assert config.video.enabled is False
 
 
+def test_resource_profile_switch_keeps_evaluation_semantics_and_changes_execution_budget() -> None:
+    config_dir = Path(__file__).resolve().parents[3] / "configs"
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
+        baseline = parse_evaluation_config(compose(config_name="experiment/evaluate_traffic_full"))
+        profiled = parse_evaluation_config(
+            compose(
+                config_name="experiment/evaluate_traffic_full",
+                overrides=["resources=rtx_a4000"],
+            )
+        )
+
+    assert profiled.resources is not None
+    assert profiled.resources.name == "rtx_a4000"
+    assert profiled.evaluation.execution.torch_threads_per_worker == 12
+    assert profiled.evaluation.mode == baseline.evaluation.mode
+    assert profiled.evaluation.profile == baseline.evaluation.profile
+    assert profiled.sampler == baseline.sampler
+    assert profiled.guidance == baseline.guidance
+
+
 @pytest.mark.parametrize(
     ("name", "mode", "profile", "horizon", "video_enabled"),
     [

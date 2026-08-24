@@ -82,6 +82,7 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
         mode="no_traffic",
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=0,
+        physical_slot_count=config.resources.rollout_worker_count,
     )
     for update_index in range(start_update, config.training.update_count):
         update_episodes: list[RolloutEpisode] = []
@@ -182,7 +183,7 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
         updates=tuple(update_summaries),
     )
     write_json(output_dir / "summary.json", summary)
-    write_training_runtime_metadata(output_dir / "runtime_metadata.json", runtime)
+    write_training_runtime_metadata(output_dir / "runtime_metadata.json", runtime, config.resources)
     return summary
 
 

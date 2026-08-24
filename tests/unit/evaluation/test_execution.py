@@ -50,6 +50,13 @@ def _config(*, accelerator: str = "cpu", video: bool = False, threads: int = 2):
             "model": {"args_path": "args.json", "checkpoint_path": "model.pth"},
             "sampler": {"name": "dpm10", "implementation": "diffusers"},
             "guidance": {"name": "none"},
+            "resources": {
+                "name": "test-host",
+                "rollout_worker_count": 1,
+                "evaluation_job_worker_count": 2,
+                "evaluation_vector_env_slots": 1,
+                "torch_threads_per_worker": threads,
+            },
             "scenarios": [{"name": "straight", "map": "S", "seed": 0}],
         }
     )
@@ -70,6 +77,7 @@ def test_cpu_parallel_execution_applies_explicit_thread_budget(
     assert report.launcher == "joblib"
     assert report.worker_count == 2
     assert report.torch_threads_per_worker == 4
+    assert report.resource_profile == "test-host"
     assert applied == [4]
 
 

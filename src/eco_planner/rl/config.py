@@ -22,6 +22,7 @@ from eco_planner.models import (
     parse_guidance_config,
     parse_sampler_config,
 )
+from eco_planner.runtime_resources import ResourceProfileConfig
 
 
 class _StrictModel(BaseModel):
@@ -167,6 +168,7 @@ class RLTrainingJobConfig(_StrictModel):
     policy: ExplorationPolicyConfig
     reward: MetaDriveBuiltinRewardConfig
     rl: PPOConfig
+    resources: ResourceProfileConfig
     scenarios: tuple[ScenarioConfig, ...]
 
     @model_validator(mode="after")

@@ -165,9 +165,13 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
             return self._reset(slot)
 
         def step(self, trajectories):
+            return self.step_slots(tuple(range(len(trajectories))), trajectories)
+
+        def step_slots(self, slots, trajectories):
+            assert len(slots) == len(trajectories)
             self.step_batches.append(len(trajectories))
             results = []
-            for slot in range(len(trajectories)):
+            for slot in slots:
                 self.step_counts[slot] += 1
                 terminated = (
                     self.terminal_first_slot
@@ -349,6 +353,37 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
 
     assert len(FakeVectorEnv.instances) == 3
     assert FakeVectorEnv.close_count == 3
+
+    wave_runtime = FakeRuntime()
+    with VectorRolloutCollector(
+        (
+            ScenarioConfig(name="first", map="S", seed=0),
+            ScenarioConfig(name="second", map="SC", seed=1),
+        ),
+        wave_runtime,
+        {"trajectory_execution_steps": 1},
+        mode="no_traffic",
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+        physical_slot_count=1,
+    ) as wave_collector:
+        wave_episodes = wave_collector.collect(
+            transitions_per_slot=3,
+            stopped_speed_threshold_mps=0.1,
+            diffusion_generators=(
+                torch.Generator().manual_seed(10),
+                torch.Generator().manual_seed(11),
+            ),
+            policy_generators=(
+                torch.Generator().manual_seed(20),
+                torch.Generator().manual_seed(21),
+            ),
+            noise_seeds=(100, 101),
+            policy_action_seeds=(200, 201),
+        )
+
+    assert [sum(item.transition_count for item in slot) for slot in wave_episodes] == [3, 3]
+    assert wave_runtime.batch_sizes == [1, 1, 1, 1, 1, 1]
 
 
 def _context(marker: float) -> ExplorationPolicyContext:
