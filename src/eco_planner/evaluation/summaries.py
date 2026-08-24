@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from eco_planner.envs import TrajectoryExecutionRecord
+from eco_planner.envs.execution import metadrive_fuel_proxy_step_energy_ml
 from eco_planner.evaluation.artifacts.models import (
     CompletedEpisodeSummary,
     FailedEpisodeSummary,
@@ -26,6 +27,7 @@ def build_failed_episode_summary(
     phase: FailurePhase,
     cause: Exception,
     traceback_text: str,
+    trace_arrays: dict[str, np.ndarray],
 ) -> FailedEpisodeSummary:
     """Build a failure summary without inventing unavailable episode metrics."""
 
@@ -39,6 +41,7 @@ def build_failed_episode_summary(
             "sampler": sampler,
             "guidance": guidance,
             "trace_status": trace_status,
+            "energy": _energy_summary(trace_arrays),
             "termination": {"type": "runtime_error", "detail": phase.value},
             "failure": {
                 "phase": phase,
@@ -103,6 +106,7 @@ def build_episode_summary(
             ),
             "total_reward": total_reward,
             "distance_m": distance_m,
+            "energy": _energy_summary(trace_arrays),
             "speed_mps": {
                 "minimum": float(speeds.min()),
                 "mean": float(speeds.mean()),
@@ -229,4 +233,23 @@ def _error_summary(errors: np.ndarray) -> dict[str, float]:
         "maximum": float(errors.max()),
         "mean": float(errors.mean()),
         "final": float(errors[-1]),
+    }
+
+
+def _energy_summary(trace_arrays: dict[str, np.ndarray]) -> dict[str, float | str | None] | None:
+    states = trace_arrays["executed_states"]
+    if not states.size:
+        return None
+    positions = np.vstack((trace_arrays["initial_state"][None, :2], states[:, :2]))
+    distances_m = np.linalg.norm(np.diff(positions, axis=0), axis=1)
+    total_ml = sum(
+        metadrive_fuel_proxy_step_energy_ml(start, end, float(speed))
+        for start, end, speed in zip(positions[:-1], positions[1:], states[:, 5], strict=True)
+    )
+    distance_m = float(distances_m.sum())
+    return {
+        "metric": "metadrive_fuel_proxy",
+        "total_ml": total_ml,
+        "distance_m": distance_m,
+        "ml_per_km": None if distance_m == 0.0 else total_ml * 1000.0 / distance_m,
     }

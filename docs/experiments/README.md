@@ -51,6 +51,7 @@
 | [E-013](records/e-013-stage2-cuda-bf16-fast-acceptance.md) | 2026-08-14 | 阶段 2 快速验收 | CUDA BF16、3-seed 的 reference-centered guidance 配对矩阵 | 修订门槛通过；结论限于单 GPU、BF16 与 3 seeds |
 | [E-014](records/e-014-stage6-closed-loop-smoke-training.md) | 2026-08-14 | 阶段 6 正式验收 | CUDA BF16、双 seed 重放的 `2 x 16 x 4` closed-loop PPO smoke | 阶段门槛通过；仅支持 MetaDrive smoke 学习链路 |
 | [E-015](records/e-015-benchmark-scaling-baseline.md) | 2026-08-21 | 本机性能基线 | Reference planner、traffic/no-traffic vector env、serial/vector rollout scaling | 本机建议有效；远程机与 planner 饱和点未完成 |
+| [E-016](records/e-016-energy-benchmark-bringup.md) | 2026-08-24 | 本机验证与诊断 | Issue #1 fuel-proxy、分段限速与 DDIM5 guidance bring-up | baseline 与 CPU guidance smoke 有效；完整 GPU matrix 未完成 |
 
 ## 服务器训练与正式实验登记模板
 

@@ -104,6 +104,9 @@ eval-no-traffic-matrix *overrides:
 eval-matrix *overrides:
     {{python}} scripts/evaluate.py --config-name experiment/evaluate_traffic_matrix --multirun {{overrides}}
 
+energy-matrix output_root:
+    {{python}} scripts/run_energy_matrix.py --output-root {{output_root}}
+
 # Smoke test for reference-centered guidance. Append scale or other overrides as needed.
 eval-guidance *overrides:
     {{python}} scripts/evaluate.py --config-name experiment/evaluate_no_traffic_smoke planner/sampler=ddim5 planner/guidance=orthogonal_reference {{overrides}}

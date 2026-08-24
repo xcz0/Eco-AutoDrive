@@ -130,6 +130,8 @@ class MapInputAudit(ArtifactModel):
     speed_limit_sentinel_replaced_count: StrictInt = Field(ge=0)
     speed_limit_existing_preserved_count: StrictInt = Field(ge=0)
     configured_programmatic_lane_speed_limit_kmh: StrictFloat = Field(gt=0.0)
+    block_speed_limit_profile_kmh: tuple[StrictFloat, ...] | None = None
+    block_speed_limit_profile_applied_lane_count: StrictInt = Field(default=0, ge=0)
     lane_speed_limit_kmh_counts: dict[str, StrictInt]
     valid_lane_count_min: StrictInt = Field(ge=0)
     valid_lane_count_max: StrictInt = Field(ge=0)
@@ -144,6 +146,13 @@ class SpeedSummary(ArtifactModel):
     minimum: StrictFloat
     mean: StrictFloat
     maximum: StrictFloat
+
+
+class EnergySummary(ArtifactModel):
+    metric: Literal["metadrive_fuel_proxy"]
+    total_ml: StrictFloat = Field(ge=0.0)
+    distance_m: StrictFloat = Field(ge=0.0)
+    ml_per_km: StrictFloat | None = Field(default=None, ge=0.0)
 
 
 class ErrorValues(ArtifactModel):
@@ -190,6 +199,7 @@ class CompletedEpisodeSummary(ArtifactModel):
     environment_steps_including_warmup: StrictInt = Field(gt=0)
     total_reward: StrictFloat
     distance_m: StrictFloat = Field(ge=0.0)
+    energy: EnergySummary
     speed_mps: SpeedSummary
     route_completion: StrictFloat
     arrive_dest: StrictBool
@@ -217,6 +227,7 @@ class FailedEpisodeSummary(ArtifactModel):
     sampler: SamplerSummary
     guidance: GuidanceSummary
     trace_status: Literal["partial", "empty"]
+    energy: EnergySummary | None = None
     termination: TerminationSummary
     failure: FailureSummary
 

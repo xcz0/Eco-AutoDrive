@@ -104,6 +104,8 @@ Benchmark 是 `scripts/` 下的非安装诊断工具，不属于 evaluation 或 
 
 MetaDrive 0.4.3 PGMap 用精确 `1000 km/h` 表示未设置限速。环境 reset 后必须只替换该精确哨兵，保留已有有限、正值且不超过 `130 km/h` 的真实限速，确认哨兵全部消失并记录替换与保留数量。地图适配器若仍发现哨兵或非法限速，必须指出 lane 和原始值并失败；不得统一覆盖真实限速或猜测默认值。
 
+能耗 benchmark 可选 `programmatic_lane_speed_limit_profile_kmh`。它按 PGMap 初始 block 之后的生成 block 顺序指定限速，长度必须与该 block 数严格一致；只覆盖这些 block 中的未设置限速哨兵，已有显式限速仍保留。reset audit 必须记录 profile 及实际应用 lane 数。
+
 lane 长度与宽度必须接受 Python 或 NumPy 的真实数值标量，同时拒绝 bool、数组、非有限值和非正值。
 
 ## 交通观测
@@ -198,6 +200,8 @@ RL 训练输出与 evaluation 输出使用各自独立的数据边界。每个�
 ## 能耗记录
 
 * 每种能耗指标使用独立名称、单位和累计边界。
+* `metadrive_fuel_proxy` 按 MetaDrive `BaseVehicle` 的公式，从实际保存的 0.1 s kinematic execution trace 的相邻位置和执行速度重算；不得读取 kinematic `set_position()` 链路中的上游 `step_energy` 或 `episode_energy`。
+* 该指标记录 `total_ml`、`distance_m` 和 `ml_per_km`，后者在零距离时为 null。失败回合若存在 partial trace 也记录已产生的能耗；空 trace 没有能耗值。
 * MetaDrive 代理能耗与 FASTSim 等精细模型不得混用。
 * 能耗结果必须关联实际执行 trace、采样间隔、车辆配置、场景特征和终止类型。
 * 程序化地图没有原生坡度时不得假设高程信息。
@@ -213,7 +217,7 @@ trace recorder 必须在回合开始时按最大 planning/warmup 容量，根据
 
 当前 evaluation 产物采用无版本的数据契约：
 
-* job summary、episode summary 和 runtime metadata 使用严格且冻结的 Pydantic 模型，并设置 `extra="forbid"` 与 `allow_inf_nan=False`；读取时验证必需字段、字段类型及模型中实现的跨字段不变量。
+* job summary、episode summary 和 runtime metadata 使用严格且冻结的 Pydantic 模型，并设置 `extra="forbid"` 与 `allow_inf_nan=False`；读取时验证必需字段、字段类型及模型中实现的跨字段不变量。Completed episode summary 必须携带结构化 `energy`；partial failed episode 可携带对应能耗，empty failed episode 为 null。
 * `trace.npz` 的字段集合、shape、dtype 和有限性由 `TRACE_FIELDS` / `validate_trace_arrays` 明确定义。
 * trace 字段必须是预期的 NumPy array；缺失或未声明的数组都会导致验证失败。
 * guided trace 的 guidance 数组必须完整出现或完整缺失，不能只保存其中一部分。

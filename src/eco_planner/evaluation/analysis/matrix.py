@@ -197,6 +197,12 @@ def _build_report(
                 [episode.simulated_seconds for episode in group], dtype=np.float64
             ),
             "distance_m": np.asarray([episode.distance_m for episode in group], dtype=np.float64),
+            "energy_total_ml": np.asarray(
+                [episode.energy.total_ml for episode in group], dtype=np.float64
+            ),
+            "energy_ml_per_km": np.asarray(
+                [episode.energy.ml_per_km for episode in group], dtype=np.float64
+            ),
             "route_completion": np.asarray(
                 [episode.route_completion for episode in group], dtype=np.float64
             ),
@@ -236,6 +242,8 @@ def _build_report(
                 episode.simulated_seconds if episode.status == "completed" else None
             ),
             "distance_m": episode.distance_m if episode.status == "completed" else None,
+            "energy_total_ml": episode.energy.total_ml if episode.status == "completed" else None,
+            "energy_ml_per_km": episode.energy.ml_per_km if episode.status == "completed" else None,
             "route_completion": (
                 episode.route_completion if episode.status == "completed" else None
             ),

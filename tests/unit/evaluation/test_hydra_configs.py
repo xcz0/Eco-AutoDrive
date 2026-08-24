@@ -50,6 +50,24 @@ def test_evaluation_defaults_to_none_guidance_and_composes_active_profile() -> N
     assert isinstance(parsed_guidance, OrthogonalReferenceGuidanceConfig)
 
 
+def test_energy_guidance_profiles_compose_with_expected_longitudinal_scales() -> None:
+    config_dir = Path(__file__).resolve().parents[3] / "configs"
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
+        configs = [
+            compose(
+                config_name="experiment/evaluate_energy_structures",
+                overrides=[f"planner/guidance=energy_longitudinal_{name}"],
+            )
+            for name in ("negative", "zero", "positive")
+        ]
+
+    assert [parse_guidance_config(config.guidance).longitudinal_scale for config in configs] == [
+        -1.0,
+        0.0,
+        1.0,
+    ]
+
+
 def test_traffic_matrix_composes_joblib_execution_grid() -> None:
     config_dir = Path(__file__).resolve().parents[3] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
@@ -73,6 +91,9 @@ def test_traffic_matrix_composes_joblib_execution_grid() -> None:
         ("evaluate_traffic_full", "traffic", "full", 3000, False),
         ("evaluate_no_traffic_matrix", "no_traffic", "matrix", 200, False),
         ("evaluate_traffic_matrix", "traffic", "matrix", 300, False),
+        ("evaluate_energy_structures", "no_traffic", "energy_matrix", 300, False),
+        ("evaluate_energy_speed_profile", "no_traffic", "energy_matrix", 300, False),
+        ("evaluate_energy_traffic", "traffic", "energy_matrix", 600, False),
     ],
 )
 def test_experiment_profiles_compose_complete_evaluation_jobs(

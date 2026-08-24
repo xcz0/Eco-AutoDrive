@@ -46,6 +46,36 @@ def test_run_scenario_replans_and_persists_trace(
     with zipfile.ZipFile(tmp_path / "fake" / "trace.npz") as archive:
         assert {entry.compress_type for entry in archive.infolist()} == {zipfile.ZIP_STORED}
     assert summary.map_input_audit.speed_limit_mps_min == pytest.approx(50.0 / 3.6)
+    assert summary.energy.metric == "metadrive_fuel_proxy"
+    assert summary.energy.distance_m == pytest.approx(10.0)
+    assert summary.energy.total_ml > 0.0
+
+
+def test_failed_episode_preserves_energy_from_partial_execution_trace(
+    tmp_path,
+    fake_runtime: object,
+    evaluation_config: object,
+    patch_episode_dependencies,
+    monkeypatch,
+) -> None:
+    patch_episode_dependencies()
+
+    def fail_after_execution(*args, **kwargs):
+        raise episode.EpisodeFailure(episode.FailurePhase.EXECUTION, RuntimeError("injected"))
+
+    monkeypatch.setattr(episode, "build_episode_summary", fail_after_execution)
+
+    summary = episode.run_scenario(
+        ScenarioConfig(name="fake", map="S", seed=3),
+        fake_runtime,
+        parse_evaluation_config(evaluation_config),
+        tmp_path,
+    )
+
+    assert summary.status == "failed"
+    assert summary.trace_status == "partial"
+    assert summary.energy is not None
+    assert summary.energy.distance_m == pytest.approx(10.0)
 
 
 def test_vector_evaluation_batches_slots_and_writes_independent_traces(

@@ -61,6 +61,7 @@ def run_scenario(
     env_config["map"] = spec.map
     env: TrajectoryMetaDriveEnv | None = None
     trace: EpisodeTraceRecorder | None = None
+    finalized_trace_arrays: dict[str, np.ndarray] | None = None
     mode = config.evaluation.mode
     traffic_adapter = (
         MetaDriveObservationAdapter(runtime.planner_config, config.map_query_radius_m)
@@ -145,6 +146,7 @@ def run_scenario(
                 RuntimeError("closed-loop episode ended without a simulator result"),
             )
         trace_arrays = trace.finalize()
+        finalized_trace_arrays = trace_arrays
         if mode == "traffic" and not np.any(trace_arrays["traffic_participant_counts"] > 0):
             raise EpisodeFailure(
                 FailurePhase.OBSERVATION,
@@ -171,8 +173,12 @@ def run_scenario(
         return summary
     except EpisodeFailure as failure:
         trace_status = "partial" if trace is not None and trace.has_recorded_steps else "empty"
-        recorder = trace if trace is not None else EpisodeTraceRecorder.empty()
-        trace_arrays = recorder.finalize(trace_status)
+        if finalized_trace_arrays is None:
+            recorder = trace if trace is not None else EpisodeTraceRecorder.empty()
+            trace_arrays = recorder.finalize(trace_status)
+        else:
+            trace_arrays = dict(finalized_trace_arrays)
+            trace_arrays["trace_status"] = np.asarray(trace_status)
         summary = build_failed_episode_summary(
             _scenario_payload(spec),
             noise_seed=runtime.report.seed,
@@ -184,6 +190,7 @@ def run_scenario(
             phase=failure.phase,
             cause=failure.cause,
             traceback_text=traceback.format_exc(),
+            trace_arrays=trace_arrays,
         )
         write_episode_artifacts(
             output_root / spec.name, trace_arrays, frames, summary, config.video
@@ -449,6 +456,7 @@ def _write_vector_failure(
         phase=failure.phase,
         cause=failure.cause,
         traceback_text=traceback.format_exc(),
+        trace_arrays=trace_arrays,
     )
     write_episode_artifacts(output_root / spec.name, trace_arrays, [], summary, config.video)
     return summary

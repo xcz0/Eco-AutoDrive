@@ -350,6 +350,27 @@ def test_programmatic_lane_speed_limits_replace_only_unset_sentinel(
 
 
 @pytest.mark.simulator
+def test_programmatic_lane_speed_limit_profile_follows_generated_blocks() -> None:
+    config = _environment_config("SSS")
+    config["programmatic_lane_speed_limit_profile_kmh"] = [50.0, 30.0, 50.0]
+    env = TrajectoryMetaDriveEnv(config)
+    try:
+        env.reset(seed=0)
+
+        audit = env.programmatic_lane_speed_limit_audit
+        lane_limits = [
+            float(lane.speed_limit) for lane in env.current_map.road_network.get_all_lanes()
+        ]
+
+        assert audit["block_speed_limit_profile_kmh"] == (50.0, 30.0, 50.0)
+        assert audit["block_speed_limit_profile_applied_lane_count"] > 0
+        assert 30.0 in lane_limits
+        assert 50.0 in lane_limits
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
 @pytest.mark.parametrize("map_sequence", ["S", "SC"])
 def test_map_adapter_is_deterministic_on_programmatic_maps(
     map_sequence: str,

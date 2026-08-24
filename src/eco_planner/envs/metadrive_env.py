@@ -54,6 +54,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
                 "trajectory_horizon": None,
                 "trajectory_execution_steps": None,
                 "programmatic_lane_speed_limit_kmh": None,
+                "programmatic_lane_speed_limit_profile_kmh": None,
             },
             allow_add_new_key=True,
         )
@@ -89,7 +90,8 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             raise ValueError("TrajectoryMetaDriveEnv does not support manual control")
         self._execution_steps = execution_steps_from_config(self.config)
         self._programmatic_lane_speed_adapter = ProgrammaticLaneSpeedAdapter(
-            self.config["programmatic_lane_speed_limit_kmh"]
+            self.config["programmatic_lane_speed_limit_kmh"],
+            self.config["programmatic_lane_speed_limit_profile_kmh"],
         )
         self._initial_traffic_frame: TrafficFrame | None = None
 

@@ -67,6 +67,12 @@ def _episode(name: str, seed: int, density: float) -> dict[str, object]:
         "simulated_seconds": 0.5,
         "environment_steps_including_warmup": 25,
         "distance_m": 2.0,
+        "energy": {
+            "metric": "metadrive_fuel_proxy",
+            "total_ml": 1.0,
+            "distance_m": 2.0,
+            "ml_per_km": 500.0,
+        },
         "route_completion": 0.1,
         "total_reward": 1.0,
         "speed_mps": {"minimum": 4.0, "mean": 4.0, "maximum": 4.0},
