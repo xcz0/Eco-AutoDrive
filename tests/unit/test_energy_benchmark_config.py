@@ -17,11 +17,13 @@ def test_energy_matrix_declares_required_coverage_and_guidance_profiles() -> Non
     assert matrix["execution"]["planner_hz"] == 2
     assert matrix["energy_metric"] == {
         "name": "metadrive_episode_energy",
-        "source_info_field": "episode_energy",
-        "step_source_info_field": "step_energy",
+        "implementation": "recompute_metadrive_base_vehicle_formula_on_executed_trace",
+        "reference_info_fields": ["step_energy", "episode_energy"],
         "unit": "mL",
+        "formula": "3.25 * exp(0.01 * speed_kmh) * distance_km / 100 * 1000",
         "interpretation": "MetaDrive fuel-consumption proxy",
         "accumulation_boundary": "environment reset to episode termination or horizon",
+        "sampling_interval_s": 0.1,
     }
     assert [item["longitudinal_scale"] for item in matrix["guidance_profiles"]] == [
         None,
