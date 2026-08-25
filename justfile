@@ -37,10 +37,6 @@ lint:
     {{ruff}} check .
 
 [group('development')]
-format-check:
-    {{ruff}} format --check .
-
-[group('development')]
 format:
     {{ruff}} check --fix .
     {{ruff}} format .
