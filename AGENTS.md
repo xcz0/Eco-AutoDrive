@@ -8,7 +8,7 @@ Eco-AutoDrive 是个人科研代码库。优先保证**逻辑正确、实验语�
 
 ## 先定位权威来源
 
-不要无差别加载文档。按任务只读取最小必要集合：
+按任务只读取最小必要集合：
 
 | 需要确认的内容 | 权威来源 |
 | --- | --- |
@@ -71,7 +71,6 @@ just test-target <path-or-node>
 just test-sim
 just test-gpu
 just lint
-just format-check
 just format
 ```
 

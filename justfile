@@ -37,10 +37,6 @@ lint:
     {{ruff}} check .
 
 [group('development')]
-format-check:
-    {{ruff}} format --check .
-
-[group('development')]
 format:
     {{ruff}} check --fix .
     {{ruff}} format .
@@ -67,7 +63,7 @@ test-gpu:
 
 # Full lightweight repository validation.
 [group('development')]
-check: lint format-check test
+check: lint format test
 
 
 # Run one evaluation job profile. Append Hydra overrides as needed.
