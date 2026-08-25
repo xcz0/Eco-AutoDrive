@@ -225,6 +225,7 @@ trace recorder 必须在回合开始时按最大 planning/warmup 容量，根据
 * 动态数组必须在 planning、simulator 和 warmup 轴上保持一致；实现还校验 trace status、planning-cycle 数、simulator-step 数、warmup 数、plan index 顺序、五步 execution prefix、terminal flag 位置、非负计数以及其他已实现的跨数组不变量。
 * trace 显式保存 `complete`、`partial` 或 `empty` 状态、initial-state validity、普通及 route lane 的限速与有效性。
 * JSON 和 NPZ 的当前契约均不依赖 `schema_version` 选择解析路径。读取器直接按照当前 Pydantic 模型或 trace array contract 验证输入，不合成缺失字段。
+* 离线 artifact reader 只依赖 pathlib、NumPy 和 Pydantic；读取 summary 或 trace 不得加载 Torch、MetaDrive/Panda3D 或 GIF rendering。写入和视频 rendering 保持独立边界。
 
 runner 只捕获显式 `EpisodeFailure`：保存阶段、异常类型、消息和 traceback 后继续同一作业的后续场景，作业最终标记失败且 CLI 返回非零。配置、checkpoint、Fabric 初始化、artifact IO 和未分类程序错误立即传播。
 

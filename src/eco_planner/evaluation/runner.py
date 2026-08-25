@@ -9,9 +9,9 @@ from time import perf_counter
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
-from eco_planner.evaluation.artifacts.io import write_json
 from eco_planner.evaluation.artifacts.metadata import write_runtime_metadata
 from eco_planner.evaluation.artifacts.models import JobSummary
+from eco_planner.evaluation.artifacts.writers import write_json
 from eco_planner.evaluation.config import EvaluationJobConfig
 from eco_planner.evaluation.execution.serial import run_scenario
 from eco_planner.evaluation.execution.vector import run_vector_scenarios

@@ -19,6 +19,7 @@ from eco_planner.evaluation.artifacts.models import (
     FailurePhase,
 )
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
+from eco_planner.evaluation.artifacts.video import render_cycle_frame
 from eco_planner.evaluation.config import EvaluationJobConfig, ScenarioConfig
 from eco_planner.evaluation.episode import (
     finalize_completed_episode,
@@ -28,7 +29,6 @@ from eco_planner.evaluation.episode import (
     vehicle_state,
 )
 from eco_planner.evaluation.failures import EpisodeFailure
-from eco_planner.evaluation.rendering import render_cycle_frame
 from eco_planner.evaluation.runtime.engine import FabricInferenceRuntime
 from eco_planner.execution_contracts import evaluation_plan_cycles
 from eco_planner.models import NoGuidanceConfig

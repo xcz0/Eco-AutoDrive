@@ -13,13 +13,13 @@ from eco_planner.envs import (
     TrajectoryExecutionRecord,
     TrajectoryMetaDriveEnv,
 )
-from eco_planner.evaluation.artifacts.io import write_episode_artifacts
 from eco_planner.evaluation.artifacts.models import (
     CompletedEpisodeSummary,
     FailedEpisodeSummary,
     FailurePhase,
 )
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
+from eco_planner.evaluation.artifacts.writers import write_episode_artifacts
 from eco_planner.evaluation.config import EvaluationJobConfig, ScenarioConfig
 from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.runtime.engine import FabricInferenceRuntime

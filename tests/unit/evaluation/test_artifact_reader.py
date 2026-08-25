@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from eco_planner.evaluation.artifacts.io import load_job_summary, load_trace_artifact
+from eco_planner.evaluation.artifacts.readers import load_job_summary, load_trace_artifact
 
 
 def test_reader_rejects_legacy_json_and_trace_artifacts(tmp_path: Path) -> None:

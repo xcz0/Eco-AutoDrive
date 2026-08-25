@@ -7,8 +7,8 @@ from typing import Any
 
 import numpy as np
 
-from eco_planner.evaluation.artifacts.io import load_job_summary, load_trace_artifact
 from eco_planner.evaluation.artifacts.models import EpisodeSummary, JobSummary
+from eco_planner.evaluation.artifacts.readers import load_job_summary, load_trace_artifact
 
 _IGNORED_METADATA_FIELDS = frozenset(
     {

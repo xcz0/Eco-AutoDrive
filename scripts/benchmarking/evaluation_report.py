@@ -12,7 +12,7 @@ from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import collect_repository_metadata
-from eco_planner.evaluation.artifacts.io import load_runtime_metadata
+from eco_planner.evaluation.artifacts.readers import load_runtime_metadata
 
 from .common import measurement, write_benchmark_artifacts
 

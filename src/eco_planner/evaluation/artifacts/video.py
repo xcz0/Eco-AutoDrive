@@ -1,11 +1,20 @@
-"""Top-down closed-loop evaluation rendering."""
+"""Evaluation GIF encoding and MetaDrive top-down rendering."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+from metadrive.utils.doc_utils import generate_gif
 
 from eco_planner.envs import TrajectoryExecutionRecord, TrajectoryMetaDriveEnv
 from eco_planner.evaluation.config import VideoConfig
+
+
+def write_gif(frames: list[np.ndarray], path: Path, fps: int) -> None:
+    """Encode already-rendered RGB frames with the configured frame duration."""
+
+    generate_gif(frames, str(path), duration=round(1000 / fps))
 
 
 def draw_world_polyline(
@@ -51,12 +60,7 @@ def render_cycle_frame(
     rendered = frame.copy()
     camera_position = np.asarray(env.agent.position, dtype=np.float64)
     planned = np.vstack((anchor_position, execution.world_centers))
-    executed = np.vstack(
-        (
-            anchor_position,
-            execution.substep_states[:, :2],
-        )
-    )
+    executed = np.vstack((anchor_position, execution.substep_states[:, :2]))
     draw_world_polyline(
         rendered, planned, camera_position, float(video_config.scaling), (40, 90, 240), 1
     )

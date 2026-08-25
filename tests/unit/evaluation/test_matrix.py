@@ -7,6 +7,8 @@ import numpy as np
 import pytest
 
 from eco_planner.evaluation.analysis.matrix import build_matrix_report, summarize_matrix
+from eco_planner.evaluation.analysis.statistics import build_matrix_statistics
+from eco_planner.evaluation.analysis.validation import validate_matrix_artifacts
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
 
 
@@ -229,9 +231,12 @@ def test_partial_matrix_accepts_empty_tracked_diff_and_writes_once(
     _write_job(tmp_path, 0, 0, 0.05, trace_arrays=matrix_trace_arrays)
 
     report = summarize_matrix(tmp_path, partial=True)
+    validated = validate_matrix_artifacts(tmp_path, partial=True)
 
     assert report["matrix_complete"] is False
     assert report["validated_episode_count"] == 2
+    assert len(validated.episodes) == 2
+    assert build_matrix_statistics(validated.episodes) == report["statistics"]
     assert (tmp_path / "partial_matrix_report.json").is_file()
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
         summarize_matrix(tmp_path, partial=True)
