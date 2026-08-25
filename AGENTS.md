@@ -71,7 +71,6 @@ just test-target <path-or-node>
 just test-sim
 just test-gpu
 just lint
-just format-check
 just format
 ```
 
