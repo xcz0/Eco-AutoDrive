@@ -12,6 +12,7 @@ from eco_planner.rl.rollout import (
     build_training_decision,
     build_training_transition,
     finalize_rollout_episode,
+    set_training_transition_next_state_value,
 )
 
 
@@ -91,6 +92,7 @@ def test_rollout_tensor_dicts_preserve_terminal_and_truncation_bootstrap_rules()
 def test_rollout_limit_preserves_audit_and_training_device_ownership() -> None:
     first_training, first_audit = _transitions(0)
     second_training, second_audit = _transitions(1)
+    set_training_transition_next_state_value(first_training, second_training["state_value"])
     episode = finalize_rollout_episode(
         [first_training, second_training],
         [first_audit, second_audit],
@@ -100,6 +102,23 @@ def test_rollout_limit_preserves_audit_and_training_device_ownership() -> None:
     assert episode.audit["planning_cycle_index"].squeeze(-1).tolist() == [0, 1]
     assert episode.training["scene_tokens"].device.type == "cpu"
     assert episode.audit["scene_tokens"].device.type == "cpu"
+
+
+def test_rollout_links_interior_next_value_and_injects_only_the_tail_bootstrap() -> None:
+    first_training, first_audit = _transitions(0)
+    second_training, second_audit = _transitions(1)
+    set_training_transition_next_state_value(first_training, torch.tensor([3.0]))
+
+    episode = finalize_rollout_episode(
+        [first_training, second_training],
+        [first_audit, second_audit],
+        "rollout_limit",
+        torch.tensor([5.0]),
+    )
+
+    assert episode.training["next", "state_value"].squeeze(-1).tolist() == [3.0, 5.0]
+    assert episode.training["next", "reward"].squeeze(-1).tolist() == [0.25, 0.25]
+    assert episode.training["next", "done"].squeeze(-1).tolist() == [False, True]
 
 
 def test_complete_rollout_artifact_uses_the_audit_tensor_dict(tmp_path) -> None:
@@ -139,3 +158,7 @@ def test_training_transition_owns_detached_policy_features() -> None:
 
     assert not training["scene_tokens"].requires_grad
     torch.testing.assert_close(training["scene_tokens"], expected_tokens)
+    assert "reward" not in training.keys()
+    assert set(training["next"].keys()) == {"reward", "done", "terminated", "truncated"}
+    assert training["next", "reward"].item() == pytest.approx(0.25)
+    assert training["next", "done"].item()

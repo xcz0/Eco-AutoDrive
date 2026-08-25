@@ -26,6 +26,7 @@ from eco_planner.rl.rollout import (
     build_rollout_audit,
     build_training_transition,
     finalize_rollout_episode,
+    set_training_transition_next_state_value,
 )
 from eco_planner.rl.runtime import FabricRolloutRuntime
 
@@ -103,6 +104,10 @@ def collect_rollout_episode(
             observation = collate_observations([env_slot.observe().observation])
             decision = runtime.decide(observation, diffusion_generator, policy_generator)
             training_decision = decision.training_decision
+            if training_transitions:
+                set_training_transition_next_state_value(
+                    training_transitions[-1], training_decision["state_value"]
+                )
             step = env_slot.step(decision.ego_trajectory)
             terminated = step.terminated
             truncated = step.truncated
@@ -277,6 +282,11 @@ class VectorRolloutCollector:
             decision = runtime.decide_batch(
                 collate_observations(observations), diffusion_generators, policy_generators
             )
+            for slot, transitions in enumerate(training):
+                if transitions:
+                    set_training_transition_next_state_value(
+                        transitions[-1], decision.slot(slot).training_decision["state_value"]
+                    )
             planner_s = perf_counter() - planner_started if profile else 0.0
             environment_started = perf_counter() if profile else 0.0
             steps = envs.step(decision.ego_trajectories)
@@ -468,6 +478,11 @@ class VectorRolloutCollector:
             decision = self._runtime.decide_batch(
                 collate_observations(observations), diffusion_generators, policy_generators
             )
+            for slot, transitions in enumerate(training):
+                if transitions:
+                    set_training_transition_next_state_value(
+                        transitions[-1], decision.slot(slot).training_decision["state_value"]
+                    )
             planner_s = perf_counter() - planner_started if profile else 0.0
             environment_started = perf_counter() if profile else 0.0
             steps = envs.step_slots(active_slots, decision.ego_trajectories)

@@ -17,6 +17,7 @@ from eco_planner.rl.rollout import (
     build_training_decision,
     build_training_transition,
     finalize_rollout_episode,
+    set_training_transition_next_state_value,
 )
 
 
@@ -58,14 +59,19 @@ def _episode(policy: ExplorationPolicy):
     training_transitions = []
     audit_transitions = []
     for index, reward in enumerate((1.0, 2.0)):
+        decision = build_training_decision(
+            context,
+            action.guidance_action,
+            action.joint_guidance_log_prob,
+            output.value,
+        )
+        if training_transitions:
+            set_training_transition_next_state_value(
+                training_transitions[-1], decision["state_value"]
+            )
         training_transitions.append(
             build_training_transition(
-                build_training_decision(
-                    context,
-                    action.guidance_action,
-                    action.joint_guidance_log_prob,
-                    output.value,
-                ),
+                decision,
                 reward=reward,
                 terminated=index == 1,
                 truncated=False,

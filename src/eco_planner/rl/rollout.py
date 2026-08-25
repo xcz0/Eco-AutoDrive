@@ -25,10 +25,16 @@ _TRAINING_KEYS = frozenset(
         "guidance_action",
         "old_joint_guidance_log_prob",
         "state_value",
+        "next",
+    }
+)
+_NEXT_TRAINING_KEYS = frozenset(
+    {
+        "state_value",
         "reward",
+        "done",
         "terminated",
         "truncated",
-        "next",
     }
 )
 _AUDIT_KEYS = frozenset(
@@ -116,18 +122,38 @@ def build_training_decision(
 def build_training_transition(
     decision: TensorDictBase, *, reward: float, terminated: bool, truncated: bool
 ) -> TensorDictBase:
-    """Add environment results to one detached PPO decision."""
+    """Create one root/next PPO transition from a detached policy decision."""
 
     device = _tensordict_device(decision)
     return TensorDict(
         {
             **{key: decision[key] for key in decision.keys()},
-            "reward": _float(reward, device),
-            "terminated": _bool(terminated, device),
-            "truncated": _bool(truncated, device),
+            "next": TensorDict(
+                {
+                    "reward": _float(reward, device),
+                    "done": _bool(terminated or truncated, device),
+                    "terminated": _bool(terminated, device),
+                    "truncated": _bool(truncated, device),
+                },
+                batch_size=[1],
+            ),
         },
         batch_size=[1],
     )
+
+
+def set_training_transition_next_state_value(
+    transition: TensorDictBase, next_state_value: torch.Tensor
+) -> None:
+    """Attach the frozen critic value already computed for a transition's next state."""
+
+    if transition.batch_size != torch.Size([1]):
+        raise ValueError("PPO training transition must have batch size [1]")
+    device = _tensordict_device(transition)
+    value = next_state_value.detach().clone().reshape(-1, 1)
+    if value.device != device or tuple(value.shape) != (1, 1):
+        raise ValueError("next PPO state value must match the transition device with shape [1, 1]")
+    transition["next", "state_value"] = value
 
 
 def build_rollout_audit(
@@ -214,24 +240,16 @@ def finalize_rollout_episode(
     tail_kind: TailKind,
     tail_bootstrap_value: torch.Tensor,
 ) -> RolloutEpisode:
-    """Join PPO and CPU audit data, then attach the GAE next-state boundary."""
+    """Join PPO and CPU audit data after attaching the final GAE boundary value."""
 
     if not training_transitions or not audit_transitions:
         raise ValueError("rollout episode must contain at least one transition")
-    training = torch.cat(training_transitions, dim=0)
-    device = _tensordict_device(training)
+    final_transition = training_transitions[-1]
+    device = _tensordict_device(final_transition)
     bootstrap = tail_bootstrap_value.detach().to(device)
-    done = torch.zeros((training.batch_size[0], 1), dtype=torch.bool, device=device)
-    done[-1] = True
-    training["next"] = TensorDict(
-        {
-            "state_value": torch.cat([training["state_value"][1:], bootstrap.reshape(1, 1)], dim=0),
-            "reward": training["reward"].clone(),
-            "done": done,
-            "terminated": training["terminated"].clone(),
-        },
-        batch_size=training.batch_size,
-    )
+    set_training_transition_next_state_value(final_transition, bootstrap)
+    final_transition["next", "done"] = _bool(True, device)
+    training = torch.cat(training_transitions, dim=0)
     return RolloutEpisode(training, torch.cat(audit_transitions, dim=0), tail_kind, bootstrap)
 
 
@@ -243,12 +261,18 @@ def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
     if torch.any((trajectory["guidance_action"] <= -1.0) | (trajectory["guidance_action"] >= 1.0)):
         raise ValueError("PPO training guidance_action must be strictly inside (-1, 1)")
     for key in ("old_joint_guidance_log_prob", "state_value", "reward"):
-        if tuple(trajectory[key].shape[1:]) != (1,):
+        value = trajectory["next", key] if key == "reward" else trajectory[key]
+        if tuple(value.shape[1:]) != (1,):
             raise ValueError(f"PPO training {key} must have shape [T, 1]")
-    for key in ("terminated", "truncated"):
-        if trajectory[key].dtype != torch.bool or tuple(trajectory[key].shape[1:]) != (1,):
-            raise TypeError(f"PPO training {key} must be bool with shape [T, 1]")
-    if torch.any(trajectory["terminated"] & trajectory["truncated"]):
+    next_transition = trajectory["next"]
+    missing = _NEXT_TRAINING_KEYS - set(next_transition.keys(include_nested=False))
+    if missing:
+        raise ValueError(f"PPO training next transition is missing fields: {sorted(missing)}")
+    for key in ("done", "terminated", "truncated"):
+        value = next_transition[key]
+        if value.dtype != torch.bool or tuple(value.shape[1:]) != (1,):
+            raise TypeError(f"PPO training next {key} must be bool with shape [T, 1]")
+    if torch.any(next_transition["terminated"] & next_transition["truncated"]):
         raise ValueError("PPO training transition cannot be both terminated and truncated")
 
 
@@ -318,9 +342,11 @@ def _validate_tail(trajectory: TensorDictBase, tail_kind: TailKind, value: torch
         or not torch.isfinite(value).all()
     ):
         raise ValueError("tail bootstrap value must be detached float32 with shape [1]")
-    final = trajectory[-1]
-    terminated = bool(final["terminated"].item())
-    truncated = bool(final["truncated"].item())
+    next_transition = trajectory["next"]
+    if not bool(next_transition["done"][-1].item()) or torch.any(next_transition["done"][:-1]):
+        raise ValueError("PPO training next done must mark only the final GAE boundary")
+    terminated = bool(next_transition["terminated"][-1].item())
+    truncated = bool(next_transition["truncated"][-1].item())
     if tail_kind == "terminated":
         if not terminated or truncated or not torch.equal(value, torch.zeros_like(value)):
             raise ValueError("terminated tail must have a zero bootstrap value")
