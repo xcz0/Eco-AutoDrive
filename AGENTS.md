@@ -14,7 +14,7 @@ Eco-AutoDrive 是个人科研代码库。优先保证**逻辑正确、实验语�
 | --- | --- |
 | 高风险领域语义、易混淆概念 | `docs/agents/domain.md`；需要精确定义时再读 `CONTEXT.md` |
 | 当前已实现的数据流、shape、单位、时间语义、训练/评测契约 | `docs/agents/system-contract.md` 的相关章节 + 对应代码和测试 |
-| 当前任务、待完成工作、验收标准 | 当前用户请求 + 对应 GitHub Issue；Issue 工作流见 `docs/agents/issue-tracker.md` |
+| 当前任务、待完成工作、验收标准 | 当前用户请求 + 对应 GitHub Issue |
 | 已接受的重要设计选择及理由 | 相关 `docs/adr/` |
 | 尚未确定的方法、假设和研究问题 | `docs/research/` |
 | 已运行实验、配置、结果和产物来源 | `docs/experiments/README.md`、对应 `records/`、实际 resolved config/artifact |
@@ -96,4 +96,24 @@ just format
 
 提交信息使用简短、祈使式主题；一次提交只完成一个逻辑变更。
 
-GitHub Issue 是跨会话 active work 与持久化验收标准的入口。读取、创建、更新和关闭约定见 `docs/agents/issue-tracker.md`；Pull Request 可以引用 Issue，但不替代任务规范。
+GitHub Issues 是跨会话 active implementation work 与持久化验收标准的入口。适合记录已经接受、可执行且需要持续跟踪的 bug、重构、性能、实验基础设施或其他实现任务；尚未接受的研究设想保留在 `docs/research/`。
+
+Issue 描述“要变成什么”，不能作为当前实现事实。判断当前行为仍以代码、测试、配置和 `docs/agents/system-contract.md` 为准。
+
+当 Issue 是任务来源时，按需读取 body、comments 和 labels；动手前只提取会影响当前执行的内容：
+
+- **Goal / Problem**：为什么要改；
+- **Scope / Tasks**：本次允许修改什么；
+- **Non-goals**：明确不做什么；
+- **Acceptance criteria**：完成的可验证条件；
+- **Dependencies / parent-child links**：仅在影响顺序或范围时保留。
+
+当前用户请求与 Issue 冲突时，以当前用户请求作为本次任务边界并指出差异；不要未经请求修改 Issue 来消除冲突。
+
+创建、更新或关闭 Issue 遵守上方执行边界。创建时使用满足任务所需的最小结构：`Goal`、必要的 `Context`、`Scope`、必要的 `Non-goals`、`Acceptance criteria`；不要为了模板完整制造空章节。
+
+Issue 只记录任务状态、阻塞信息和新的验收信息。实现契约、长期设计理由和实验 provenance 写入各自权威位置后，从 Issue 引用，不复制全文。
+
+只有验收标准已经满足，或明确决定取消/不实施时才关闭 Issue。若验收依赖真实实验，先在 `docs/experiments/` 登记运行证据，再从 Issue 引用对应记录。
+
+优先使用当前环境提供的 GitHub 集成操作 Issue，不把特定 CLI 命令作为项目规范。只有没有可用集成而回退到 Windows `gh` CLI 时，才按沙箱要求在沙箱外执行认证相关 GitHub 请求；沙箱内的 HTTP 401 可能只是 Windows credential manager 不可见。只有沙箱外 `gh auth status --hostname github.com` 也失败时才要求重新认证；不要输出 token，也不要使用 `--show-token`。
