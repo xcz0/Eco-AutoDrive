@@ -2,7 +2,7 @@
 
 Eco-AutoDrive 研究如何在 MetaDrive 闭环中利用预训练 Diffusion Planner，并探索 guidance、强化学习和道路预瞄信息是否能够改善能耗表现。
 
-这是个人科研代码库。仓库中的实现用于建立可验证的研究链路；**已有能力不等于最终研究方法或研究结论**。
+这是个人科研代码库。仓库中的实现用于建立可验证的研究链路；**已有能力不等于最终研究方法或研究结论**。README 只提供项目概览、常用入口和文档导航；精确实现语义以代码、测试、resolved config 和 [system-contract.md](docs/agents/system-contract.md) 为准。
 
 ## 当前能力与边界
 
@@ -27,7 +27,7 @@ just check
 
 `just --list` 查看全部开发、评测、训练和分析入口。
 
-编码智能体在预先准备好的 `.venv` 中工作，不应重复执行环境初始化；其读取、修改和验证规则见 [AGENTS.md](AGENTS.md)。
+编码智能体在预先准备好的 `.venv` 中工作，不应重复执行环境初始化；其事实路由、修改边界和验证规则见 [AGENTS.md](AGENTS.md)。
 
 ## 常用工作流
 
@@ -87,13 +87,13 @@ just energy outputs/energy_matrix/manual-run
 
 | 文件 | 职责 |
 | --- | --- |
-| [AGENTS.md](AGENTS.md) | 编码智能体的事实路由、实现原则、验证和写回规则 |
+| [AGENTS.md](AGENTS.md) | 编码智能体的事实路由、执行边界、科研实现原则、验证和 Issue 工作流 |
 | [docs/agents/domain.md](docs/agents/domain.md) | 容易导致实现或实验解释错误的领域语义 gotchas |
 | [CONTEXT.md](CONTEXT.md) | 稳定领域术语的规范定义 |
 | [docs/agents/system-contract.md](docs/agents/system-contract.md) | 当前已实现系统的数据与执行契约 |
 | [docs/adr/](docs/adr/) | 已接受的重要设计选择及理由 |
-| [GitHub Issues](https://github.com/xcz0/Eco-AutoDrive/issues) | active implementation work 与持久化验收标准 |
-| [docs/research/README.md](docs/research/README.md) | 未决假设、候选方法和开放问题 |
+| [GitHub Issues](https://github.com/xcz0/Eco-AutoDrive/issues) | 已接受、可执行且需跨会话跟踪的工作及其验收标准；不是当前实现事实 |
+| [docs/research/README.md](docs/research/README.md) | 尚未接受或尚未确定的假设、候选方法和开放问题 |
 | [docs/experiments/README.md](docs/experiments/README.md) | 已运行实验的 provenance、结果和结论边界 |
 
 ## 主要参考
