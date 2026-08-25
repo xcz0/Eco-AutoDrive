@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from eco_planner.evaluation.analysis.matrix import summarize_matrix
+from eco_planner.evaluation.analysis import summarize_matrix
 
 
 def _parse_args() -> argparse.Namespace:

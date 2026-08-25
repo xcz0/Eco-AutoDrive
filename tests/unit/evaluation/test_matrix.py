@@ -6,10 +6,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from eco_planner.evaluation.analysis.matrix import build_matrix_report, summarize_matrix
-from eco_planner.evaluation.analysis.statistics import build_matrix_statistics
-from eco_planner.evaluation.analysis.validation import validate_matrix_artifacts
-from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
+from eco_planner.evaluation.analysis import (
+    build_matrix_report,
+    build_matrix_statistics,
+    summarize_matrix,
+    validate_matrix_artifacts,
+)
+from eco_planner.evaluation.trace import EpisodeTraceRecorder
 
 
 def _sampler() -> dict[str, object]:

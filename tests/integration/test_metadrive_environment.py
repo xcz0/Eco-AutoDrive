@@ -16,8 +16,8 @@ from eco_planner.envs import (
 )
 from eco_planner.envs.map_adapter import MetaDriveMapAdapter
 from eco_planner.evaluation.config import RuntimeConfig, parse_evaluation_config
-from eco_planner.evaluation.episode import route_length_m
-from eco_planner.evaluation.runtime.engine import (
+from eco_planner.evaluation.execution import route_length_m
+from eco_planner.evaluation.runtime import (
     FabricInferenceRuntime,
     create_fabric_inference_runtime,
 )

@@ -5,11 +5,11 @@ import json
 import numpy as np
 import pytest
 
+from eco_planner.evaluation import execution as serial
 from eco_planner.evaluation import runner
-from eco_planner.evaluation.artifacts.models import FailurePhase
+from eco_planner.evaluation.artifacts import FailurePhase
 from eco_planner.evaluation.config import parse_evaluation_config
-from eco_planner.evaluation.execution import serial
-from eco_planner.evaluation.failures import EpisodeFailure
+from eco_planner.evaluation.execution import EpisodeFailure
 from eco_planner.evaluation.runner import run_evaluation
 
 

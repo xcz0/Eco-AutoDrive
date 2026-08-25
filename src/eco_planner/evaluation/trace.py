@@ -1,4 +1,4 @@
-"""Closed-loop trace recording and validation."""
+"""Online preallocated evaluation trace recording."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from tensordict import TensorDictBase
 
-from eco_planner.evaluation.artifacts.trace_schema import (
+from eco_planner.evaluation.artifacts import (
     EXECUTION_PREFIX_STEPS,
     OBSERVATION_FIELDS,
     allocate_trace_arrays,

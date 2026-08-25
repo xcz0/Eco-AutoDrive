@@ -6,8 +6,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from eco_planner.evaluation.analysis.comparison import compare_artifact_trees
-from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
+from eco_planner.evaluation.analysis import compare_artifact_trees
+from eco_planner.evaluation.trace import EpisodeTraceRecorder
 
 
 def _runtime() -> dict[str, object]:

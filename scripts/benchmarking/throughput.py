@@ -21,7 +21,7 @@ from eco_planner.envs import (
 )
 from eco_planner.envs.array_types import SingleObservation
 from eco_planner.evaluation.config import EvaluationJobConfig, parse_evaluation_config
-from eco_planner.evaluation.runtime.engine import (
+from eco_planner.evaluation.runtime import (
     FabricInferenceRuntime,
     create_fabric_inference_runtime,
 )

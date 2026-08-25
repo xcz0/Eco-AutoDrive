@@ -7,8 +7,8 @@ from tensordict import TensorDict
 
 from eco_planner.envs import TrajectoryExecutionRecord
 from eco_planner.envs.traffic_state import TrafficFrame
-from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
-from eco_planner.evaluation.artifacts.trace_schema import validate_trace_arrays
+from eco_planner.evaluation.artifacts import validate_trace_arrays
+from eco_planner.evaluation.trace import EpisodeTraceRecorder
 
 
 def _inference(**fields: np.ndarray) -> TensorDict:

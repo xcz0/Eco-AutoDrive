@@ -8,7 +8,7 @@ import pytest
 import torch
 from torch import nn
 
-from eco_planner.evaluation.runtime import engine as runtime
+from eco_planner.evaluation import runtime
 from eco_planner.models import (
     CheckpointLoadReport,
     Dpm10SamplerConfig,
@@ -200,6 +200,7 @@ def test_runtime_batch_inference_matches_independent_serial_slots(
     batched = fabric_runtime.infer_batch(batched_observation, noise, generators, profile=True)
     unprofiled = fabric_runtime.infer_batch(batched_observation, noise, generators)
 
+    assert isinstance(batched, runtime.InferenceDecision)
     assert batched.ego_trajectories.shape == (batch, 80, 4)
     _assert_trajectory_contract(batched.ego_trajectories)
     np.testing.assert_array_equal(batched.ego_trajectories, noise[:, 0].numpy())
@@ -209,6 +210,9 @@ def test_runtime_batch_inference_matches_independent_serial_slots(
     assert batched.timing.host_to_device_s >= 0.0
     assert batched.timing.execution_s >= 0.0
     assert batched.timing.execution_to_host_s >= 0.0
+    if batch > 1:
+        with pytest.raises(RuntimeError, match="batch-one"):
+            _ = batched.ego_trajectory
     with pytest.raises(AttributeError):
         batched.timing = None  # type: ignore[misc]
     audit = batched.audit_result()

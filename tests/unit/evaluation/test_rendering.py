@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from eco_planner.evaluation.artifacts import video
+from eco_planner.evaluation import rendering as video
 
 
 def test_world_polyline_draws_on_frame() -> None:

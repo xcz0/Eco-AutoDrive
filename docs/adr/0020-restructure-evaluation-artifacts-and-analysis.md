@@ -1,6 +1,6 @@
 # Restructure evaluation artifacts and analysis
 
-**Status:** Accepted and implemented
+**Status:** Superseded by ADR 0021
 **Date:** 2026-08-14
 
 Evaluation 的在线执行、artifact 持久化和离线分析曾位于同一平面包中。这样会模糊依赖方向：离线分析容易意外依赖 MetaDrive、Lightning 或模型 runtime，而在线代码也容易承担本应只属于实验分析的职责。

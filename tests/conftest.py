@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from eco_planner.evaluation.runtime.engine import (
+from eco_planner.evaluation.runtime import (
     FabricInferenceRuntime,
     create_fabric_inference_runtime,
 )

@@ -1,7 +1,8 @@
-"""Single-device Lightning Fabric runtime for closed-loop inference."""
+"""Evaluation inference runtime and process resource configuration."""
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,7 @@ from lightning.fabric import Fabric
 from tensordict import TensorDict, TensorDictBase
 from torch import nn
 
+from eco_planner.evaluation.config import EvaluationJobConfig
 from eco_planner.models import (
     CheckpointLoadReport,
     GuidanceConfig,
@@ -30,6 +32,7 @@ from eco_planner.runtime.contracts import HostExecutionResult
 from eco_planner.runtime.fabric import (
     InferenceRuntimeReport,
     create_single_device_fabric,
+    resolve_runtime_settings,
 )
 from eco_planner.runtime.host_transfer import (
     DeferredHostTensors,
@@ -48,30 +51,6 @@ class BatchInferenceTiming:
 
 
 class InferenceDecision:
-    """Execution data plus an explicitly resolved audit result."""
-
-    def __init__(
-        self,
-        execution: HostExecutionResult,
-        resolve_audit: Callable[[], TensorDictBase],
-    ) -> None:
-        self._execution = execution
-        self._resolve_audit = resolve_audit
-        self._audit: TensorDictBase | None = None
-
-    @property
-    def ego_trajectory(self) -> np.ndarray:
-        return self._execution.ego_trajectory[0]
-
-    def audit_result(self) -> TensorDictBase:
-        """Wait for and return the complete artifact/replay payload."""
-
-        if self._audit is None:
-            self._audit = self._resolve_audit()
-        return self._audit
-
-
-class BatchInferenceDecision:
     """Batched execution data plus an explicitly resolved audit result."""
 
     def __init__(
@@ -86,6 +65,12 @@ class BatchInferenceDecision:
         self._timing = timing
 
     @property
+    def ego_trajectory(self) -> np.ndarray:
+        if self._execution.ego_trajectory.shape[0] != 1:
+            raise RuntimeError("ego_trajectory is only available for a batch-one decision")
+        return self._execution.ego_trajectory[0]
+
+    @property
     def ego_trajectories(self) -> np.ndarray:
         """Return executable ego trajectories with shape ``[B, T, 4]``."""
 
@@ -98,7 +83,7 @@ class BatchInferenceDecision:
         return self._timing
 
     def audit_result(self) -> TensorDictBase:
-        """Wait for and return the complete batched artifact/replay payload."""
+        """Wait for and return the complete artifact/replay payload."""
 
         if self._audit is None:
             self._audit = self._resolve_audit()
@@ -135,6 +120,22 @@ class FabricInferenceRuntime:
 
         return torch.Generator(device=self.device).manual_seed(self.report.seed)
 
+    def sample_noise(self, generators: Sequence[torch.Generator]) -> torch.Tensor:
+        """Draw one standard-normal planner input from each slot-owned RNG stream."""
+
+        config = self.planner_config
+        return torch.cat(
+            [
+                torch.randn(
+                    (1, 1 + config.predicted_neighbor_num, config.future_len, 4),
+                    dtype=torch.float32,
+                    device=self.device,
+                    generator=generator,
+                )
+                for generator in generators
+            ]
+        )
+
     def infer(
         self,
         observation: Mapping[str, torch.Tensor],
@@ -142,15 +143,7 @@ class FabricInferenceRuntime:
     ) -> InferenceDecision:
         """Run one planner pass through the shared batched inference path."""
 
-        config = self.planner_config
-        noise = torch.randn(
-            (1, 1 + config.predicted_neighbor_num, config.future_len, 4),
-            dtype=torch.float32,
-            device=self.device,
-            generator=generator,
-        )
-        batch_decision = self.infer_batch(observation, noise, (generator,))
-        return InferenceDecision(batch_decision._execution, batch_decision.audit_result)
+        return self.infer_batch(observation, self.sample_noise((generator,)), (generator,))
 
     def infer_batch(
         self,
@@ -159,7 +152,7 @@ class FabricInferenceRuntime:
         transition_generators: Sequence[torch.Generator | None],
         *,
         profile: bool = False,
-    ) -> BatchInferenceDecision:
+    ) -> InferenceDecision:
         """Run a batch with independently owned per-slot diffusion RNG streams."""
 
         raw_observation = dict(observation)
@@ -234,7 +227,7 @@ class FabricInferenceRuntime:
             if profile
             else None
         )
-        return BatchInferenceDecision(execution, resolve_audit, timing)
+        return InferenceDecision(execution, resolve_audit, timing)
 
 
 def create_fabric_inference_runtime(
@@ -398,3 +391,68 @@ def _host_result_from_tensors(
 def _synchronize_if_cuda(device: torch.device, enabled: bool) -> None:
     if enabled and device.type == "cuda":
         torch.cuda.synchronize(device)
+
+
+@dataclass(frozen=True)
+class ExecutionReport:
+    """Resolved orchestration and process-resource settings for one Hydra job."""
+
+    mode: str
+    launcher: str
+    worker_count: int
+    vector_env_slots: int | None
+    torch_threads_per_worker: int | None
+    deterministic: bool
+    resolved_accelerator: str
+    process_id: int
+    logical_cpu_count: int
+    resource_profile: str | None
+
+
+def configure_job_execution(config: EvaluationJobConfig) -> ExecutionReport:
+    """Validate orchestration constraints and configure this worker process."""
+
+    execution = config.evaluation.execution
+    mode = execution.mode
+    launcher = "basic" if mode == "serial" else "joblib"
+    workers = 1 if mode == "serial" else config.resources.evaluation_job_worker_count
+    threads = execution.torch_threads_per_worker
+
+    settings = resolve_runtime_settings(config.runtime)
+    logical_cpus = os.cpu_count()
+    if logical_cpus is None or logical_cpus <= 0:
+        raise RuntimeError("logical CPU count is unavailable")
+    if threads is not None:
+        if mode == "parallel" and settings.resolved_accelerator == "cpu":
+            if workers * threads > logical_cpus:
+                raise ValueError(
+                    "parallel CPU thread budget exceeds the available logical CPU count"
+                )
+        torch.set_num_threads(threads)
+
+    if settings.resolved_accelerator == "cuda" and execution.deterministic:
+        workspace = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+        if workspace not in {None, ":4096:8"}:
+            raise ValueError("CUBLAS_WORKSPACE_CONFIG must be ':4096:8'")
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+        torch.backends.cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True)
+
+    if mode == "parallel" and settings.resolved_accelerator == "cuda":
+        if torch.cuda.device_count() != 1:
+            raise ValueError("CUDA parallel execution requires exactly one visible CUDA GPU")
+        if not execution.deterministic:
+            raise ValueError("CUDA parallel execution requires deterministic=true")
+
+    return ExecutionReport(
+        mode=str(mode),
+        launcher=launcher,
+        worker_count=workers,
+        vector_env_slots=execution.vector_env_slots,
+        torch_threads_per_worker=threads,
+        deterministic=execution.deterministic,
+        resolved_accelerator=settings.resolved_accelerator,
+        process_id=os.getpid(),
+        logical_cpu_count=logical_cpus,
+        resource_profile=None if config.resources is None else config.resources.name,
+    )

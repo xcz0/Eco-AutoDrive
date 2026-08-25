@@ -6,19 +6,21 @@ from dataclasses import asdict
 from pathlib import Path
 from time import perf_counter
 
+import torch
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
-from eco_planner.evaluation.artifacts.metadata import write_runtime_metadata
-from eco_planner.evaluation.artifacts.models import JobSummary
-from eco_planner.evaluation.artifacts.writers import write_json
+from eco_planner.artifacts import collect_repository_metadata, write_tracked_diff
+from eco_planner.evaluation.artifacts import JobSummary, RuntimeMetadata, write_json
 from eco_planner.evaluation.config import EvaluationJobConfig
-from eco_planner.evaluation.execution.serial import run_scenario
-from eco_planner.evaluation.execution.vector import run_vector_scenarios
-from eco_planner.evaluation.runtime.engine import (
+from eco_planner.evaluation.execution import run_scenario, run_vector_scenarios
+from eco_planner.evaluation.runtime import (
+    ExecutionReport,
+    configure_job_execution,
     create_fabric_inference_runtime,
 )
-from eco_planner.evaluation.runtime.resources import configure_job_execution
+from eco_planner.models import GuidanceConfig, SamplerReport
+from eco_planner.runtime.fabric import InferenceRuntimeReport
 
 
 def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
@@ -73,3 +75,38 @@ def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
         perf_counter() - started,
     )
     return summary
+
+
+def write_runtime_metadata(
+    output_dir: Path,
+    runtime_report: InferenceRuntimeReport,
+    sampler_report: SamplerReport,
+    guidance_config: GuidanceConfig,
+    execution_report: ExecutionReport,
+    elapsed_seconds: float,
+) -> None:
+    """Write reproducibility metadata and the possibly empty tracked diff."""
+
+    repository_root = Path(to_absolute_path("."))
+    metadata = RuntimeMetadata.model_validate(
+        {
+            **collect_repository_metadata(repository_root),
+            "inference_runtime": asdict(runtime_report),
+            "sampler": asdict(sampler_report),
+            "guidance": asdict(guidance_config),
+            "execution": asdict(execution_report),
+            "elapsed_seconds": elapsed_seconds,
+            "cuda_memory": _cuda_memory_report(runtime_report),
+        }
+    )
+    write_json(output_dir / "runtime_metadata.json", metadata)
+    write_tracked_diff(output_dir / "tracked_diff.patch", repository_root)
+
+
+def _cuda_memory_report(runtime_report: InferenceRuntimeReport) -> dict[str, int] | None:
+    if runtime_report.resolved_accelerator != "cuda":
+        return None
+    return {
+        "peak_allocated_bytes": int(torch.cuda.max_memory_allocated()),
+        "peak_reserved_bytes": int(torch.cuda.max_memory_reserved()),
+    }

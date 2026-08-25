@@ -13,13 +13,12 @@ from tensordict import TensorDict
 from eco_planner.envs import TrajectoryExecutionRecord
 from eco_planner.envs.observation_adapter import TrafficObservationAudit
 from eco_planner.envs.traffic_state import TrafficFrame
-from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
-from eco_planner.evaluation.execution import serial
-from eco_planner.evaluation.runtime.engine import (
-    BatchInferenceDecision,
+from eco_planner.evaluation import execution as serial
+from eco_planner.evaluation.runtime import (
     InferenceDecision,
     InferenceRuntimeReport,
 )
+from eco_planner.evaluation.trace import EpisodeTraceRecorder
 from eco_planner.models import CheckpointLoadReport, NoGuidanceConfig, SamplerReport
 from eco_planner.runtime.contracts import HostExecutionResult
 
@@ -160,12 +159,17 @@ class FakeRuntime:
         audit = TensorDict({"initial_noise": noise, "prediction": prediction}, batch_size=[1])
         return InferenceDecision(HostExecutionResult(prediction[:, 0].numpy()), lambda: audit)
 
+    def sample_noise(self, generators: tuple[torch.Generator, ...]) -> torch.Tensor:
+        return torch.cat(
+            [torch.randn((1, 11, 80, 4), generator=generator) for generator in generators]
+        )
+
     def infer_batch(
         self,
         observation: dict[str, torch.Tensor],
         noise: torch.Tensor,
         generators: tuple[torch.Generator, ...],
-    ) -> BatchInferenceDecision:
+    ) -> InferenceDecision:
         assert observation["ego_current_state"].shape[0] == noise.shape[0] == len(generators)
         prediction = torch.zeros_like(noise)
         prediction[..., 2] = 1.0
@@ -173,7 +177,7 @@ class FakeRuntime:
             {"initial_noise": noise, "prediction": prediction},
             batch_size=[noise.shape[0]],
         )
-        return BatchInferenceDecision(HostExecutionResult(prediction[:, 0].numpy()), lambda: audit)
+        return InferenceDecision(HostExecutionResult(prediction[:, 0].numpy()), lambda: audit)
 
 
 @pytest.fixture

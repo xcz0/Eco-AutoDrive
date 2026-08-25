@@ -5,7 +5,7 @@ import json
 import pytest
 import torch
 
-from eco_planner.evaluation.runtime.engine import FabricInferenceRuntime
+from eco_planner.evaluation.runtime import FabricInferenceRuntime
 
 
 @pytest.mark.slow

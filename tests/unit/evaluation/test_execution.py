@@ -5,7 +5,7 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner.evaluation.config import parse_evaluation_config
-from eco_planner.evaluation.runtime.resources import configure_job_execution
+from eco_planner.evaluation.runtime import configure_job_execution
 
 
 def _config(
@@ -75,7 +75,7 @@ def test_cpu_parallel_execution_applies_explicit_thread_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     applied: list[int] = []
-    monkeypatch.setattr("eco_planner.evaluation.runtime.resources.os.cpu_count", lambda: 8)
+    monkeypatch.setattr("eco_planner.evaluation.runtime.os.cpu_count", lambda: 8)
     monkeypatch.setattr(torch, "set_num_threads", applied.append)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
 
@@ -92,7 +92,7 @@ def test_cpu_parallel_execution_applies_explicit_thread_budget(
 def test_cpu_parallel_execution_rejects_oversubscribed_threads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("eco_planner.evaluation.runtime.resources.os.cpu_count", lambda: 4)
+    monkeypatch.setattr("eco_planner.evaluation.runtime.os.cpu_count", lambda: 4)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
 
     with pytest.raises(ValueError, match="thread budget"):
@@ -102,7 +102,7 @@ def test_cpu_parallel_execution_rejects_oversubscribed_threads(
 def test_cpu_parallel_execution_uses_profile_worker_count_for_thread_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("eco_planner.evaluation.runtime.resources.os.cpu_count", lambda: 8)
+    monkeypatch.setattr("eco_planner.evaluation.runtime.os.cpu_count", lambda: 8)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
 
     with pytest.raises(ValueError, match="thread budget"):

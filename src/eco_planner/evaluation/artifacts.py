@@ -1,13 +1,291 @@
-"""Declarative Artifact v4 NPZ trace field contract."""
+"""Lightweight evaluation artifact models, schemas, readers, and writers."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeVar
 
 import numpy as np
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    TypeAdapter,
+    model_validator,
+)
 
 from eco_planner.execution_contracts import EVALUATION_EXECUTION_STEPS, PLANNER_FUTURE_STEPS
+
+if TYPE_CHECKING:
+    from eco_planner.evaluation.config import VideoConfig
+
+
+class ArtifactModel(BaseModel):
+    model_config = ConfigDict(
+        strict=True,
+        frozen=True,
+        extra="forbid",
+        allow_inf_nan=False,
+    )
+
+
+class ScenarioSummary(ArtifactModel):
+    name: str = Field(min_length=1)
+    map_sequence: str = Field(min_length=1)
+    seed: StrictInt = Field(ge=0)
+
+
+class TerminationSummary(ArtifactModel):
+    type: Literal[
+        "arrive_dest",
+        "time_truncation",
+        "collision",
+        "out_of_road",
+        "runtime_error",
+    ]
+    detail: str = Field(min_length=1)
+
+
+class FailurePhase(str, Enum):
+    RESET = "reset"
+    WARMUP = "warmup"
+    OBSERVATION = "observation"
+    INFERENCE = "inference"
+    EXECUTION = "execution"
+
+
+class FailureSummary(ArtifactModel):
+    phase: FailurePhase
+    exception_type: str = Field(min_length=1)
+    message: str
+    traceback: str = Field(min_length=1)
+
+
+class InferenceRuntimeSummary(ArtifactModel):
+    requested_accelerator: Literal["auto", "cpu", "cuda"]
+    resolved_accelerator: Literal["cpu", "cuda"]
+    requested_precision: Literal["auto", "32-true", "16-mixed", "bf16-mixed"]
+    resolved_precision: Literal["32-true", "16-mixed", "bf16-mixed"]
+    device: str = Field(min_length=1)
+    seed: StrictInt = Field(ge=0)
+    world_size: Literal[1]
+
+
+class CheckpointSummary(ArtifactModel):
+    ema_tensor_count: StrictInt = Field(gt=0)
+    parameter_count: StrictInt = Field(gt=0)
+
+
+class SamplerSummary(ArtifactModel):
+    name: Literal["dpm10", "ddim5"]
+    implementation: Literal["diffusers"]
+    num_steps: StrictInt = Field(gt=0)
+    timesteps: tuple[StrictFloat, ...] | None
+    initial_noise_scale: StrictFloat = Field(gt=0.0)
+    ddim_stochasticity: StrictFloat = Field(ge=0.0, le=1.0)
+    parity_label: str = Field(min_length=1)
+
+
+class NoGuidanceSummary(ArtifactModel):
+    name: Literal["none"]
+
+
+class OrthogonalGuidanceSummary(ArtifactModel):
+    name: Literal["orthogonal_reference"]
+    formula_label: Literal["centered_energy_gradient_delta_v1"]
+    lateral_scale: StrictFloat = Field(ge=-1.0, le=1.0)
+    longitudinal_scale: StrictFloat = Field(ge=-1.0, le=1.0)
+    lateral_max_offset_m: StrictFloat = Field(gt=0.0)
+    longitudinal_max_speed_fraction: StrictFloat = Field(gt=0.0)
+    trajectory_dt_s: StrictFloat = Field(gt=0.0)
+    gradient_step_coefficient: Literal[1.0]
+    reference_refresh_cycles: Literal[1]
+    share_scene_encoding: Literal[True]
+    share_initial_noise: Literal[True]
+    share_transition_noise: Literal[True]
+    heading_norm_epsilon: StrictFloat = Field(gt=0.0)
+    zero_speed_tolerance_mps: StrictFloat = Field(gt=0.0)
+
+
+GuidanceSummary = Annotated[
+    NoGuidanceSummary | OrthogonalGuidanceSummary,
+    Field(discriminator="name"),
+]
+
+
+class ExecutionSummary(ArtifactModel):
+    mode: Literal["serial", "parallel"]
+    launcher: Literal["basic", "joblib"]
+    worker_count: StrictInt = Field(gt=0)
+    vector_env_slots: StrictInt | None = Field(default=None, gt=0)
+    torch_threads_per_worker: StrictInt | None = Field(default=None, gt=0)
+    deterministic: StrictBool
+    resolved_accelerator: Literal["cpu", "cuda"]
+    process_id: StrictInt = Field(gt=0)
+    logical_cpu_count: StrictInt = Field(gt=0)
+    resource_profile: str | None = None
+
+
+class CudaMemorySummary(ArtifactModel):
+    peak_allocated_bytes: StrictInt = Field(ge=0)
+    peak_reserved_bytes: StrictInt = Field(ge=0)
+
+
+class MapInputAudit(ArtifactModel):
+    speed_limit_sentinel_replaced_count: StrictInt = Field(ge=0)
+    speed_limit_existing_preserved_count: StrictInt = Field(ge=0)
+    configured_programmatic_lane_speed_limit_kmh: StrictFloat = Field(gt=0.0)
+    block_speed_limit_profile_kmh: tuple[StrictFloat, ...] | None = None
+    block_speed_limit_profile_applied_lane_count: StrictInt = Field(default=0, ge=0)
+    lane_speed_limit_kmh_counts: dict[str, StrictInt]
+    valid_lane_count_min: StrictInt = Field(ge=0)
+    valid_lane_count_max: StrictInt = Field(ge=0)
+    speed_limit_valid_count_min: StrictInt = Field(ge=0)
+    speed_limit_valid_count_max: StrictInt = Field(ge=0)
+    speed_limit_mps_min: StrictFloat | None = Field(default=None, ge=0.0)
+    speed_limit_mps_max: StrictFloat | None = Field(default=None, ge=0.0)
+    speed_limit_mps_unique_values: tuple[StrictFloat, ...]
+
+
+class SpeedSummary(ArtifactModel):
+    minimum: StrictFloat
+    mean: StrictFloat
+    maximum: StrictFloat
+
+
+class EnergySummary(ArtifactModel):
+    metric: Literal["metadrive_fuel_proxy"]
+    total_ml: StrictFloat = Field(ge=0.0)
+    distance_m: StrictFloat = Field(ge=0.0)
+    ml_per_km: StrictFloat | None = Field(default=None, ge=0.0)
+
+
+class ErrorValues(ArtifactModel):
+    maximum: StrictFloat
+    mean: StrictFloat
+    final: StrictFloat
+
+
+class ExecutionErrorSummary(ArtifactModel):
+    position_m: ErrorValues
+    heading_rad: ErrorValues
+
+
+class WarmupSummary(ArtifactModel):
+    simulator_steps: StrictInt = Field(ge=0)
+    simulated_seconds: StrictFloat = Field(ge=0.0)
+    ego_displacement_m_maximum: StrictFloat = Field(ge=0.0)
+    participant_count_minimum: StrictInt = Field(ge=0)
+    participant_count_maximum: StrictInt = Field(ge=0)
+
+
+class TrafficObservationSummary(ArtifactModel):
+    planning_frames: StrictInt = Field(ge=0)
+    frames_with_participants: StrictInt = Field(ge=0)
+    frames_with_participants_fraction: StrictFloat = Field(ge=0.0, le=1.0)
+    participant_count_minimum: StrictInt = Field(ge=0)
+    participant_count_maximum: StrictInt = Field(ge=0)
+    nearest_participant_distance_m_minimum: StrictFloat | None = Field(default=None, ge=0.0)
+
+
+class CompletedEpisodeSummary(ArtifactModel):
+    status: Literal["completed"] = "completed"
+    trace_status: Literal["complete"] = "complete"
+    scenario: ScenarioSummary
+    evaluation_mode: Literal["no_traffic", "traffic"]
+    traffic_density: StrictFloat = Field(ge=0.0, le=1.0)
+    route_length_m: StrictFloat = Field(gt=0.0)
+    noise_seed: StrictInt = Field(ge=0)
+    sampler: SamplerSummary
+    guidance: GuidanceSummary
+    plan_cycles: StrictInt = Field(gt=0)
+    simulator_steps: StrictInt = Field(gt=0)
+    simulated_seconds: StrictFloat = Field(gt=0.0)
+    environment_steps_including_warmup: StrictInt = Field(gt=0)
+    total_reward: StrictFloat
+    distance_m: StrictFloat = Field(ge=0.0)
+    energy: EnergySummary
+    speed_mps: SpeedSummary
+    route_completion: StrictFloat
+    arrive_dest: StrictBool
+    out_of_road: StrictBool
+    crash_vehicle: StrictBool
+    crash_object: StrictBool
+    crash_building: StrictBool
+    crash_human: StrictBool
+    terminated: StrictBool
+    truncated: StrictBool
+    terminal_reason: str = Field(min_length=1)
+    termination: TerminationSummary
+    map_input_audit: MapInputAudit
+    history_warmup: WarmupSummary
+    traffic_observation: TrafficObservationSummary
+    trajectory_execution_error: ExecutionErrorSummary
+
+
+class FailedEpisodeSummary(ArtifactModel):
+    status: Literal["failed"] = "failed"
+    scenario: ScenarioSummary
+    evaluation_mode: Literal["no_traffic", "traffic"]
+    traffic_density: StrictFloat = Field(ge=0.0, le=1.0)
+    noise_seed: StrictInt = Field(ge=0)
+    sampler: SamplerSummary
+    guidance: GuidanceSummary
+    trace_status: Literal["partial", "empty"]
+    energy: EnergySummary | None = None
+    termination: TerminationSummary
+    failure: FailureSummary
+
+
+EpisodeSummary = Annotated[
+    CompletedEpisodeSummary | FailedEpisodeSummary,
+    Field(discriminator="status"),
+]
+
+
+class JobSummary(ArtifactModel):
+    status: Literal["completed", "failed"]
+    runtime: InferenceRuntimeSummary
+    checkpoint: CheckpointSummary
+    sampler: SamplerSummary
+    guidance: GuidanceSummary
+    episodes: tuple[EpisodeSummary, ...]
+
+    @model_validator(mode="after")
+    def validate_status(self) -> JobSummary:
+        expected = (
+            "failed" if any(item.status == "failed" for item in self.episodes) else "completed"
+        )
+        if self.status != expected:
+            raise ValueError("job status must agree with episode statuses")
+        if not self.episodes:
+            raise ValueError("job summary must contain at least one episode")
+        return self
+
+
+class RuntimeMetadata(ArtifactModel):
+    git_head: str = Field(min_length=1)
+    git_status_short: tuple[str, ...]
+    platform: str = Field(min_length=1)
+    python: str = Field(min_length=1)
+    torch: str = Field(min_length=1)
+    lightning: str = Field(min_length=1)
+    metadrive: str = Field(min_length=1)
+    pydantic: str = Field(min_length=1)
+    inference_runtime: InferenceRuntimeSummary
+    sampler: SamplerSummary
+    guidance: GuidanceSummary
+    execution: ExecutionSummary
+    elapsed_seconds: StrictFloat = Field(ge=0.0)
+    cuda_memory: CudaMemorySummary | None
+
 
 PLANNER_ACTOR_COUNT = 11
 PLANNER_STATE_DIM = 4
@@ -280,3 +558,82 @@ def validate_trace_arrays(
     nearest = mapping["traffic_nearest_distance_m"][mapping["traffic_has_nearest"]]
     if np.any(nearest < 0.0):
         raise ValueError("trace nearest traffic distances must be non-negative")
+
+
+_EPISODE_ADAPTER = TypeAdapter(EpisodeSummary)
+_Artifact = TypeVar("_Artifact", JobSummary, RuntimeMetadata)
+
+
+@dataclass(frozen=True)
+class LoadedTraceArtifact:
+    """Validated current-schema trace arrays."""
+
+    trace_status: str
+    arrays: dict[str, np.ndarray]
+
+
+def load_job_summary(path: Path) -> JobSummary:
+    """Load a typed current-schema job summary without compatibility conversion."""
+
+    return _load_json(path, JobSummary)
+
+
+def load_episode_summary(path: Path) -> EpisodeSummary:
+    """Load a typed current-schema episode summary without compatibility conversion."""
+
+    return _load_episode_json(path)
+
+
+def load_runtime_metadata(path: Path) -> RuntimeMetadata:
+    """Load typed current-schema runtime metadata without compatibility conversion."""
+
+    return _load_json(path, RuntimeMetadata)
+
+
+def load_trace_artifact(path: Path) -> LoadedTraceArtifact:
+    """Load current-schema NPZ arrays without synthesizing missing fields."""
+
+    with np.load(path, allow_pickle=False) as trace:
+        arrays = {name: trace[name] for name in trace.files}
+    status = str(arrays["trace_status"].item())
+    validate_trace_arrays(arrays, expected_trace_status=status)
+    return LoadedTraceArtifact(status, arrays)
+
+
+def _load_json(path: Path, model: type[_Artifact]) -> _Artifact:
+    return model.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def _load_episode_json(path: Path) -> EpisodeSummary:
+    return _EPISODE_ADAPTER.validate_json(path.read_text(encoding="utf-8"))
+
+
+def write_episode_artifacts(
+    output_dir: Path,
+    trace_arrays: dict[str, np.ndarray],
+    frames: list[np.ndarray],
+    summary: CompletedEpisodeSummary | FailedEpisodeSummary,
+    video_config: VideoConfig,
+) -> None:
+    """Persist one finalized episode without recomputing trace arrays."""
+
+    output_dir.mkdir(parents=True, exist_ok=False)
+    np.savez(output_dir / "trace.npz", **trace_arrays)
+    write_json(output_dir / "summary.json", summary)
+    if video_config.enabled:
+        if summary.status == "completed" and not frames:
+            raise RuntimeError("video output was enabled but no frames were rendered")
+        if frames:
+            from eco_planner.evaluation.rendering import write_gif
+
+            write_gif(frames, output_dir / "closed_loop.gif", video_config.fps)
+
+
+def write_json(path: Path, payload: Any) -> None:
+    """Persist a Pydantic JSON artifact with stable formatting."""
+
+    if isinstance(payload, BaseModel):
+        payload = payload.model_dump(mode="json")
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
+    )

@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 
 from eco_planner.envs import TrajectoryExecutionRecord
-from eco_planner.evaluation.artifacts.models import (
+from eco_planner.evaluation.artifacts import (
     CompletedEpisodeSummary,
     FailedEpisodeSummary,
     FailurePhase,

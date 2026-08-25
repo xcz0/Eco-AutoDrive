@@ -15,10 +15,9 @@ from eco_planner.envs import (
     VectorEnvTiming,
 )
 from eco_planner.envs.traffic_state import TrafficFrame
-from eco_planner.evaluation import episode
-from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
+from eco_planner.evaluation import execution as evaluation_execution
 from eco_planner.evaluation.config import ScenarioConfig, parse_evaluation_config
-from eco_planner.evaluation.execution import serial, vector
+from eco_planner.evaluation.trace import EpisodeTraceRecorder
 
 
 def test_run_scenario_replans_and_persists_trace(
@@ -26,7 +25,7 @@ def test_run_scenario_replans_and_persists_trace(
 ) -> None:
     patch_episode_dependencies()
 
-    summary = serial.run_scenario(
+    summary = evaluation_execution.run_scenario(
         ScenarioConfig(name="fake", map="S", seed=3),
         fake_runtime,
         parse_evaluation_config(evaluation_config),
@@ -63,11 +62,13 @@ def test_failed_episode_preserves_energy_from_partial_execution_trace(
     patch_episode_dependencies()
 
     def fail_after_execution(*args, **kwargs):
-        raise episode.EpisodeFailure(episode.FailurePhase.EXECUTION, RuntimeError("injected"))
+        raise evaluation_execution.EpisodeFailure(
+            evaluation_execution.FailurePhase.EXECUTION, RuntimeError("injected")
+        )
 
-    monkeypatch.setattr(episode, "build_episode_summary", fail_after_execution)
+    monkeypatch.setattr(evaluation_execution, "build_episode_summary", fail_after_execution)
 
-    summary = serial.run_scenario(
+    summary = evaluation_execution.run_scenario(
         ScenarioConfig(name="fake", map="S", seed=3),
         fake_runtime,
         parse_evaluation_config(evaluation_config),
@@ -120,9 +121,9 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
             env = fake_env_class({**self.configs[slot], "map": scenario.map})  # type: ignore[operator]
             self.envs[slot] = env
             env.reset(scenario.seed)
-            adapter = serial.NoTrafficMetaDriveObservationAdapter(None, 100.0)
+            adapter = evaluation_execution.NoTrafficMetaDriveObservationAdapter(None, 100.0)
             adapter.reset(env)
-            state = episode.vehicle_state(env)
+            state = evaluation_execution.vehicle_state(env)
             return VectorEnvReset(
                 slot,
                 scenario,
@@ -154,7 +155,7 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
                         arrive_dest=terminated,
                     )
                     info = {"trajectory_execution": execution}
-                adapter = serial.NoTrafficMetaDriveObservationAdapter(None, 100.0)
+                adapter = evaluation_execution.NoTrafficMetaDriveObservationAdapter(None, 100.0)
                 steps.append(
                     VectorEnvStep(
                         slot,
@@ -169,7 +170,7 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
                 )
             return tuple(steps)
 
-    monkeypatch.setattr(vector, "VectorMetaDriveEnv", FakeVectorEnv)
+    monkeypatch.setattr(evaluation_execution, "VectorMetaDriveEnv", FakeVectorEnv)
     evaluation_config.evaluation.execution.vector_env_slots = 2  # type: ignore[attr-defined]
     evaluation_config.evaluation.evaluated_horizon_steps = 15  # type: ignore[attr-defined]
     evaluation_config.env.horizon = 15  # type: ignore[attr-defined]
@@ -180,7 +181,7 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
         ScenarioConfig(name="third", map="S", seed=3),
     )
 
-    summaries = vector.run_vector_scenarios(scenarios, fake_runtime, config, tmp_path)
+    summaries = evaluation_execution.run_vector_scenarios(scenarios, fake_runtime, config, tmp_path)
 
     assert [summary.scenario.name for summary in summaries] == ["first", "second", "third"]
     assert [(summary.plan_cycles, summary.simulator_steps) for summary in summaries] == [
@@ -195,22 +196,24 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
         with np.load(tmp_path / scenario.name / "trace.npz") as trace:
             assert trace["initial_noise"].shape == (summary.plan_cycles, 11, 80, 4)
 
-    initialize = vector._initialize_vector_slot
+    initialize = evaluation_execution._initialize_vector_slot
 
     def fail_first_reset(reset, runtime, selected_config):
         if reset.scenario.name == "first":
-            raise episode.EpisodeFailure(
-                episode.FailurePhase.RESET, RuntimeError("invalid route length")
+            raise evaluation_execution.EpisodeFailure(
+                evaluation_execution.FailurePhase.RESET, RuntimeError("invalid route length")
             )
         return initialize(reset, runtime, selected_config)
 
-    monkeypatch.setattr(vector, "_initialize_vector_slot", fail_first_reset)
+    monkeypatch.setattr(evaluation_execution, "_initialize_vector_slot", fail_first_reset)
     failure_root = tmp_path / "reset-failure"
 
-    failure_summaries = vector.run_vector_scenarios(scenarios, fake_runtime, config, failure_root)
+    failure_summaries = evaluation_execution.run_vector_scenarios(
+        scenarios, fake_runtime, config, failure_root
+    )
 
     assert [summary.status for summary in failure_summaries] == ["failed", "completed", "completed"]
-    assert failure_summaries[0].failure.phase == episode.FailurePhase.RESET
+    assert failure_summaries[0].failure.phase == evaluation_execution.FailurePhase.RESET
     assert (failure_root / "first" / "summary.json").exists()
     assert (failure_root / "second" / "summary.json").exists()
     assert (failure_root / "third" / "summary.json").exists()
@@ -222,11 +225,11 @@ def test_route_length_accepts_finite_numpy_lane_scalar() -> None:
         agent=SimpleNamespace(navigation=SimpleNamespace(checkpoints=["start", "end"])),
         current_map=SimpleNamespace(road_network=SimpleNamespace(graph={"start": {"end": [lane]}})),
     )
-    assert episode.route_length_m(env) == pytest.approx(123.5)
+    assert evaluation_execution.route_length_m(env) == pytest.approx(123.5)
 
 
 def test_stationary_trajectory_satisfies_execution_contract() -> None:
-    trajectory = episode.stationary_trajectory()
+    trajectory = evaluation_execution.stationary_trajectory()
 
     assert trajectory.shape == (80, 4)
     assert trajectory.dtype == np.float32
@@ -267,7 +270,7 @@ def test_traffic_warmup_records_stationary_history() -> None:
     trace = EpisodeTraceRecorder.from_initial_state(
         np.zeros(7), max_plan_cycles=0, max_warmup_steps=20, guided=False
     )
-    episode.run_traffic_warmup(WarmupEnv(), adapter, trace, 20)  # type: ignore[arg-type]
+    evaluation_execution.run_traffic_warmup(WarmupEnv(), adapter, trace, 20)  # type: ignore[arg-type]
     assert len(adapter.frames) == 20
     assert np.concatenate(trace.warmup_state_arrays).shape == (20, 7)
 
