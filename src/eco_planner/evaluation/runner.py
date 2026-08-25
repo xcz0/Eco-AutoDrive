@@ -13,7 +13,8 @@ from eco_planner.evaluation.artifacts.io import write_json
 from eco_planner.evaluation.artifacts.metadata import write_runtime_metadata
 from eco_planner.evaluation.artifacts.models import JobSummary
 from eco_planner.evaluation.config import EvaluationJobConfig
-from eco_planner.evaluation.episode import run_scenario, run_vector_scenarios
+from eco_planner.evaluation.execution.serial import run_scenario
+from eco_planner.evaluation.execution.vector import run_vector_scenarios
 from eco_planner.evaluation.runtime.engine import (
     create_fabric_inference_runtime,
 )

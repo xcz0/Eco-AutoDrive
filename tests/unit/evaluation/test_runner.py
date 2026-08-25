@@ -5,9 +5,10 @@ import json
 import numpy as np
 import pytest
 
-from eco_planner.evaluation import episode, runner
+from eco_planner.evaluation import runner
 from eco_planner.evaluation.artifacts.models import FailurePhase
 from eco_planner.evaluation.config import parse_evaluation_config
+from eco_planner.evaluation.execution import serial
 from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.runner import run_evaluation
 
@@ -93,7 +94,7 @@ def test_run_evaluation_selects_vector_runner_when_slots_are_configured(
 
     def vector_runner(specs, runtime, config, output_dir):
         calls.append(tuple(spec.name for spec in specs))
-        return tuple(episode.run_scenario(spec, runtime, config, output_dir) for spec in specs)
+        return tuple(serial.run_scenario(spec, runtime, config, output_dir) for spec in specs)
 
     monkeypatch.setattr(runner, "run_vector_scenarios", vector_runner)
 

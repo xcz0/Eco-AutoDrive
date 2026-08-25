@@ -13,8 +13,8 @@ from tensordict import TensorDict
 from eco_planner.envs import TrajectoryExecutionRecord
 from eco_planner.envs.observation_adapter import TrafficObservationAudit
 from eco_planner.envs.traffic_state import TrafficFrame
-from eco_planner.evaluation import episode
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
+from eco_planner.evaluation.execution import serial
 from eco_planner.evaluation.runtime.engine import (
     BatchInferenceDecision,
     InferenceDecision,
@@ -230,9 +230,9 @@ def fake_env_class() -> type[FakeEnv]:
 @pytest.fixture
 def patch_episode_dependencies(monkeypatch: pytest.MonkeyPatch) -> Callable[[object], None]:
     def patch(environment: object = FakeEnv) -> None:
-        monkeypatch.setattr(episode, "TrajectoryMetaDriveEnv", environment)
-        monkeypatch.setattr(episode, "NoTrafficMetaDriveObservationAdapter", FakeAdapter)
-        monkeypatch.setattr(episode, "route_length_m", lambda env: 100.0)
+        monkeypatch.setattr(serial, "TrajectoryMetaDriveEnv", environment)
+        monkeypatch.setattr(serial, "NoTrafficMetaDriveObservationAdapter", FakeAdapter)
+        monkeypatch.setattr(serial, "route_length_m", lambda env: 100.0)
 
     return patch
 
