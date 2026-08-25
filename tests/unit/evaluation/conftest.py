@@ -14,13 +14,14 @@ from eco_planner.envs.observation_adapter import TrafficObservationAudit
 from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation import episode
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
-from eco_planner.evaluation.runtime.contracts import HostExecutionResult, HostInferenceResult
+from eco_planner.evaluation.runtime.contracts import HostInferenceResult
 from eco_planner.evaluation.runtime.engine import (
     BatchInferenceDecision,
     InferenceDecision,
     InferenceRuntimeReport,
 )
 from eco_planner.models import CheckpointLoadReport, NoGuidanceConfig, SamplerReport
+from eco_planner.runtime.contracts import HostExecutionResult
 
 
 class FakeAgent:

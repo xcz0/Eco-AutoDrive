@@ -8,8 +8,6 @@ import pytest
 import torch
 from torch import nn
 
-from eco_planner.evaluation.config import RuntimeConfig
-from eco_planner.evaluation.runtime import contracts
 from eco_planner.evaluation.runtime import engine as runtime
 from eco_planner.models import (
     CheckpointLoadReport,
@@ -18,6 +16,8 @@ from eco_planner.models import (
     OfficialDiffusionPlannerConfig,
 )
 from eco_planner.models.planner import PlannerInferenceResult
+from eco_planner.runtime import fabric, host_transfer
+from eco_planner.runtime.config import RuntimeConfig
 
 
 def _assert_trajectory_contract(trajectory: np.ndarray) -> None:
@@ -40,7 +40,7 @@ def _config(**overrides: object) -> RuntimeConfig:
 def test_auto_runtime_resolves_cpu_fp32(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
 
-    settings = runtime.resolve_runtime_settings(_config())
+    settings = fabric.resolve_runtime_settings(_config())
 
     assert settings.resolved_accelerator == "cpu"
     assert settings.resolved_precision == "32-true"
@@ -58,7 +58,7 @@ def test_auto_runtime_resolves_cuda_precision_by_capability(
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: bf16_supported)
 
-    settings = runtime.resolve_runtime_settings(_config())
+    settings = fabric.resolve_runtime_settings(_config())
 
     assert settings.resolved_accelerator == "cuda"
     assert settings.resolved_precision == expected_precision
@@ -82,14 +82,14 @@ def test_runtime_rejects_invalid_configuration(
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
 
     with pytest.raises(error, match=message):
-        runtime.resolve_runtime_settings(_config(**overrides))
+        fabric.resolve_runtime_settings(_config(**overrides))
 
 
 def test_runtime_rejects_unavailable_explicit_cuda(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
 
     with pytest.raises(RuntimeError, match="unavailable"):
-        runtime.resolve_runtime_settings(_config(accelerator="cuda"))
+        fabric.resolve_runtime_settings(_config(accelerator="cuda"))
 
 
 def test_runtime_rejects_unsupported_explicit_bf16(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -97,7 +97,7 @@ def test_runtime_rejects_unsupported_explicit_bf16(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: False)
 
     with pytest.raises(RuntimeError, match="does not support BF16"):
-        runtime.resolve_runtime_settings(_config(accelerator="cuda", precision="bf16-mixed"))
+        fabric.resolve_runtime_settings(_config(accelerator="cuda", precision="bf16-mixed"))
 
 
 class _TinyPlanner(nn.Module):
@@ -255,8 +255,8 @@ def test_cuda_execution_copy_does_not_wait_for_deferred_audit(
     monkeypatch.setattr(torch.cuda, "stream", _stream_context)
     device = torch.device("cuda")
 
-    deferred = contracts.defer_host_tensors({"audit": (torch.ones(4), torch.float32)}, device)
-    execution = contracts.copy_execution_trajectory(
+    deferred = host_transfer.defer_host_tensors({"audit": (torch.ones(4), torch.float32)}, device)
+    execution = host_transfer.copy_execution_trajectory(
         torch.ones((2, 11, 80, 4), dtype=torch.float64), device
     )
 

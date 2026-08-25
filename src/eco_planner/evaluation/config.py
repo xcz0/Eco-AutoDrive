@@ -21,6 +21,7 @@ from eco_planner.models import (
     parse_guidance_config,
     parse_sampler_config,
 )
+from eco_planner.runtime.config import RuntimeConfig
 from eco_planner.runtime_resources import ResourceProfileConfig
 
 
@@ -37,12 +38,6 @@ class _StrictModel(BaseModel):
 class ScenarioConfig(_StrictModel):
     name: str = Field(min_length=1)
     map: str = Field(min_length=1)
-    seed: StrictInt = Field(ge=0)
-
-
-class RuntimeConfig(_StrictModel):
-    accelerator: Literal["auto", "cpu", "cuda"]
-    precision: Literal["auto", "32-true", "16-mixed", "bf16-mixed"]
     seed: StrictInt = Field(ge=0)
 
 

@@ -12,14 +12,6 @@ import torch
 from lightning.fabric import Fabric
 from tensordict import TensorDictBase
 
-from eco_planner.evaluation.config import RuntimeConfig
-from eco_planner.evaluation.runtime.contracts import (
-    DeferredHostTensors,
-    HostExecutionResult,
-    copy_execution_trajectory,
-    defer_host_tensors,
-)
-from eco_planner.evaluation.runtime.engine import InferenceRuntimeReport, resolve_runtime_settings
 from eco_planner.models import (
     CheckpointLoadReport,
     OfficialDiffusionPlannerConfig,
@@ -42,6 +34,14 @@ from eco_planner.rl.policy import (
     validate_exploration_policy_context,
 )
 from eco_planner.rl.rollout import build_training_decision
+from eco_planner.runtime.config import RuntimeConfig
+from eco_planner.runtime.contracts import HostExecutionResult
+from eco_planner.runtime.fabric import InferenceRuntimeReport, create_single_device_fabric
+from eco_planner.runtime.host_transfer import (
+    DeferredHostTensors,
+    copy_execution_trajectory,
+    defer_host_tensors,
+)
 
 
 @dataclass(frozen=True)
@@ -394,13 +394,7 @@ def create_fabric_rollout_runtime(
 
     if type(policy_action_seed) is not int or policy_action_seed < 0:
         raise ValueError("policy_action_seed must be a non-negative integer")
-    settings = resolve_runtime_settings(runtime_config)
-    fabric = Fabric(
-        accelerator=settings.resolved_accelerator,
-        devices=1,
-        precision=settings.resolved_precision,
-    )
-    fabric.seed_everything(settings.seed, workers=True, verbose=False)
+    fabric, report = create_single_device_fabric(runtime_config)
     planner, checkpoint_report = load_official_diffusion_planner(
         args_path, checkpoint_path, sampler_config, guidance_config
     )
@@ -408,15 +402,6 @@ def create_fabric_rollout_runtime(
     wrapped_planner = fabric.setup_module(planner)
     wrapped_policy = fabric.setup_module(policy)
     policy = _unwrap_exploration_policy(wrapped_policy)
-    report = InferenceRuntimeReport(
-        requested_accelerator=settings.requested_accelerator,
-        resolved_accelerator=settings.resolved_accelerator,
-        requested_precision=settings.requested_precision,
-        resolved_precision=settings.resolved_precision,
-        device=str(fabric.device),
-        seed=settings.seed,
-        world_size=int(fabric.world_size),
-    )
     if report.world_size != 1:
         raise RuntimeError("rollout runtime requires Fabric world_size=1")
     return FabricRolloutRuntime(
@@ -424,7 +409,7 @@ def create_fabric_rollout_runtime(
         wrapped_planner,
         policy,
         report,
-        noise_seed=settings.seed,
+        noise_seed=report.seed,
         policy_action_seed=policy_action_seed,
         checkpoint_report=checkpoint_report,
         sampler=sampler_report(sampler_config),

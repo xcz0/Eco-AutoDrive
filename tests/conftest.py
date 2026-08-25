@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 import torch
 
-from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.runtime.engine import (
     FabricInferenceRuntime,
     create_fabric_inference_runtime,
@@ -18,6 +17,7 @@ from eco_planner.models import (
     OfficialDiffusionPlannerConfig,
     OrthogonalReferenceGuidanceConfig,
 )
+from eco_planner.runtime.config import RuntimeConfig
 
 
 @pytest.fixture

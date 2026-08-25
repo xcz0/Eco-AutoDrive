@@ -6,11 +6,11 @@ import pytest
 import torch
 from hydra import compose, initialize_config_dir
 
-from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.models import Ddim5SamplerConfig, OrthogonalPolicyGuidanceConfig
 from eco_planner.rl.collector import collect_rollout_episode
 from eco_planner.rl.config import ExplorationPolicyConfig, parse_rollout_config
 from eco_planner.rl.runtime import create_fabric_rollout_runtime
+from eco_planner.runtime.config import RuntimeConfig
 
 
 @pytest.mark.slow

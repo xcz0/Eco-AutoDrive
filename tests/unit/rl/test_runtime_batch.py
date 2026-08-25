@@ -5,10 +5,10 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from eco_planner.evaluation.runtime.engine import InferenceRuntimeReport
 from eco_planner.models import OfficialDiffusionPlannerConfig, PlannerInferenceResult
 from eco_planner.rl.policy import ExplorationPolicy, ExplorationPolicyContext
 from eco_planner.rl.runtime import FabricRolloutRuntime
+from eco_planner.runtime.fabric import InferenceRuntimeReport
 
 
 def _assert_trajectory_contract(trajectory: np.ndarray) -> None:

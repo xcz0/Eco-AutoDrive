@@ -15,13 +15,14 @@ from pydantic import (
     model_validator,
 )
 
-from eco_planner.evaluation.config import ModelPathsConfig, RuntimeConfig, ScenarioConfig
+from eco_planner.evaluation.config import ModelPathsConfig, ScenarioConfig
 from eco_planner.models import (
     OrthogonalPolicyGuidanceConfig,
     SamplerConfig,
     parse_guidance_config,
     parse_sampler_config,
 )
+from eco_planner.runtime.config import RuntimeConfig
 from eco_planner.runtime_resources import ResourceProfileConfig
 
 

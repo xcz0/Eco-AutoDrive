@@ -13,14 +13,9 @@ import torch
 from lightning.fabric import Fabric
 from torch import nn
 
-from eco_planner.evaluation.config import RuntimeConfig
 from eco_planner.evaluation.runtime.contracts import (
-    DeferredHostTensors,
-    HostExecutionResult,
     HostGuidanceDiagnostics,
     HostInferenceResult,
-    copy_execution_trajectory,
-    defer_host_tensors,
 )
 from eco_planner.models import (
     CheckpointLoadReport,
@@ -33,19 +28,17 @@ from eco_planner.models import (
     load_official_diffusion_planner,
     sampler_report,
 )
-
-
-@dataclass(frozen=True)
-class InferenceRuntimeReport:
-    """Requested and resolved execution settings persisted with evaluation artifacts."""
-
-    requested_accelerator: str
-    resolved_accelerator: str
-    requested_precision: str
-    resolved_precision: str
-    device: str
-    seed: int
-    world_size: int
+from eco_planner.runtime.config import RuntimeConfig
+from eco_planner.runtime.contracts import HostExecutionResult
+from eco_planner.runtime.fabric import (
+    InferenceRuntimeReport,
+    create_single_device_fabric,
+)
+from eco_planner.runtime.host_transfer import (
+    DeferredHostTensors,
+    copy_execution_trajectory,
+    defer_host_tensors,
+)
 
 
 @dataclass(frozen=True)
@@ -55,15 +48,6 @@ class BatchInferenceTiming:
     host_to_device_s: float
     execution_s: float
     execution_to_host_s: float
-
-
-@dataclass(frozen=True)
-class _ResolvedRuntimeSettings:
-    requested_accelerator: str
-    resolved_accelerator: str
-    requested_precision: str
-    resolved_precision: str
-    seed: int
 
 
 class InferenceDecision:
@@ -265,15 +249,9 @@ def create_fabric_inference_runtime(
 ) -> FabricInferenceRuntime:
     """Resolve settings, seed all RNGs, and assemble the frozen planner with Fabric."""
 
-    settings = resolve_runtime_settings(runtime_config)
-    if settings.resolved_accelerator == "cuda":
-        torch.set_float32_matmul_precision("high")
-    fabric = Fabric(
-        accelerator=settings.resolved_accelerator,
-        devices=1,
-        precision=settings.resolved_precision,
+    fabric, report = create_single_device_fabric(
+        runtime_config, configure_cuda_matmul_precision=True
     )
-    fabric.seed_everything(settings.seed, workers=True, verbose=False)
     planner, checkpoint_report = load_official_diffusion_planner(
         args_path,
         checkpoint_path,
@@ -282,15 +260,6 @@ def create_fabric_inference_runtime(
     )
     planner_config = planner.config
     wrapped_planner = fabric.setup_module(planner)
-    report = InferenceRuntimeReport(
-        requested_accelerator=settings.requested_accelerator,
-        resolved_accelerator=settings.resolved_accelerator,
-        requested_precision=settings.requested_precision,
-        resolved_precision=settings.resolved_precision,
-        device=str(fabric.device),
-        seed=settings.seed,
-        world_size=int(fabric.world_size),
-    )
     if report.world_size != 1:
         raise RuntimeError("closed-loop inference requires Fabric world_size=1")
     return FabricInferenceRuntime(
@@ -451,39 +420,3 @@ def _host_result_from_tensors(
 def _synchronize_if_cuda(device: torch.device, enabled: bool) -> None:
     if enabled and device.type == "cuda":
         torch.cuda.synchronize(device)
-
-
-def resolve_runtime_settings(runtime_config: RuntimeConfig) -> _ResolvedRuntimeSettings:
-    """Resolve the configured Fabric accelerator and precision against available hardware."""
-
-    accelerator = runtime_config.accelerator
-    precision = runtime_config.precision
-    seed = runtime_config.seed
-
-    cuda_available = torch.cuda.is_available()
-    if accelerator == "cuda" and not cuda_available:
-        raise RuntimeError("CUDA was explicitly requested but is unavailable")
-    resolved_accelerator = (
-        "cuda" if accelerator == "cuda" or (accelerator == "auto" and cuda_available) else "cpu"
-    )
-
-    bf16_supported = resolved_accelerator == "cuda" and torch.cuda.is_bf16_supported()
-    if precision == "auto":
-        if resolved_accelerator == "cpu":
-            resolved_precision = "32-true"
-        else:
-            resolved_precision = "bf16-mixed" if bf16_supported else "16-mixed"
-    else:
-        resolved_precision = precision
-    if resolved_accelerator == "cpu" and resolved_precision != "32-true":
-        raise ValueError("CPU inference requires runtime.precision=32-true or auto")
-    if resolved_precision == "bf16-mixed" and not bf16_supported:
-        raise RuntimeError("bf16-mixed was requested but the CUDA device does not support BF16")
-
-    return _ResolvedRuntimeSettings(
-        requested_accelerator=accelerator,
-        resolved_accelerator=resolved_accelerator,
-        requested_precision=precision,
-        resolved_precision=resolved_precision,
-        seed=seed,
-    )
