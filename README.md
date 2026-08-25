@@ -2,11 +2,9 @@
 
 Eco-AutoDrive 研究如何在 MetaDrive 闭环中利用预训练 Diffusion Planner，并探索 guidance、强化学习和道路预瞄信息是否能够改善能耗表现。
 
-这是个人科研代码库。仓库中的实现用于建立可验证的研究链路；**已有能力不等于最终研究方法或研究结论**。README 只提供项目概览、常用入口和文档导航；精确实现语义以代码、测试、resolved config 和 [system-contract.md](docs/agents/system-contract.md) 为准。
+## 项目进度与边界
 
-## 当前能力与边界
-
-当前仓库已经包含：
+当前包含：
 
 - 冻结官方 EMA Diffusion Planner 的 MetaDrive 闭环评测；
 - 无交通和有交通 observation / execution 路径；
@@ -26,8 +24,6 @@ just check
 ```
 
 `just --list` 查看全部开发、评测、训练和分析入口。
-
-编码智能体在预先准备好的 `.venv` 中工作，不应重复执行环境初始化；其事实路由、修改边界和验证规则见 [AGENTS.md](AGENTS.md)。
 
 ## 常用工作流
 
@@ -77,11 +73,11 @@ just benchmark rollout
 just energy outputs/energy_matrix/manual-run
 ```
 
-这些入口均由 `justfile` 调用 `configs/jobs/` 下的 Hydra job profile，可在命令末尾追加 override。机器资源通过版本化 profile 选择，例如 `resources=rtx_a4000`；它只改变 worker、slot 和线程预算，不改变 PPO、reward、sampler 或 guidance。仓库本身不读取 `.env`；若在命令包装层使用它，其中只能保存本机的 profile 选择（例如 `ECO_RESOURCE_PROFILE=rtx_a4000`），不能保存未版本化的实验配置。sampler、precision、随机性、时间尺度、并行和 artifact 的精确语义以 [system-contract.md](docs/agents/system-contract.md) 和实际 resolved config 为准，不在 README 重复维护。
+机器资源通过版本化 profile 选择，例如 `resources=rtx_a4000`；它只改变 worker、slot 和线程预算。仓库本身不读取 `.env`；若在命令包装层使用它，其中只能保存本机的 profile 选择（例如 `ECO_RESOURCE_PROFILE=rtx_a4000`）。sampler、precision、随机性、时间尺度、并行和 artifact 的精确语义以 [system-contract.md](docs/agents/system-contract.md) 和实际 resolved config 为准。
 
 ## 结果与实验记录
 
-运行产物默认写入被 Git 忽略的 `outputs/`。用于研究结论的运行应在 `docs/experiments/records/` 中登记，并更新 [实验索引](docs/experiments/README.md)。记录实际代码状态、resolved config、Hydra overrides、随机种子、环境、结果和产物位置；未运行的计划不要写成实验结果。
+运行产物默认写入 `outputs/`。
 
 ## 文档导航
 
