@@ -14,6 +14,8 @@ from tensordict.nn import (
 )
 from torch import nn
 from torch.nn.utils import clip_grad_norm_
+from torchrl.data import LazyTensorStorage, TensorDictReplayBuffer
+from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 
@@ -179,6 +181,12 @@ class PPOUpdater:
             eta_min=config.scheduler_minimum_learning_rate,
         )
         self._minibatch_generator = torch.Generator(device="cpu").manual_seed(config.minibatch_seed)
+        self._minibatch_replay_buffer = TensorDictReplayBuffer(
+            storage=LazyTensorStorage(config.batch_size),
+            sampler=SamplerWithoutReplacement(drop_last=True),
+            batch_size=config.minibatch_size,
+            generator=self._minibatch_generator,
+        )
         self._completed_optimizer_steps = 0
 
     @property
@@ -191,14 +199,20 @@ class PPOUpdater:
         return {
             "completed_optimizer_steps": self._completed_optimizer_steps,
             "minibatch_generator_state": self._minibatch_generator.get_state(),
+            "minibatch_sampler_state": self._minibatch_replay_buffer.sampler.state_dict(),
         }
 
     def restore_checkpoint_state(self, state: Mapping[str, object]) -> None:
-        expected = {"completed_optimizer_steps", "minibatch_generator_state"}
+        expected = {
+            "completed_optimizer_steps",
+            "minibatch_generator_state",
+            "minibatch_sampler_state",
+        }
         if set(state) != expected:
             raise ValueError("PPO checkpoint state has unexpected fields")
         completed = state["completed_optimizer_steps"]
         generator_state = state["minibatch_generator_state"]
+        sampler_state = state["minibatch_sampler_state"]
         if (
             type(completed) is not int
             or not 0 <= completed <= self.config.scheduler_total_optimizer_steps
@@ -206,8 +220,11 @@ class PPOUpdater:
             raise ValueError("PPO checkpoint optimizer step count is invalid")
         if not isinstance(generator_state, torch.Tensor) or generator_state.dtype != torch.uint8:
             raise TypeError("PPO checkpoint minibatch generator state must be uint8")
+        if not isinstance(sampler_state, Mapping):
+            raise TypeError("PPO checkpoint minibatch sampler state must be a mapping")
         self._completed_optimizer_steps = completed
         self._minibatch_generator.set_state(generator_state)
+        self._minibatch_replay_buffer.sampler.load_state_dict(dict(sampler_state))
 
     def update(self, episodes: Sequence[RolloutEpisode]) -> PPOUpdateReport:
         """Perform all configured PPO epochs over one immutable rollout batch."""
@@ -226,6 +243,7 @@ class PPOUpdater:
         ):
             raise RuntimeError("PPO update would exceed the configured scheduler horizon")
         _normalize_full_batch_advantage(batch)
+        self._minibatch_replay_buffer.extend(batch)
         batch = batch.to(self.device)
         frozen_inputs = {key: batch[key].clone() for key in _PPO_IMMUTABLE_KEYS}
         metric_totals = torch.zeros(
@@ -233,8 +251,8 @@ class PPOUpdater:
         )
         maximum_gradient_norm = torch.zeros((), device=self.device, dtype=torch.float64)
         for _epoch in range(self.config.epochs):
-            for host_indices in self._epoch_minibatch_indices(sample_count):
-                minibatch = batch[host_indices.to(self.device)]
+            for host_minibatch in self._minibatch_replay_buffer:
+                minibatch = host_minibatch.exclude("index").to(self.device)
                 losses = self.loss_module(minibatch)
                 total_loss = (
                     losses["loss_objective"] + losses["loss_critic"] + losses["loss_entropy"]
@@ -294,16 +312,6 @@ class PPOUpdater:
             maximum_pre_clip_gradient_norm=metric_values[8],
             final_learning_rate=float(self.optimizer.param_groups[0]["lr"]),
         )
-
-    def _epoch_minibatch_indices(self, sample_count: int) -> tuple[torch.Tensor, ...]:
-        if sample_count != self.config.batch_size:
-            raise ValueError("minibatch indexing requires the configured full batch size")
-        permutation = torch.randperm(sample_count, generator=self._minibatch_generator)
-        return tuple(
-            permutation[start : start + self.config.minibatch_size]
-            for start in range(0, sample_count, self.config.minibatch_size)
-        )
-
 
 def _build_torchrl_policy_adapters(
     policy: ExplorationPolicy,

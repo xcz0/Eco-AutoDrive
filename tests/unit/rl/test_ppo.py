@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 import torch
+from tensordict import TensorDict
 
 from eco_planner.rl.config import PPOConfig
 from eco_planner.rl.distributions import AffineBeta
@@ -108,6 +109,16 @@ def _episode(policy: ExplorationPolicy):
     return finalize_rollout_episode(
         training_transitions, audit_transitions, "terminated", torch.zeros(1)
     )
+
+
+def _sample_ids(updater: PPOUpdater, values: range) -> list[int]:
+    sample_ids = torch.tensor(list(values), dtype=torch.int64)
+    updater._minibatch_replay_buffer.extend(
+        TensorDict({"sample_id": sample_ids}, batch_size=[sample_ids.numel()])
+    )
+    return torch.cat(
+        [minibatch["sample_id"] for minibatch in updater._minibatch_replay_buffer]
+    ).tolist()
 
 
 def test_gae_consumes_the_rollout_tensor_dict_directly(exploration_policy_config) -> None:
@@ -270,3 +281,41 @@ def test_ppo_update_aggregates_multi_minibatch_diagnostics_once(
     assert report.mean_explained_variance == pytest.approx(7.5)
     assert report.maximum_pre_clip_gradient_norm == pytest.approx(0.0)
     assert report.final_learning_rate == pytest.approx(0.0)
+
+
+def test_replay_buffer_sampler_has_a_fixed_seed_minibatch_sequence(
+    exploration_policy_config,
+) -> None:
+    config = _config().model_copy(
+        update={
+            "batch_size": 4,
+            "minibatch_size": 2,
+            "scheduler_total_optimizer_steps": 2,
+        }
+    )
+    updater = PPOUpdater(ExplorationPolicy(exploration_policy_config), config)
+
+    assert _sample_ids(updater, range(4)) == [3, 2, 0, 1]
+
+
+def test_replay_buffer_sampler_resume_preserves_future_minibatches(
+    exploration_policy_config,
+) -> None:
+    config = _config().model_copy(
+        update={
+            "batch_size": 4,
+            "minibatch_size": 2,
+            "scheduler_total_optimizer_steps": 2,
+        }
+    )
+    source = PPOUpdater(ExplorationPolicy(exploration_policy_config), config)
+    _sample_ids(source, range(4))
+    checkpoint_state = source.checkpoint_state()
+    restored = PPOUpdater(ExplorationPolicy(exploration_policy_config), config)
+    restored.restore_checkpoint_state(checkpoint_state)
+
+    assert _sample_ids(source, range(10, 14)) == _sample_ids(restored, range(10, 14))
+    assert torch.equal(
+        source.checkpoint_state()["minibatch_generator_state"],
+        restored.checkpoint_state()["minibatch_generator_state"],
+    )
