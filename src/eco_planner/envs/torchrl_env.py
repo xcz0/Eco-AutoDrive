@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+import numpy as np
 import torch
 from tensordict import TensorDict, TensorDictBase
 from torchrl.data import Binary, Composite, Unbounded
@@ -11,7 +12,7 @@ from torchrl.envs import EnvBase
 
 from eco_planner.envs.execution import TrajectoryExecutionRecord
 from eco_planner.envs.observation import PlannerObservationSpec
-from eco_planner.envs.slot import MetaDriveEnvSlot
+from eco_planner.envs.slot import EnvSlotReset, EnvSlotStep, MetaDriveEnvSlot
 from eco_planner.execution_contracts import PLANNER_FUTURE_STEPS
 
 _CPU_DEVICE = torch.device("cpu")
@@ -36,6 +37,9 @@ class TorchRLMetaDriveEnv(EnvBase):
         self._slot = slot
         self._map_name = map_name
         self._seed = seed
+        self._last_reset: EnvSlotReset | None = None
+        self._last_initial_state: np.ndarray | None = None
+        self._last_step: EnvSlotStep | None = None
         self._last_execution: TrajectoryExecutionRecord | None = None
         self._last_warmup_executions: tuple[TrajectoryExecutionRecord, ...] = ()
         self._last_traffic_audit = None
@@ -56,17 +60,20 @@ class TorchRLMetaDriveEnv(EnvBase):
     def _reset(self, tensordict: TensorDictBase | None, **kwargs: object) -> TensorDictBase:
         del tensordict, kwargs
         reset = self._slot.reset(map_name=self._map_name, seed=self._seed)
+        self._last_reset = reset
         self._last_warmup_executions = tuple(self._slot.warmup())
         self._last_programmatic_lane_speed_limit_audit = (
             reset.programmatic_lane_speed_limit_audit
         )
         observation = self._slot.observe()
+        self._last_initial_state = self._slot.vehicle_state
         self._last_traffic_audit = observation.traffic_audit
         return _observation_tensordict(observation.observation)
 
     def _step(self, tensordict: TensorDictBase) -> TensorDictBase:
         trajectory = tensordict["action"].detach().numpy()
         result = self._slot.step(trajectory)
+        self._last_step = result
         self._last_execution = result.execution
         observation = self._slot.observe()
         self._last_traffic_audit = observation.traffic_audit
@@ -86,6 +93,30 @@ class TorchRLMetaDriveEnv(EnvBase):
             if type(seed) is not int or seed < 0:
                 raise ValueError("seed must be a non-negative integer")
             self._seed = seed
+
+    @property
+    def last_reset(self) -> EnvSlotReset:
+        """Return metadata emitted by the latest slot reset."""
+
+        if self._last_reset is None:
+            raise RuntimeError("TorchRL MetaDrive environment has not reset")
+        return self._last_reset
+
+    @property
+    def last_initial_state(self) -> np.ndarray:
+        """Return the post-warmup state captured by the latest reset."""
+
+        if self._last_initial_state is None:
+            raise RuntimeError("TorchRL MetaDrive environment has not reset")
+        return self._last_initial_state
+
+    @property
+    def last_step(self) -> EnvSlotStep:
+        """Return the domain step result produced by the latest transition."""
+
+        if self._last_step is None:
+            raise RuntimeError("TorchRL MetaDrive environment has not stepped")
+        return self._last_step
 
     @property
     def last_execution(self) -> TrajectoryExecutionRecord:

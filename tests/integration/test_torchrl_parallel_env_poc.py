@@ -9,6 +9,7 @@ from tensordict import TensorDict
 from eco_planner.envs import (
     PlannerObservationSpec,
     TorchRLParallelScenario,
+    TorchRLParallelWorkerError,
     create_torchrl_parallel_env_poc,
 )
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
@@ -33,8 +34,15 @@ def test_parallel_env_poc_supports_partial_step_reset_map_replacement_and_audits
     try:
         reset = env.reset(_reset_tensordict((0, 0)))
         stepped = env.step(_step_tensordict(2, (True, True)))
-        executions = env.execution_record()
+        reset_results = [reset[slot].get_non_tensor("reset_result") for slot in range(2)]
+        step_results = [
+            stepped["next"][slot].get_non_tensor("step_result") for slot in range(2)
+        ]
         reset_after_replacement = env.reset(_reset_tensordict((1, 0), (True, False)))
+        replacement_results = [
+            reset_after_replacement[slot].get_non_tensor("reset_result")
+            for slot in range(2)
+        ]
         active_scenarios = env.current_scenario_index()
         partial = env.step(_step_tensordict(2, (True, False)))
     finally:
@@ -42,9 +50,17 @@ def test_parallel_env_poc_supports_partial_step_reset_map_replacement_and_audits
 
     assert reset["ego_current_state"].shape == (2, 10)
     assert stepped["next", "reward"].shape == (2, 1)
-    assert len(executions) == 2
-    assert all(item.substep_states.shape == (1, 7) for item in executions)
+    assert [item.scenario for item in reset_results] == [
+        TorchRLParallelScenario("S", 0),
+        TorchRLParallelScenario("S", 0),
+    ]
+    assert all(item.route_length_m > 0.0 for item in reset_results)
+    assert all(item.execution.substep_states.shape == (1, 7) for item in step_results)
     assert active_scenarios == [1, 0]
+    assert [item.scenario for item in replacement_results] == [
+        TorchRLParallelScenario("SC", 1),
+        TorchRLParallelScenario("S", 0),
+    ]
     assert reset_after_replacement["ego_current_state"].shape == (2, 10)
     assert partial["next", "reward"].shape == (2, 1)
 
@@ -65,8 +81,13 @@ def test_parallel_env_poc_propagates_worker_reset_failures(
     try:
         env.BATCHED_PIPE_TIMEOUT = 1.0
         env.reset(_reset_tensordict((0, 0)))
-        with pytest.raises(RuntimeError, match="worker 0 dead|time limit"):
+        with pytest.raises(TorchRLParallelWorkerError) as exc_info:
             env.reset(_reset_tensordict((1, 0), (True, False)))
+        message = str(exc_info.value)
+        assert "slot 0" in message
+        assert "reset" in message
+        assert "Traceback" in message
+        assert "ValueError: scenario_index must be in [0, 1)" in message
     finally:
         with suppress(RuntimeError):
             env.close()
@@ -87,21 +108,17 @@ def test_parallel_env_poc_keeps_traffic_warmup_history_and_execution_audit(
     )
     try:
         reset = env.reset(_reset_tensordict((0,)))
-        warmup = env.warmup_execution_records()
         stepped = env.step(_step_tensordict(1, (True,)))
-        execution = env.execution_record()
-        traffic_audit = env.traffic_observation_audit()
+        reset_result = reset[0].get_non_tensor("reset_result")
+        step_result = stepped["next"][0].get_non_tensor("step_result")
     finally:
         env.close()
 
     assert reset["ego_current_state"].shape == (1, 10)
-    assert len(warmup) == 1
-    assert len(warmup[0]) == 20
+    assert len(reset_result.warmup_executions) == 20
     assert stepped["next", "reward"].shape == (1, 1)
-    assert len(execution) == 1
-    assert len(execution[0].traffic_frames) == 1
-    assert len(traffic_audit) == 1
-    assert traffic_audit[0] is not None
+    assert len(step_result.execution.traffic_frames) == 1
+    assert step_result.traffic_audit is not None
 
 
 def _environment_config(map_name: str) -> dict[str, object]:

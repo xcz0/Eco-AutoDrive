@@ -53,6 +53,10 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
         def route_completion(self) -> float:
             return self.step_count * 0.01
 
+        @property
+        def vehicle_state(self) -> np.ndarray:
+            return np.zeros(7)
+
         def step(self, trajectory: np.ndarray) -> EnvSlotStep:
             self.trajectories.append(trajectory.copy())
             self.step_count += 1

@@ -37,7 +37,16 @@ class _FakeSlot:
 
     def reset(self, *, map_name: str, seed: int) -> SimpleNamespace:
         self.resets.append((map_name, seed))
-        return SimpleNamespace(programmatic_lane_speed_limit_audit={})
+        return SimpleNamespace(
+            route_completion=0.0,
+            route_length_m=100.0,
+            warmup_initial_state=np.zeros(7),
+            programmatic_lane_speed_limit_audit={},
+        )
+
+    @property
+    def vehicle_state(self) -> np.ndarray:
+        return np.zeros(7)
 
     @staticmethod
     def warmup():
