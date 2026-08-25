@@ -22,6 +22,7 @@ from eco_planner.rl.collector import (
 from eco_planner.rl.policy import ExplorationPolicyContext
 from eco_planner.rl.rollout import build_training_decision
 from eco_planner.rl.runtime import RolloutAudit, RolloutDecision
+from eco_planner.rl.torchrl_collector_poc import collect_torchrl_rollout_poc
 
 
 def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
@@ -83,10 +84,13 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
             context = _context(float(marker))
             trajectory = np.zeros((1, 11, 80, 4), dtype=np.float32)
             trajectory[..., 2] = 1.0
-            base = torch.tensor([[0.25, 0.75]], dtype=torch.float32)
+            diffusion_rng_state = diffusion_generator.get_state()
+            policy_rng_state = policy_generator.get_state()
+            noise = torch.rand((), generator=diffusion_generator).item()
+            base = 0.2 + 0.6 * torch.rand((1, 2), generator=policy_generator)
             audit = RolloutAudit(
                 prediction=trajectory,
-                initial_noise=torch.zeros((1, 11, 80, 4), dtype=torch.float32),
+                initial_noise=torch.full((1, 11, 80, 4), noise),
                 policy_context=context,
                 base_action=base,
                 guidance_action=2.0 * base - 1.0,
@@ -94,8 +98,8 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
                 old_value=torch.tensor([float(marker)], dtype=torch.float32),
                 beta_alpha=torch.full((1, 2), 2.0),
                 beta_beta=torch.full((1, 2), 2.0),
-                diffusion_rng_state=diffusion_generator.get_state(),
-                policy_rng_state=policy_generator.get_state(),
+                diffusion_rng_state=diffusion_rng_state,
+                policy_rng_state=policy_rng_state,
             )
             return _FakeRolloutDecision(audit)
 
@@ -126,6 +130,27 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
         assert trajectory.dtype == np.float32
         assert np.isfinite(trajectory).all()
         assert np.all(np.linalg.norm(trajectory[:, 2:4], axis=-1) > 0.0)
+
+    monkeypatch.setattr("eco_planner.rl.torchrl_collector_poc.MetaDriveEnvSlot", FakeSlot)
+    poc_runtime = FakeRuntime()
+    poc_episode = collect_torchrl_rollout_poc(
+        ScenarioConfig(name="fake", map="S", seed=9),
+        poc_runtime,
+        {"trajectory_execution_steps": 1},
+        mode="no_traffic",
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+        max_transitions=2,
+    )
+
+    assert poc_runtime.observation_markers[-2:] == [0, 1]
+    assert poc_runtime.bootstrap_marker == 2
+    assert poc_episode.tail_kind == episode.tail_kind
+    assert torch.equal(poc_episode.tail_bootstrap_value, episode.tail_bootstrap_value)
+    for name in ("guidance_action", "old_joint_guidance_log_prob", "state_value", "next"):
+        torch.testing.assert_close(poc_episode.training[name], episode.training[name])
+    for name in episode.audit.keys(include_nested=True, leaves_only=True):
+        torch.testing.assert_close(poc_episode.audit[name], episode.audit[name])
 
 
 def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(monkeypatch) -> None:

@@ -7,6 +7,7 @@ from tensordict import TensorDict, TensorDictBase
 from torchrl.data import Binary, Composite, Unbounded
 from torchrl.envs import EnvBase
 
+from eco_planner.envs.execution import TrajectoryExecutionRecord
 from eco_planner.envs.observation import PlannerObservationSpec
 from eco_planner.envs.slot import MetaDriveEnvSlot
 from eco_planner.execution_contracts import PLANNER_FUTURE_STEPS
@@ -33,6 +34,7 @@ class TorchRLMetaDriveEnv(EnvBase):
         self._slot = slot
         self._map_name = map_name
         self._seed = seed
+        self._last_execution: TrajectoryExecutionRecord | None = None
         self.observation_spec = _observation_spec(observation_spec)
         self.action_spec = Unbounded(
             shape=(PLANNER_FUTURE_STEPS, 4), dtype=torch.float32, device=_CPU_DEVICE
@@ -55,6 +57,7 @@ class TorchRLMetaDriveEnv(EnvBase):
     def _step(self, tensordict: TensorDictBase) -> TensorDictBase:
         trajectory = tensordict["action"].detach().numpy()
         result = self._slot.step(trajectory)
+        self._last_execution = result.execution
         return TensorDict(
             {
                 **self._slot.observe().observation,
@@ -72,9 +75,18 @@ class TorchRLMetaDriveEnv(EnvBase):
                 raise ValueError("seed must be a non-negative integer")
             self._seed = seed
 
-    def close(self) -> None:
+    @property
+    def last_execution(self) -> TrajectoryExecutionRecord:
+        """Return the immutable execution record produced by the latest step."""
+
+        if self._last_execution is None:
+            raise RuntimeError("TorchRL MetaDrive environment has not stepped")
+        return self._last_execution
+
+    def close(self, *, raise_if_closed: bool = True) -> None:
         """Close the wrapped slot when this adapter owns the final lifecycle boundary."""
 
+        del raise_if_closed
         self._slot.close()
 
 
