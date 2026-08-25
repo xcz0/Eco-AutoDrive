@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-import numpy as np
 import pytest
 import torch
 
@@ -19,16 +18,16 @@ def test_official_ema_checkpoint_cpu_smoke(
     first_result = baseline_runtime.infer(baseline_observation, generator).audit_result()
     replay_generator = baseline_runtime.new_noise_generator()
     second_result = baseline_runtime.infer(baseline_observation, replay_generator).audit_result()
-    first = first_result.prediction
-    second = second_result.prediction
+    first = first_result["prediction"]
+    second = second_result["prediction"]
 
     report = baseline_runtime.checkpoint_report
     assert report.ema_tensor_count == 276
     assert report.parameter_count == 6_042_628
     assert tuple(first.shape) == (1, 11, 80, 4)
-    assert np.isfinite(first).all()
-    assert np.array_equal(first_result.initial_noise, second_result.initial_noise)
-    assert np.array_equal(first, second)
+    assert torch.isfinite(first).all()
+    assert torch.equal(first_result["initial_noise"], second_result["initial_noise"])
+    assert torch.equal(first, second)
 
     payload = {
         "ema_tensor_count": report.ema_tensor_count,

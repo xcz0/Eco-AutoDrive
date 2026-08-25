@@ -30,7 +30,6 @@ from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
 from eco_planner.evaluation.config import EvaluationJobConfig, ScenarioConfig
 from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.rendering import render_cycle_frame
-from eco_planner.evaluation.runtime.contracts import HostGuidanceDiagnostics, HostInferenceResult
 from eco_planner.evaluation.runtime.engine import FabricInferenceRuntime
 from eco_planner.evaluation.summaries import build_episode_summary, build_failed_episode_summary
 from eco_planner.models import NoGuidanceConfig
@@ -287,7 +286,7 @@ def run_vector_scenarios(
                 slot.trace.append_cycle(
                     slot.anchor,
                     slot.observation,
-                    _slice_inference(audit, batch_index),
+                    audit[batch_index : batch_index + 1],
                     step.execution,
                     slot.plan_index,
                     slot.traffic_audit,
@@ -384,30 +383,6 @@ def _batch_noise(
             )
             for generator in generators
         ]
-    )
-
-
-def _slice_inference(result: HostInferenceResult, index: int) -> HostInferenceResult:
-    diagnostics = result.guidance_diagnostics
-    sliced_diagnostics = (
-        None
-        if diagnostics is None
-        else HostGuidanceDiagnostics(
-            **{name: value[index : index + 1] for name, value in vars(diagnostics).items()}
-        )
-    )
-    return HostInferenceResult(
-        initial_noise=result.initial_noise[index : index + 1],
-        prediction=result.prediction[index : index + 1],
-        reference_prediction=(
-            None
-            if result.reference_prediction is None
-            else result.reference_prediction[index : index + 1]
-        ),
-        guidance_action=(
-            None if result.guidance_action is None else result.guidance_action[index : index + 1]
-        ),
-        guidance_diagnostics=sliced_diagnostics,
     )
 
 

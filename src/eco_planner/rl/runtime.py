@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import torch
 from lightning.fabric import Fabric
-from tensordict import TensorDictBase
+from tensordict import TensorDict, TensorDictBase
 
 from eco_planner.models import (
     CheckpointLoadReport,
@@ -71,14 +71,14 @@ class RolloutDecision:
     def __init__(
         self,
         execution: HostExecutionResult,
-        deferred: DeferredHostTensors,
+        resolve_audit: Callable[[], TensorDictBase],
         diffusion_rng_state: torch.Tensor,
         policy_rng_state: torch.Tensor,
         policy_config: ExplorationPolicyConfig,
         training_decision: TensorDictBase,
     ) -> None:
         self._execution = execution
-        self._deferred = deferred
+        self._resolve_audit = resolve_audit
         self._diffusion_rng_state = diffusion_rng_state
         self._policy_rng_state = policy_rng_state
         self._policy_config = policy_config
@@ -99,7 +99,7 @@ class RolloutDecision:
         """Wait for the stored PPO/replay payload after simulator execution."""
 
         if self._audit is None:
-            host = self._deferred.resolve()
+            host = self._resolve_audit()
             _validate_finite(host)
             context = ExplorationPolicyContext(
                 scene_tokens=host["scene_tokens"],
@@ -143,7 +143,7 @@ class BatchRolloutDecision:
         self._policy_rng_states = policy_rng_states
         self._policy_config = policy_config
         self._training_decision = training_decision
-        self._audit: dict[str, torch.Tensor] | None = None
+        self._audit: TensorDictBase | None = None
 
     @property
     def ego_trajectories(self) -> np.ndarray:
@@ -165,33 +165,19 @@ class BatchRolloutDecision:
             raise IndexError(f"batch slot {index} is outside [0, {batch})")
         return RolloutDecision(
             HostExecutionResult(self.ego_trajectories[index : index + 1]),
-            _SlotDeferredHostTensors(self, index),
+            lambda: self._resolve_audit()[index : index + 1],
             diffusion_rng_state=self._diffusion_rng_states[index],
             policy_rng_state=self._policy_rng_states[index],
             policy_config=self._policy_config,
-            training_decision=_training_decision_slot(self._training_decision, index),
+            training_decision=self._training_decision[index : index + 1],
         )
 
-    def _resolve_audit(self) -> dict[str, torch.Tensor]:
+    def _resolve_audit(self) -> TensorDictBase:
         if self._audit is None:
             host = self._deferred.resolve()
             _validate_finite(host)
-            self._audit = host
+            self._audit = TensorDict(host, batch_size=[self.ego_trajectories.shape[0]])
         return self._audit
-
-
-class _SlotDeferredHostTensors:
-    """Expose one already-batched deferred host payload as a serial decision payload."""
-
-    def __init__(self, batch: BatchRolloutDecision, index: int) -> None:
-        self._batch = batch
-        self._index = index
-
-    def resolve(self) -> dict[str, torch.Tensor]:
-        return {
-            name: value[self._index : self._index + 1]
-            for name, value in self._batch._resolve_audit().items()
-        }
 
 
 class FabricRolloutRuntime:
@@ -490,22 +476,6 @@ def _sample_policy_actions(
 
 def _rng_state(generator: torch.Generator) -> torch.Tensor:
     return generator.get_state().detach().cpu().clone()
-
-
-def _training_decision_slot(decision: TensorDictBase, index: int) -> TensorDictBase:
-    context = ExplorationPolicyContext(
-        scene_tokens=decision["scene_tokens"][index : index + 1],
-        scene_padding_mask=decision["scene_padding_mask"][index : index + 1],
-        navigation_tokens=decision["navigation_tokens"][index : index + 1],
-        navigation_padding_mask=decision["navigation_padding_mask"][index : index + 1],
-        reference_trajectory=decision["reference_trajectory"][index : index + 1],
-    )
-    return build_training_decision(
-        context,
-        decision["guidance_action"][index : index + 1],
-        decision["old_joint_guidance_log_prob"][index],
-        decision["state_value"][index],
-    )
 
 
 def _seed(value: int, name: str) -> int:

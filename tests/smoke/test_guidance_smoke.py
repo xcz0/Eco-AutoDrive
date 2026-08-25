@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
 import pytest
 import torch
 
@@ -18,13 +17,10 @@ def test_guidance_reuses_real_ddim_reference_and_returns_finite_diagnostics(
     guided_generator = guided_runtime.new_noise_generator()
     guided = guided_runtime.infer(baseline_observation, guided_generator).audit_result()
 
-    assert np.array_equal(guided.initial_noise, baseline.initial_noise)
-    assert guided.reference_prediction is not None
-    assert np.array_equal(guided.reference_prediction, baseline.prediction)
-    assert guided.guidance_action is not None
-    assert np.array_equal(guided.guidance_action, np.array([[1.0, 0.0]], dtype=np.float32))
-    assert guided.guidance_diagnostics is not None
-    assert guided.guidance_diagnostics.applied_gradient_l2.shape == (1, 5)
-    assert np.isfinite(guided.guidance_diagnostics.applied_gradient_l2).all()
-    assert np.isfinite(guided.prediction).all()
-    assert not np.array_equal(guided.prediction, guided.reference_prediction)
+    assert torch.equal(guided["initial_noise"], baseline["initial_noise"])
+    assert torch.equal(guided["reference_prediction"], baseline["prediction"])
+    torch.testing.assert_close(guided["guidance_action"], torch.tensor([[1.0, 0.0]]))
+    assert guided["applied_gradient_l2"].shape == (1, 5)
+    assert torch.isfinite(guided["applied_gradient_l2"]).all()
+    assert torch.isfinite(guided["prediction"]).all()
+    assert not torch.equal(guided["prediction"], guided["reference_prediction"])

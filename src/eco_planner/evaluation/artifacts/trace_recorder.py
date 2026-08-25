@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
+from tensordict import TensorDictBase
 
 from eco_planner.evaluation.artifacts.trace_schema import (
     EXECUTION_PREFIX_STEPS,
@@ -13,7 +14,6 @@ from eco_planner.evaluation.artifacts.trace_schema import (
     allocate_trace_arrays,
     validate_trace_arrays,
 )
-from eco_planner.evaluation.runtime.contracts import HostInferenceResult
 
 if TYPE_CHECKING:
     from eco_planner.envs import TrafficObservationAudit, TrajectoryExecutionRecord
@@ -127,7 +127,7 @@ class EpisodeTraceRecorder:
         self,
         anchor: np.ndarray,
         observation: dict[str, torch.Tensor],
-        inference: HostInferenceResult,
+        inference: TensorDictBase,
         execution: TrajectoryExecutionRecord,
         plan_index: int,
         traffic_audit: TrafficObservationAudit | None,
@@ -160,12 +160,12 @@ class EpisodeTraceRecorder:
         anchor_array = np.asarray(anchor, dtype=np.float64)
         if anchor_array.shape != (7,) or not np.isfinite(anchor_array).all():
             raise ValueError("planning anchor must be a finite [7] array")
-        if not isinstance(inference, HostInferenceResult):
-            raise TypeError("inference must be HostInferenceResult")
+        if not isinstance(inference, TensorDictBase) or inference.batch_size != torch.Size([1]):
+            raise TypeError("inference must be a batch-one TensorDict")
         cycle = self._plan_cycles
         self._arrays["planning_anchors"][cycle] = anchor_array
-        self._arrays["initial_noise"][cycle] = _batch_one(inference.initial_noise, "noise")
-        self._arrays["predictions_local"][cycle] = _batch_one(inference.prediction, "prediction")
+        self._arrays["initial_noise"][cycle] = _batch_one(inference["initial_noise"], "noise")
+        self._arrays["predictions_local"][cycle] = _batch_one(inference["prediction"], "prediction")
         for name, value in raw_observation.items():
             self._arrays[f"observation_{name}"][cycle] = value
         self._arrays["ego_predictions_world"][cycle] = _world_prediction(execution)
@@ -220,23 +220,27 @@ class EpisodeTraceRecorder:
                 arrays[name] = value[: self._plan_cycles]
         return arrays
 
-    def _write_guidance(self, cycle: int, result: HostInferenceResult) -> None:
-        values = (result.reference_prediction, result.guidance_action, result.guidance_diagnostics)
-        guided_result = all(value is not None for value in values)
+    def _write_guidance(self, cycle: int, result: TensorDictBase) -> None:
+        guidance_keys = frozenset(_GUIDANCE_DIAGNOSTIC_NAMES) | {
+            "reference_prediction",
+            "guidance_action",
+        }
+        present_keys = frozenset(result.keys())
+        guided_result = guidance_keys <= present_keys
+        if guidance_keys & present_keys and not guided_result:
+            raise ValueError("inference guidance data is incomplete")
         if guided_result != self._guided:
             raise ValueError("inference guidance data disagrees with recorder configuration")
         if not guided_result:
             return
-        reference = result.reference_prediction
-        action = result.guidance_action
-        diagnostics = result.guidance_diagnostics
-        assert reference is not None and action is not None and diagnostics is not None
         self._arrays["reference_predictions_local"][cycle] = _batch_one(
-            reference, "reference prediction"
+            result["reference_prediction"], "reference prediction"
         )
-        self._arrays["guidance_actions"][cycle] = _batch_one(action, "guidance action")
+        self._arrays["guidance_actions"][cycle] = _batch_one(
+            result["guidance_action"], "guidance action"
+        )
         for source, target in _GUIDANCE_DIAGNOSTIC_NAMES.items():
-            self._arrays[target][cycle] = _batch_one(getattr(diagnostics, source), source)
+            self._arrays[target][cycle] = _batch_one(result[source], source)
 
     def _require_open(self) -> None:
         if self._finalized:
@@ -269,10 +273,12 @@ def _execution_arrays(execution: TrajectoryExecutionRecord) -> dict[str, np.ndar
     }
 
 
-def _batch_one(value: np.ndarray, name: str) -> np.ndarray:
-    if not isinstance(value, np.ndarray) or value.ndim < 1 or value.shape[0] != 1:
-        raise ValueError(f"host inference {name} must be a batch-one numpy array")
-    return value[0]
+def _batch_one(value: torch.Tensor, name: str) -> np.ndarray:
+    if not isinstance(value, torch.Tensor) or value.ndim < 1 or value.shape[0] != 1:
+        raise ValueError(f"host inference {name} must be a batch-one tensor")
+    if value.device.type != "cpu":
+        raise ValueError(f"host inference {name} must remain on CPU")
+    return value.numpy()[0]
 
 
 def _write_traffic_audit(

@@ -8,13 +8,13 @@ import numpy as np
 import pytest
 import torch
 from omegaconf import OmegaConf
+from tensordict import TensorDict
 
 from eco_planner.envs import TrajectoryExecutionRecord
 from eco_planner.envs.observation_adapter import TrafficObservationAudit
 from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation import episode
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
-from eco_planner.evaluation.runtime.contracts import HostInferenceResult
 from eco_planner.evaluation.runtime.engine import (
     BatchInferenceDecision,
     InferenceDecision,
@@ -157,11 +157,8 @@ class FakeRuntime:
         noise = torch.randn((1, 11, 80, 4), generator=generator)
         prediction = torch.zeros_like(noise)
         prediction[..., 2] = 1.0
-        audit = HostInferenceResult(
-            initial_noise=noise.numpy(),
-            prediction=prediction.numpy(),
-        )
-        return InferenceDecision(HostExecutionResult(audit.ego_trajectory[None]), lambda: audit)
+        audit = TensorDict({"initial_noise": noise, "prediction": prediction}, batch_size=[1])
+        return InferenceDecision(HostExecutionResult(prediction[:, 0].numpy()), lambda: audit)
 
     def infer_batch(
         self,
@@ -172,8 +169,11 @@ class FakeRuntime:
         assert observation["ego_current_state"].shape[0] == noise.shape[0] == len(generators)
         prediction = torch.zeros_like(noise)
         prediction[..., 2] = 1.0
-        audit = HostInferenceResult(initial_noise=noise.numpy(), prediction=prediction.numpy())
-        return BatchInferenceDecision(HostExecutionResult(audit.prediction[:, 0]), lambda: audit)
+        audit = TensorDict(
+            {"initial_noise": noise, "prediction": prediction},
+            batch_size=[noise.shape[0]],
+        )
+        return BatchInferenceDecision(HostExecutionResult(prediction[:, 0].numpy()), lambda: audit)
 
 
 @pytest.fixture
@@ -263,7 +263,13 @@ def matrix_trace_arrays() -> dict[str, np.ndarray]:
     recorder.append_cycle(
         np.zeros(7),
         observation,
-        HostInferenceResult(initial_noise=np.zeros_like(prediction), prediction=prediction),
+        TensorDict(
+            {
+                "initial_noise": torch.from_numpy(np.zeros_like(prediction)),
+                "prediction": torch.from_numpy(prediction),
+            },
+            batch_size=[1],
+        ),
         replace(execution, substep_episode_energy_ml=execution.substep_episode_energy_ml + 2.0),
         0,
         TrafficObservationAudit(("participant-000000",), 1, 0, 1.0),

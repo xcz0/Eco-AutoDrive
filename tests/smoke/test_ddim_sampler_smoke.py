@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
 import pytest
 import torch
 
@@ -20,13 +19,15 @@ def test_ddim5_official_ema_cpu_is_finite_and_replayable(
         replay_generator,
     )
 
-    prediction = result.prediction
-    replay_prediction = replay_result.prediction
+    audit = result.audit_result()
+    replay_audit = replay_result.audit_result()
+    prediction = audit["prediction"]
+    replay_prediction = replay_audit["prediction"]
     assert ddim_runtime.sampler_report.name == "ddim5"
     assert ddim_runtime.sampler_report.num_steps == 5
     assert ddim_runtime.sampler_report.initial_noise_scale == 1.0
     assert tuple(prediction.shape) == (1, 11, 80, 4)
-    assert prediction.dtype == np.float32
-    assert np.isfinite(prediction).all()
-    assert np.array_equal(result.initial_noise, replay_result.initial_noise)
-    assert np.array_equal(prediction, replay_prediction)
+    assert prediction.dtype == torch.float32
+    assert torch.isfinite(prediction).all()
+    assert torch.equal(audit["initial_noise"], replay_audit["initial_noise"])
+    assert torch.equal(prediction, replay_prediction)

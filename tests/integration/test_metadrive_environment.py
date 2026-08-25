@@ -481,11 +481,11 @@ def test_official_planner_executes_no_traffic_closed_loop_cycle(
         observation = adapter.build(env)
         planner_result = baseline_runtime.infer(collate_observations([observation]), generator)
         ego_trajectory = planner_result.ego_trajectory
-        prediction = planner_result.audit_result().prediction
+        prediction = planner_result.audit_result()["prediction"]
         _, _, terminated, truncated, info = env.step(ego_trajectory)
 
         assert prediction.shape == (1, 11, 80, 4)
-        assert np.isfinite(prediction).all()
+        assert torch.isfinite(prediction).all()
         assert info["trajectory_execution_steps"] >= 1
         assert info["trajectory_execution"].substep_states.shape[1] == 7
         assert isinstance(terminated, bool)
@@ -527,9 +527,9 @@ def test_cuda_bf16_completes_traffic_warmup_and_first_inference(
             for value in observation.values()
         )
         audit = result.audit_result()
-        assert audit.initial_noise.dtype == np.float32
-        prediction = audit.prediction
-        assert prediction.dtype == np.float32
+        assert audit["initial_noise"].dtype == torch.float32
+        prediction = audit["prediction"]
+        assert prediction.dtype == torch.float32
         assert prediction.shape == (1, 11, 80, 4)
     finally:
         env.close()

@@ -152,10 +152,10 @@ def test_cpu_fabric_runtime_assembles_model_and_replays_noise(
     assert fabric_runtime.report.world_size == 1
     first_audit = first_result.audit_result()
     second_audit = second_result.audit_result()
-    assert first_audit.prediction.dtype == np.float32
-    assert np.array_equal(first_audit.initial_noise, second_audit.initial_noise)
-    assert np.array_equal(first_audit.prediction, second_audit.prediction)
-    assert np.shares_memory(first_result.ego_trajectory, first_audit.prediction)
+    assert first_audit["prediction"].dtype == torch.float32
+    assert torch.equal(first_audit["initial_noise"], second_audit["initial_noise"])
+    assert torch.equal(first_audit["prediction"], second_audit["prediction"])
+    assert np.shares_memory(first_result.ego_trajectory, first_audit["prediction"].numpy())
 
 
 @pytest.mark.parametrize("batch", [1, 2, 4, 8])
@@ -211,6 +211,11 @@ def test_runtime_batch_inference_matches_independent_serial_slots(
     assert batched.timing.execution_to_host_s >= 0.0
     with pytest.raises(AttributeError):
         batched.timing = None  # type: ignore[misc]
+    audit = batched.audit_result()
+    assert audit.batch_size == torch.Size([batch])
+    for index in range(batch):
+        assert audit[index : index + 1].batch_size == torch.Size([1])
+        torch.testing.assert_close(audit[index : index + 1]["prediction"], noise[index : index + 1])
     for index in range(batch):
         serial = fabric_runtime.infer(
             baseline_observation,

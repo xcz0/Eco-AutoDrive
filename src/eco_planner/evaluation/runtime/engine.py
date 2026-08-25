@@ -11,12 +11,9 @@ from typing import cast
 import numpy as np
 import torch
 from lightning.fabric import Fabric
+from tensordict import TensorDict, TensorDictBase
 from torch import nn
 
-from eco_planner.evaluation.runtime.contracts import (
-    HostGuidanceDiagnostics,
-    HostInferenceResult,
-)
 from eco_planner.models import (
     CheckpointLoadReport,
     GuidanceConfig,
@@ -56,17 +53,17 @@ class InferenceDecision:
     def __init__(
         self,
         execution: HostExecutionResult,
-        resolve_audit: Callable[[], HostInferenceResult],
+        resolve_audit: Callable[[], TensorDictBase],
     ) -> None:
         self._execution = execution
         self._resolve_audit = resolve_audit
-        self._audit: HostInferenceResult | None = None
+        self._audit: TensorDictBase | None = None
 
     @property
     def ego_trajectory(self) -> np.ndarray:
         return self._execution.ego_trajectory[0]
 
-    def audit_result(self) -> HostInferenceResult:
+    def audit_result(self) -> TensorDictBase:
         """Wait for and return the complete artifact/replay payload."""
 
         if self._audit is None:
@@ -80,12 +77,12 @@ class BatchInferenceDecision:
     def __init__(
         self,
         execution: HostExecutionResult,
-        resolve_audit: Callable[[], HostInferenceResult],
+        resolve_audit: Callable[[], TensorDictBase],
         timing: BatchInferenceTiming | None = None,
     ) -> None:
         self._execution = execution
         self._resolve_audit = resolve_audit
-        self._audit: HostInferenceResult | None = None
+        self._audit: TensorDictBase | None = None
         self._timing = timing
 
     @property
@@ -100,7 +97,7 @@ class BatchInferenceDecision:
 
         return self._timing
 
-    def audit_result(self) -> HostInferenceResult:
+    def audit_result(self) -> TensorDictBase:
         """Wait for and return the complete batched artifact/replay payload."""
 
         if self._audit is None:
@@ -350,7 +347,7 @@ def _prepare_batch_inference_decision(
     device: torch.device,
     *,
     profile: bool,
-) -> tuple[HostExecutionResult, Callable[[], HostInferenceResult], float]:
+) -> tuple[HostExecutionResult, Callable[[], TensorDictBase], float]:
     tensors: dict[str, tuple[torch.Tensor, torch.dtype]] = {
         "initial_noise": (noise.detach(), torch.float32),
         "prediction": (result.prediction.detach(), torch.float32),
@@ -387,34 +384,15 @@ def _prepare_batch_inference_decision(
 
 def _host_result_from_tensors(
     deferred: DeferredHostTensors, diagnostics_present: bool
-) -> HostInferenceResult:
+) -> TensorDictBase:
     host_tensors = deferred.resolve()
     arrays = {name: tensor.numpy() for name, tensor in host_tensors.items()}
     for name, value in arrays.items():
         if value.dtype.kind in "fc" and not np.isfinite(value).all():
             raise RuntimeError(f"Diffusion Planner result {name!r} contains non-finite values")
-    host_diagnostics = (
-        None
-        if not diagnostics_present
-        else HostGuidanceDiagnostics(
-            lateral_target_offset_m=arrays["lateral_target_offset_m"],
-            longitudinal_target_speed_fraction=arrays["longitudinal_target_speed_fraction"],
-            longitudinal_target_speed_delta_mps=arrays["longitudinal_target_speed_delta_mps"],
-            lateral_objective_delta=arrays["lateral_objective_delta"],
-            longitudinal_objective_delta=arrays["longitudinal_objective_delta"],
-            applied_gradient_l2=arrays["applied_gradient_l2"],
-            applied_gradient_max_abs=arrays["applied_gradient_max_abs"],
-            raw_neighbor_gradient_l2=arrays["raw_neighbor_gradient_l2"],
-            zero_speed_count=arrays["zero_speed_count"],
-        )
-    )
-    return HostInferenceResult(
-        initial_noise=arrays["initial_noise"],
-        prediction=arrays["prediction"],
-        reference_prediction=arrays.get("reference_prediction"),
-        guidance_action=arrays.get("guidance_action"),
-        guidance_diagnostics=host_diagnostics,
-    )
+    if diagnostics_present != ("lateral_target_offset_m" in arrays):
+        raise RuntimeError("guidance audit tensors disagree with the planner result")
+    return TensorDict(host_tensors, batch_size=[arrays["prediction"].shape[0]])
 
 
 def _synchronize_if_cuda(device: torch.device, enabled: bool) -> None:

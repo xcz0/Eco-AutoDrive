@@ -3,12 +3,19 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
+from tensordict import TensorDict
 
 from eco_planner.envs import TrajectoryExecutionRecord
 from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation.artifacts.trace_recorder import EpisodeTraceRecorder
 from eco_planner.evaluation.artifacts.trace_schema import validate_trace_arrays
-from eco_planner.evaluation.runtime.contracts import HostGuidanceDiagnostics, HostInferenceResult
+
+
+def _inference(**fields: np.ndarray) -> TensorDict:
+    return TensorDict(
+        {name: torch.from_numpy(value) for name, value in fields.items()},
+        batch_size=[fields["prediction"].shape[0]],
+    )
 
 
 def _observation() -> dict[str, torch.Tensor]:
@@ -65,7 +72,7 @@ def test_trace_recorder_finalizes_stable_schema_once() -> None:
     recorder.append_cycle(
         np.zeros(7),
         _observation(),
-        HostInferenceResult(initial_noise=noise, prediction=noise),
+        _inference(initial_noise=noise, prediction=noise),
         _execution(),
         0,
         None,
@@ -121,7 +128,11 @@ def test_guided_trace_requires_and_persists_reference_action_targets_and_step_di
     prediction = np.zeros((1, 11, 80, 4), dtype=np.float32)
     reference = np.ones_like(prediction)
     steps = np.arange(5, dtype=np.float32)[None]
-    diagnostics = HostGuidanceDiagnostics(
+    result = _inference(
+        initial_noise=np.zeros_like(prediction),
+        prediction=prediction,
+        reference_prediction=reference,
+        guidance_action=np.array([[1.0, 0.0]], dtype=np.float32),
         lateral_target_offset_m=np.array([2.5], dtype=np.float32),
         longitudinal_target_speed_fraction=np.array([0.0], dtype=np.float32),
         longitudinal_target_speed_delta_mps=np.zeros((1, 80), dtype=np.float32),
@@ -131,13 +142,6 @@ def test_guided_trace_requires_and_persists_reference_action_targets_and_step_di
         applied_gradient_max_abs=steps + 3.0,
         raw_neighbor_gradient_l2=steps + 4.0,
         zero_speed_count=np.arange(5, dtype=np.int64)[None],
-    )
-    result = HostInferenceResult(
-        initial_noise=np.zeros_like(prediction),
-        prediction=prediction,
-        reference_prediction=reference,
-        guidance_action=np.array([[1.0, 0.0]], dtype=np.float32),
-        guidance_diagnostics=diagnostics,
     )
 
     recorder.append_cycle(
@@ -183,7 +187,7 @@ def test_trace_recorder_rejects_planning_capacity_overflow() -> None:
         recorder.append_cycle(
             np.zeros(7),
             _observation(),
-            HostInferenceResult(initial_noise=prediction, prediction=prediction),
+            _inference(initial_noise=prediction, prediction=prediction),
             _execution(),
             0,
             None,
