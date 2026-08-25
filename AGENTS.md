@@ -92,15 +92,13 @@ just format
 
 不要为了“保持同步”在 README、Issue、ADR、system contract 和实验记录之间复制同一段实现细节。
 
-## Git 与 Issue
+## Git 与 GitHub Issues
 
 提交信息使用简短、祈使式主题；一次提交只完成一个逻辑变更。
 
-GitHub Issues 是跨会话 active implementation work 与持久化验收标准的入口。适合记录已经接受、可执行且需要持续跟踪的 bug、重构、性能、实验基础设施或其他实现任务；尚未接受的研究设想保留在 `docs/research/`。
+GitHub Issues 用于记录**已接受、可执行且需要跨会话跟踪的 implementation work**及其持久化验收标准，例如 bug、重构、性能和实验基础设施任务。尚未接受的研究设想留在 `docs/research/`；Issue 描述“要变成什么”，不作为当前实现事实。
 
-Issue 描述“要变成什么”，不能作为当前实现事实。判断当前行为仍以代码、测试、配置和 `docs/agents/system-contract.md` 为准。
-
-当 Issue 是任务来源时，按需读取 body、comments 和 labels；动手前只提取会影响当前执行的内容：
+当 Issue 是任务来源时，按需读取 body、comments 和 labels；动手前只保留会影响本次执行的任务契约：
 
 - **Goal / Problem**：为什么要改；
 - **Scope / Tasks**：本次允许修改什么；
@@ -110,10 +108,10 @@ Issue 描述“要变成什么”，不能作为当前实现事实。判断当�
 
 当前用户请求与 Issue 冲突时，以当前用户请求作为本次任务边界并指出差异；不要未经请求修改 Issue 来消除冲突。
 
-创建、更新或关闭 Issue 遵守上方执行边界。创建时使用满足任务所需的最小结构：`Goal`、必要的 `Context`、`Scope`、必要的 `Non-goals`、`Acceptance criteria`；不要为了模板完整制造空章节。
+当前请求或工作流授权 GitHub 写入时：
 
-Issue 只记录任务状态、阻塞信息和新的验收信息。实现契约、长期设计理由和实验 provenance 写入各自权威位置后，从 Issue 引用，不复制全文。
+- 创建 Issue 使用满足任务所需的最小结构：`Goal`、必要的 `Context`、`Scope`、必要的 `Non-goals`、`Acceptance criteria`；不要为了模板完整制造空章节。
+- 更新 Issue 只记录任务状态、阻塞信息和新的验收信息。实现契约、长期设计理由和实验 provenance 写入各自权威位置后，从 Issue 引用，不复制全文。
+- 只有验收标准已经满足，或明确决定取消/不实施时才关闭 Issue。若验收依赖真实实验，先在 `docs/experiments/` 登记运行证据，再从 Issue 引用对应记录。
 
-只有验收标准已经满足，或明确决定取消/不实施时才关闭 Issue。若验收依赖真实实验，先在 `docs/experiments/` 登记运行证据，再从 Issue 引用对应记录。
-
-优先使用当前环境提供的 GitHub 集成操作 Issue，不把特定 CLI 命令作为项目规范。只有没有可用集成而回退到 Windows `gh` CLI 时，才按沙箱要求在沙箱外执行认证相关 GitHub 请求；沙箱内的 HTTP 401 可能只是 Windows credential manager 不可见。只有沙箱外 `gh auth status --hostname github.com` 也失败时才要求重新认证；不要输出 token，也不要使用 `--show-token`。
+优先使用当前环境提供的 GitHub 集成，不把特定 CLI 命令写成项目规范。只有没有可用集成而回退到 Windows `gh` CLI 时，才按沙箱要求在沙箱外执行认证相关请求；沙箱内 HTTP 401 可能只是 Windows credential manager 不可见。只有沙箱外 `gh auth status --hostname github.com` 也失败时才要求重新认证；不要输出 token，也不要使用 `--show-token`。
