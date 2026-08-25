@@ -15,6 +15,7 @@ from pydantic import (
     model_validator,
 )
 
+from eco_planner.execution_contracts import EVALUATION_EXECUTION_STEPS, TRAFFIC_HISTORY_STEPS
 from eco_planner.models import (
     GuidanceConfig,
     SamplerConfig,
@@ -107,8 +108,10 @@ class EvaluationJobConfig(_StrictModel):
     @model_validator(mode="after")
     def validate_job(self) -> EvaluationJobConfig:
         evaluation = self.evaluation
-        if self.env.get("trajectory_execution_steps") != 5:
-            raise ValueError("evaluation env.trajectory_execution_steps must equal 5")
+        if self.env.get("trajectory_execution_steps") != EVALUATION_EXECUTION_STEPS:
+            raise ValueError(
+                f"evaluation env.trajectory_execution_steps must equal {EVALUATION_EXECUTION_STEPS}"
+            )
         horizon = self.env.get("horizon")
         if type(horizon) is not int:
             raise TypeError("env.horizon must be an integer")
@@ -139,8 +142,10 @@ class EvaluationJobConfig(_StrictModel):
         return self
 
     def _validate_traffic_environment(self) -> None:
-        if self.evaluation.history_warmup_steps != 20:
-            raise ValueError("traffic evaluation requires exactly 20 history warmup steps")
+        if self.evaluation.history_warmup_steps != TRAFFIC_HISTORY_STEPS:
+            raise ValueError(
+                f"traffic evaluation requires exactly {TRAFFIC_HISTORY_STEPS} history warmup steps"
+            )
         required = {
             "traffic_mode": "trigger",
             "random_traffic": False,

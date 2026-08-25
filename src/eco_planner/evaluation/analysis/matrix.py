@@ -192,6 +192,11 @@ def _build_report(
     statistics: dict[str, Any] = {}
     for (scenario, density), group in sorted(grouped.items()):
         label = f"{scenario}/density_{density:.2f}"
+        ml_per_km = [episode.energy.ml_per_km for episode in group]
+        if any(value is None for value in ml_per_km):
+            raise ValueError(
+                "matrix cannot bootstrap energy_ml_per_km for a completed zero-distance episode"
+            )
         metrics = {
             "simulated_seconds": np.asarray(
                 [episode.simulated_seconds for episode in group], dtype=np.float64
@@ -200,9 +205,7 @@ def _build_report(
             "energy_total_ml": np.asarray(
                 [episode.energy.total_ml for episode in group], dtype=np.float64
             ),
-            "energy_ml_per_km": np.asarray(
-                [episode.energy.ml_per_km for episode in group], dtype=np.float64
-            ),
+            "energy_ml_per_km": np.asarray(ml_per_km, dtype=np.float64),
             "route_completion": np.asarray(
                 [episode.route_completion for episode in group], dtype=np.float64
             ),

@@ -200,12 +200,13 @@ RL 训练输出与 evaluation 输出使用各自独立的数据边界。每个�
 ## 能耗记录
 
 * 每种能耗指标使用独立名称、单位和累计边界。
-* `metadrive_fuel_proxy` 按 MetaDrive `BaseVehicle` 的公式，从实际保存的 0.1 s kinematic execution trace 的相邻位置和执行速度重算；标准指标的 `total_ml` 不得由 kinematic `set_position()` 链路中的上游值替代。trace 另存上游 `step_energy` 和 reset 后累计的 `episode_energy`（均为 mL），仅供 formula/cumulative-boundary 审计和指标比较。
+* `metadrive_fuel_proxy` 的原始值由每个实际执行 0.1 s 子步的 MetaDrive `step_energy` 记录一次；summary 的 `total_ml` 仅对 trace 中的 `executed_step_energy_ml` 聚合，不得重新执行公式或改用其他能耗流。trace 同时保存累计的 `executed_episode_energy_ml`（mL），仅作累积边界审计；不同指标或累计边界不得静默互换。
 * 该指标记录 `total_ml`、`distance_m` 和 `ml_per_km`，后者在零距离时为 null。失败回合若存在 partial trace 也记录已产生的能耗；空 trace 没有能耗值。
 * MetaDrive 代理能耗与 FASTSim 等精细模型不得混用。
 * 能耗结果必须关联实际执行 trace、采样间隔、车辆配置、场景特征和终止类型。
 * 程序化地图没有原生坡度时不得假设高程信息。
 * 结果必须明确限定在运动学执行条件；当前系统不定义最终奖励或优化目标。
+* 若 completed episode 的执行距离为零，`ml_per_km` 为 null；固定 matrix 不对该未定义指标 bootstrap，而是明确失败。
 
 ## 评测与产物
 

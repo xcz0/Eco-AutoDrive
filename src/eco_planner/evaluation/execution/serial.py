@@ -30,6 +30,7 @@ from eco_planner.evaluation.episode import (
 from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.rendering import render_cycle_frame
 from eco_planner.evaluation.runtime.engine import FabricInferenceRuntime
+from eco_planner.execution_contracts import evaluation_plan_cycles
 from eco_planner.models import NoGuidanceConfig
 
 
@@ -73,7 +74,7 @@ def run_scenario(
             )
         trace = EpisodeTraceRecorder.from_initial_state(
             vehicle_state(env),
-            max_plan_cycles=(config.evaluation.evaluated_horizon_steps + 4) // 5,
+            max_plan_cycles=evaluation_plan_cycles(config.evaluation.evaluated_horizon_steps),
             max_warmup_steps=config.evaluation.history_warmup_steps,
             guided=not isinstance(runtime.guidance_config, NoGuidanceConfig),
         )

@@ -24,6 +24,11 @@ from eco_planner.evaluation.config import EvaluationJobConfig, ScenarioConfig
 from eco_planner.evaluation.failures import EpisodeFailure
 from eco_planner.evaluation.runtime.engine import FabricInferenceRuntime
 from eco_planner.evaluation.summaries import build_episode_summary, build_failed_episode_summary
+from eco_planner.execution_contracts import (
+    EVALUATION_EXECUTION_STEPS,
+    PLANNER_FUTURE_STEPS,
+    TRAFFIC_HISTORY_STEPS,
+)
 
 
 def finalize_completed_episode(
@@ -109,10 +114,10 @@ def run_traffic_warmup(
     trace: EpisodeTraceRecorder,
     warmup_steps: int,
 ) -> None:
-    if warmup_steps % 5 != 0:
-        raise ValueError("history warmup steps must be divisible by five")
+    if warmup_steps % EVALUATION_EXECUTION_STEPS != 0:
+        raise ValueError(f"history warmup steps must be divisible by {EVALUATION_EXECUTION_STEPS}")
     initial_position = trace.warmup_initial_state[:2].copy()
-    for _ in range(warmup_steps // 5):
+    for _ in range(warmup_steps // EVALUATION_EXECUTION_STEPS):
         _, _, terminated, truncated, info = env.step(stationary_trajectory())
         execution = info["trajectory_execution"]
         frames = execution.traffic_frames
@@ -125,7 +130,10 @@ def run_traffic_warmup(
         if terminated or truncated:
             raise EpisodeFailure(
                 FailurePhase.WARMUP,
-                RuntimeError("traffic history warmup terminated before 20 simulator steps"),
+                RuntimeError(
+                    "traffic history warmup terminated before "
+                    f"{TRAFFIC_HISTORY_STEPS} simulator steps"
+                ),
             )
     states = np.concatenate(trace.warmup_state_arrays, axis=0)
     if states.shape != (warmup_steps, 7):
@@ -142,7 +150,7 @@ def run_traffic_warmup(
 
 
 def stationary_trajectory() -> np.ndarray:
-    trajectory = np.zeros((80, 4), dtype=np.float32)
+    trajectory = np.zeros((PLANNER_FUTURE_STEPS, 4), dtype=np.float32)
     trajectory[:, 2] = 1.0
     return trajectory
 

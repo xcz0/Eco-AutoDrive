@@ -148,6 +148,7 @@ def _write_job(
     *,
     mismatch_episode_copy: bool = False,
     trace_arrays: dict[str, np.ndarray],
+    ml_per_km: float | None = 500.0,
     expected_seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
     expected_densities: tuple[float, ...] = (0.05, 0.10),
     video_enabled: bool = True,
@@ -177,6 +178,8 @@ runtime:
         _episode("long_straight", seed, density),
         _episode("long_mixed", seed, density),
     ]
+    for episode in episodes:
+        episode["energy"]["ml_per_km"] = ml_per_km  # type: ignore[index]
     for index, episode in enumerate(episodes):
         episode_dir = job / str(episode["scenario"]["name"])
         episode_dir.mkdir()
@@ -359,6 +362,15 @@ def test_matrix_rejects_episode_copy_mismatch(
     _write_job(tmp_path, 0, 0, 0.05, mismatch_episode_copy=True, trace_arrays=matrix_trace_arrays)
 
     with pytest.raises(ValueError, match="episode summary copy"):
+        build_matrix_report(tmp_path, partial=True)
+
+
+def test_matrix_rejects_undefined_energy_per_distance_for_completed_episode(
+    tmp_path: Path, matrix_trace_arrays: dict[str, np.ndarray]
+) -> None:
+    _write_job(tmp_path, 0, 0, 0.05, trace_arrays=matrix_trace_arrays, ml_per_km=None)
+
+    with pytest.raises(ValueError, match="zero-distance episode"):
         build_matrix_report(tmp_path, partial=True)
 
 

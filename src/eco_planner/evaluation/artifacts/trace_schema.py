@@ -7,10 +7,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from eco_planner.execution_contracts import EVALUATION_EXECUTION_STEPS, PLANNER_FUTURE_STEPS
+
 PLANNER_ACTOR_COUNT = 11
-PLANNER_FUTURE_STEPS = 80
 PLANNER_STATE_DIM = 4
-EXECUTION_PREFIX_STEPS = 5
+EXECUTION_PREFIX_STEPS = EVALUATION_EXECUTION_STEPS
 
 _PLAN = "plan"
 _SIMULATOR = "simulator"
@@ -256,8 +257,12 @@ def validate_trace_arrays(
         if not np.array_equal(np.unique(plan_indices), np.arange(plan_cycles)):
             raise ValueError("trace plan indices are not contiguous")
         counts = np.bincount(plan_indices, minlength=plan_cycles)
-        if np.any(counts[:-1] != EXECUTION_PREFIX_STEPS) or not 1 <= counts[-1] <= 5:
-            raise ValueError("trace plan indices do not encode five-step prefixes")
+        if np.any(counts[:-1] != EXECUTION_PREFIX_STEPS) or not (
+            1 <= counts[-1] <= EXECUTION_PREFIX_STEPS
+        ):
+            raise ValueError(
+                f"trace plan indices do not encode {EXECUTION_PREFIX_STEPS}-step prefixes"
+            )
         if not np.array_equal(plan_indices, np.repeat(np.arange(plan_cycles), counts)):
             raise ValueError("trace plan indices are not ordered by planning cycle")
     elif simulator_steps:

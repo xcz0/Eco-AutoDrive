@@ -50,7 +50,7 @@ def test_run_scenario_replans_and_persists_trace(
     assert summary.map_input_audit.speed_limit_mps_min == pytest.approx(50.0 / 3.6)
     assert summary.energy.metric == "metadrive_fuel_proxy"
     assert summary.energy.distance_m == pytest.approx(10.0)
-    assert summary.energy.total_ml > 0.0
+    assert summary.energy.total_ml == pytest.approx(1.0)
 
 
 def test_failed_episode_preserves_energy_from_partial_execution_trace(

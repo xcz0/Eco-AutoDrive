@@ -7,12 +7,12 @@ from typing import Any
 import numpy as np
 
 from eco_planner.envs import TrajectoryExecutionRecord
-from eco_planner.envs.execution import metadrive_fuel_proxy_step_energy_ml
 from eco_planner.evaluation.artifacts.models import (
     CompletedEpisodeSummary,
     FailedEpisodeSummary,
     FailurePhase,
 )
+from eco_planner.execution_contracts import SIMULATOR_STEP_S
 
 
 def build_failed_episode_summary(
@@ -100,7 +100,7 @@ def build_episode_summary(
             "guidance": guidance,
             "plan_cycles": int(trace_arrays["initial_noise"].shape[0]),
             "simulator_steps": int(trace_arrays["executed_states"].shape[0]),
-            "simulated_seconds": float(trace_arrays["executed_states"].shape[0] * 0.1),
+            "simulated_seconds": float(trace_arrays["executed_states"].shape[0] * SIMULATOR_STEP_S),
             "environment_steps_including_warmup": int(
                 warmup_states.shape[0] + trace_arrays["executed_states"].shape[0]
             ),
@@ -126,7 +126,7 @@ def build_episode_summary(
             "map_input_audit": _map_input_audit(trace_arrays, environment_map_audit),
             "history_warmup": {
                 "simulator_steps": int(warmup_states.shape[0]),
-                "simulated_seconds": float(warmup_states.shape[0] * 0.1),
+                "simulated_seconds": float(warmup_states.shape[0] * SIMULATOR_STEP_S),
                 "ego_displacement_m_maximum": float(warmup_displacement.max())
                 if warmup_displacement.size
                 else 0.0,
@@ -240,12 +240,18 @@ def _energy_summary(trace_arrays: dict[str, np.ndarray]) -> dict[str, float | st
     states = trace_arrays["executed_states"]
     if not states.size:
         return None
+    step_energy_ml = trace_arrays["executed_step_energy_ml"]
+    episode_energy_ml = trace_arrays["executed_episode_energy_ml"]
+    expected_shape = (states.shape[0],)
+    for name, values in (
+        ("executed_step_energy_ml", step_energy_ml),
+        ("executed_episode_energy_ml", episode_energy_ml),
+    ):
+        if values.shape != expected_shape or not np.isfinite(values).all() or np.any(values < 0.0):
+            raise RuntimeError(f"trace {name} must be finite, non-negative, and state-aligned")
     positions = np.vstack((trace_arrays["initial_state"][None, :2], states[:, :2]))
     distances_m = np.linalg.norm(np.diff(positions, axis=0), axis=1)
-    total_ml = sum(
-        metadrive_fuel_proxy_step_energy_ml(start, end, float(speed))
-        for start, end, speed in zip(positions[:-1], positions[1:], states[:, 5], strict=True)
-    )
+    total_ml = float(step_energy_ml.sum(dtype=np.float64))
     distance_m = float(distances_m.sum())
     return {
         "metric": "metadrive_fuel_proxy",
