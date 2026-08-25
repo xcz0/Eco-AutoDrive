@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import torch
 from tensordict import TensorDict, TensorDictBase
 from torchrl.data import Binary, Composite, Unbounded
@@ -35,6 +37,9 @@ class TorchRLMetaDriveEnv(EnvBase):
         self._map_name = map_name
         self._seed = seed
         self._last_execution: TrajectoryExecutionRecord | None = None
+        self._last_warmup_executions: tuple[TrajectoryExecutionRecord, ...] = ()
+        self._last_traffic_audit = None
+        self._last_programmatic_lane_speed_limit_audit: Mapping[str, object] = {}
         self.observation_spec = _observation_spec(observation_spec)
         self.action_spec = Unbounded(
             shape=(PLANNER_FUTURE_STEPS, 4), dtype=torch.float32, device=_CPU_DEVICE
@@ -50,17 +55,24 @@ class TorchRLMetaDriveEnv(EnvBase):
 
     def _reset(self, tensordict: TensorDictBase | None, **kwargs: object) -> TensorDictBase:
         del tensordict, kwargs
-        self._slot.reset(map_name=self._map_name, seed=self._seed)
-        tuple(self._slot.warmup())
-        return _observation_tensordict(self._slot.observe().observation)
+        reset = self._slot.reset(map_name=self._map_name, seed=self._seed)
+        self._last_warmup_executions = tuple(self._slot.warmup())
+        self._last_programmatic_lane_speed_limit_audit = (
+            reset.programmatic_lane_speed_limit_audit
+        )
+        observation = self._slot.observe()
+        self._last_traffic_audit = observation.traffic_audit
+        return _observation_tensordict(observation.observation)
 
     def _step(self, tensordict: TensorDictBase) -> TensorDictBase:
         trajectory = tensordict["action"].detach().numpy()
         result = self._slot.step(trajectory)
         self._last_execution = result.execution
+        observation = self._slot.observe()
+        self._last_traffic_audit = observation.traffic_audit
         return TensorDict(
             {
-                **self._slot.observe().observation,
+                **observation.observation,
                 "reward": torch.tensor([result.reward], dtype=torch.float32),
                 "done": torch.tensor([result.terminated or result.truncated], dtype=torch.bool),
                 "terminated": torch.tensor([result.terminated], dtype=torch.bool),
@@ -82,6 +94,24 @@ class TorchRLMetaDriveEnv(EnvBase):
         if self._last_execution is None:
             raise RuntimeError("TorchRL MetaDrive environment has not stepped")
         return self._last_execution
+
+    @property
+    def last_warmup_executions(self) -> tuple[TrajectoryExecutionRecord, ...]:
+        """Return the warmup records emitted by the latest reset."""
+
+        return self._last_warmup_executions
+
+    @property
+    def last_traffic_audit(self) -> object:
+        """Return the traffic selection audit captured with the latest observation."""
+
+        return self._last_traffic_audit
+
+    @property
+    def last_programmatic_lane_speed_limit_audit(self) -> Mapping[str, object]:
+        """Return the lane-speed audit captured by the latest reset."""
+
+        return self._last_programmatic_lane_speed_limit_audit
 
     def close(self, *, raise_if_closed: bool = True) -> None:
         """Close the wrapped slot when this adapter owns the final lifecycle boundary."""

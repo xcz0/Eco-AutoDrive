@@ -14,6 +14,11 @@ from eco_planner.envs.slot import (
     MetaDriveEnvSlot,
 )
 from eco_planner.envs.torchrl_env import TorchRLMetaDriveEnv
+from eco_planner.envs.torchrl_parallel_env import (
+    TorchRLParallelScenario,
+    TorchRLScenarioMetaDriveEnv,
+    create_torchrl_parallel_env_poc,
+)
 from eco_planner.envs.vector_metadrive import (
     VectorEnvReset,
     VectorEnvScenario,
@@ -34,6 +39,9 @@ __all__ = [
     "EnvSlotStep",
     "MetaDriveEnvSlot",
     "TorchRLMetaDriveEnv",
+    "TorchRLParallelScenario",
+    "TorchRLScenarioMetaDriveEnv",
+    "create_torchrl_parallel_env_poc",
     "VectorEnvReset",
     "VectorEnvScenario",
     "VectorEnvStep",

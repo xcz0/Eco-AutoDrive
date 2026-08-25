@@ -35,8 +35,9 @@ class _FakeSlot:
         self.trajectories: list[np.ndarray] = []
         self.closed = False
 
-    def reset(self, *, map_name: str, seed: int) -> None:
+    def reset(self, *, map_name: str, seed: int) -> SimpleNamespace:
         self.resets.append((map_name, seed))
+        return SimpleNamespace(programmatic_lane_speed_limit_audit={})
 
     @staticmethod
     def warmup():
@@ -44,11 +45,16 @@ class _FakeSlot:
 
     @staticmethod
     def observe() -> SimpleNamespace:
-        return SimpleNamespace(observation=_observation())
+        return SimpleNamespace(observation=_observation(), traffic_audit=None)
 
     def step(self, trajectory: np.ndarray) -> SimpleNamespace:
         self.trajectories.append(trajectory)
-        return SimpleNamespace(reward=0.25, terminated=False, truncated=False)
+        return SimpleNamespace(
+            reward=0.25,
+            terminated=False,
+            truncated=False,
+            execution=object(),
+        )
 
     def close(self) -> None:
         self.closed = True
