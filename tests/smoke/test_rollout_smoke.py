@@ -10,7 +10,6 @@ from eco_planner.models import Ddim5SamplerConfig, OrthogonalPolicyGuidanceConfi
 from eco_planner.rl.collector import collect_rollout_episode
 from eco_planner.rl.config import ExplorationPolicyConfig, parse_rollout_config
 from eco_planner.rl.runtime import create_fabric_rollout_runtime
-from eco_planner.rl.torchrl_collector_poc import collect_torchrl_rollout_poc
 from eco_planner.runtime.config import RuntimeConfig
 
 
@@ -104,42 +103,6 @@ def test_collects_one_real_10hz_transition_without_artifacts(baseline_checkpoint
     )
 
     episode = collect_rollout_episode(
-        parsed.scenario,
-        runtime,
-        parsed.env,
-        mode=parsed.rollout.mode,
-        map_query_radius_m=parsed.map_query_radius_m,
-        history_warmup_steps=parsed.rollout.history_warmup_steps,
-        max_transitions=1,
-        stopped_speed_threshold_mps=parsed.rollout.stopped_speed_threshold_mps,
-    )
-
-    assert episode.transition_count == 1
-    assert episode.training["guidance_action"].shape == (1, 2)
-    assert episode.tail_kind == "rollout_limit"
-    assert episode.training["next", "reward"].shape == (1, 1)
-
-
-@pytest.mark.simulator
-@pytest.mark.slow
-def test_torchrl_collector_poc_collects_one_real_no_traffic_transition(
-    baseline_checkpoint_dir,
-) -> None:
-    config_dir = Path(__file__).resolve().parents[2] / "configs"
-    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        config = compose(config_name="jobs/training/rollout_smoke")
-    parsed = parse_rollout_config(config)
-    runtime = create_fabric_rollout_runtime(
-        parsed.runtime,
-        parsed.sampler,
-        parsed.guidance,
-        parsed.policy,
-        baseline_checkpoint_dir / "args.json",
-        baseline_checkpoint_dir / "model.pth",
-        parsed.rollout.policy_action_seed,
-    )
-
-    episode = collect_torchrl_rollout_poc(
         parsed.scenario,
         runtime,
         parsed.env,

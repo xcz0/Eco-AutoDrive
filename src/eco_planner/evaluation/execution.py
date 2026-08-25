@@ -311,8 +311,8 @@ def run_vector_scenarios(
     slot_count = min(configured_slots, len(specs))
     initial_specs = specs[:slot_count]
     configured_envs = tuple({**config.env, "map": spec.map} for spec in initial_specs)
-    initial_scenarios = tuple(
-        VectorEnvScenario(spec.name, spec.map, spec.seed) for spec in initial_specs
+    scenarios = tuple(
+        VectorEnvScenario(spec.name, spec.map, spec.seed) for spec in specs
     )
     with VectorMetaDriveEnv(
         configured_envs,
@@ -320,8 +320,10 @@ def run_vector_scenarios(
         observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.evaluation.history_warmup_steps,
+        scenarios=scenarios,
+        torch_threads_per_worker=config.evaluation.execution.torch_threads_per_worker,
     ) as envs:
-        resets = envs.reset(initial_scenarios)
+        resets = envs.reset(scenarios[:slot_count])
         slots: dict[int, _EpisodeState] = {}
         slot_scenario_indices: dict[int, int] = {}
         summaries: list[CompletedEpisodeSummary | FailedEpisodeSummary | None] = [None] * len(specs)

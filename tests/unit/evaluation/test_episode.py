@@ -131,7 +131,7 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
                 (),
                 None,
                 reset.programmatic_lane_speed_limit_audit,
-                VectorEnvTiming(0.0, 0.0, 0.0, 0.0, 0.0),
+                VectorEnvTiming(0.0, 0.0),
             )
 
         def step_slots(
@@ -162,7 +162,7 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
                         step.truncated,
                         execution,
                         None,
-                        VectorEnvTiming(0.0, 0.0, 0.0, 0.0, 0.0),
+                        VectorEnvTiming(0.0, 0.0),
                     )
                 )
             return tuple(steps)

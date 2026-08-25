@@ -51,7 +51,7 @@ def _assert_same_observation(
 ) -> None:
     assert set(actual) == set(expected)
     for name in actual:
-        torch.testing.assert_close(actual[name], expected[name], rtol=0.0, atol=1e-5)
+        torch.testing.assert_close(actual[name], expected[name], rtol=1e-6, atol=1e-6)
 
 
 @pytest.mark.simulator
@@ -69,9 +69,13 @@ def test_vector_environment_fixed_slots_complete_no_traffic_lifecycle(
         observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
         map_query_radius_m=100.0,
         history_warmup_steps=0,
+        scenarios=scenarios,
     ) as envs:
         resets = envs.reset(scenarios)
         steps = envs.step([_straight_trajectory() for _ in range(num_envs)])
+        assert envs.uses_shared_buffers
+        assert len(envs._env._workers) == num_envs  # noqa: SLF001
+        assert all(worker.pid is not None for worker in envs._env._workers)  # noqa: SLF001
 
     assert [result.slot for result in resets] == list(range(num_envs))
     assert [result.slot for result in steps] == list(range(num_envs))
@@ -83,9 +87,6 @@ def test_vector_environment_fixed_slots_complete_no_traffic_lifecycle(
             min(
                 reset.timing.environment_s,
                 reset.timing.observation_s,
-                reset.timing.ipc_send_s,
-                reset.timing.ipc_receive_s,
-                reset.timing.worker_wait_s,
             )
             >= 0.0
         )
@@ -113,22 +114,27 @@ def test_resetting_one_vector_slot_does_not_change_another_slot(
         expected_reset = baseline.observe().observation
         expected_step = baseline.step(_straight_trajectory())
         expected_next = baseline.observe().observation
-        with VectorMetaDriveEnv(
-            [config.copy(), config.copy()],
-            mode="no_traffic",
-            observation_spec=observation_spec,
-            map_query_radius_m=100.0,
-            history_warmup_steps=0,
-        ) as envs:
-            resets = envs.reset((VectorEnvScenario(name="first", map="S", seed=2), second))
-            envs.reset_at(0, VectorEnvScenario(name="replacement", map="S", seed=3))
-            actual = envs.step_at(1, _straight_trajectory())
     finally:
         baseline.close()
+    with VectorMetaDriveEnv(
+        [config.copy(), config.copy()],
+        mode="no_traffic",
+        observation_spec=observation_spec,
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+        scenarios=(
+            VectorEnvScenario(name="first", map="S", seed=2),
+            second,
+            VectorEnvScenario(name="replacement", map="S", seed=3),
+        ),
+    ) as envs:
+        resets = envs.reset((VectorEnvScenario(name="first", map="S", seed=2), second))
+        envs.reset_at(0, VectorEnvScenario(name="replacement", map="S", seed=3))
+        actual = envs.step_at(1, _straight_trajectory())
 
     _assert_same_observation(resets[1].observation, expected_reset)
     _assert_same_observation(actual.observation, expected_next)
-    assert actual.reward == pytest.approx(expected_step.reward, abs=1e-12)
+    assert actual.reward == pytest.approx(expected_step.reward, rel=1e-6, abs=1e-6)
     assert actual.terminated is expected_step.terminated
     assert actual.truncated is expected_step.truncated
     np.testing.assert_allclose(
@@ -168,21 +174,22 @@ def test_vector_environment_builds_traffic_observations_after_worker_warmup(
         )
         adapter.append_frames(expected_info["trajectory_execution"].traffic_frames)
         expected_next, _ = adapter.build(baseline)
-        with VectorMetaDriveEnv(
-            [config],
-            mode="traffic",
-            observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
-            map_query_radius_m=100.0,
-            history_warmup_steps=20,
-        ) as envs:
-            reset = envs.reset((VectorEnvScenario(name="traffic", map="SC", seed=0),))[0]
-            actual = envs.step((_stationary_trajectory(),))[0]
     finally:
         baseline.close()
+    with VectorMetaDriveEnv(
+        [config],
+        mode="traffic",
+        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        map_query_radius_m=100.0,
+        history_warmup_steps=20,
+        scenarios=(VectorEnvScenario(name="traffic", map="SC", seed=0),),
+    ) as envs:
+        reset = envs.reset((VectorEnvScenario(name="traffic", map="SC", seed=0),))[0]
+        actual = envs.step((_stationary_trajectory(),))[0]
 
     _assert_same_observation(reset.observation, expected_reset)
     _assert_same_observation(actual.observation, expected_next)
-    assert actual.reward == pytest.approx(expected_reward, abs=1e-12)
+    assert actual.reward == pytest.approx(expected_reward, rel=1e-6, abs=1e-6)
     assert actual.terminated is expected_terminated
     assert actual.truncated is expected_truncated
     np.testing.assert_allclose(

@@ -133,6 +133,7 @@ def _measure_batch_size(
                         mode=benchmark.mode,
                         map_query_radius_m=config.map_query_radius_m,
                         history_warmup_steps=benchmark.history_warmup_steps,
+                        torch_threads_per_worker=config.resources.torch_threads_per_worker,
                     )
                     worker_pool_startup_samples.append(perf_counter() - startup_started)
                 slots = vector_collector.collect(
@@ -252,7 +253,7 @@ def _rollout_result(
             "environment_wall_s": None,
             "collection_overhead_s": None,
             "worker_busy_s_per_transition": None,
-            "worker_wait_s_per_transition": None,
+            "transport_sync_s_per_transition": None,
             "worker_imbalance_s_per_transition": None,
             "decision_batch_fill_ratio": None,
             "bootstrap_batch_fill_ratio": None,
@@ -265,7 +266,7 @@ def _rollout_result(
     environment_wall: list[float] = []
     overhead: list[float] = []
     worker_busy_per_transition: list[float] = []
-    worker_wait_per_transition: list[float] = []
+    transport_sync_per_transition: list[float] = []
     worker_imbalance_per_transition: list[float] = []
     decision_fill: list[float] = []
     bootstrap_fill: list[float] = []
@@ -290,8 +291,8 @@ def _rollout_result(
         worker_busy_per_transition.append(
             sum(item.worker_busy_s for item in decisions) / sample_count
         )
-        worker_wait_per_transition.append(
-            sum(item.worker_wait_s for item in decisions) / sample_count
+        transport_sync_per_transition.append(
+            sum(item.transport_sync_s for item in decisions) / sample_count
         )
         worker_imbalance_per_transition.append(
             sum(item.worker_imbalance_s for item in decisions) / sample_count
@@ -307,7 +308,7 @@ def _rollout_result(
         "environment_wall_s": measurement(environment_wall),
         "collection_overhead_s": measurement(overhead),
         "worker_busy_s_per_transition": measurement(worker_busy_per_transition),
-        "worker_wait_s_per_transition": measurement(worker_wait_per_transition),
+        "transport_sync_s_per_transition": measurement(transport_sync_per_transition),
         "worker_imbalance_s_per_transition": measurement(worker_imbalance_per_transition),
         "decision_batch_fill_ratio": measurement(decision_fill),
         "bootstrap_batch_fill_ratio": measurement(bootstrap_fill) if bootstrap_fill else None,

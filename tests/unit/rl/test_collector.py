@@ -22,7 +22,6 @@ from eco_planner.rl.collector import (
 from eco_planner.rl.policy import ExplorationPolicyContext
 from eco_planner.rl.rollout import build_training_decision
 from eco_planner.rl.runtime import RolloutAudit, RolloutDecision
-from eco_planner.rl.torchrl_collector_poc import collect_torchrl_rollout_poc
 
 
 def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
@@ -135,28 +134,6 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
         assert np.isfinite(trajectory).all()
         assert np.all(np.linalg.norm(trajectory[:, 2:4], axis=-1) > 0.0)
 
-    monkeypatch.setattr("eco_planner.rl.torchrl_collector_poc.MetaDriveEnvSlot", FakeSlot)
-    poc_runtime = FakeRuntime()
-    poc_episode = collect_torchrl_rollout_poc(
-        ScenarioConfig(name="fake", map="S", seed=9),
-        poc_runtime,
-        {"trajectory_execution_steps": 1},
-        mode="no_traffic",
-        map_query_radius_m=100.0,
-        history_warmup_steps=0,
-        max_transitions=2,
-    )
-
-    assert poc_runtime.observation_markers[-2:] == [0, 1]
-    assert poc_runtime.bootstrap_marker == 2
-    assert poc_episode.tail_kind == episode.tail_kind
-    assert torch.equal(poc_episode.tail_bootstrap_value, episode.tail_bootstrap_value)
-    for name in ("guidance_action", "old_joint_guidance_log_prob", "state_value", "next"):
-        torch.testing.assert_close(poc_episode.training[name], episode.training[name])
-    for name in episode.audit.keys(include_nested=True, leaves_only=True):
-        torch.testing.assert_close(poc_episode.audit[name], episode.audit[name])
-
-
 def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(monkeypatch) -> None:
     class FakeVectorEnv:
         terminal_first_slot = True
@@ -211,7 +188,6 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
                         timing=SimpleNamespace(
                             environment_s=0.1,
                             observation_s=0.2,
-                            worker_wait_s=0.3,
                         ),
                     )
                 )
@@ -327,7 +303,7 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
     assert [timing.active_slots for timing in reset_timings] == [2, 2, 2, 2]
     assert all(timing.planner_wall_s >= 0.0 for timing in reset_timings)
     assert all(timing.environment_wall_s >= 0.0 for timing in reset_timings)
-    assert all(timing.worker_wait_s >= 0.0 for timing in reset_timings)
+    assert all(timing.transport_sync_s >= 0.0 for timing in reset_timings)
 
     for reset_slot, baseline_slot in zip(reset_episodes, baseline_episodes, strict=True):
         assert [item.tail_kind for item in reset_slot] == [item.tail_kind for item in baseline_slot]

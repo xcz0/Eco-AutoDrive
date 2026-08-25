@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from time import perf_counter
 
 import numpy as np
 import torch
@@ -44,6 +45,8 @@ class TorchRLMetaDriveEnv(EnvBase):
         self._last_warmup_executions: tuple[TrajectoryExecutionRecord, ...] = ()
         self._last_traffic_audit = None
         self._last_programmatic_lane_speed_limit_audit: Mapping[str, object] = {}
+        self._last_environment_s = 0.0
+        self._last_observation_s = 0.0
         self.observation_spec = _observation_spec(observation_spec)
         self.action_spec = Unbounded(
             shape=(PLANNER_FUTURE_STEPS, 4), dtype=torch.float32, device=_CPU_DEVICE
@@ -59,23 +62,31 @@ class TorchRLMetaDriveEnv(EnvBase):
 
     def _reset(self, tensordict: TensorDictBase | None, **kwargs: object) -> TensorDictBase:
         del tensordict, kwargs
+        environment_started = perf_counter()
         reset = self._slot.reset(map_name=self._map_name, seed=self._seed)
         self._last_reset = reset
         self._last_warmup_executions = tuple(self._slot.warmup())
+        self._last_environment_s = perf_counter() - environment_started
         self._last_programmatic_lane_speed_limit_audit = (
             reset.programmatic_lane_speed_limit_audit
         )
+        observation_started = perf_counter()
         observation = self._slot.observe()
+        self._last_observation_s = perf_counter() - observation_started
         self._last_initial_state = self._slot.vehicle_state
         self._last_traffic_audit = observation.traffic_audit
         return _observation_tensordict(observation.observation)
 
     def _step(self, tensordict: TensorDictBase) -> TensorDictBase:
         trajectory = tensordict["action"].detach().numpy()
+        environment_started = perf_counter()
         result = self._slot.step(trajectory)
+        self._last_environment_s = perf_counter() - environment_started
         self._last_step = result
         self._last_execution = result.execution
+        observation_started = perf_counter()
         observation = self._slot.observe()
+        self._last_observation_s = perf_counter() - observation_started
         self._last_traffic_audit = observation.traffic_audit
         return TensorDict(
             {
@@ -143,6 +154,18 @@ class TorchRLMetaDriveEnv(EnvBase):
         """Return the lane-speed audit captured by the latest reset."""
 
         return self._last_programmatic_lane_speed_limit_audit
+
+    @property
+    def last_environment_s(self) -> float:
+        """Return simulator service time for the latest reset or step."""
+
+        return self._last_environment_s
+
+    @property
+    def last_observation_s(self) -> float:
+        """Return observation-build time for the latest reset or step."""
+
+        return self._last_observation_s
 
     def close(self, *, raise_if_closed: bool = True) -> None:
         """Close the wrapped slot when this adapter owns the final lifecycle boundary."""

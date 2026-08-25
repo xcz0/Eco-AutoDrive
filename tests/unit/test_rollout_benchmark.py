@@ -23,7 +23,7 @@ def _timing(
         planner_wall_s=planner,
         environment_wall_s=environment,
         worker_busy_s=worker_busy,
-        worker_wait_s=worker_wait,
+        transport_sync_s=worker_wait,
         worker_imbalance_s=worker_imbalance,
     )
 
@@ -60,7 +60,7 @@ def test_rollout_result_splits_decision_and_partial_bootstrap_metrics() -> None:
     assert result["environment_wall_s"]["median"] == 4.0  # type: ignore[index]
     assert result["collection_overhead_s"]["median"] == 3.5  # type: ignore[index]
     assert result["worker_busy_s_per_transition"]["median"] == 2.0  # type: ignore[index]
-    assert result["worker_wait_s_per_transition"]["median"] == 1.5  # type: ignore[index]
+    assert result["transport_sync_s_per_transition"]["median"] == 1.5  # type: ignore[index]
     assert result["worker_imbalance_s_per_transition"]["median"] == 1.0  # type: ignore[index]
     assert result["decision_batch_fill_ratio"]["median"] == 1.0  # type: ignore[index]
     assert result["bootstrap_batch_fill_ratio"]["median"] == 0.5  # type: ignore[index]

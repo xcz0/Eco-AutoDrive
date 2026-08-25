@@ -164,8 +164,7 @@ def benchmark_vector_environment_scaling(
         worker_environment_samples: list[float] = []
         worker_observation_samples: list[float] = []
         observation_service_rate_samples: list[float] = []
-        ipc_samples: list[float] = []
-        wait_samples: list[float] = []
+        transport_sync_samples: list[float] = []
         imbalance_samples: list[float] = []
         configs = tuple(dict(env_config) for _ in range(worker_count))
         scenarios = tuple(
@@ -179,6 +178,7 @@ def benchmark_vector_environment_scaling(
                 observation_spec=PlannerObservationSpec.from_planner_config(model_config),
                 map_query_radius_m=map_query_radius_m,
                 history_warmup_steps=history_warmup_steps,
+                scenarios=scenarios,
             ) as environments:
                 environments.reset(scenarios)
                 for _ in range(benchmark.warmup_cycles):
@@ -186,19 +186,18 @@ def benchmark_vector_environment_scaling(
                 elapsed = 0.0
                 worker_environment = 0.0
                 worker_observation = 0.0
-                ipc = 0.0
-                worker_wait = 0.0
+                transport_sync = 0.0
                 imbalance = 0.0
                 for _ in range(benchmark.measured_cycles):
                     started = perf_counter()
                     steps = environments.step((trajectory,) * worker_count)
-                    elapsed += perf_counter() - started
+                    batch_wall = perf_counter() - started
+                    elapsed += batch_wall
                     _require_active_steps(steps)
                     busy = [step.timing.environment_s + step.timing.observation_s for step in steps]
                     worker_environment += sum(step.timing.environment_s for step in steps)
                     worker_observation += sum(step.timing.observation_s for step in steps)
-                    ipc += sum(step.timing.ipc_send_s + step.timing.ipc_receive_s for step in steps)
-                    worker_wait += sum(step.timing.worker_wait_s for step in steps)
+                    transport_sync += max(0.0, batch_wall - max(busy))
                     imbalance += sum(max(busy) - value for value in busy)
                 total_steps = worker_count * benchmark.measured_cycles
                 steps_per_second.append(total_steps / elapsed)
@@ -206,8 +205,7 @@ def benchmark_vector_environment_scaling(
                 worker_environment_samples.append(worker_environment / total_steps)
                 worker_observation_samples.append(worker_observation / total_steps)
                 observation_service_rate_samples.append(total_steps / worker_observation)
-                ipc_samples.append(ipc / total_steps)
-                wait_samples.append(worker_wait / total_steps)
+                transport_sync_samples.append(transport_sync / total_steps)
                 imbalance_samples.append(imbalance / total_steps)
         results.append(
             {
@@ -219,8 +217,7 @@ def benchmark_vector_environment_scaling(
                 "worker_observation_builds_per_service_s": measurement(
                     observation_service_rate_samples
                 ),
-                "ipc_transfer_s_per_step": measurement(ipc_samples),
-                "worker_wait_s_per_step": measurement(wait_samples),
+                "transport_sync_s_per_step": measurement(transport_sync_samples),
                 "worker_imbalance_s_per_step": measurement(imbalance_samples),
             }
         )
@@ -263,6 +260,9 @@ def _representative_observation(
         observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.evaluation.history_warmup_steps,
+        scenarios=(
+            VectorEnvScenario("benchmark-observation", str(env_config["map"]), 0),
+        ),
     ) as environments:
         reset = environments.reset(
             (VectorEnvScenario("benchmark-observation", str(env_config["map"]), 0),)

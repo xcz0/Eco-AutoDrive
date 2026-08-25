@@ -58,6 +58,7 @@
 | [E-020](records/e-020-persistent-vector-rollout-rtx3050.md) | 2026-08-24 | 本机验证 | Issue #63 持久 vector rollout worker pool | 稳态 vector 吞吐超过同次 serial；首轮启动成本单独记录 |
 | [E-021](records/e-021-strict-job-level-evaluation-benchmark.md) | 2026-08-24 | 本机正式基准 | Issue #66 的 RTX 3050 strict serial/job-level traffic matrix | 2 × 8 profile 的 job-level 比同配置 serial 快 35.3%；仅限此机器与矩阵 |
 | [E-022](records/e-022-persistent-vector-evaluation-benchmark.md) | 2026-08-24 | 本机正式基准 | Issue #65 的 chunked/persistent/serial vector evaluation 对照 | persistent pool 比 chunked 快 15.2%，并保留场景完成语义；仅限此机器与矩阵 |
+| [E-023](records/e-023-torchrl-parallel-env-correctness.md) | 2026-08-25 | 本机迁移验证 | 自定义 MetaDrive IPC 到 TorchRL ParallelEnv 的单次真实差分 | 正确性通过；未形成性能结论 |
 
 ## 服务器训练与正式实验登记模板
 

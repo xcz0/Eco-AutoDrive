@@ -41,7 +41,7 @@ class VectorRolloutRoundTiming:
     planner_wall_s: float
     environment_wall_s: float
     worker_busy_s: float
-    worker_wait_s: float
+    transport_sync_s: float
     worker_imbalance_s: float
 
 
@@ -192,6 +192,7 @@ class VectorRolloutCollector:
         map_query_radius_m: float,
         history_warmup_steps: int,
         physical_slot_count: int | None = None,
+        torch_threads_per_worker: int | None = None,
     ) -> None:
         if not specs:
             raise ValueError("vector rollout requires at least one scenario")
@@ -214,6 +215,8 @@ class VectorRolloutCollector:
             observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
             map_query_radius_m=map_query_radius_m,
             history_warmup_steps=history_warmup_steps,
+            scenarios=self._scenarios,
+            torch_threads_per_worker=torch_threads_per_worker,
         )
         self._close_finalizer = finalize(self, self._envs.close)
 
@@ -304,7 +307,7 @@ class VectorRolloutCollector:
                         planner_wall_s=planner_s,
                         environment_wall_s=environment_s,
                         worker_busy_s=sum(worker_busy),
-                        worker_wait_s=sum(step.timing.worker_wait_s for step in steps),
+                        transport_sync_s=max(0.0, environment_s - slowest),
                         worker_imbalance_s=sum(slowest - value for value in worker_busy),
                     )
                 )
@@ -381,7 +384,7 @@ class VectorRolloutCollector:
                             planner_wall_s=perf_counter() - bootstrap_started,
                             environment_wall_s=0.0,
                             worker_busy_s=0.0,
-                            worker_wait_s=0.0,
+                            transport_sync_s=0.0,
                             worker_imbalance_s=0.0,
                         )
                     )
@@ -500,7 +503,7 @@ class VectorRolloutCollector:
                         planner_wall_s=planner_s,
                         environment_wall_s=environment_s,
                         worker_busy_s=sum(worker_busy),
-                        worker_wait_s=sum(step.timing.worker_wait_s for step in steps),
+                        transport_sync_s=max(0.0, environment_s - slowest),
                         worker_imbalance_s=sum(slowest - value for value in worker_busy),
                     )
                 )
@@ -577,7 +580,7 @@ class VectorRolloutCollector:
                             planner_wall_s=perf_counter() - bootstrap_started,
                             environment_wall_s=0.0,
                             worker_busy_s=0.0,
-                            worker_wait_s=0.0,
+                            transport_sync_s=0.0,
                             worker_imbalance_s=0.0,
                         )
                     )
