@@ -17,7 +17,7 @@ from eco_planner.envs.array_types import (
 )
 from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
 from eco_planner.envs.lane_speed import model_lane_speed_limit_mps
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.envs.observation import PlannerObservationSpec
 
 _LANE_FEATURE_DIM = 12
 _TRAFFIC_LIGHT_UNKNOWN = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
@@ -40,18 +40,18 @@ class MetaDriveMapAdapter:
 
     def __init__(
         self,
-        model_config: OfficialDiffusionPlannerConfig,
+        observation_spec: PlannerObservationSpec,
         query_radius_m: float,
     ) -> None:
         if not np.isfinite(query_radius_m) or query_radius_m <= 0.0:
             raise ValueError("query_radius_m must be finite and positive")
-        if model_config.lane_state_dim != _LANE_FEATURE_DIM:
+        if observation_spec.lane_state_dim != _LANE_FEATURE_DIM:
             raise ValueError(f"lane_state_dim must be {_LANE_FEATURE_DIM}")
-        if model_config.route_state_dim != _LANE_FEATURE_DIM:
+        if observation_spec.route_state_dim != _LANE_FEATURE_DIM:
             raise ValueError(f"route_state_dim must be {_LANE_FEATURE_DIM}")
-        if model_config.route_len != model_config.lane_len:
+        if observation_spec.route_len != observation_spec.lane_len:
             raise ValueError("route_len must equal lane_len")
-        self._config = model_config
+        self._config = observation_spec
         self._query_radius_m = float(query_radius_m)
         self._map_identity: int | None = None
         self._lane_snapshots: tuple[_LaneSnapshot, ...] | None = None

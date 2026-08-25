@@ -5,11 +5,14 @@ import pytest
 import torch
 
 from eco_planner.envs import (
-    MetaDriveObservationAdapter,
-    NoTrafficMetaDriveObservationAdapter,
+    MetaDriveEnvSlot,
+    PlannerObservationSpec,
     TrajectoryMetaDriveEnv,
     VectorEnvScenario,
     VectorMetaDriveEnv,
+)
+from eco_planner.envs.observation_adapter import (
+    MetaDriveObservationAdapter,
 )
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
@@ -63,7 +66,7 @@ def test_vector_environment_fixed_slots_complete_no_traffic_lifecycle(
     with VectorMetaDriveEnv(
         [config.copy() for _ in range(num_envs)],
         mode="no_traffic",
-        model_config=official_model_config,
+        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
         map_query_radius_m=100.0,
         history_warmup_steps=0,
     ) as envs:
@@ -97,20 +100,23 @@ def test_resetting_one_vector_slot_does_not_change_another_slot(
 ) -> None:
     config = _environment_config("S")
     second = VectorEnvScenario(name="second", map="S", seed=1)
-    baseline = TrajectoryMetaDriveEnv(config.copy())
-    adapter = NoTrafficMetaDriveObservationAdapter(official_model_config, 100.0)
+    observation_spec = PlannerObservationSpec.from_planner_config(official_model_config)
+    baseline = MetaDriveEnvSlot(
+        config.copy(),
+        mode="no_traffic",
+        observation_spec=observation_spec,
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+    )
     try:
-        baseline.reset(seed=second.seed)
-        adapter.reset(baseline)
-        expected_reset = adapter.build(baseline)
-        _, expected_reward, expected_terminated, expected_truncated, expected_info = baseline.step(
-            _straight_trajectory()
-        )
-        expected_next = adapter.build(baseline)
+        baseline.reset(map_name=second.map, seed=second.seed)
+        expected_reset = baseline.observe().observation
+        expected_step = baseline.step(_straight_trajectory())
+        expected_next = baseline.observe().observation
         with VectorMetaDriveEnv(
             [config.copy(), config.copy()],
             mode="no_traffic",
-            model_config=official_model_config,
+            observation_spec=observation_spec,
             map_query_radius_m=100.0,
             history_warmup_steps=0,
         ) as envs:
@@ -122,12 +128,12 @@ def test_resetting_one_vector_slot_does_not_change_another_slot(
 
     _assert_same_observation(resets[1].observation, expected_reset)
     _assert_same_observation(actual.observation, expected_next)
-    assert actual.reward == pytest.approx(expected_reward, abs=1e-12)
-    assert actual.terminated is expected_terminated
-    assert actual.truncated is expected_truncated
+    assert actual.reward == pytest.approx(expected_step.reward, abs=1e-12)
+    assert actual.terminated is expected_step.terminated
+    assert actual.truncated is expected_step.truncated
     np.testing.assert_allclose(
         actual.execution.substep_states,
-        expected_info["trajectory_execution"].substep_states,
+        expected_step.execution.substep_states,
         rtol=0.0,
         atol=1e-12,
     )
@@ -165,7 +171,7 @@ def test_vector_environment_builds_traffic_observations_after_worker_warmup(
         with VectorMetaDriveEnv(
             [config],
             mode="traffic",
-            model_config=official_model_config,
+            observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
             map_query_radius_m=100.0,
             history_warmup_steps=20,
         ) as envs:

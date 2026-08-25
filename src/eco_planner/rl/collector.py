@@ -13,10 +13,9 @@ import torch
 from tensordict import TensorDictBase
 
 from eco_planner.envs import (
-    MetaDriveObservationAdapter,
-    NoTrafficMetaDriveObservationAdapter,
+    MetaDriveEnvSlot,
+    PlannerObservationSpec,
     TrajectoryExecutionRecord,
-    TrajectoryMetaDriveEnv,
     VectorEnvScenario,
     VectorMetaDriveEnv,
     collate_observations,
@@ -76,7 +75,13 @@ def collect_rollout_episode(
     configured["map"] = spec.map
     if configured.get("trajectory_execution_steps") != 1:
         raise ValueError("rollout requires env.trajectory_execution_steps=1")
-    env = TrajectoryMetaDriveEnv(configured)
+    env_slot = MetaDriveEnvSlot(
+        configured,
+        mode=mode,
+        observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
+        map_query_radius_m=map_query_radius_m,
+        history_warmup_steps=history_warmup_steps,
+    )
     resolved_noise_seed = runtime.noise_seed if noise_seed is None else _seed(noise_seed, "noise")
     resolved_policy_seed = (
         runtime.policy_action_seed
@@ -87,40 +92,24 @@ def collect_rollout_episode(
         diffusion_generator = runtime.new_noise_generator()
     if policy_generator is None:
         policy_generator = runtime.new_policy_generator()
-    traffic_adapter = (
-        MetaDriveObservationAdapter(runtime.planner_config, map_query_radius_m)
-        if mode == "traffic"
-        else None
-    )
-    no_traffic_adapter = (
-        NoTrafficMetaDriveObservationAdapter(runtime.planner_config, map_query_radius_m)
-        if mode == "no_traffic"
-        else None
-    )
     training_transitions = []
     audit_transitions = []
     try:
-        env.reset(seed=spec.seed)
-        if traffic_adapter is not None:
-            traffic_adapter.reset(env, env.initial_traffic_frame)
-            _warmup_traffic(env, traffic_adapter, history_warmup_steps)
-        elif no_traffic_adapter is not None:
-            if history_warmup_steps != 0:
-                raise ValueError("no-traffic rollout requires zero history warmup steps")
-            no_traffic_adapter.reset(env)
-        previous_route_completion = env.route_completion
+        env_slot.reset(map_name=spec.map, seed=spec.seed)
+        tuple(env_slot.warmup())
+        previous_route_completion = env_slot.env.route_completion
 
         for cycle in range(max_transitions):
-            observation = _build_observation(traffic_adapter, no_traffic_adapter, env)
+            observation = collate_observations([env_slot.observe().observation])
             decision = runtime.decide(observation, diffusion_generator, policy_generator)
             training_decision = decision.training_decision
-            _, _, terminated, truncated, info = env.step(decision.ego_trajectory)
+            step = env_slot.step(decision.ego_trajectory)
+            terminated = step.terminated
+            truncated = step.truncated
             audit_result = decision.audit_result()
-            execution = info["trajectory_execution"]
+            execution = step.execution
             if execution.substep_states.shape[0] != 1:
                 raise RuntimeError("rollout transition must execute exactly one substep")
-            if traffic_adapter is not None:
-                traffic_adapter.append_frames(execution.traffic_frames)
             audit = _transition_audit(
                 execution,
                 previous_route_completion,
@@ -167,14 +156,14 @@ def collect_rollout_episode(
                     training_transitions, audit_transitions, "terminated", torch.zeros(1)
                 )
             if truncated:
-                next_observation = _build_observation(traffic_adapter, no_traffic_adapter, env)
+                next_observation = collate_observations([env_slot.observe().observation])
                 return finalize_rollout_episode(
                     training_transitions,
                     audit_transitions,
                     "truncated",
                     runtime.bootstrap_value(next_observation, diffusion_generator),
                 )
-        next_observation = _build_observation(traffic_adapter, no_traffic_adapter, env)
+        next_observation = collate_observations([env_slot.observe().observation])
         return finalize_rollout_episode(
             training_transitions,
             audit_transitions,
@@ -182,7 +171,7 @@ def collect_rollout_episode(
             runtime.bootstrap_value(next_observation, diffusion_generator),
         )
     finally:
-        env.close()
+        env_slot.close()
 
 
 class VectorRolloutCollector:
@@ -217,7 +206,7 @@ class VectorRolloutCollector:
         self._envs = VectorMetaDriveEnv(
             configured_envs,
             mode=mode,
-            model_config=runtime.planner_config,
+            observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
             map_query_radius_m=map_query_radius_m,
             history_warmup_steps=history_warmup_steps,
         )
@@ -662,42 +651,6 @@ def _validate_vector_slots(
     ):
         if len(values) != slot_count:
             raise ValueError(f"{name} must contain one value per vector slot")
-
-
-def _build_observation(
-    traffic_adapter: MetaDriveObservationAdapter | None,
-    no_traffic_adapter: NoTrafficMetaDriveObservationAdapter | None,
-    env: TrajectoryMetaDriveEnv,
-) -> Mapping[str, torch.Tensor]:
-    if traffic_adapter is not None:
-        observation, _ = traffic_adapter.build(env)
-        return collate_observations([observation])
-    if no_traffic_adapter is not None:
-        return collate_observations([no_traffic_adapter.build(env)])
-    raise RuntimeError("rollout did not create an observation adapter")
-
-
-def _warmup_traffic(
-    env: TrajectoryMetaDriveEnv,
-    adapter: MetaDriveObservationAdapter,
-    required_steps: int,
-) -> None:
-    collected = 0
-    while collected < required_steps:
-        _, _, terminated, truncated, info = env.step(_stationary_trajectory())
-        execution = info["trajectory_execution"]
-        if terminated or truncated:
-            raise RuntimeError("traffic history warmup ended before the required frame count")
-        adapter.append_frames(execution.traffic_frames)
-        collected += execution.substep_states.shape[0]
-    if collected != required_steps:
-        raise RuntimeError("traffic history warmup overshot the required frame count")
-
-
-def _stationary_trajectory() -> np.ndarray:
-    trajectory = np.zeros((80, 4), dtype=np.float32)
-    trajectory[:, 2] = 1.0
-    return trajectory
 
 
 def _transition_audit(

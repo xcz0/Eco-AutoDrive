@@ -40,7 +40,7 @@ Hydra/OmegaConf 只存在于 CLI 配置边界。入口必须通过 `parse_evalua
 
 仿真真实状态、模型观测、模型预测和能耗记录必须分别保存。模型预测不得覆盖仿真状态，不同能耗指标不得静默互换或混合累计。业务代码不得从 `ref/` 导入运行时实现。
 
-推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。evaluation 与 policy rollout 共用 `eco_planner.runtime` 中的 runtime config、Fabric 解析/seed 和 CUDA→host transfer contract；MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。普通 evaluation 在 `evaluation.execution.vector_env_slots=null` 时保持单环境串行；设置正 slot 数时，同一 evaluation job 用一次初始化的 `VectorMetaDriveEnv` worker pool，以固定物理 slots 从 scenario 队列动态领取工作，并由同一主进程 planner runtime 做 batch inference。slot 在 episode 结束或可归类的 scenario failure 后只 reset 该 slot 以领取下一 scenario，直到队列耗尽；每个 scenario 的 generator、trace、traffic audit、route length 与 summary 仍独立。每个 slot 在独立 `spawn` worker 内持有一个 `TrajectoryMetaDriveEnv`、observation adapter、traffic history 和 map cache。主进程只传入 scenario/`float32 [80,4]` trajectory，并取回单 observation、reward、termination、`TrajectoryExecutionRecord`、trace 所需的 planning anchor/traffic audit/warmup record 与 env/observation/IPC timing；worker 不加载 planner 或 CUDA state。vector evaluation 必须使用 `execution.mode=serial`、关闭 video，因而不与 Joblib job-level parallelism 嵌套。
+推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。evaluation 与 policy rollout 共用 `eco_planner.runtime` 中的 runtime config、Fabric 解析/seed 和 CUDA→host transfer contract；MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。Serial evaluation、single-environment rollout 与 vector worker 共用 `MetaDriveEnvSlot` 的 reset、stationary warmup、observe 和 trajectory step 生命周期；slot 持有一个 `TrajectoryMetaDriveEnv`、严格 traffic/no-traffic adapter、traffic history 和 map cache，evaluation artifact 与 RL transition 语义仍由调用方拥有。普通 evaluation 在 `evaluation.execution.vector_env_slots=null` 时保持单环境串行；设置正 slot 数时，同一 evaluation job 用一次初始化的 `VectorMetaDriveEnv` worker pool，以固定物理 slots 从 scenario 队列动态领取工作，并由同一主进程 planner runtime 做 batch inference。slot 在 episode 结束或可归类的 scenario failure 后只 reset 该 slot 以领取下一 scenario，直到队列耗尽；每个 scenario 的 generator、trace、traffic audit、route length 与 summary 仍独立。每个 vector slot 在独立 `spawn` worker 内持有上述 `MetaDriveEnvSlot`。主进程只传入 scenario/`float32 [80,4]` trajectory，并取回单 observation、reward、termination、`TrajectoryExecutionRecord`、trace 所需的 planning anchor/traffic audit/warmup record 与 env/observation/IPC timing；worker 不加载 planner 或 CUDA state。vector evaluation 必须使用 `execution.mode=serial`、关闭 video，因而不与 Joblib job-level parallelism 嵌套。
 
 raw observation 在 CPU 边界按当前 observation/trace 契约的 shape、dtype 和有限性完整校验并原值写入 trace；Fabric 设备副本只供计算使用，可按 resolved mixed precision 转为 FP16/BF16。batch runtime 每个规划周期只同步把 ego execution trajectories `[B,T,4]` 转为执行所需的 host `float32`；串行 evaluation 与 rollout 入口从该 batch result 取其唯一 slot。完整 prediction、初始噪声、reference 与 guidance diagnostics 则在独立 CUDA transfer stream 排队，并由 artifact/replay 调用方在 simulator step 后显式取得 audit result、转为 trace 约定 dtype 后检查有限性。
 
@@ -110,7 +110,9 @@ lane 长度与宽度必须接受 Python 或 NumPy 的真实数值标量，同时
 
 ## 交通观测
 
-MetaDrive adapters produce one CPU `SingleObservation` without a planner batch dimension.
+MetaDrive adapters receive a lightweight `PlannerObservationSpec` containing only the planner
+observation dimensions; they do not depend on checkpoint normalizers or reconstruct a complete
+planner configuration. They produce one CPU `SingleObservation` without a planner batch dimension.
 `collate_observations` is the sole batch boundary: it stacks a same-schema sequence into a
 `BatchObservation` with leading `[B, ...]` dimensions. B=1 planner, evaluation, and rollout
 paths use this collator; `SingleObservation` / `BatchObservation` 的字段、shape 和 dtype 由
@@ -123,7 +125,7 @@ jaxtyping `TypedDict` 表达，collator 运行时只拒绝空序列，不重复�
 
 `NoTrafficMetaDriveObservationAdapter` 只允许显式满足 `traffic_density=0`、`random_traffic=false`、`accident_prob=0` 的场景。reset 后若存在任何动态或静态交通对象必须失败；邻车历史和静态物体字段为全零 padding。该入口不得用于有交通场景。
 
-`VectorMetaDriveEnv.reset` 在 worker 内完成相同的 adapter reset 和 history warmup，再返回单 observation 与 reset 时的 route completion；`reset_at` 和 `step_at` 只影响指定 slot。slot scenario 的 map 必须与该 worker 的环境配置一致；worker 异常带回 slot 和 operation，并使整个 vector run 明确失败。
+`VectorMetaDriveEnv.reset` 在 worker-owned `MetaDriveEnvSlot` 内完成与 serial 路径相同的 adapter reset 和 history warmup，再返回单 observation 与 reset 时的 route completion；换图时该 slot 同时重建 environment、adapter 和 map cache。`reset_at` 和 `step_at` 只影响指定 slot；worker 异常带回 slot 和 operation，并使整个 vector run 明确失败。
 
 ## 扩散与随机性
 

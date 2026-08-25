@@ -9,14 +9,15 @@ from hydra import compose, initialize_config_dir
 from metadrive.utils import merge_dicts
 
 from eco_planner.envs import (
-    MetaDriveObservationAdapter,
-    NoTrafficMetaDriveObservationAdapter,
     TrajectoryMetaDriveEnv,
     collate_observations,
 )
 from eco_planner.envs.map_adapter import MetaDriveMapAdapter
+from eco_planner.envs.observation_adapter import (
+    MetaDriveObservationAdapter,
+    NoTrafficMetaDriveObservationAdapter,
+)
 from eco_planner.evaluation.config import RuntimeConfig, parse_evaluation_config
-from eco_planner.evaluation.execution import route_length_m
 from eco_planner.evaluation.runtime import (
     FabricInferenceRuntime,
     create_fabric_inference_runtime,
@@ -394,7 +395,7 @@ def test_energy_traffic_scenario_satisfies_route_length_contract() -> None:
     try:
         env.reset(seed=scenario.seed)
 
-        assert 2_000.0 <= route_length_m(env) <= 5_000.0
+        assert 2_000.0 <= env.route_length_m <= 5_000.0
     finally:
         env.close()
 

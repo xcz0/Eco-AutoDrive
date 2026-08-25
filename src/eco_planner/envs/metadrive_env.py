@@ -128,6 +128,29 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             raise RuntimeError("MetaDrive returned non-finite route completion")
         return value
 
+    @property
+    def route_length_m(self) -> float:
+        """Return the total length of the current navigation route."""
+
+        checkpoints = list(self.agent.navigation.checkpoints)
+        if len(checkpoints) < 2:
+            raise RuntimeError("MetaDrive navigation did not expose a complete route")
+        graph = self.current_map.road_network.graph
+        lengths: list[float] = []
+        for start, end in zip(checkpoints[:-1], checkpoints[1:], strict=True):
+            lanes = graph.get(start, {}).get(end, [])
+            if not lanes:
+                raise RuntimeError(f"route edge {(start, end)!r} has no lane")
+            length = getattr(lanes[0], "length", None)
+            if isinstance(length, (bool, np.bool_)) or not isinstance(
+                length, (int, float, np.integer, np.floating)
+            ):
+                raise RuntimeError(f"route edge {(start, end)!r} has an invalid length")
+            if not np.isfinite(length) or float(length) <= 0.0:
+                raise RuntimeError(f"route edge {(start, end)!r} has an invalid length")
+            lengths.append(float(length))
+        return float(sum(lengths))
+
     def reset(self, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
         self._initial_traffic_frame = None
         self._programmatic_lane_speed_adapter.clear_audit()

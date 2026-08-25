@@ -4,27 +4,20 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import sys
-import traceback
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from multiprocessing.connection import Connection, wait
 from time import perf_counter
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 
 from eco_planner.envs.array_types import SingleObservation
 from eco_planner.envs.execution import TrajectoryExecutionRecord
-from eco_planner.envs.metadrive_env import TrajectoryMetaDriveEnv
-from eco_planner.envs.observation_adapter import (
-    MetaDriveObservationAdapter,
-    NoTrafficMetaDriveObservationAdapter,
-    TrafficObservationAudit,
-)
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.envs.observation import PlannerObservationSpec
+from eco_planner.envs.observation_adapter import TrafficObservationAudit
+from eco_planner.envs.slot import ObservationMode
 from eco_planner.vector_worker_entry import worker_main
-
-ObservationMode = Literal["traffic", "no_traffic"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,16 +100,6 @@ class _WorkerFailure:
 
 
 @dataclass(frozen=True, slots=True)
-class _WorkerLaunch:
-    slot: int
-    env_config: dict[str, Any]
-    mode: ObservationMode
-    model_config: OfficialDiffusionPlannerConfig
-    map_query_radius_m: float
-    history_warmup_steps: int
-
-
-@dataclass(frozen=True, slots=True)
 class _WorkerResetPayload:
     scenario: VectorEnvScenario
     observation: SingleObservation
@@ -151,7 +134,7 @@ class VectorMetaDriveEnv:
         env_configs: Sequence[Mapping[str, Any]],
         *,
         mode: ObservationMode,
-        model_config: OfficialDiffusionPlannerConfig,
+        observation_spec: PlannerObservationSpec,
         map_query_radius_m: float,
         history_warmup_steps: int,
     ) -> None:
@@ -159,13 +142,13 @@ class VectorMetaDriveEnv:
             raise ValueError("VectorMetaDriveEnv requires at least one environment slot")
         if mode not in {"traffic", "no_traffic"}:
             raise ValueError("mode must be either 'traffic' or 'no_traffic'")
-        if not isinstance(model_config, OfficialDiffusionPlannerConfig):
-            raise TypeError("model_config must be an OfficialDiffusionPlannerConfig")
+        if not isinstance(observation_spec, PlannerObservationSpec):
+            raise TypeError("observation_spec must be a PlannerObservationSpec")
         if type(map_query_radius_m) not in {int, float} or map_query_radius_m <= 0.0:
             raise ValueError("map_query_radius_m must be a positive real scalar")
         if type(history_warmup_steps) is not int or history_warmup_steps < 0:
             raise ValueError("history_warmup_steps must be a non-negative integer")
-        expected_warmup = model_config.time_len - 1 if mode == "traffic" else 0
+        expected_warmup = observation_spec.time_len - 1 if mode == "traffic" else 0
         if history_warmup_steps != expected_warmup:
             raise ValueError(
                 f"{mode} vector environments require history_warmup_steps={expected_warmup}"
@@ -176,15 +159,15 @@ class VectorMetaDriveEnv:
         try:
             for slot, config in enumerate(env_configs):
                 parent, child = context.Pipe()
-                launch = _WorkerLaunch(
-                    slot=slot,
-                    env_config=dict(config),
-                    mode=mode,
-                    model_config=model_config,
-                    map_query_radius_m=float(map_query_radius_m),
-                    history_warmup_steps=history_warmup_steps,
+                launch_payload = _launch_payload(
+                    slot,
+                    config,
+                    mode,
+                    observation_spec,
+                    float(map_query_radius_m),
+                    history_warmup_steps,
                 )
-                process = context.Process(target=worker_main, args=(child, _launch_payload(launch)))
+                process = context.Process(target=worker_main, args=(child, launch_payload))
                 process.start()
                 child.close()
                 self._workers.append((parent, process))
@@ -396,220 +379,6 @@ class VectorMetaDriveEnv:
             raise TypeError("scenarios must contain only VectorEnvScenario values")
 
 
-def _worker_main(connection: Connection, launch: _WorkerLaunch) -> None:
-    env: TrajectoryMetaDriveEnv | None = None
-    try:
-        env = TrajectoryMetaDriveEnv(launch.env_config)
-        adapter = _create_adapter(launch)
-        connection.send(_WorkerResponse(launch.slot, None, _WorkerTiming(0.0, 0.0, 0.0)))
-        while True:
-            wait_started = perf_counter()
-            operation, payload = connection.recv()
-            wait_s = perf_counter() - wait_started
-            if operation == "close":
-                env.close()
-                connection.send(_WorkerResponse(launch.slot, None, _WorkerTiming(0.0, 0.0, wait_s)))
-                return
-            try:
-                if operation == "reset":
-                    if not isinstance(payload, VectorEnvScenario):
-                        raise TypeError("reset requires a VectorEnvScenario")
-                    if payload.map != env.config["map"]:
-                        env.close()
-                        env = TrajectoryMetaDriveEnv({**launch.env_config, "map": payload.map})
-                        adapter = _create_adapter(launch)
-                    response = _reset_worker(env, adapter, launch, payload, wait_s)
-                elif operation == "step":
-                    response = _step_worker(env, adapter, launch.slot, payload, wait_s)
-                else:
-                    raise ValueError(f"unknown vector environment operation {operation!r}")
-                connection.send(response)
-            except BaseException:
-                connection.send(_WorkerFailure(launch.slot, operation, traceback.format_exc()))
-    except BaseException:
-        try:
-            connection.send(_WorkerFailure(launch.slot, "initialize", traceback.format_exc()))
-        finally:
-            if env is not None:
-                env.close()
-    finally:
-        connection.close()
-
-
-def _worker_main_from_payload(connection: Connection, payload: Mapping[str, Any]) -> None:
-    """Rebuild adapter-only model metadata after Windows spawn initialization."""
-
-    launch = _WorkerLaunch(
-        slot=payload["slot"],
-        env_config=payload["env_config"],
-        mode=payload["mode"],
-        model_config=OfficialDiffusionPlannerConfig(
-            **payload["model_config"], state_normalizer=None, observation_normalizer=None
-        ),
-        map_query_radius_m=payload["map_query_radius_m"],
-        history_warmup_steps=payload["history_warmup_steps"],
-    )
-    _worker_main(connection, launch)
-
-
-def _create_adapter(
-    launch: _WorkerLaunch,
-) -> MetaDriveObservationAdapter | NoTrafficMetaDriveObservationAdapter:
-    if launch.mode == "traffic":
-        return MetaDriveObservationAdapter(launch.model_config, launch.map_query_radius_m)
-    return NoTrafficMetaDriveObservationAdapter(launch.model_config, launch.map_query_radius_m)
-
-
-def _reset_worker(
-    env: TrajectoryMetaDriveEnv,
-    adapter: MetaDriveObservationAdapter | NoTrafficMetaDriveObservationAdapter,
-    launch: _WorkerLaunch,
-    scenario: object,
-    wait_s: float,
-) -> _WorkerResponse:
-    if not isinstance(scenario, VectorEnvScenario):
-        raise TypeError("reset requires a VectorEnvScenario")
-    if scenario.map != env.config["map"]:
-        raise ValueError(
-            f"slot {launch.slot} is configured for map {env.config['map']!r}, not {scenario.map!r}"
-        )
-    started = perf_counter()
-    env.reset(seed=scenario.seed)
-    warmup_initial_state = _vehicle_state(env)
-    warmup_executions: tuple[TrajectoryExecutionRecord, ...]
-    if isinstance(adapter, MetaDriveObservationAdapter):
-        adapter.reset(env, env.initial_traffic_frame)
-        warmup_executions = _warmup_traffic(env, adapter, launch.history_warmup_steps)
-    else:
-        adapter.reset(env)
-        warmup_executions = ()
-    environment_s = perf_counter() - started
-    observation_started = perf_counter()
-    observation, traffic_audit = _build_observation(adapter, env)
-    return _WorkerResponse(
-        launch.slot,
-        _WorkerResetPayload(
-            scenario,
-            observation,
-            env.route_completion,
-            _route_length_m(env),
-            warmup_initial_state,
-            _vehicle_state(env),
-            warmup_executions,
-            traffic_audit,
-            env.programmatic_lane_speed_limit_audit,
-        ),
-        _WorkerTiming(environment_s, perf_counter() - observation_started, wait_s),
-    )
-
-
-def _step_worker(
-    env: TrajectoryMetaDriveEnv,
-    adapter: MetaDriveObservationAdapter | NoTrafficMetaDriveObservationAdapter,
-    slot: int,
-    trajectory: object,
-    wait_s: float,
-) -> _WorkerResponse:
-    started = perf_counter()
-    _, reward, terminated, truncated, info = env.step(trajectory)
-    execution = info["trajectory_execution"]
-    if not isinstance(execution, TrajectoryExecutionRecord):
-        raise RuntimeError("TrajectoryMetaDriveEnv did not return a TrajectoryExecutionRecord")
-    if isinstance(adapter, MetaDriveObservationAdapter):
-        adapter.append_frames(execution.traffic_frames)
-    environment_s = perf_counter() - started
-    observation_started = perf_counter()
-    observation, traffic_audit = _build_observation(adapter, env)
-    return _WorkerResponse(
-        slot,
-        _WorkerStepPayload(
-            observation,
-            float(reward),
-            bool(terminated),
-            bool(truncated),
-            execution,
-            traffic_audit,
-        ),
-        _WorkerTiming(environment_s, perf_counter() - observation_started, wait_s),
-    )
-
-
-def _build_observation(
-    adapter: MetaDriveObservationAdapter | NoTrafficMetaDriveObservationAdapter,
-    env: TrajectoryMetaDriveEnv,
-) -> tuple[SingleObservation, TrafficObservationAudit | None]:
-    if isinstance(adapter, MetaDriveObservationAdapter):
-        return adapter.build(env)
-    return adapter.build(env), None
-
-
-def _warmup_traffic(
-    env: TrajectoryMetaDriveEnv, adapter: MetaDriveObservationAdapter, required_steps: int
-) -> tuple[TrajectoryExecutionRecord, ...]:
-    collected = 0
-    executions: list[TrajectoryExecutionRecord] = []
-    initial_position = np.asarray(env.agent.position, dtype=np.float64).copy()
-    while collected < required_steps:
-        _, _, terminated, truncated, info = env.step(_stationary_trajectory())
-        if terminated or truncated:
-            raise RuntimeError("traffic history warmup ended before the required frame count")
-        execution = info["trajectory_execution"]
-        if not isinstance(execution, TrajectoryExecutionRecord):
-            raise RuntimeError("TrajectoryMetaDriveEnv did not return a TrajectoryExecutionRecord")
-        if (
-            float(np.linalg.norm(execution.substep_states[:, :2] - initial_position, axis=1).max())
-            >= 1e-3
-        ):
-            raise RuntimeError("ego moved during stationary traffic history warmup")
-        adapter.append_frames(execution.traffic_frames)
-        executions.append(execution)
-        collected += execution.substep_states.shape[0]
-    if collected != required_steps:
-        raise RuntimeError("traffic history warmup overshot the required frame count")
-    return tuple(executions)
-
-
-def _vehicle_state(env: TrajectoryMetaDriveEnv) -> np.ndarray:
-    velocity = np.asarray(env.agent.velocity, dtype=np.float64)
-    return np.array(
-        [
-            *np.asarray(env.agent.position, dtype=np.float64),
-            float(env.agent.heading_theta),
-            *velocity,
-            float(env.agent.speed),
-            0.0,
-        ],
-        dtype=np.float64,
-    )
-
-
-def _route_length_m(env: TrajectoryMetaDriveEnv) -> float:
-    checkpoints = list(env.agent.navigation.checkpoints)
-    if len(checkpoints) < 2:
-        raise RuntimeError("MetaDrive navigation did not expose a complete route")
-    graph = env.current_map.road_network.graph
-    lengths: list[float] = []
-    for start, end in zip(checkpoints[:-1], checkpoints[1:], strict=True):
-        lanes = graph.get(start, {}).get(end, [])
-        if not lanes:
-            raise RuntimeError(f"route edge {(start, end)!r} has no lane")
-        length = getattr(lanes[0], "length", None)
-        if isinstance(length, (bool, np.bool_)) or not isinstance(
-            length, (int, float, np.integer, np.floating)
-        ):
-            raise RuntimeError(f"route edge {(start, end)!r} has an invalid length")
-        if not np.isfinite(length) or float(length) <= 0.0:
-            raise RuntimeError(f"route edge {(start, end)!r} has an invalid length")
-        lengths.append(float(length))
-    return float(sum(lengths))
-
-
-def _stationary_trajectory() -> np.ndarray:
-    trajectory = np.zeros((80, 4), dtype=np.float32)
-    trajectory[:, 2] = 1.0
-    return trajectory
-
-
 def _spawn_context() -> mp.context.BaseContext:
     """Use the active virtual-environment interpreter for Windows worker imports."""
 
@@ -618,17 +387,31 @@ def _spawn_context() -> mp.context.BaseContext:
     return mp.get_context("spawn")
 
 
-def _launch_payload(launch: _WorkerLaunch) -> dict[str, Any]:
-    model_config = {
-        field.name: getattr(launch.model_config, field.name)
-        for field in fields(OfficialDiffusionPlannerConfig)
-        if field.name not in {"state_normalizer", "observation_normalizer"}
-    }
+def _launch_payload(
+    slot: int,
+    env_config: Mapping[str, Any],
+    mode: ObservationMode,
+    observation_spec: PlannerObservationSpec,
+    map_query_radius_m: float,
+    history_warmup_steps: int,
+) -> dict[str, Any]:
     return {
-        "slot": launch.slot,
-        "env_config": launch.env_config,
-        "mode": launch.mode,
-        "model_config": model_config,
-        "map_query_radius_m": launch.map_query_radius_m,
-        "history_warmup_steps": launch.history_warmup_steps,
+        "slot": slot,
+        "env_config": dict(env_config),
+        "mode": mode,
+        "observation_spec": {
+            "time_len": observation_spec.time_len,
+            "agent_state_dim": observation_spec.agent_state_dim,
+            "agent_num": observation_spec.agent_num,
+            "static_objects_state_dim": observation_spec.static_objects_state_dim,
+            "static_objects_num": observation_spec.static_objects_num,
+            "lane_len": observation_spec.lane_len,
+            "lane_state_dim": observation_spec.lane_state_dim,
+            "lane_num": observation_spec.lane_num,
+            "route_len": observation_spec.route_len,
+            "route_state_dim": observation_spec.route_state_dim,
+            "route_num": observation_spec.route_num,
+        },
+        "map_query_radius_m": map_query_radius_m,
+        "history_warmup_steps": history_warmup_steps,
     }

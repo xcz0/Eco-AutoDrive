@@ -3,10 +3,63 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Protocol
 
 import torch
 
 from eco_planner.envs.array_types import BatchObservation, SingleObservation
+
+
+class _PlannerObservationConfig(Protocol):
+    time_len: int
+    agent_state_dim: int
+    agent_num: int
+    static_objects_state_dim: int
+    static_objects_num: int
+    lane_len: int
+    lane_state_dim: int
+    lane_num: int
+    route_len: int
+    route_state_dim: int
+    route_num: int
+
+
+@dataclass(frozen=True, slots=True)
+class PlannerObservationSpec:
+    """Planner observation dimensions consumed by the MetaDrive adapters."""
+
+    time_len: int
+    agent_state_dim: int
+    agent_num: int
+    static_objects_state_dim: int
+    static_objects_num: int
+    lane_len: int
+    lane_state_dim: int
+    lane_num: int
+    route_len: int
+    route_state_dim: int
+    route_num: int
+
+    @classmethod
+    def from_planner_config(
+        cls, config: _PlannerObservationConfig
+    ) -> PlannerObservationSpec:
+        """Copy only the observation dimensions from a planner configuration."""
+
+        return cls(
+            time_len=config.time_len,
+            agent_state_dim=config.agent_state_dim,
+            agent_num=config.agent_num,
+            static_objects_state_dim=config.static_objects_state_dim,
+            static_objects_num=config.static_objects_num,
+            lane_len=config.lane_len,
+            lane_state_dim=config.lane_state_dim,
+            lane_num=config.lane_num,
+            route_len=config.route_len,
+            route_state_dim=config.route_state_dim,
+            route_num=config.route_num,
+        )
 
 
 def collate_observations(

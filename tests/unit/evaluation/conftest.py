@@ -10,7 +10,12 @@ import torch
 from omegaconf import OmegaConf
 from tensordict import TensorDict
 
-from eco_planner.envs import TrajectoryExecutionRecord
+from eco_planner.envs import (
+    EnvSlotObservation,
+    EnvSlotReset,
+    EnvSlotStep,
+    TrajectoryExecutionRecord,
+)
 from eco_planner.envs.observation_adapter import TrafficObservationAudit
 from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation import execution as serial
@@ -119,9 +124,70 @@ class FakeAdapter:
         }
 
 
+class FakeSlot:
+    environment_factory: Callable[[dict[str, object]], FakeEnv] = staticmethod(FakeEnv)
+
+    def __init__(self, config: dict[str, object], **_: object) -> None:
+        self.env = self.environment_factory(config)
+        self._adapter = FakeAdapter(None, 100.0)
+
+    @property
+    def vehicle_state(self) -> np.ndarray:
+        return np.array(
+            [
+                *self.env.agent.position,
+                self.env.agent.heading_theta,
+                *self.env.agent.velocity,
+                self.env.agent.speed,
+                0.0,
+            ],
+            dtype=np.float64,
+        )
+
+    def reset(self, *, map_name: str, seed: int) -> EnvSlotReset:
+        self.env.config["map"] = map_name
+        self.env.reset(seed)
+        self._adapter.reset(self.env)
+        return EnvSlotReset(
+            route_completion=0.0,
+            route_length_m=100.0,
+            warmup_initial_state=self.vehicle_state,
+            programmatic_lane_speed_limit_audit=self.env.programmatic_lane_speed_limit_audit,
+        )
+
+    def warmup(self):
+        return iter(())
+
+    def observe(self) -> EnvSlotObservation:
+        return EnvSlotObservation(self._adapter.build(self.env), None)
+
+    def step(self, trajectory: np.ndarray) -> EnvSlotStep:
+        _, reward, terminated, truncated, info = self.env.step(trajectory)
+        execution = info["trajectory_execution"]
+        assert isinstance(execution, TrajectoryExecutionRecord)
+        return EnvSlotStep(reward, terminated, truncated, execution)
+
+    def close(self) -> None:
+        self.env.close()
+
+
 class FakeRuntime:
     def __init__(self) -> None:
-        self.planner_config = SimpleNamespace(predicted_neighbor_num=10, future_len=80)
+        self.planner_config = SimpleNamespace(
+            predicted_neighbor_num=10,
+            future_len=80,
+            time_len=21,
+            agent_state_dim=11,
+            agent_num=32,
+            static_objects_state_dim=10,
+            static_objects_num=5,
+            lane_len=20,
+            lane_state_dim=12,
+            lane_num=70,
+            route_len=20,
+            route_state_dim=12,
+            route_num=25,
+        )
         self.report = InferenceRuntimeReport(
             requested_accelerator="cpu",
             resolved_accelerator="cpu",
@@ -232,11 +298,17 @@ def fake_env_class() -> type[FakeEnv]:
 
 
 @pytest.fixture
+def fake_slot_class() -> type[FakeSlot]:
+    return FakeSlot
+
+
+@pytest.fixture
 def patch_episode_dependencies(monkeypatch: pytest.MonkeyPatch) -> Callable[[object], None]:
     def patch(environment: object = FakeEnv) -> None:
-        monkeypatch.setattr(serial, "TrajectoryMetaDriveEnv", environment)
-        monkeypatch.setattr(serial, "NoTrafficMetaDriveObservationAdapter", FakeAdapter)
-        monkeypatch.setattr(serial, "route_length_m", lambda env: 100.0)
+        class SelectedFakeSlot(FakeSlot):
+            environment_factory = staticmethod(environment)
+
+        monkeypatch.setattr(serial, "MetaDriveEnvSlot", SelectedFakeSlot)
 
     return patch
 

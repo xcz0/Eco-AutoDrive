@@ -2,22 +2,18 @@ from __future__ import annotations
 
 import zipfile
 from dataclasses import replace
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from eco_planner.envs import (
-    TrajectoryExecutionRecord,
     VectorEnvReset,
     VectorEnvScenario,
     VectorEnvStep,
     VectorEnvTiming,
 )
-from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation import execution as evaluation_execution
 from eco_planner.evaluation.config import ScenarioConfig, parse_evaluation_config
-from eco_planner.evaluation.trace import EpisodeTraceRecorder
 
 
 def test_run_scenario_replans_and_persists_trace(
@@ -85,6 +81,7 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
     fake_env_class: object,
+    fake_slot_class: object,
     fake_runtime: object,
     evaluation_config: object,
     patch_episode_dependencies,
@@ -96,7 +93,7 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
 
         def __init__(self, configs: tuple[dict[str, object], ...], **kwargs: object) -> None:
             self.configs = configs
-            self.envs = [fake_env_class(config) for config in configs]  # type: ignore[operator]
+            self.envs = [fake_slot_class(config) for config in configs]  # type: ignore[operator]
             self.reset_at_slots: list[int] = []
             self.step_slot_counts: list[int] = []
             self.instances.append(self)
@@ -118,23 +115,22 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
             return self._reset_slot(slot, scenario)
 
         def _reset_slot(self, slot: int, scenario: VectorEnvScenario) -> VectorEnvReset:
-            env = fake_env_class({**self.configs[slot], "map": scenario.map})  # type: ignore[operator]
+            env = fake_slot_class({**self.configs[slot], "map": scenario.map})  # type: ignore[operator]
             self.envs[slot] = env
-            env.reset(scenario.seed)
-            adapter = evaluation_execution.NoTrafficMetaDriveObservationAdapter(None, 100.0)
-            adapter.reset(env)
-            state = evaluation_execution.vehicle_state(env)
+            reset = env.reset(map_name=scenario.map, seed=scenario.seed)
+            observation = env.observe()
+            state = env.vehicle_state
             return VectorEnvReset(
                 slot,
                 scenario,
-                adapter.build(env),
-                0.0,
-                100.0,
-                state,
+                observation.observation,
+                reset.route_completion,
+                reset.route_length_m,
+                reset.warmup_initial_state,
                 state,
                 (),
                 None,
-                env.programmatic_lane_speed_limit_audit,
+                reset.programmatic_lane_speed_limit_audit,
                 VectorEnvTiming(0.0, 0.0, 0.0, 0.0, 0.0),
             )
 
@@ -145,25 +141,26 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
             steps = []
             for slot, trajectory in zip(slots, trajectories, strict=True):
                 env = self.envs[slot]
-                _, reward, terminated, truncated, info = env.step(trajectory)
-                if env.config["map"] in {"Q", "L"}:
-                    target_step = 1 if env.config["map"] == "Q" else 3
-                    terminated = env._step == target_step
+                step = env.step(trajectory)
+                execution = step.execution
+                terminated = step.terminated
+                if env.env.config["map"] in {"Q", "L"}:
+                    target_step = 1 if env.env.config["map"] == "Q" else 3
+                    terminated = env.env._step == target_step
                     execution = replace(
-                        info["trajectory_execution"],
+                        execution,
                         substep_terminated=np.array([False, False, False, False, terminated]),
                         arrive_dest=terminated,
                     )
-                    info = {"trajectory_execution": execution}
-                adapter = evaluation_execution.NoTrafficMetaDriveObservationAdapter(None, 100.0)
+                observation = env.observe()
                 steps.append(
                     VectorEnvStep(
                         slot,
-                        adapter.build(env),
-                        reward,
+                        observation.observation,
+                        step.reward,
                         terminated,
-                        truncated,
-                        info["trajectory_execution"],
+                        step.truncated,
+                        execution,
                         None,
                         VectorEnvTiming(0.0, 0.0, 0.0, 0.0, 0.0),
                     )
@@ -217,89 +214,3 @@ def test_vector_evaluation_batches_slots_and_writes_independent_traces(
     assert (failure_root / "first" / "summary.json").exists()
     assert (failure_root / "second" / "summary.json").exists()
     assert (failure_root / "third" / "summary.json").exists()
-
-
-def test_route_length_accepts_finite_numpy_lane_scalar() -> None:
-    lane = SimpleNamespace(length=np.float32(123.5))
-    env = SimpleNamespace(
-        agent=SimpleNamespace(navigation=SimpleNamespace(checkpoints=["start", "end"])),
-        current_map=SimpleNamespace(road_network=SimpleNamespace(graph={"start": {"end": [lane]}})),
-    )
-    assert evaluation_execution.route_length_m(env) == pytest.approx(123.5)
-
-
-def test_stationary_trajectory_satisfies_execution_contract() -> None:
-    trajectory = evaluation_execution.stationary_trajectory()
-
-    assert trajectory.shape == (80, 4)
-    assert trajectory.dtype == np.float32
-    assert np.isfinite(trajectory).all()
-    assert np.all(np.linalg.norm(trajectory[:, 2:4], axis=-1) > 0.0)
-
-
-def test_traffic_warmup_records_stationary_history() -> None:
-    class WarmupEnv:
-        def __init__(self) -> None:
-            self.agent = SimpleNamespace(
-                position=np.zeros(2), heading_theta=0.0, velocity=np.zeros(2), speed=0.0
-            )
-            self.simulator_step = 0
-
-        def step(self, trajectory: np.ndarray) -> tuple[None, float, bool, bool, dict[str, object]]:
-            frames = tuple(
-                TrafficFrame(index, (0.0, 0.0), 0.0, 1.0, (), ())
-                for index in range(self.simulator_step + 1, self.simulator_step + 6)
-            )
-            self.simulator_step += 5
-            return (
-                None,
-                0.0,
-                False,
-                False,
-                {"trajectory_execution": _warmup_execution(frames)},
-            )
-
-    class WarmupAdapter:
-        def __init__(self) -> None:
-            self.frames: list[TrafficFrame] = []
-
-        def append_frames(self, frames: tuple[TrafficFrame, ...]) -> None:
-            self.frames.extend(frames)
-
-    adapter = WarmupAdapter()
-    trace = EpisodeTraceRecorder.from_initial_state(
-        np.zeros(7), max_plan_cycles=0, max_warmup_steps=20, guided=False
-    )
-    evaluation_execution.run_traffic_warmup(WarmupEnv(), adapter, trace, 20)  # type: ignore[arg-type]
-    assert len(adapter.frames) == 20
-    assert np.concatenate(trace.warmup_state_arrays).shape == (20, 7)
-
-
-def _warmup_execution(frames: tuple[TrafficFrame, ...]) -> TrajectoryExecutionRecord:
-    states = np.zeros((5, 7))
-    return TrajectoryExecutionRecord(
-        start_center=np.zeros(2),
-        start_heading=0.0,
-        world_centers=np.zeros((80, 2)),
-        world_headings=np.zeros(80),
-        substep_states=states,
-        target_centers=states[:, :2],
-        target_headings=states[:, 2],
-        position_errors_m=np.zeros(5),
-        heading_errors_rad=np.zeros(5),
-        substep_rewards=np.zeros(5),
-        substep_dense_rewards=np.zeros(5),
-        substep_energy_ml=np.zeros(5),
-        substep_episode_energy_ml=np.zeros(5),
-        substep_terminated=np.zeros(5, dtype=np.bool_),
-        substep_truncated=np.zeros(5, dtype=np.bool_),
-        traffic_frames=frames,
-        route_completion=0.0,
-        arrive_dest=False,
-        out_of_road=False,
-        crash_vehicle=False,
-        crash_object=False,
-        crash_building=False,
-        crash_human=False,
-        max_step=False,
-    )

@@ -14,6 +14,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 
 from eco_planner.envs import (
+    PlannerObservationSpec,
     VectorEnvScenario,
     VectorEnvStep,
     VectorMetaDriveEnv,
@@ -175,7 +176,7 @@ def benchmark_vector_environment_scaling(
             with VectorMetaDriveEnv(
                 configs,
                 mode=mode,  # type: ignore[arg-type]
-                model_config=model_config,
+                observation_spec=PlannerObservationSpec.from_planner_config(model_config),
                 map_query_radius_m=map_query_radius_m,
                 history_warmup_steps=history_warmup_steps,
             ) as environments:
@@ -259,7 +260,7 @@ def _representative_observation(
     with VectorMetaDriveEnv(
         (env_config,),
         mode=config.evaluation.mode,
-        model_config=runtime.planner_config,
+        observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.evaluation.history_warmup_steps,
     ) as environments:

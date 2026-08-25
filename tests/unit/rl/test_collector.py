@@ -5,7 +5,12 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from eco_planner.envs import TrajectoryExecutionRecord
+from eco_planner.envs import (
+    EnvSlotObservation,
+    EnvSlotReset,
+    EnvSlotStep,
+    TrajectoryExecutionRecord,
+)
 from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl import collector
@@ -19,57 +24,48 @@ from eco_planner.rl.rollout import build_training_decision
 from eco_planner.rl.runtime import RolloutAudit, RolloutDecision
 
 
-def test_stationary_trajectory_satisfies_execution_contract() -> None:
-    trajectory = collector._stationary_trajectory()
-
-    assert trajectory.shape == (80, 4)
-    assert trajectory.dtype == np.float32
-    assert np.isfinite(trajectory).all()
-    assert np.all(np.linalg.norm(trajectory[:, 2:4], axis=-1) > 0.0)
-
-
 def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
     monkeypatch,
 ) -> None:
-    class FakeEnv:
-        instances: list[FakeEnv] = []
+    class FakeSlot:
+        instances: list[FakeSlot] = []
 
-        def __init__(self, config: dict[str, object]) -> None:
+        def __init__(self, config: dict[str, object], **_: object) -> None:
             self.config = config
             self.step_count = 0
             self.trajectories: list[np.ndarray] = []
-            FakeEnv.instances.append(self)
+            self.env = self
+            FakeSlot.instances.append(self)
 
-        def reset(self, *, seed: int) -> tuple[None, dict[str, object]]:
+        def reset(self, *, map_name: str, seed: int) -> EnvSlotReset:
+            assert map_name == "S"
             assert seed == 9
-            return None, {}
+            return EnvSlotReset(0.0, 100.0, np.zeros(7), {})
+
+        def warmup(self):
+            return iter(())
+
+        def observe(self) -> EnvSlotObservation:
+            return EnvSlotObservation(_observation(float(self.step_count)), None)
 
         @property
         def route_completion(self) -> float:
             return self.step_count * 0.01
 
-        def step(self, trajectory: np.ndarray):
+        def step(self, trajectory: np.ndarray) -> EnvSlotStep:
             self.trajectories.append(trajectory.copy())
             self.step_count += 1
-            return None, 0.25, False, False, _info()
+            execution = _info()["trajectory_execution"]
+            assert isinstance(execution, TrajectoryExecutionRecord)
+            return EnvSlotStep(0.25, False, False, execution)
 
         def close(self) -> None:
             return None
 
-    class FakeAdapter:
-        def __init__(self, *_: object) -> None:
-            self.env: FakeEnv | None = None
-
-        def reset(self, env: FakeEnv) -> None:
-            self.env = env
-
-        def build(self, env: FakeEnv) -> dict[str, torch.Tensor]:
-            return _observation(float(env.step_count))
-
     class FakeRuntime:
         noise_seed = 4
         policy_action_seed = 5
-        planner_config = SimpleNamespace()
+        planner_config = _planner_observation_config()
 
         def __init__(self) -> None:
             self.observation_markers: list[int] = []
@@ -107,10 +103,7 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
             self.bootstrap_marker = int(observation["ego_current_state"][0, 0].item())
             return torch.tensor([float(self.bootstrap_marker)], dtype=torch.float32)
 
-    monkeypatch.setattr("eco_planner.rl.collector.TrajectoryMetaDriveEnv", FakeEnv)
-    monkeypatch.setattr(
-        "eco_planner.rl.collector.NoTrafficMetaDriveObservationAdapter", FakeAdapter
-    )
+    monkeypatch.setattr("eco_planner.rl.collector.MetaDriveEnvSlot", FakeSlot)
     runtime = FakeRuntime()
     episode = collect_rollout_episode(
         ScenarioConfig(name="fake", map="S", seed=9),
@@ -127,8 +120,8 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
     assert episode.tail_kind == "rollout_limit"
     assert episode.tail_bootstrap_value.item() == 2.0
     assert episode.training["state_value"].squeeze(-1).tolist() == [0.0, 1.0]
-    assert len(FakeEnv.instances[0].trajectories) == 2
-    for trajectory in FakeEnv.instances[0].trajectories:
+    assert len(FakeSlot.instances[0].trajectories) == 2
+    for trajectory in FakeSlot.instances[0].trajectories:
         assert trajectory.shape == (80, 4)
         assert trajectory.dtype == np.float32
         assert np.isfinite(trajectory).all()
@@ -201,15 +194,13 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
     class FakeBatchDecision:
         def __init__(self, decisions: list[_FakeRolloutDecision]) -> None:
             self._decisions = decisions
-            self.ego_trajectories = np.tile(
-                collector._stationary_trajectory(), (len(decisions), 1, 1)
-            )
+            self.ego_trajectories = np.tile(_stationary_trajectory(), (len(decisions), 1, 1))
 
         def slot(self, index: int) -> _FakeRolloutDecision:
             return self._decisions[index]
 
     class FakeRuntime:
-        planner_config = SimpleNamespace()
+        planner_config = _planner_observation_config()
 
         def __init__(self) -> None:
             self.batch_sizes: list[int] = []
@@ -227,7 +218,7 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
                 base = 0.2 + 0.6 * action
                 marker = float(observation["ego_current_state"][slot, 0])
                 audit = RolloutAudit(
-                    prediction=np.tile(collector._stationary_trajectory(), (1, 11, 1, 1)),
+                    prediction=np.tile(_stationary_trajectory(), (1, 11, 1, 1)),
                     initial_noise=torch.full((1, 11, 80, 4), noise),
                     policy_context=_context(marker),
                     base_action=base,
@@ -384,6 +375,28 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
 
     assert [sum(item.transition_count for item in slot) for slot in wave_episodes] == [3, 3]
     assert wave_runtime.batch_sizes == [1, 1, 1, 1, 1, 1]
+
+
+def _planner_observation_config() -> SimpleNamespace:
+    return SimpleNamespace(
+        time_len=21,
+        agent_state_dim=11,
+        agent_num=32,
+        static_objects_state_dim=10,
+        static_objects_num=5,
+        lane_len=20,
+        lane_state_dim=12,
+        lane_num=70,
+        route_len=20,
+        route_state_dim=12,
+        route_num=25,
+    )
+
+
+def _stationary_trajectory() -> np.ndarray:
+    trajectory = np.zeros((80, 4), dtype=np.float32)
+    trajectory[:, 2] = 1.0
+    return trajectory
 
 
 def _context(marker: float) -> ExplorationPolicyContext:

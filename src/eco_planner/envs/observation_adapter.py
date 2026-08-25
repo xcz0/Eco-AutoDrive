@@ -28,11 +28,11 @@ from eco_planner.envs.array_types import (
 )
 from eco_planner.envs.geometry import rear_axle_position, world_vectors_to_local
 from eco_planner.envs.map_adapter import MetaDriveMapAdapter
+from eco_planner.envs.observation import PlannerObservationSpec
 from eco_planner.envs.traffic_state import (
     StaticTrafficObjectState,
     TrafficFrame,
 )
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 _EGO_CURRENT_STATE: EgoStateArray = np.array(
     [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32
@@ -75,14 +75,16 @@ class MetaDriveObservationAdapter:
 
     def __init__(
         self,
-        model_config: OfficialDiffusionPlannerConfig,
+        observation_spec: PlannerObservationSpec,
         query_radius_m: float,
     ) -> None:
-        self._config = model_config
+        self._config = observation_spec
         self._query_radius_m = float(query_radius_m)
-        self._map_adapter = MetaDriveMapAdapter(model_config, self._query_radius_m)
+        self._map_adapter = MetaDriveMapAdapter(observation_spec, self._query_radius_m)
         self._latest_frame: TrafficFrame | None = None
-        self._encoded_history: deque[_EncodedParticipantFrame] = deque(maxlen=model_config.time_len)
+        self._encoded_history: deque[_EncodedParticipantFrame] = deque(
+            maxlen=observation_spec.time_len
+        )
         self._artifact_participant_ids: dict[str, str] = {}
 
     def reset(self, env: Any, initial_frame: TrafficFrame) -> None:
@@ -321,11 +323,11 @@ class NoTrafficMetaDriveObservationAdapter:
 
     def __init__(
         self,
-        model_config: OfficialDiffusionPlannerConfig,
+        observation_spec: PlannerObservationSpec,
         query_radius_m: float,
     ) -> None:
-        self._config = model_config
-        self._map_adapter = MetaDriveMapAdapter(model_config, query_radius_m)
+        self._config = observation_spec
+        self._map_adapter = MetaDriveMapAdapter(observation_spec, query_radius_m)
 
     def reset(self, env: Any) -> None:
         """Capture immutable map geometry for the reset no-traffic episode."""

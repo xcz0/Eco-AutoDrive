@@ -12,11 +12,10 @@ import torch
 from tensordict import TensorDictBase
 
 from eco_planner.envs import (
-    MetaDriveObservationAdapter,
-    NoTrafficMetaDriveObservationAdapter,
+    MetaDriveEnvSlot,
+    PlannerObservationSpec,
     TrafficObservationAudit,
     TrajectoryExecutionRecord,
-    TrajectoryMetaDriveEnv,
     VectorEnvReset,
     VectorEnvScenario,
     VectorMetaDriveEnv,
@@ -33,12 +32,7 @@ from eco_planner.evaluation.rendering import render_cycle_frame
 from eco_planner.evaluation.runtime import FabricInferenceRuntime
 from eco_planner.evaluation.summaries import build_episode_summary, build_failed_episode_summary
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
-from eco_planner.execution_contracts import (
-    EVALUATION_EXECUTION_STEPS,
-    PLANNER_FUTURE_STEPS,
-    TRAFFIC_HISTORY_STEPS,
-    evaluation_plan_cycles,
-)
+from eco_planner.execution_contracts import evaluation_plan_cycles
 from eco_planner.models import NoGuidanceConfig
 
 
@@ -102,26 +96,22 @@ def run_scenario(
 
     env_config = dict(config.env)
     env_config["map"] = spec.map
-    env: TrajectoryMetaDriveEnv | None = None
+    env_slot: MetaDriveEnvSlot | None = None
     trace: EpisodeTraceRecorder | None = None
     finalized_trace_arrays: dict[str, np.ndarray] | None = None
     mode = config.evaluation.mode
-    traffic_adapter = (
-        MetaDriveObservationAdapter(runtime.planner_config, config.map_query_radius_m)
-        if mode == "traffic"
-        else None
-    )
-    no_traffic_adapter = (
-        NoTrafficMetaDriveObservationAdapter(runtime.planner_config, config.map_query_radius_m)
-        if mode == "no_traffic"
-        else None
-    )
     state: _EpisodeState | None = None
     frames: list[np.ndarray] = []
     try:
-        env = TrajectoryMetaDriveEnv(env_config)
-        env.reset(seed=spec.seed)
-        episode_route_length_m = route_length_m(env)
+        env_slot = MetaDriveEnvSlot(
+            env_config,
+            mode=mode,
+            observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
+            map_query_radius_m=config.map_query_radius_m,
+            history_warmup_steps=config.evaluation.history_warmup_steps,
+        )
+        reset = env_slot.reset(map_name=spec.map, seed=spec.seed)
+        episode_route_length_m = reset.route_length_m
         if mode == "traffic" and not 2_000.0 <= episode_route_length_m <= 5_000.0:
             raise EpisodeFailure(
                 phase=FailurePhase.RESET,
@@ -131,7 +121,7 @@ def run_scenario(
                 ),
             )
         trace = EpisodeTraceRecorder.from_initial_state(
-            vehicle_state(env),
+            reset.warmup_initial_state,
             max_plan_cycles=evaluation_plan_cycles(config.evaluation.evaluated_horizon_steps),
             max_warmup_steps=config.evaluation.history_warmup_steps,
             guided=not isinstance(runtime.guidance_config, NoGuidanceConfig),
@@ -142,48 +132,48 @@ def run_scenario(
             traffic_audit=None,
             generator=runtime.new_noise_generator(),
             trace=trace,
-            anchor=vehicle_state(env),
+            anchor=reset.warmup_initial_state.copy(),
             route_length_m=episode_route_length_m,
-            environment_map_audit=env.programmatic_lane_speed_limit_audit,
+            environment_map_audit=dict(reset.programmatic_lane_speed_limit_audit),
         )
-        if traffic_adapter is not None:
-            traffic_adapter.reset(env, env.initial_traffic_frame)
-            run_traffic_warmup(
-                env,
-                traffic_adapter,
-                trace,
-                config.evaluation.history_warmup_steps,
-            )
-        elif no_traffic_adapter is not None:
-            no_traffic_adapter.reset(env)
+        if mode == "traffic":
+            try:
+                for execution in env_slot.warmup():
+                    frames = execution.traffic_frames
+                    trace.append_warmup(
+                        execution,
+                        np.asarray([len(frame.participants) for frame in frames], dtype=np.int64),
+                        np.asarray([len(frame.static_objects) for frame in frames], dtype=np.int64),
+                    )
+            except Exception as error:
+                raise EpisodeFailure(FailurePhase.WARMUP, error) from error
+            trace.replace_initial_state(env_slot.vehicle_state)
 
         terminated = False
         truncated = False
         final_execution: TrajectoryExecutionRecord | None = None
         while not terminated and not truncated:
-            if traffic_adapter is not None:
-                raw_observation, traffic_audit = traffic_adapter.build(env)
-            elif no_traffic_adapter is not None:
-                raw_observation = no_traffic_adapter.build(env)
-                traffic_audit = None
-            else:
-                raise RuntimeError("evaluation mode did not create an observation adapter")
+            slot_observation = env_slot.observe()
+            raw_observation = slot_observation.observation
+            traffic_audit = slot_observation.traffic_audit
             inference = runtime.infer(collate_observations([raw_observation]), state.generator)
-            state.anchor = vehicle_state(env)
-            _, reward, terminated, truncated, info = env.step(inference.ego_trajectory)
-            execution = info["trajectory_execution"]
-            if traffic_adapter is not None:
-                traffic_adapter.append_frames(execution.traffic_frames)
+            state.anchor = env_slot.vehicle_state
+            step = env_slot.step(inference.ego_trajectory)
+            terminated = step.terminated
+            truncated = step.truncated
+            execution = step.execution
             cycle = state.record_cycle(
                 raw_observation,
                 inference.audit_result(),
                 execution,
-                float(reward),
+                step.reward,
                 traffic_audit,
             )
             if config.video.enabled:
                 frames.append(
-                    render_cycle_frame(env, execution, state.anchor[:2], config.video, cycle)
+                    render_cycle_frame(
+                        env_slot.env, execution, state.anchor[:2], config.video, cycle
+                    )
                 )
             final_execution = execution
         if final_execution is None:
@@ -220,8 +210,8 @@ def run_scenario(
             finalized_trace_arrays,
         )
     finally:
-        if env is not None:
-            env.close()
+        if env_slot is not None:
+            env_slot.close()
 
 
 def finalize_completed_episode(
@@ -301,88 +291,6 @@ def persist_failed_episode(
     return summary
 
 
-def run_traffic_warmup(
-    env: TrajectoryMetaDriveEnv,
-    adapter: MetaDriveObservationAdapter,
-    trace: EpisodeTraceRecorder,
-    warmup_steps: int,
-) -> None:
-    if warmup_steps % EVALUATION_EXECUTION_STEPS != 0:
-        raise ValueError(f"history warmup steps must be divisible by {EVALUATION_EXECUTION_STEPS}")
-    initial_position = trace.warmup_initial_state[:2].copy()
-    for _ in range(warmup_steps // EVALUATION_EXECUTION_STEPS):
-        _, _, terminated, truncated, info = env.step(stationary_trajectory())
-        execution = info["trajectory_execution"]
-        frames = execution.traffic_frames
-        adapter.append_frames(frames)
-        trace.append_warmup(
-            execution,
-            np.asarray([len(frame.participants) for frame in frames], dtype=np.int64),
-            np.asarray([len(frame.static_objects) for frame in frames], dtype=np.int64),
-        )
-        if terminated or truncated:
-            raise EpisodeFailure(
-                FailurePhase.WARMUP,
-                RuntimeError(
-                    "traffic history warmup terminated before "
-                    f"{TRAFFIC_HISTORY_STEPS} simulator steps"
-                ),
-            )
-    states = np.concatenate(trace.warmup_state_arrays, axis=0)
-    if states.shape != (warmup_steps, 7):
-        raise EpisodeFailure(
-            FailurePhase.WARMUP,
-            RuntimeError("traffic warmup did not produce the required number of states"),
-        )
-    if float(np.linalg.norm(states[:, :2] - initial_position, axis=1).max()) >= 1e-3:
-        raise EpisodeFailure(
-            FailurePhase.WARMUP,
-            RuntimeError("ego moved during stationary traffic history warmup"),
-        )
-    trace.replace_initial_state(vehicle_state(env))
-
-
-def stationary_trajectory() -> np.ndarray:
-    trajectory = np.zeros((PLANNER_FUTURE_STEPS, 4), dtype=np.float32)
-    trajectory[:, 2] = 1.0
-    return trajectory
-
-
-def vehicle_state(env: TrajectoryMetaDriveEnv) -> np.ndarray:
-    velocity = np.asarray(env.agent.velocity, dtype=np.float64)
-    return np.array(
-        [
-            *np.asarray(env.agent.position, dtype=np.float64),
-            float(env.agent.heading_theta),
-            *velocity,
-            float(env.agent.speed),
-            0.0,
-        ],
-        dtype=np.float64,
-    )
-
-
-def route_length_m(env: TrajectoryMetaDriveEnv) -> float:
-    checkpoints = list(env.agent.navigation.checkpoints)
-    if len(checkpoints) < 2:
-        raise RuntimeError("MetaDrive navigation did not expose a complete route")
-    graph = env.current_map.road_network.graph
-    edge_lengths: list[float] = []
-    for start, end in zip(checkpoints[:-1], checkpoints[1:], strict=True):
-        lanes = graph.get(start, {}).get(end, [])
-        if not lanes:
-            raise RuntimeError(f"route edge {(start, end)!r} has no lane")
-        lane_length = getattr(lanes[0], "length", None)
-        if isinstance(lane_length, (bool, np.bool_)) or not isinstance(
-            lane_length, (int, float, np.integer, np.floating)
-        ):
-            raise RuntimeError(f"route edge {(start, end)!r} has an invalid length")
-        if not np.isfinite(lane_length) or float(lane_length) <= 0.0:
-            raise RuntimeError(f"route edge {(start, end)!r} has an invalid length")
-        edge_lengths.append(float(lane_length))
-    return float(sum(edge_lengths))
-
-
 def _scenario_payload(spec: ScenarioConfig) -> dict[str, object]:
     return {"name": spec.name, "map_sequence": spec.map, "seed": spec.seed}
 
@@ -409,7 +317,7 @@ def run_vector_scenarios(
     with VectorMetaDriveEnv(
         configured_envs,
         mode=config.evaluation.mode,
-        model_config=runtime.planner_config,
+        observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.evaluation.history_warmup_steps,
     ) as envs:

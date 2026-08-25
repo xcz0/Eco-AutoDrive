@@ -12,9 +12,8 @@ from hydra.utils import to_absolute_path
 from omegaconf import DictConfig
 
 from eco_planner.envs import (
-    MetaDriveObservationAdapter,
-    NoTrafficMetaDriveObservationAdapter,
-    TrajectoryMetaDriveEnv,
+    MetaDriveEnvSlot,
+    PlannerObservationSpec,
 )
 from eco_planner.models import OfficialDiffusionPlannerConfig
 
@@ -76,61 +75,38 @@ def _run_once(
         "map": benchmark.map,
         "traffic_density": benchmark.traffic_density if traffic else 0.0,
     }
-    env = TrajectoryMetaDriveEnv(env_config)
+    env_slot = MetaDriveEnvSlot(
+        env_config,
+        mode="traffic" if traffic else "no_traffic",
+        observation_spec=PlannerObservationSpec.from_planner_config(model_config),
+        map_query_radius_m=benchmark.map_query_radius_m,
+        history_warmup_steps=benchmark.history_warmup_steps if traffic else 0,
+    )
     trajectory = _stationary_trajectory(model_config.future_len)
     try:
-        env.reset(seed=benchmark.seed)
-        if traffic:
-            adapter = MetaDriveObservationAdapter(model_config, benchmark.map_query_radius_m)
-            adapter.reset(env, env.initial_traffic_frame)
-            _warmup_traffic(env, adapter, trajectory, benchmark.history_warmup_steps)
-        else:
-            adapter = NoTrafficMetaDriveObservationAdapter(
-                model_config, benchmark.map_query_radius_m
-            )
-            adapter.reset(env)
+        env_slot.reset(map_name=benchmark.map, seed=benchmark.seed)
+        tuple(env_slot.warmup())
 
         for _ in range(benchmark.timing_warmup_cycles):
-            _run_cycle(env, adapter, trajectory)
+            _run_cycle(env_slot, trajectory)
 
         start = perf_counter()
         for _ in range(benchmark.measured_cycles):
-            _run_cycle(env, adapter, trajectory)
+            _run_cycle(env_slot, trajectory)
         elapsed = perf_counter() - start
         return elapsed * 1_000.0 / benchmark.measured_cycles
     finally:
-        env.close()
+        env_slot.close()
 
 
 def _run_cycle(
-    env: TrajectoryMetaDriveEnv,
-    adapter: MetaDriveObservationAdapter | NoTrafficMetaDriveObservationAdapter,
+    env_slot: MetaDriveEnvSlot,
     trajectory: np.ndarray,
 ) -> None:
-    adapter.build(env)
-    _, _, terminated, truncated, info = env.step(trajectory)
-    if terminated or truncated:
+    env_slot.observe()
+    step = env_slot.step(trajectory)
+    if step.terminated or step.truncated:
         raise RuntimeError("environment benchmark ended before measurement completed")
-    if isinstance(adapter, MetaDriveObservationAdapter):
-        adapter.append_frames(info["trajectory_execution"].traffic_frames)
-
-
-def _warmup_traffic(
-    env: TrajectoryMetaDriveEnv,
-    adapter: MetaDriveObservationAdapter,
-    trajectory: np.ndarray,
-    required_steps: int,
-) -> None:
-    collected = 0
-    while collected < required_steps:
-        _, _, terminated, truncated, info = env.step(trajectory)
-        if terminated or truncated:
-            raise RuntimeError("traffic history warmup ended before the required frame count")
-        execution = info["trajectory_execution"]
-        adapter.append_frames(execution.traffic_frames)
-        collected += execution.substep_states.shape[0]
-    if collected != required_steps:
-        raise RuntimeError("traffic history warmup overshot the required frame count")
 
 
 def _stationary_trajectory(future_len: int) -> np.ndarray:
