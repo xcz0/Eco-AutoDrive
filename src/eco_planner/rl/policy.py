@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 import torch
+from tensordict import TensorDict, TensorDictBase
+from tensordict.nn import TensorDictModule
 from timm.layers import Mlp
 from torch import nn
 from torch.nn import functional as F
@@ -16,6 +18,14 @@ from eco_planner.rl.distributions import AffineBeta, AffineBetaAction, AffineBet
 
 _REFERENCE_HORIZON = 80
 _REFERENCE_STATE_DIM = 4
+POLICY_CONTEXT_KEYS = (
+    "scene_tokens",
+    "scene_padding_mask",
+    "navigation_tokens",
+    "navigation_padding_mask",
+    "reference_trajectory",
+)
+POLICY_OUTPUT_KEYS = ("alpha", "beta", "state_value")
 
 
 @dataclass(frozen=True)
@@ -98,6 +108,34 @@ class ExplorationPolicy(nn.Module):
         self._initialize_symmetric_actor()
 
     def forward(self, context: ExplorationPolicyContext) -> ExplorationPolicyOutput:
+        """Evaluate the policy's typed context adapter."""
+
+        alpha, beta, state_value = self.forward_tensors(
+            context.scene_tokens,
+            context.scene_padding_mask,
+            context.navigation_tokens,
+            context.navigation_padding_mask,
+            context.reference_trajectory,
+        )
+        return self.output_from_tensors(alpha, beta, state_value)
+
+    def forward_tensors(
+        self,
+        scene_tokens: torch.Tensor,
+        scene_padding_mask: torch.Tensor,
+        navigation_tokens: torch.Tensor,
+        navigation_padding_mask: torch.Tensor,
+        reference_trajectory: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Write the shared actor/value outputs for one policy tensor context."""
+
+        context = ExplorationPolicyContext(
+            scene_tokens=scene_tokens,
+            scene_padding_mask=scene_padding_mask,
+            navigation_tokens=navigation_tokens,
+            navigation_padding_mask=navigation_padding_mask,
+            reference_trajectory=reference_trajectory,
+        )
         _validate_context_structure(context, self.config)
         reference = self.reference_projection(context.reference_trajectory)
         for mixer in self.reference_mixers:
@@ -122,8 +160,48 @@ class ExplorationPolicy(nn.Module):
         value = self.value_head(fused).squeeze(-1)
         if tuple(value.shape) != (context.reference_trajectory.shape[0],):
             raise RuntimeError("exploration policy value must have shape [B]")
+        return parameters.alpha, parameters.beta, value.unsqueeze(-1)
+
+    def forward_tensordict(self, tensordict: TensorDictBase) -> TensorDictBase:
+        """Write actor concentrations and critic value into a policy TensorDict."""
+
+        if not isinstance(tensordict, TensorDictBase):
+            raise TypeError("policy TensorDict input must be a TensorDictBase")
+        alpha, beta, state_value = self.forward_tensors(
+            *[tensordict[key] for key in POLICY_CONTEXT_KEYS]
+        )
+        tensordict["alpha"] = alpha
+        tensordict["beta"] = beta
+        tensordict["state_value"] = state_value
+        return tensordict
+
+    def tensordict_module(self) -> TensorDictModule:
+        """Return the TorchRL module boundary used by PPO current-policy evaluation."""
+
+        return TensorDictModule(
+            self._tensordict_outputs,
+            in_keys=list(POLICY_CONTEXT_KEYS),
+            out_keys=list(POLICY_OUTPUT_KEYS),
+        )
+
+    def output_from_tensordict(self, tensordict: TensorDictBase) -> ExplorationPolicyOutput:
+        """Adapt the common TensorDict outputs for explicit-generator collection sampling."""
+
+        if not isinstance(tensordict, TensorDictBase):
+            raise TypeError("policy TensorDict output must be a TensorDictBase")
+        return self.output_from_tensors(
+            tensordict["alpha"], tensordict["beta"], tensordict["state_value"]
+        )
+
+    def output_from_tensors(
+        self, alpha: torch.Tensor, beta: torch.Tensor, state_value: torch.Tensor
+    ) -> ExplorationPolicyOutput:
+        """Adapt TensorDict actor/value fields to the typed collection output."""
+
+        if tuple(state_value.shape) != (alpha.shape[0], 1):
+            raise RuntimeError("policy TensorDict state_value must have shape [B, 1]")
         return ExplorationPolicyOutput(
-            AffineBeta(parameters.alpha, parameters.beta, validate_args=False), value
+            AffineBeta(alpha, beta, validate_args=False), state_value.squeeze(-1)
         )
 
     def act(
@@ -136,7 +214,8 @@ class ExplorationPolicy(nn.Module):
 
         if sampling not in {"sample", "rsample", "mean"}:
             raise ValueError("sampling must be 'sample', 'rsample', or 'mean'")
-        output = self(context)
+        outputs = self.forward_tensordict(policy_context_tensordict(context))
+        output = self.output_from_tensordict(outputs)
         if sampling == "mean":
             if generator is not None:
                 raise ValueError("mean evaluation must not receive a generator")
@@ -155,6 +234,31 @@ class ExplorationPolicy(nn.Module):
             self.config.initial_concentration - self.config.minimum_concentration
         )
         nn.init.constant_(self.actor_head.bias, raw_initial)
+
+    def _tensordict_outputs(
+        self,
+        scene_tokens: torch.Tensor,
+        scene_padding_mask: torch.Tensor,
+        navigation_tokens: torch.Tensor,
+        navigation_padding_mask: torch.Tensor,
+        reference_trajectory: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return self.forward_tensors(
+            scene_tokens,
+            scene_padding_mask,
+            navigation_tokens,
+            navigation_padding_mask,
+            reference_trajectory,
+        )
+
+
+def policy_context_tensordict(context: ExplorationPolicyContext) -> TensorDictBase:
+    """Expose a typed policy context through the common TensorDict key contract."""
+
+    return TensorDict(
+        {key: getattr(context, key) for key in POLICY_CONTEXT_KEYS},
+        batch_size=[context.reference_trajectory.shape[0]],
+    )
 
 
 def _inverse_softplus(value: float) -> float:

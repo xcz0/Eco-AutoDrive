@@ -21,18 +21,11 @@ from torchrl.objectives.value import GAE
 
 from eco_planner.rl.config import PPOConfig
 from eco_planner.rl.distributions import AffineBeta
-from eco_planner.rl.policy import ExplorationPolicy, ExplorationPolicyContext
+from eco_planner.rl.policy import POLICY_CONTEXT_KEYS, ExplorationPolicy
 from eco_planner.rl.rollout import RolloutEpisode
 
-_CONTEXT_KEYS = (
-    "scene_tokens",
-    "scene_padding_mask",
-    "navigation_tokens",
-    "navigation_padding_mask",
-    "reference_trajectory",
-)
 _PPO_BATCH_KEYS = (
-    *_CONTEXT_KEYS,
+    *POLICY_CONTEXT_KEYS,
     "guidance_action",
     "old_joint_guidance_log_prob",
     "advantage",
@@ -73,32 +66,6 @@ class PPOUpdateReport:
     mean_explained_variance: float
     maximum_pre_clip_gradient_norm: float
     final_learning_rate: float
-
-
-class _PolicyOutputAdapter(nn.Module):
-    def __init__(self, policy: ExplorationPolicy) -> None:
-        super().__init__()
-        self.policy = policy
-
-    def forward(
-        self,
-        scene_tokens: torch.Tensor,
-        scene_padding_mask: torch.Tensor,
-        navigation_tokens: torch.Tensor,
-        navigation_padding_mask: torch.Tensor,
-        reference_trajectory: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        output = self.policy(
-            ExplorationPolicyContext(
-                scene_tokens=scene_tokens,
-                scene_padding_mask=scene_padding_mask,
-                navigation_tokens=navigation_tokens,
-                navigation_padding_mask=navigation_padding_mask,
-                reference_trajectory=reference_trajectory,
-            )
-        )
-        parameters = output.distribution.parameters
-        return parameters.alpha, parameters.beta, output.value.unsqueeze(-1)
 
 
 def _append_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> TensorDictBase:
@@ -316,11 +283,7 @@ class PPOUpdater:
 def _build_torchrl_policy_adapters(
     policy: ExplorationPolicy,
 ) -> tuple[ProbabilisticTensorDictSequential, TensorDictModule]:
-    output_module = TensorDictModule(
-        _PolicyOutputAdapter(policy),
-        in_keys=list(_CONTEXT_KEYS),
-        out_keys=["alpha", "beta", "state_value"],
-    )
+    output_module = policy.tensordict_module()
     distribution_module = ProbabilisticTensorDictModule(
         in_keys={"alpha": "alpha", "beta": "beta"},
         out_keys=["guidance_action"],

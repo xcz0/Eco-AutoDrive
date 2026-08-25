@@ -9,7 +9,11 @@ from torch.distributions import Beta
 
 from eco_planner.rl import ExplorationPolicy, ExplorationPolicyConfig
 from eco_planner.rl.distributions import AffineBeta
-from eco_planner.rl.policy import ExplorationPolicyContext, validate_exploration_policy_context
+from eco_planner.rl.policy import (
+    ExplorationPolicyContext,
+    policy_context_tensordict,
+    validate_exploration_policy_context,
+)
 
 
 def test_forward_returns_positive_finite_parameters_and_exact_value_shape(
@@ -31,6 +35,25 @@ def test_forward_returns_positive_finite_parameters_and_exact_value_shape(
     assert torch.isfinite(parameters.beta).all()
     assert torch.all(parameters.alpha > 0.0)
     assert torch.all(parameters.beta > 0.0)
+
+
+def test_tensordict_policy_boundary_matches_the_typed_context_adapter(
+    exploration_policy_config: ExplorationPolicyConfig,
+    exploration_policy_context: ExplorationPolicyContext,
+) -> None:
+    policy = ExplorationPolicy(exploration_policy_config)
+    expected = policy(exploration_policy_context)
+    outputs = policy.forward_tensordict(policy_context_tensordict(exploration_policy_context))
+    actual = policy.output_from_tensordict(outputs)
+
+    assert {"alpha", "beta", "state_value"} <= set(outputs.keys())
+    torch.testing.assert_close(
+        actual.distribution.parameters.alpha, expected.distribution.parameters.alpha
+    )
+    torch.testing.assert_close(
+        actual.distribution.parameters.beta, expected.distribution.parameters.beta
+    )
+    torch.testing.assert_close(actual.value, expected.value)
 
 
 def test_symmetric_initialization_has_zero_guidance_mean_and_nonzero_variance(

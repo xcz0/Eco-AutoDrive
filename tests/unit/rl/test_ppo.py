@@ -195,15 +195,15 @@ def test_ppo_loss_evaluates_the_shared_policy_once_per_minibatch(
     policy = ExplorationPolicy(exploration_policy_config)
     updater = PPOUpdater(policy, _config())
     batch = _batch_trajectories((_episode(policy),), _config())
-    original_forward = policy.forward
+    original_forward_tensors = policy.forward_tensors
     calls = 0
 
-    def counted_forward(context: ExplorationPolicyContext):
+    def counted_forward_tensors(*args: torch.Tensor):
         nonlocal calls
         calls += 1
-        return original_forward(context)
+        return original_forward_tensors(*args)
 
-    monkeypatch.setattr(policy, "forward", counted_forward)
+    monkeypatch.setattr(policy, "forward_tensors", counted_forward_tensors)
     losses = updater.loss_module(batch)
     total_loss = losses["loss_objective"] + losses["loss_critic"] + losses["loss_entropy"]
     total_loss.backward()

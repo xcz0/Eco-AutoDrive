@@ -31,6 +31,7 @@ from eco_planner.rl.policy import (
     ExplorationPolicy,
     ExplorationPolicyContext,
     ExplorationPolicyOutput,
+    policy_context_tensordict,
     validate_exploration_policy_context,
 )
 from eco_planner.rl.rollout import build_training_decision
@@ -290,7 +291,10 @@ class FabricRolloutRuntime:
                 navigation_padding_mask=prepared.policy_context.navigation_padding_mask,
                 reference_trajectory=prepared.policy_context.reference_trajectory,
             )
-            output = self._policy(policy_context)
+            policy_outputs = self._policy.forward_tensordict(
+                policy_context_tensordict(policy_context)
+            )
+            output = self._policy.output_from_tensordict(policy_outputs)
             action = _sample_policy_actions(output, policy_generators)
         with torch.enable_grad():
             result = self._planner.complete_policy_guidance(prepared, action.guidance_action)
@@ -363,7 +367,8 @@ class FabricRolloutRuntime:
                 navigation_padding_mask=prepared.policy_context.navigation_padding_mask,
                 reference_trajectory=prepared.policy_context.reference_trajectory,
             )
-            value = self._policy(context).value
+            outputs = self._policy.forward_tensordict(policy_context_tensordict(context))
+            value = outputs["state_value"].squeeze(-1)
         return value.detach().clone()
 
 

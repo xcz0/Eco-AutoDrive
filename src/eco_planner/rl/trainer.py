@@ -27,7 +27,7 @@ from eco_planner.rl.checkpoint import (
 from eco_planner.rl.collector import VectorRolloutCollector
 from eco_planner.rl.config import RLTrainingJobConfig
 from eco_planner.rl.distributions import AffineBeta
-from eco_planner.rl.policy import ExplorationPolicyContext
+from eco_planner.rl.policy import ExplorationPolicyContext, policy_context_tensordict
 from eco_planner.rl.ppo import PPOUpdater
 from eco_planner.rl.rollout import RolloutEpisode
 from eco_planner.rl.runtime import create_fabric_rollout_runtime
@@ -279,7 +279,8 @@ def _probe_policy(
     for index, host_context in enumerate(contexts):
         context = _context_to_device(host_context, runtime.device)
         with torch.no_grad():
-            output = runtime.policy(context)
+            outputs = runtime.policy.forward_tensordict(policy_context_tensordict(context))
+            output = runtime.policy.output_from_tensordict(outputs)
         alpha = output.distribution.parameters.alpha
         beta = output.distribution.parameters.beta
         expanded = AffineBeta(alpha.expand(sample_count, -1), beta.expand(sample_count, -1))
