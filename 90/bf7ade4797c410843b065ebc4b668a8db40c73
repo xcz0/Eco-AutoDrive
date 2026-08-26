@@ -1,0 +1,22 @@
+scripts/ppo_reward_ab.py
+  s_faf7caa29df671::t_b2adfb3cc8517b 87,90,102-104,107,111-116,125
+  s_faf7caa29df671::t_1a41786acde827 159-164,166-172
+justfile
+  s_faf7caa29df671::t_0695f4c6003521 107-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "90bf7ade4797c410843b065ebc4b668a8db40c73",
+  "prompts": {},
+  "sessions": {
+    "s_faf7caa29df671": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fc2a0e9c8ffenKy8gDKpy13e54",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
