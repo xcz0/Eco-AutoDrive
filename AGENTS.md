@@ -72,6 +72,7 @@ just test-sim
 just test-gpu
 just lint
 just format
+just typecheck
 ```
 
 运行 `just test`、`just test-target`、`just test-sim` 或 `just test-gpu` 时按沙箱要求申请沙箱外执行；不要重建环境或切换到其他执行入口。

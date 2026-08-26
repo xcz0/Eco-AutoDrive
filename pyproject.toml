@@ -64,5 +64,19 @@ extend-exclude = ["third_party", "ref"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.pyright]
+include = [
+    "src/eco_planner/envs/contracts.py",
+    "src/eco_planner/envs/domain",
+    "src/eco_planner/envs/observation",
+    "src/eco_planner/envs/runtime/slot.py",
+]
+exclude = ["third_party", "ref"]
+pythonVersion = "3.10"
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/eco_planner"]

@@ -21,6 +21,12 @@ ruff := if os_family() == "windows" {
     ".venv/bin/ruff"
 }
 
+pyright := if os_family() == "windows" {
+    ".venv/Scripts/pyright.exe"
+} else {
+    ".venv/bin/pyright"
+}
+
 
 # Show available commands.
 default:
@@ -35,6 +41,10 @@ setup:
 [group('development')]
 lint:
     {{ruff}} check .
+
+[group('development')]
+typecheck:
+    {{pyright}}
 
 [group('development')]
 format:
