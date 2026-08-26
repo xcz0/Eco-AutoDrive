@@ -15,7 +15,7 @@ from tensordict import TensorDictBase
 from eco_planner.artifacts import collect_repository_metadata, write_json, write_tracked_diff
 from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.ppo import PPOUpdateReport
-from eco_planner.rl.rollout import RolloutEpisode
+from eco_planner.rl.rollout import AUDIT_FIELD_KEYS, RolloutEpisode
 from eco_planner.runtime_resources import ResourceProfileConfig
 
 
@@ -163,36 +163,4 @@ def write_training_runtime_metadata(
 
 
 def _trajectory_arrays(trajectory: TensorDictBase) -> dict[str, np.ndarray]:
-    names = (
-        "scene_tokens",
-        "scene_padding_mask",
-        "navigation_tokens",
-        "navigation_padding_mask",
-        "reference_trajectory",
-        "base_action",
-        "guidance_action",
-        "beta_alpha",
-        "beta_beta",
-        "old_joint_guidance_log_prob",
-        "state_value",
-        "initial_noise",
-        "diffusion_rng_state",
-        "policy_rng_state",
-        "reward",
-        "dense_reward",
-        "terminal_override",
-        "route_completion_delta",
-        "distance_m",
-        "speed_mps",
-        "stopped",
-        "position_error_m",
-        "heading_error_rad",
-        "terminated",
-        "truncated",
-        "out_of_road",
-        "map_seed",
-        "noise_seed",
-        "policy_action_seed",
-        "planning_cycle_index",
-    )
-    return {name: trajectory[name].detach().cpu().numpy() for name in names}
+    return {name: trajectory[name].detach().cpu().numpy() for name in AUDIT_FIELD_KEYS}

@@ -8,6 +8,7 @@ from tensordict import TensorDictBase
 from eco_planner.rl.artifacts import write_rollout_episode
 from eco_planner.rl.policy import ExplorationPolicyContext
 from eco_planner.rl.rollout import (
+    AUDIT_FIELD_KEYS,
     build_rollout_audit,
     build_training_decision,
     build_training_transition,
@@ -128,9 +129,23 @@ def test_complete_rollout_artifact_uses_the_audit_tensor_dict(tmp_path) -> None:
     write_rollout_episode(path, episode)
 
     with np.load(path, allow_pickle=False) as arrays:
+        assert set(arrays.files) == {
+            *AUDIT_FIELD_KEYS,
+            "tail_kind",
+            "tail_bootstrap_value",
+        }
         assert arrays["initial_noise"].shape == (1, 11, 80, 4)
         assert arrays["diffusion_rng_state"].dtype == np.uint8
         assert arrays["planning_cycle_index"].item() == 0
+        for name in (
+            "arrive_dest",
+            "crash_vehicle",
+            "crash_object",
+            "crash_building",
+            "crash_human",
+        ):
+            assert arrays[name].dtype == np.bool_
+            assert not arrays[name].item()
 
 
 def test_rollout_validates_complete_audit_at_the_episode_boundary() -> None:
@@ -139,6 +154,19 @@ def test_rollout_validates_complete_audit_at_the_episode_boundary() -> None:
         finalize_rollout_episode(
             [training],
             [audit.set("base_action", torch.tensor([[0.0, 0.5]]))],
+            "rollout_limit",
+            torch.zeros(1),
+        )
+
+
+def test_rollout_rejects_audit_fields_outside_the_artifact_schema() -> None:
+    training, audit = _transitions()
+    audit["unexpected"] = torch.zeros((1, 1), dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="unexpected fields"):
+        finalize_rollout_episode(
+            [training],
+            [audit],
             "rollout_limit",
             torch.zeros(1),
         )

@@ -75,14 +75,12 @@ class RolloutDecision:
         resolve_audit: Callable[[], TensorDictBase],
         diffusion_rng_state: torch.Tensor,
         policy_rng_state: torch.Tensor,
-        policy_config: ExplorationPolicyConfig,
         training_decision: TensorDictBase,
     ) -> None:
         self._execution = execution
         self._resolve_audit = resolve_audit
         self._diffusion_rng_state = diffusion_rng_state
         self._policy_rng_state = policy_rng_state
-        self._policy_config = policy_config
         self._training_decision = training_decision
         self._audit: RolloutAudit | None = None
 
@@ -101,7 +99,6 @@ class RolloutDecision:
 
         if self._audit is None:
             host = self._resolve_audit()
-            _validate_finite(host)
             context = ExplorationPolicyContext(
                 scene_tokens=host["scene_tokens"],
                 scene_padding_mask=host["scene_padding_mask"],
@@ -109,7 +106,6 @@ class RolloutDecision:
                 navigation_padding_mask=host["navigation_padding_mask"],
                 reference_trajectory=host["reference_trajectory"],
             )
-            _validate_rollout_context(context, self._policy_config)
             self._audit = RolloutAudit(
                 prediction=host["prediction"].numpy(),
                 initial_noise=host["initial_noise"],
@@ -145,6 +141,7 @@ class BatchRolloutDecision:
         self._policy_config = policy_config
         self._training_decision = training_decision
         self._audit: TensorDictBase | None = None
+        self._slots: list[RolloutDecision | None] = [None] * execution.ego_trajectory.shape[0]
 
     @property
     def ego_trajectories(self) -> np.ndarray:
@@ -164,19 +161,32 @@ class BatchRolloutDecision:
         batch = self.ego_trajectories.shape[0]
         if not 0 <= index < batch:
             raise IndexError(f"batch slot {index} is outside [0, {batch})")
-        return RolloutDecision(
-            HostExecutionResult(self.ego_trajectories[index : index + 1]),
-            lambda: self._resolve_audit()[index : index + 1],
-            diffusion_rng_state=self._diffusion_rng_states[index],
-            policy_rng_state=self._policy_rng_states[index],
-            policy_config=self._policy_config,
-            training_decision=self._training_decision[index : index + 1],
-        )
+        decision = self._slots[index]
+        if decision is None:
+            decision = RolloutDecision(
+                HostExecutionResult(self.ego_trajectories[index : index + 1]),
+                lambda: self._resolve_audit()[index : index + 1],
+                diffusion_rng_state=self._diffusion_rng_states[index],
+                policy_rng_state=self._policy_rng_states[index],
+                training_decision=self._training_decision[index : index + 1],
+            )
+            self._slots[index] = decision
+        return decision
 
     def _resolve_audit(self) -> TensorDictBase:
         if self._audit is None:
             host = self._deferred.resolve()
             _validate_finite(host)
+            _validate_rollout_context(
+                ExplorationPolicyContext(
+                    scene_tokens=host["scene_tokens"],
+                    scene_padding_mask=host["scene_padding_mask"],
+                    navigation_tokens=host["navigation_tokens"],
+                    navigation_padding_mask=host["navigation_padding_mask"],
+                    reference_trajectory=host["reference_trajectory"],
+                ),
+                self._policy_config,
+            )
             self._audit = TensorDict(host, batch_size=[self.ego_trajectories.shape[0]])
         return self._audit
 

@@ -37,40 +37,38 @@ _NEXT_TRAINING_KEYS = frozenset(
         "truncated",
     }
 )
-_AUDIT_KEYS = frozenset(
-    {
-        *_CONTEXT_KEYS,
-        "base_action",
-        "guidance_action",
-        "old_joint_guidance_log_prob",
-        "state_value",
-        "beta_alpha",
-        "beta_beta",
-        "initial_noise",
-        "diffusion_rng_state",
-        "policy_rng_state",
-        "reward",
-        "dense_reward",
-        "terminal_override",
-        "route_completion_delta",
-        "distance_m",
-        "speed_mps",
-        "stopped",
-        "position_error_m",
-        "heading_error_rad",
-        "arrive_dest",
-        "out_of_road",
-        "crash_vehicle",
-        "crash_object",
-        "crash_building",
-        "crash_human",
-        "terminated",
-        "truncated",
-        "map_seed",
-        "noise_seed",
-        "policy_action_seed",
-        "planning_cycle_index",
-    }
+AUDIT_FIELD_KEYS: tuple[str, ...] = (
+    *_CONTEXT_KEYS,
+    "base_action",
+    "guidance_action",
+    "old_joint_guidance_log_prob",
+    "state_value",
+    "beta_alpha",
+    "beta_beta",
+    "initial_noise",
+    "diffusion_rng_state",
+    "policy_rng_state",
+    "reward",
+    "dense_reward",
+    "terminal_override",
+    "route_completion_delta",
+    "distance_m",
+    "speed_mps",
+    "stopped",
+    "position_error_m",
+    "heading_error_rad",
+    "arrive_dest",
+    "out_of_road",
+    "crash_vehicle",
+    "crash_object",
+    "crash_building",
+    "crash_human",
+    "terminated",
+    "truncated",
+    "map_seed",
+    "noise_seed",
+    "policy_action_seed",
+    "planning_cycle_index",
 )
 
 
@@ -277,7 +275,10 @@ def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
 
 
 def _validate_audit_trajectory(trajectory: TensorDictBase) -> None:
-    _validate_trajectory(trajectory, _AUDIT_KEYS, "rollout audit")
+    _validate_trajectory(trajectory, frozenset(AUDIT_FIELD_KEYS), "rollout audit")
+    unexpected = set(trajectory.keys(include_nested=False)) - set(AUDIT_FIELD_KEYS)
+    if unexpected:
+        raise ValueError(f"rollout audit trajectory has unexpected fields: {sorted(unexpected)}")
     if _tensordict_device(trajectory).type != "cpu":
         raise TypeError("rollout audit fields must be CPU tensors")
     _validate_policy_context(trajectory, "rollout audit")

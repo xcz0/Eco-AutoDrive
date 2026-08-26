@@ -141,9 +141,11 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
         instances: list[FakeVectorEnv] = []
         close_count = 0
 
-        def __init__(self, *_: object, **__: object) -> None:
-            self.step_counts = [0, 0]
-            self.reset_counts = [0, 0]
+        def __init__(self, env_configs, *_: object, **__: object) -> None:
+            slot_count = len(env_configs)
+            self.step_counts = [0] * slot_count
+            self.reset_counts = [0] * slot_count
+            self.scenario_markers = [0.0] * slot_count
             self.step_batches: list[int] = []
             FakeVectorEnv.instances.append(self)
 
@@ -157,11 +159,15 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
             FakeVectorEnv.close_count += 1
 
         def reset(self, scenarios):
+            for slot, scenario in enumerate(scenarios):
+                self.step_counts[slot] = 0
+                self.scenario_markers[slot] = float(scenario.seed * 10)
             return tuple(self._reset(slot) for slot in range(len(scenarios)))
 
-        def reset_at(self, slot: int, _scenario):
+        def reset_at(self, slot: int, scenario):
             self.reset_counts[slot] += 1
             self.step_counts[slot] = 0
+            self.scenario_markers[slot] = float(scenario.seed * 10)
             return self._reset(slot)
 
         def step(self, trajectories):
@@ -181,7 +187,9 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
                 )
                 results.append(
                     SimpleNamespace(
-                        observation=_observation(float(slot * 10 + self.step_counts[slot])),
+                        observation=_observation(
+                            self.scenario_markers[slot] + self.step_counts[slot]
+                        ),
                         reward=0.25,
                         terminated=terminated,
                         truncated=False,
@@ -195,7 +203,9 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
             return tuple(results)
 
         def _reset(self, slot: int):
-            return SimpleNamespace(observation=_observation(float(slot * 10)), route_completion=0.0)
+            return SimpleNamespace(
+                observation=_observation(self.scenario_markers[slot]), route_completion=0.0
+            )
 
     class FakeBatchDecision:
         def __init__(self, decisions: list[_FakeRolloutDecision]) -> None:
@@ -247,14 +257,14 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
 
     monkeypatch.setattr("eco_planner.rl.collector.VectorMetaDriveEnv", FakeVectorEnv)
 
-    def collect(terminal_first_slot: bool, *, profile: bool):
+    def collect(terminal_first_slot: bool, *, profile: bool, second_map: str = "S"):
         FakeVectorEnv.terminal_first_slot = terminal_first_slot
         runtime = FakeRuntime()
         timings = [] if profile else None
         episodes = collect_vector_rollout_episodes(
             (
                 ScenarioConfig(name="first", map="S", seed=0),
-                ScenarioConfig(name="second", map="S", seed=1),
+                ScenarioConfig(name="second", map=second_map, seed=1),
             ),
             runtime,
             {"trajectory_execution_steps": 1},
@@ -320,6 +330,7 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
             ):
                 torch.testing.assert_close(reset_episode.audit[name], baseline_episode.audit[name])
 
+    equivalent_episodes, _, _ = collect(False, profile=False, second_map="SC")
     persistent_runtime = FakeRuntime()
     with VectorRolloutCollector(
         (
@@ -348,9 +359,10 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
                 policy_action_seeds=(200, 201),
             )
 
-    assert len(FakeVectorEnv.instances) == 3
-    assert FakeVectorEnv.close_count == 3
+    assert len(FakeVectorEnv.instances) == 4
+    assert FakeVectorEnv.close_count == 4
 
+    FakeVectorEnv.terminal_first_slot = False
     wave_runtime = FakeRuntime()
     with VectorRolloutCollector(
         (
@@ -381,6 +393,24 @@ def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(mo
 
     assert [sum(item.transition_count for item in slot) for slot in wave_episodes] == [3, 3]
     assert wave_runtime.batch_sizes == [1, 1, 1, 1, 1, 1]
+    for equivalent_slot, wave_slot in zip(equivalent_episodes, wave_episodes, strict=True):
+        assert [item.tail_kind for item in equivalent_slot] == [
+            item.tail_kind for item in wave_slot
+        ]
+        assert [item.transition_count for item in equivalent_slot] == [
+            item.transition_count for item in wave_slot
+        ]
+        for equivalent_episode, wave_episode in zip(equivalent_slot, wave_slot, strict=True):
+            for name in (
+                "base_action",
+                "guidance_action",
+                "initial_noise",
+                "diffusion_rng_state",
+                "policy_rng_state",
+                "planning_cycle_index",
+            ):
+                torch.testing.assert_close(equivalent_episode.audit[name], wave_episode.audit[name])
+            torch.testing.assert_close(equivalent_episode.training, wave_episode.training)
 
 
 def _planner_observation_config() -> SimpleNamespace:

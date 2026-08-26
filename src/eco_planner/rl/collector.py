@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Literal
 from weakref import finalize
@@ -16,19 +16,23 @@ from eco_planner.envs import (
     MetaDriveEnvSlot,
     PlannerObservationSpec,
     TrajectoryExecutionRecord,
+    VectorEnvReset,
     VectorEnvScenario,
+    VectorEnvStep,
     VectorMetaDriveEnv,
     collate_observations,
 )
+from eco_planner.envs.array_types import SingleObservation
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl.rollout import (
     RolloutEpisode,
+    TailKind,
     build_rollout_audit,
     build_training_transition,
     finalize_rollout_episode,
     set_training_transition_next_state_value,
 )
-from eco_planner.rl.runtime import FabricRolloutRuntime
+from eco_planner.rl.runtime import FabricRolloutRuntime, RolloutDecision
 
 
 @dataclass(frozen=True)
@@ -180,6 +184,28 @@ def collect_rollout_episode(
         env_slot.close()
 
 
+@dataclass
+class _SlotCollectionState:
+    spec: ScenarioConfig
+    scenario: VectorEnvScenario
+    diffusion_generator: torch.Generator
+    policy_generator: torch.Generator
+    noise_seed: int
+    policy_action_seed: int
+    observation: SingleObservation
+    previous_route_completion: float
+    collected: int = 0
+    episode_cycle: int = 0
+    training: list[TensorDictBase] = field(default_factory=list)
+    audit: list[TensorDictBase] = field(default_factory=list)
+    episodes: list[RolloutEpisode] = field(default_factory=list)
+
+    def reset(self, result: VectorEnvReset) -> None:
+        self.observation = result.observation
+        self.previous_route_completion = result.route_completion
+        self.episode_cycle = 0
+
+
 class VectorRolloutCollector:
     """Own a fixed MetaDrive worker pool across one or more PPO collections."""
 
@@ -247,324 +273,133 @@ class VectorRolloutCollector:
     ) -> tuple[tuple[RolloutEpisode, ...], ...]:
         """Collect one PPO batch while retaining workers for a subsequent call."""
 
-        specs = self._specs
-        runtime = self._runtime
-        envs = self._envs
-        slot_count = len(specs)
         if type(transitions_per_slot) is not int or transitions_per_slot <= 0:
             raise ValueError("transitions_per_slot must be a positive integer")
         _validate_vector_slots(
-            slot_count,
+            len(self._specs),
             diffusion_generators,
             policy_generators,
             noise_seeds,
             policy_action_seeds,
         )
-        if self._physical_slot_count < slot_count:
-            return self._collect_waves(
-                transitions_per_slot=transitions_per_slot,
-                stopped_speed_threshold_mps=stopped_speed_threshold_mps,
-                diffusion_generators=diffusion_generators,
-                policy_generators=policy_generators,
-                noise_seeds=noise_seeds,
-                policy_action_seeds=policy_action_seeds,
-                timings=timings,
-            )
-        scenarios = self._scenarios
-        episodes: list[list[RolloutEpisode]] = [[] for _ in specs]
-        training: list[list[TensorDictBase]] = [[] for _ in specs]
-        audit: list[list[TensorDictBase]] = [[] for _ in specs]
-        collected = [0] * slot_count
-        episode_cycles = [0] * slot_count
-
-        resets = envs.reset(scenarios)
-        observations = [reset.observation for reset in resets]
-        previous_route_completion = [reset.route_completion for reset in resets]
-        while collected[0] < transitions_per_slot:
-            if any(count != collected[0] for count in collected):
-                raise RuntimeError("fixed-slot vector rollout consumed unequal transition counts")
-            profile = timings is not None
-            planner_started = perf_counter() if profile else 0.0
-            decision = runtime.decide_batch(
-                collate_observations(observations), diffusion_generators, policy_generators
-            )
-            for slot, transitions in enumerate(training):
-                if transitions:
-                    set_training_transition_next_state_value(
-                        transitions[-1], decision.slot(slot).training_decision["state_value"]
-                    )
-            planner_s = perf_counter() - planner_started if profile else 0.0
-            environment_started = perf_counter() if profile else 0.0
-            steps = envs.step(decision.ego_trajectories)
-            environment_s = perf_counter() - environment_started if profile else 0.0
-            if timings is not None:
-                worker_busy = tuple(
-                    step.timing.environment_s + step.timing.observation_s for step in steps
-                )
-                slowest = max(worker_busy)
-                timings.append(
-                    VectorRolloutRoundTiming(
-                        phase="decision",
-                        active_slots=len(steps),
-                        capacity=slot_count,
-                        planner_wall_s=planner_s,
-                        environment_wall_s=environment_s,
-                        worker_busy_s=sum(worker_busy),
-                        transport_sync_s=max(0.0, environment_s - slowest),
-                        worker_imbalance_s=sum(slowest - value for value in worker_busy),
-                    )
-                )
-            tails: list[tuple[int, Literal["terminated", "truncated", "rollout_limit"]]] = []
-            for slot, step in enumerate(steps):
-                slot_decision = decision.slot(slot)
-                execution = step.execution
-                if execution.substep_states.shape[0] != 1:
-                    raise RuntimeError("rollout transition must execute exactly one substep")
-                reward = float(execution.substep_rewards.sum())
-                training[slot].append(
-                    build_training_transition(
-                        slot_decision.training_decision,
-                        reward=reward,
-                        terminated=step.terminated,
-                        truncated=step.truncated,
-                    )
-                )
-                audit_result = slot_decision.audit_result()
-                audit[slot].append(
-                    build_rollout_audit(
-                        policy_context=audit_result.policy_context,
-                        base_action=audit_result.base_action,
-                        guidance_action=audit_result.guidance_action,
-                        old_joint_guidance_log_prob=audit_result.old_joint_guidance_log_prob,
-                        state_value=audit_result.old_value,
-                        beta_alpha=audit_result.beta_alpha,
-                        beta_beta=audit_result.beta_beta,
-                        initial_noise=audit_result.initial_noise,
-                        diffusion_rng_state=audit_result.diffusion_rng_state,
-                        policy_rng_state=audit_result.policy_rng_state,
-                        reward=reward,
-                        dense_reward=float(execution.substep_dense_rewards.sum()),
-                        terminal_override=float(
-                            (execution.substep_rewards - execution.substep_dense_rewards).sum()
-                        ),
-                        terminated=step.terminated,
-                        truncated=step.truncated,
-                        map_seed=specs[slot].seed,
-                        noise_seed=noise_seeds[slot],
-                        policy_action_seed=policy_action_seeds[slot],
-                        planning_cycle_index=episode_cycles[slot],
-                        **_transition_audit(
-                            execution,
-                            previous_route_completion[slot],
-                            stopped_speed_threshold_mps,
-                        ),
-                    )
-                )
-                collected[slot] += 1
-                episode_cycles[slot] += 1
-                previous_route_completion[slot] = execution.route_completion
-                if step.terminated:
-                    tails.append((slot, "terminated"))
-                elif step.truncated:
-                    tails.append((slot, "truncated"))
-                elif collected[slot] == transitions_per_slot:
-                    tails.append((slot, "rollout_limit"))
-
-            bootstrap_slots = [slot for slot, kind in tails if kind != "terminated"]
-            bootstrap_values: dict[int, torch.Tensor] = {}
-            if bootstrap_slots:
-                bootstrap_started = perf_counter() if timings is not None else 0.0
-                values = runtime.bootstrap_value_batch(
-                    collate_observations([steps[slot].observation for slot in bootstrap_slots]),
-                    tuple(diffusion_generators[slot] for slot in bootstrap_slots),
-                )
-                if timings is not None:
-                    timings.append(
-                        VectorRolloutRoundTiming(
-                            phase="bootstrap",
-                            active_slots=len(bootstrap_slots),
-                            capacity=slot_count,
-                            planner_wall_s=perf_counter() - bootstrap_started,
-                            environment_wall_s=0.0,
-                            worker_busy_s=0.0,
-                            transport_sync_s=0.0,
-                            worker_imbalance_s=0.0,
-                        )
-                    )
-                for index, slot in enumerate(bootstrap_slots):
-                    bootstrap_values[slot] = values[index : index + 1]
-            for slot, kind in tails:
-                episodes[slot].append(
-                    finalize_rollout_episode(
-                        training[slot],
-                        audit[slot],
-                        kind,
-                        torch.zeros(1) if kind == "terminated" else bootstrap_values[slot],
-                    )
-                )
-                training[slot] = []
-                audit[slot] = []
-                if collected[slot] < transitions_per_slot:
-                    reset = envs.reset_at(slot, scenarios[slot])
-                    observations[slot] = reset.observation
-                    previous_route_completion[slot] = reset.route_completion
-                    episode_cycles[slot] = 0
-            for slot, step in enumerate(steps):
-                if collected[slot] < transitions_per_slot and not any(
-                    tail_slot == slot for tail_slot, _ in tails
-                ):
-                    observations[slot] = step.observation
-
-        if any(training) or any(audit):
-            raise RuntimeError("vector rollout ended with an unfinished episode")
-        return tuple(tuple(slot_episodes) for slot_episodes in episodes)
-
-    def _collect_waves(
-        self,
-        *,
-        transitions_per_slot: int,
-        stopped_speed_threshold_mps: float,
-        diffusion_generators: tuple[torch.Generator, ...],
-        policy_generators: tuple[torch.Generator, ...],
-        noise_seeds: tuple[int, ...],
-        policy_action_seeds: tuple[int, ...],
-        timings: list[VectorRolloutRoundTiming] | None,
-    ) -> tuple[tuple[RolloutEpisode, ...], ...]:
-        """Collect logical scenario slots in deterministic physical-worker waves."""
-
         collected: list[tuple[RolloutEpisode, ...]] = []
         for start in range(0, len(self._specs), self._physical_slot_count):
             stop = min(start + self._physical_slot_count, len(self._specs))
+            states = self._initialize_group(
+                self._specs[start:stop],
+                self._scenarios[start:stop],
+                diffusion_generators[start:stop],
+                policy_generators[start:stop],
+                noise_seeds[start:stop],
+                policy_action_seeds[start:stop],
+            )
             collected.extend(
-                self._collect_wave(
-                    self._specs[start:stop],
-                    self._scenarios[start:stop],
+                self._collect_group(
+                    states,
                     transitions_per_slot=transitions_per_slot,
                     stopped_speed_threshold_mps=stopped_speed_threshold_mps,
-                    diffusion_generators=diffusion_generators[start:stop],
-                    policy_generators=policy_generators[start:stop],
-                    noise_seeds=noise_seeds[start:stop],
-                    policy_action_seeds=policy_action_seeds[start:stop],
                     timings=timings,
                 )
             )
         return tuple(collected)
 
-    def _collect_wave(
+    def _initialize_group(
         self,
         specs: tuple[ScenarioConfig, ...],
         scenarios: tuple[VectorEnvScenario, ...],
-        *,
-        transitions_per_slot: int,
-        stopped_speed_threshold_mps: float,
         diffusion_generators: tuple[torch.Generator, ...],
         policy_generators: tuple[torch.Generator, ...],
         noise_seeds: tuple[int, ...],
         policy_action_seeds: tuple[int, ...],
+    ) -> list[_SlotCollectionState]:
+        if len(specs) == self._physical_slot_count:
+            resets = self._envs.reset(scenarios)
+        else:
+            resets = tuple(
+                self._envs.reset_at(slot, scenario) for slot, scenario in enumerate(scenarios)
+            )
+        return [
+            _SlotCollectionState(
+                spec=spec,
+                scenario=scenario,
+                diffusion_generator=diffusion_generator,
+                policy_generator=policy_generator,
+                noise_seed=noise_seed,
+                policy_action_seed=policy_action_seed,
+                observation=reset.observation,
+                previous_route_completion=reset.route_completion,
+            )
+            for (
+                spec,
+                scenario,
+                diffusion_generator,
+                policy_generator,
+                noise_seed,
+                policy_action_seed,
+                reset,
+            ) in zip(
+                specs,
+                scenarios,
+                diffusion_generators,
+                policy_generators,
+                noise_seeds,
+                policy_action_seeds,
+                resets,
+                strict=True,
+            )
+        ]
+
+    def _collect_group(
+        self,
+        states: list[_SlotCollectionState],
+        *,
+        transitions_per_slot: int,
+        stopped_speed_threshold_mps: float,
         timings: list[VectorRolloutRoundTiming] | None,
     ) -> tuple[tuple[RolloutEpisode, ...], ...]:
-        """Collect one wave without changing logical scenario RNG ownership."""
-
-        active_slots = tuple(range(len(specs)))
-        envs = self._envs
-        resets = tuple(envs.reset_at(slot, scenario) for slot, scenario in enumerate(scenarios))
-        observations = [reset.observation for reset in resets]
-        previous_route_completion = [reset.route_completion for reset in resets]
-        episodes: list[list[RolloutEpisode]] = [[] for _ in specs]
-        training: list[list[TensorDictBase]] = [[] for _ in specs]
-        audit: list[list[TensorDictBase]] = [[] for _ in specs]
-        collected = [0] * len(specs)
-        episode_cycles = [0] * len(specs)
-
-        while collected[0] < transitions_per_slot:
-            if any(count != collected[0] for count in collected):
-                raise RuntimeError("wave rollout consumed unequal transition counts")
+        active_slots = tuple(range(len(states)))
+        full_capacity = len(states) == self._physical_slot_count
+        while states[0].collected < transitions_per_slot:
+            if any(state.collected != states[0].collected for state in states):
+                raise RuntimeError("vector rollout consumed unequal transition counts")
             profile = timings is not None
             planner_started = perf_counter() if profile else 0.0
             decision = self._runtime.decide_batch(
-                collate_observations(observations), diffusion_generators, policy_generators
+                collate_observations([state.observation for state in states]),
+                tuple(state.diffusion_generator for state in states),
+                tuple(state.policy_generator for state in states),
             )
-            for slot, transitions in enumerate(training):
-                if transitions:
+            for slot, state in enumerate(states):
+                if state.training:
                     set_training_transition_next_state_value(
-                        transitions[-1], decision.slot(slot).training_decision["state_value"]
+                        state.training[-1], decision.slot(slot).training_decision["state_value"]
                     )
             planner_s = perf_counter() - planner_started if profile else 0.0
             environment_started = perf_counter() if profile else 0.0
-            steps = envs.step_slots(active_slots, decision.ego_trajectories)
+            if full_capacity:
+                steps = self._envs.step(decision.ego_trajectories)
+            else:
+                steps = self._envs.step_slots(active_slots, decision.ego_trajectories)
             environment_s = perf_counter() - environment_started if profile else 0.0
-            if timings is not None:
-                worker_busy = tuple(
-                    step.timing.environment_s + step.timing.observation_s for step in steps
+            _append_decision_timing(
+                timings,
+                steps,
+                capacity=self._physical_slot_count,
+                planner_s=planner_s,
+                environment_s=environment_s,
+            )
+
+            tails: list[tuple[int, TailKind]] = []
+            for slot, (state, step) in enumerate(zip(states, steps, strict=True)):
+                tail = _append_slot_transition(
+                    state,
+                    decision.slot(slot),
+                    step,
+                    transitions_per_slot=transitions_per_slot,
+                    stopped_speed_threshold_mps=stopped_speed_threshold_mps,
                 )
-                slowest = max(worker_busy)
-                timings.append(
-                    VectorRolloutRoundTiming(
-                        phase="decision",
-                        active_slots=len(steps),
-                        capacity=self._physical_slot_count,
-                        planner_wall_s=planner_s,
-                        environment_wall_s=environment_s,
-                        worker_busy_s=sum(worker_busy),
-                        transport_sync_s=max(0.0, environment_s - slowest),
-                        worker_imbalance_s=sum(slowest - value for value in worker_busy),
-                    )
-                )
-            tails: list[tuple[int, Literal["terminated", "truncated", "rollout_limit"]]] = []
-            for slot, step in enumerate(steps):
-                execution = step.execution
-                if execution.substep_states.shape[0] != 1:
-                    raise RuntimeError("rollout transition must execute exactly one substep")
-                slot_decision = decision.slot(slot)
-                reward = float(execution.substep_rewards.sum())
-                training[slot].append(
-                    build_training_transition(
-                        slot_decision.training_decision,
-                        reward=reward,
-                        terminated=step.terminated,
-                        truncated=step.truncated,
-                    )
-                )
-                audit_result = slot_decision.audit_result()
-                audit[slot].append(
-                    build_rollout_audit(
-                        policy_context=audit_result.policy_context,
-                        base_action=audit_result.base_action,
-                        guidance_action=audit_result.guidance_action,
-                        old_joint_guidance_log_prob=audit_result.old_joint_guidance_log_prob,
-                        state_value=audit_result.old_value,
-                        beta_alpha=audit_result.beta_alpha,
-                        beta_beta=audit_result.beta_beta,
-                        initial_noise=audit_result.initial_noise,
-                        diffusion_rng_state=audit_result.diffusion_rng_state,
-                        policy_rng_state=audit_result.policy_rng_state,
-                        reward=reward,
-                        dense_reward=float(execution.substep_dense_rewards.sum()),
-                        terminal_override=float(
-                            (execution.substep_rewards - execution.substep_dense_rewards).sum()
-                        ),
-                        terminated=step.terminated,
-                        truncated=step.truncated,
-                        map_seed=specs[slot].seed,
-                        noise_seed=noise_seeds[slot],
-                        policy_action_seed=policy_action_seeds[slot],
-                        planning_cycle_index=episode_cycles[slot],
-                        **_transition_audit(
-                            execution,
-                            previous_route_completion[slot],
-                            stopped_speed_threshold_mps,
-                        ),
-                    )
-                )
-                collected[slot] += 1
-                episode_cycles[slot] += 1
-                previous_route_completion[slot] = execution.route_completion
-                if step.terminated:
-                    tails.append((slot, "terminated"))
-                elif step.truncated:
-                    tails.append((slot, "truncated"))
-                elif collected[slot] == transitions_per_slot:
-                    tails.append((slot, "rollout_limit"))
+                if tail is not None:
+                    tails.append((slot, tail))
 
             bootstrap_slots = [slot for slot, kind in tails if kind != "terminated"]
             bootstrap_values: dict[int, torch.Tensor] = {}
@@ -572,48 +407,151 @@ class VectorRolloutCollector:
                 bootstrap_started = perf_counter() if timings is not None else 0.0
                 values = self._runtime.bootstrap_value_batch(
                     collate_observations([steps[slot].observation for slot in bootstrap_slots]),
-                    tuple(diffusion_generators[slot] for slot in bootstrap_slots),
+                    tuple(states[slot].diffusion_generator for slot in bootstrap_slots),
                 )
-                if timings is not None:
-                    timings.append(
-                        VectorRolloutRoundTiming(
-                            phase="bootstrap",
-                            active_slots=len(bootstrap_slots),
-                            capacity=self._physical_slot_count,
-                            planner_wall_s=perf_counter() - bootstrap_started,
-                            environment_wall_s=0.0,
-                            worker_busy_s=0.0,
-                            transport_sync_s=0.0,
-                            worker_imbalance_s=0.0,
-                        )
-                    )
+                _append_bootstrap_timing(
+                    timings,
+                    active_slots=len(bootstrap_slots),
+                    capacity=self._physical_slot_count,
+                    planner_s=(perf_counter() - bootstrap_started if timings is not None else 0.0),
+                )
                 for index, slot in enumerate(bootstrap_slots):
                     bootstrap_values[slot] = values[index : index + 1]
+
+            tail_slots = {slot for slot, _ in tails}
             for slot, kind in tails:
-                episodes[slot].append(
+                state = states[slot]
+                state.episodes.append(
                     finalize_rollout_episode(
-                        training[slot],
-                        audit[slot],
+                        state.training,
+                        state.audit,
                         kind,
-                        torch.zeros(1) if kind == "terminated" else bootstrap_values[slot],
+                        (torch.zeros(1) if kind == "terminated" else bootstrap_values[slot]),
                     )
                 )
-                training[slot] = []
-                audit[slot] = []
-                if collected[slot] < transitions_per_slot:
-                    reset = envs.reset_at(slot, scenarios[slot])
-                    observations[slot] = reset.observation
-                    previous_route_completion[slot] = reset.route_completion
-                    episode_cycles[slot] = 0
-            for slot, step in enumerate(steps):
-                if collected[slot] < transitions_per_slot and not any(
-                    tail_slot == slot for tail_slot, _ in tails
-                ):
-                    observations[slot] = step.observation
+                state.training = []
+                state.audit = []
+                if state.collected < transitions_per_slot:
+                    state.reset(self._envs.reset_at(slot, state.scenario))
+            for slot, (state, step) in enumerate(zip(states, steps, strict=True)):
+                if state.collected < transitions_per_slot and slot not in tail_slots:
+                    state.observation = step.observation
 
-        if any(training) or any(audit):
-            raise RuntimeError("wave rollout ended with an unfinished episode")
-        return tuple(tuple(slot_episodes) for slot_episodes in episodes)
+        if any(state.training or state.audit for state in states):
+            raise RuntimeError("vector rollout ended with an unfinished episode")
+        return tuple(tuple(state.episodes) for state in states)
+
+
+def _append_slot_transition(
+    state: _SlotCollectionState,
+    decision: RolloutDecision,
+    step: VectorEnvStep,
+    *,
+    transitions_per_slot: int,
+    stopped_speed_threshold_mps: float,
+) -> TailKind | None:
+    execution = step.execution
+    if execution.substep_states.shape[0] != 1:
+        raise RuntimeError("rollout transition must execute exactly one substep")
+    reward = float(execution.substep_rewards.sum())
+    state.training.append(
+        build_training_transition(
+            decision.training_decision,
+            reward=reward,
+            terminated=step.terminated,
+            truncated=step.truncated,
+        )
+    )
+    audit_result = decision.audit_result()
+    state.audit.append(
+        build_rollout_audit(
+            policy_context=audit_result.policy_context,
+            base_action=audit_result.base_action,
+            guidance_action=audit_result.guidance_action,
+            old_joint_guidance_log_prob=audit_result.old_joint_guidance_log_prob,
+            state_value=audit_result.old_value,
+            beta_alpha=audit_result.beta_alpha,
+            beta_beta=audit_result.beta_beta,
+            initial_noise=audit_result.initial_noise,
+            diffusion_rng_state=audit_result.diffusion_rng_state,
+            policy_rng_state=audit_result.policy_rng_state,
+            reward=reward,
+            dense_reward=float(execution.substep_dense_rewards.sum()),
+            terminal_override=float(
+                (execution.substep_rewards - execution.substep_dense_rewards).sum()
+            ),
+            terminated=step.terminated,
+            truncated=step.truncated,
+            map_seed=state.spec.seed,
+            noise_seed=state.noise_seed,
+            policy_action_seed=state.policy_action_seed,
+            planning_cycle_index=state.episode_cycle,
+            **_transition_audit(
+                execution,
+                state.previous_route_completion,
+                stopped_speed_threshold_mps,
+            ),
+        )
+    )
+    state.collected += 1
+    state.episode_cycle += 1
+    state.previous_route_completion = execution.route_completion
+    if step.terminated:
+        return "terminated"
+    if step.truncated:
+        return "truncated"
+    if state.collected == transitions_per_slot:
+        return "rollout_limit"
+    return None
+
+
+def _append_decision_timing(
+    timings: list[VectorRolloutRoundTiming] | None,
+    steps: tuple[VectorEnvStep, ...],
+    *,
+    capacity: int,
+    planner_s: float,
+    environment_s: float,
+) -> None:
+    if timings is None:
+        return
+    worker_busy = tuple(step.timing.environment_s + step.timing.observation_s for step in steps)
+    slowest = max(worker_busy)
+    timings.append(
+        VectorRolloutRoundTiming(
+            phase="decision",
+            active_slots=len(steps),
+            capacity=capacity,
+            planner_wall_s=planner_s,
+            environment_wall_s=environment_s,
+            worker_busy_s=sum(worker_busy),
+            transport_sync_s=max(0.0, environment_s - slowest),
+            worker_imbalance_s=sum(slowest - value for value in worker_busy),
+        )
+    )
+
+
+def _append_bootstrap_timing(
+    timings: list[VectorRolloutRoundTiming] | None,
+    *,
+    active_slots: int,
+    capacity: int,
+    planner_s: float,
+) -> None:
+    if timings is None:
+        return
+    timings.append(
+        VectorRolloutRoundTiming(
+            phase="bootstrap",
+            active_slots=active_slots,
+            capacity=capacity,
+            planner_wall_s=planner_s,
+            environment_wall_s=0.0,
+            worker_busy_s=0.0,
+            transport_sync_s=0.0,
+            worker_imbalance_s=0.0,
+        )
+    )
 
 
 def collect_vector_rollout_episodes(

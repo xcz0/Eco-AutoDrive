@@ -134,3 +134,29 @@ def test_rollout_bootstrap_batch_returns_one_value_per_slot(
     )
 
     assert value.shape == (batch,)
+
+
+@torch.no_grad()
+def test_rollout_batch_reuses_slot_and_audit_views(
+    official_model_config,
+    baseline_observation: dict[str, torch.Tensor],
+    exploration_policy_config,
+) -> None:
+    batch = 2
+    observation = {
+        name: value.repeat((batch,) + (1,) * (value.ndim - 1))
+        for name, value in baseline_observation.items()
+    }
+    runtime = _runtime(official_model_config, exploration_policy_config)
+    decision = runtime.decide_batch(
+        observation,
+        tuple(torch.Generator().manual_seed(10 + index) for index in range(batch)),
+        tuple(torch.Generator().manual_seed(20 + index) for index in range(batch)),
+    )
+
+    first = decision.slot(0)
+    first_audit = first.audit_result()
+
+    assert decision.slot(0) is first
+    assert first.audit_result() is first_audit
+    assert decision.slot(0).audit_result() is first_audit

@@ -75,7 +75,7 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
     if start_update == 0:
         save_exploration_policy_checkpoint(output_dir / "policy-initial.pt", runtime.policy)
 
-    rollout_collector = VectorRolloutCollector(
+    with VectorRolloutCollector(
         config.scenarios,
         runtime,
         config.env,
@@ -84,71 +84,76 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
         history_warmup_steps=0,
         physical_slot_count=config.resources.rollout_worker_count,
         torch_threads_per_worker=config.resources.torch_threads_per_worker,
-    )
-    for update_index in range(start_update, config.training.update_count):
-        update_episodes: list[RolloutEpisode] = []
-        update_contexts: list[ExplorationPolicyContext] = []
-        slot_episodes = rollout_collector.collect(
-            transitions_per_slot=config.training.transitions_per_environment,
-            stopped_speed_threshold_mps=config.training.stopped_speed_threshold_mps,
-            diffusion_generators=diffusion_generators,
-            policy_generators=policy_generators,
-            noise_seeds=noise_seeds,
-            policy_action_seeds=policy_seeds,
-        )
-        for slot, episodes in enumerate(slot_episodes):
-            for episode_index, episode in enumerate(episodes):
-                write_rollout_episode(
-                    output_dir
-                    / "updates"
-                    / f"update-{update_index:03d}"
-                    / f"slot-{slot}-episode-{episode_index}.npz",
-                    episode,
-                )
-                if episode_index == 0:
-                    item = episode.training[0]
-                    update_contexts.append(
-                        ExplorationPolicyContext(
-                            scene_tokens=item["scene_tokens"].unsqueeze(0),
-                            scene_padding_mask=item["scene_padding_mask"].unsqueeze(0),
-                            navigation_tokens=item["navigation_tokens"].unsqueeze(0),
-                            navigation_padding_mask=item["navigation_padding_mask"].unsqueeze(0),
-                            reference_trajectory=item["reference_trajectory"].unsqueeze(0),
-                        )
-                    )
-                update_episodes.append(episode)
-                total_transitions += episode.transition_count
-        if probe_contexts is None:
-            if len(update_contexts) != scenario_count:
-                raise RuntimeError("training did not capture one fixed probe context per scenario")
-            probe_contexts = tuple(update_contexts)
-            probe_before = _probe_policy(
-                runtime,
-                probe_contexts,
-                config.training.boundary_sample_count,
-                config.training.boundary_distance,
-                config.training.diagnostic_seed,
+    ) as rollout_collector:
+        for update_index in range(start_update, config.training.update_count):
+            update_episodes: list[RolloutEpisode] = []
+            update_contexts: list[ExplorationPolicyContext] = []
+            slot_episodes = rollout_collector.collect(
+                transitions_per_slot=config.training.transitions_per_environment,
+                stopped_speed_threshold_mps=config.training.stopped_speed_threshold_mps,
+                diffusion_generators=diffusion_generators,
+                policy_generators=policy_generators,
+                noise_seeds=noise_seeds,
+                policy_action_seeds=policy_seeds,
             )
-        report = updater.update(tuple(update_episodes))
-        update_summaries.append(build_update_summary(update_index, tuple(update_episodes), report))
-        save_exploration_policy_checkpoint(
-            output_dir / f"policy-update-{update_index:03d}.pt", runtime.policy
-        )
-        save_training_checkpoint(
-            output_dir / "training-state.ckpt",
-            runtime.fabric,
-            runtime.policy,
-            updater,
-            _loop_state(
-                update_index + 1,
-                total_transitions,
-                update_summaries,
-                probe_before,
-                probe_contexts,
-                initial_policy_hash,
-            ),
-        )
-    rollout_collector.close()
+            for slot, episodes in enumerate(slot_episodes):
+                for episode_index, episode in enumerate(episodes):
+                    write_rollout_episode(
+                        output_dir
+                        / "updates"
+                        / f"update-{update_index:03d}"
+                        / f"slot-{slot}-episode-{episode_index}.npz",
+                        episode,
+                    )
+                    if episode_index == 0:
+                        item = episode.training[0]
+                        update_contexts.append(
+                            ExplorationPolicyContext(
+                                scene_tokens=item["scene_tokens"].unsqueeze(0),
+                                scene_padding_mask=item["scene_padding_mask"].unsqueeze(0),
+                                navigation_tokens=item["navigation_tokens"].unsqueeze(0),
+                                navigation_padding_mask=item["navigation_padding_mask"].unsqueeze(
+                                    0
+                                ),
+                                reference_trajectory=item["reference_trajectory"].unsqueeze(0),
+                            )
+                        )
+                    update_episodes.append(episode)
+                    total_transitions += episode.transition_count
+            if probe_contexts is None:
+                if len(update_contexts) != scenario_count:
+                    raise RuntimeError(
+                        "training did not capture one fixed probe context per scenario"
+                    )
+                probe_contexts = tuple(update_contexts)
+                probe_before = _probe_policy(
+                    runtime,
+                    probe_contexts,
+                    config.training.boundary_sample_count,
+                    config.training.boundary_distance,
+                    config.training.diagnostic_seed,
+                )
+            report = updater.update(tuple(update_episodes))
+            update_summaries.append(
+                build_update_summary(update_index, tuple(update_episodes), report)
+            )
+            save_exploration_policy_checkpoint(
+                output_dir / f"policy-update-{update_index:03d}.pt", runtime.policy
+            )
+            save_training_checkpoint(
+                output_dir / "training-state.ckpt",
+                runtime.fabric,
+                runtime.policy,
+                updater,
+                _loop_state(
+                    update_index + 1,
+                    total_transitions,
+                    update_summaries,
+                    probe_before,
+                    probe_contexts,
+                    initial_policy_hash,
+                ),
+            )
 
     if probe_contexts is None or probe_before is None:
         raise RuntimeError("training did not capture fixed probe contexts")
