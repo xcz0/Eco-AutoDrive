@@ -280,6 +280,7 @@ class PPOUpdater:
             final_learning_rate=float(self.optimizer.param_groups[0]["lr"]),
         )
 
+
 def _build_torchrl_policy_adapters(
     policy: ExplorationPolicy,
 ) -> tuple[ProbabilisticTensorDictSequential, TensorDictModule]:

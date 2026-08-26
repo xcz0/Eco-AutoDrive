@@ -122,4 +122,3 @@ def _stationary_trajectory() -> np.ndarray:
     trajectory = np.zeros((80, 4), dtype=np.float32)
     trajectory[:, 2] = 1.0
     return trajectory
-

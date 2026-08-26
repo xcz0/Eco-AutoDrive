@@ -238,12 +238,11 @@ def parse_training_config(config: DictConfig) -> RLTrainingJobConfig:
 def _validate_rollout_environment(
     env: dict[str, Any], history_warmup_steps: int, transition_count: int
 ) -> None:
-    if env.get("trajectory_execution_steps") != 1:
-        raise ValueError("rollout requires env.trajectory_execution_steps=1")
-    if env.get("trajectory_horizon") != 80:
-        raise ValueError("rollout requires env.trajectory_horizon=80")
-    if env.get("decision_repeat") != 5:
-        raise ValueError("rollout requires env.decision_repeat=5")
+    mode = env.get("execution_mode")
+    if mode is not None and mode != "rollout":
+        raise ValueError("rollout requires env.execution_mode=rollout")
+    if mode is None and env.get("trajectory_execution_steps") != 1:
+        raise ValueError("rollout requires env.execution_mode=rollout")
     horizon = env.get("horizon")
     required_horizon = history_warmup_steps + transition_count
     if type(horizon) is not int or horizon < required_horizon:

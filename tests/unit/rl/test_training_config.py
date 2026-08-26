@@ -52,7 +52,7 @@ def test_training_reward_coefficients_remain_sweepable_and_match_metadrive_env()
     ("path", "value", "message"),
     [
         ("training.transitions_per_environment", 0, "greater than 0"),
-        ("env.trajectory_execution_steps", 5, "trajectory_execution_steps"),
+        ("env.execution_mode", "evaluation", "execution_mode"),
         ("rl.batch_size", 16, "must equal all closed-loop"),
         ("rl.scheduler_total_optimizer_steps", 8, "cover every configured"),
     ],

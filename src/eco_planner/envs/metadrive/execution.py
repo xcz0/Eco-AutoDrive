@@ -5,10 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import gymnasium as gym
 import numpy as np
-from metadrive.policy.base_policy import BasePolicy
-from metadrive.policy.replay_policy import ReplayTrafficParticipantPolicy
 
 from eco_planner.envs.array_types import (
     ExecutionBooleanArray,
@@ -22,12 +19,13 @@ from eco_planner.envs.array_types import (
     WorldVectorArray,
     WorldVelocityArray,
 )
+from eco_planner.envs.contracts import ExecutionMode
+from eco_planner.envs.domain.traffic import TrafficFrame
 from eco_planner.envs.geometry import (
     local_points_to_world,
     rear_axle_position,
     shortest_angle_delta,
 )
-from eco_planner.envs.traffic_state import TrafficFrame
 from eco_planner.execution_contracts import (
     EVALUATION_EXECUTION_STEPS,
     PLANNER_FUTURE_STEPS,
@@ -217,88 +215,21 @@ def metadrive_fuel_proxy_step_energy_ml(
     return energy_ml
 
 
-class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
-    """Execute an ego-local rear-axle trajectory by directly updating vehicle state."""
-
-    def __init__(self, obj: Any, seed: int) -> None:
-        # ReplayTrafficParticipantPolicy marks this policy for MetaDrive's after_step phase. That
-        # phase runs after physics integration but before BaseEnv samples observation, reward, and
-        # termination, so the externally recorded state is the requested trajectory waypoint.
-        BasePolicy.__init__(self, control_object=obj, random_seed=seed)
-        self._execution_steps = execution_steps_from_config(self.engine.global_config)
-        self._trajectory: WorldTrajectory | None = None
-        self._cache_last_update: int | None = None
-
-    @classmethod
-    def get_input_space(cls) -> gym.spaces.Box:
-        return gym.spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            shape=(TRAJECTORY_HORIZON, 4),
-            dtype=np.float32,
-        )
-
-    def reset(self) -> None:
-        self._trajectory = None
-        self._cache_last_update = None
-        super().reset()
-
-    def act(self, agent_id: str) -> None:
-        external_actions = self.engine.external_actions
-        if external_actions is None:
-            if self._trajectory is None:
-                return None
-            raise RuntimeError(
-                "trajectory cache survived MetaDrive reset without an external action"
-            )
-        if agent_id not in external_actions:
-            raise RuntimeError(f"MetaDrive did not provide an external action for {agent_id!r}")
-        external_action = external_actions[agent_id]
-        if external_action is not None:
-            if self._trajectory is not None:
-                raise RuntimeError(
-                    "a new trajectory was supplied before the cached prefix finished"
-                )
-            self._trajectory = external_action
-            self._cache_last_update = self.engine.episode_step
-        elif self._trajectory is None or self._cache_last_update is None:
-            if self.engine.episode_step == 0:
-                return None
-            raise RuntimeError("trajectory continuation requested without a cached trajectory")
-
-        if self._trajectory is None or self._cache_last_update is None:
-            raise RuntimeError("trajectory cache was not initialized")
-        index = self.engine.episode_step - self._cache_last_update
-        if index < 0 or index >= self._execution_steps:
-            raise RuntimeError(
-                f"trajectory cache index {index} is outside execution prefix "
-                f"[0, {self._execution_steps})"
-            )
-
-        trajectory = self._trajectory
-        self.control_object.set_position(trajectory.centers[index + 1])
-        self.control_object.set_heading_theta(float(trajectory.headings[index + 1]))
-        self.control_object.set_velocity(trajectory.velocities[index])
-        self.control_object.set_angular_velocity(float(trajectory.angular_velocities[index]))
-        self.action_info["trajectory_index"] = index
-        self.action_info["trajectory_target_position"] = trajectory.centers[index + 1].copy()
-        self.action_info["trajectory_target_heading"] = float(trajectory.headings[index + 1])
-
-        if index == self._execution_steps - 1:
-            self._trajectory = None
-            self._cache_last_update = None
-        return None
-
-
 def execution_steps_from_config(config: Any) -> int:
+    """Normalize the external execution-mode boundary to a fixed project contract."""
+
+    mode_value = config.get("execution_mode")
+    if mode_value is not None:
+        try:
+            return ExecutionMode(mode_value).steps
+        except ValueError as error:
+            raise ValueError("execution_mode must be 'rollout' or 'evaluation'") from error
+    # Existing serialized experiment configs retain these keys. They are a compatibility input
+    # boundary only; all downstream code receives the fixed mode-derived step count.
     horizon = _require_positive_int(config, "trajectory_horizon")
     execution_steps = _require_positive_int(config, "trajectory_execution_steps")
-    if horizon != TRAJECTORY_HORIZON:
-        raise ValueError(f"trajectory_horizon must be {TRAJECTORY_HORIZON}")
-    if execution_steps not in _ALLOWED_EXECUTION_STEPS:
-        raise ValueError(
-            f"trajectory_execution_steps must be one of {sorted(_ALLOWED_EXECUTION_STEPS)}"
-        )
+    if horizon != TRAJECTORY_HORIZON or execution_steps not in _ALLOWED_EXECUTION_STEPS:
+        raise ValueError("legacy trajectory configuration does not match the fixed project ABI")
     _validated_timestep(config)
     return execution_steps
 

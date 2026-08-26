@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from eco_planner.envs.execution import KinematicTrajectoryPolicy
+from eco_planner.envs.metadrive.policy import KinematicTrajectoryPolicy
 
 
 def test_reset_step_with_empty_external_action_does_not_require_a_cached_trajectory(

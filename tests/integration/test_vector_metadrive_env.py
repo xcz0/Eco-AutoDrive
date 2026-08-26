@@ -11,7 +11,7 @@ from eco_planner.envs import (
     VectorEnvScenario,
     VectorMetaDriveEnv,
 )
-from eco_planner.envs.observation_adapter import (
+from eco_planner.envs.metadrive.observation import (
     MetaDriveObservationAdapter,
 )
 from eco_planner.models.config import OfficialDiffusionPlannerConfig

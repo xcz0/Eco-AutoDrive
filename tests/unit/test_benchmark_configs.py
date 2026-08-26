@@ -13,6 +13,7 @@ from benchmarking.common import (
 from hydra import compose, initialize_config_dir
 from pydantic import ValidationError
 
+from eco_planner.envs.contracts import ExecutionMode
 from eco_planner.evaluation.config import parse_evaluation_config
 from eco_planner.rl.config import parse_training_config
 
@@ -39,9 +40,9 @@ def test_throughput_benchmark_config_preserves_strict_evaluation_job() -> None:
     assert benchmark.kind == "throughput"
     parsed = parse_evaluation_config(job)
     assert parsed.evaluation.profile == "throughput"
-    required_steps = (benchmark.warmup_cycles + benchmark.measured_cycles) * int(
-        parsed.env["trajectory_execution_steps"]
-    )
+    required_steps = (
+        benchmark.warmup_cycles + benchmark.measured_cycles
+    ) * ExecutionMode.EVALUATION.steps
     assert parsed.env["horizon"] >= required_steps
     assert int(parsed.env["start_seed"]) == 0
     assert int(parsed.env["num_scenarios"]) >= max(benchmark.worker_counts)
@@ -52,7 +53,7 @@ def test_traffic_throughput_default_horizon_covers_all_cycles() -> None:
     parsed = parse_evaluation_config(job)
     required_steps = parsed.evaluation.history_warmup_steps + (
         benchmark.warmup_cycles + benchmark.measured_cycles
-    ) * int(parsed.env["trajectory_execution_steps"])
+    ) * ExecutionMode.EVALUATION.steps
 
     assert parsed.env["horizon"] >= required_steps
 

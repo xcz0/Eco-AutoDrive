@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from eco_planner.envs.lane_speed import ProgrammaticLaneSpeedAdapter
+from eco_planner.envs.metadrive.lane_speed import ProgrammaticLaneSpeedAdapter
 
 
 class _Lane:

@@ -12,8 +12,8 @@ from eco_planner.envs import (
     TrajectoryMetaDriveEnv,
     collate_observations,
 )
-from eco_planner.envs.map_adapter import MetaDriveMapAdapter
-from eco_planner.envs.observation_adapter import (
+from eco_planner.envs.metadrive.map import MetaDriveMapAdapter
+from eco_planner.envs.metadrive.observation import (
     MetaDriveObservationAdapter,
     NoTrafficMetaDriveObservationAdapter,
 )

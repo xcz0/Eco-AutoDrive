@@ -16,7 +16,7 @@ from eco_planner.envs.array_types import (
     WorldVectorArray,
 )
 from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
-from eco_planner.envs.lane_speed import model_lane_speed_limit_mps
+from eco_planner.envs.metadrive.lane_speed import model_lane_speed_limit_mps
 from eco_planner.envs.observation import PlannerObservationSpec
 
 _LANE_FEATURE_DIM = 12

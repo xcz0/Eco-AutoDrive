@@ -3,15 +3,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from eco_planner.envs.execution import (
-    TRAJECTORY_HORIZON,
-    to_world_trajectory,
-)
+from eco_planner.envs.contracts import PLANNER_HORIZON
+from eco_planner.envs.domain.trajectory import to_world_trajectory
 
 
 def _straight_trajectory(speed_mps: float = 5.0) -> np.ndarray:
-    trajectory = np.zeros((TRAJECTORY_HORIZON, 4), dtype=np.float32)
-    trajectory[:, 0] = np.arange(1, TRAJECTORY_HORIZON + 1, dtype=np.float32) * (speed_mps * 0.1)
+    trajectory = np.zeros((PLANNER_HORIZON, 4), dtype=np.float32)
+    trajectory[:, 0] = np.arange(1, PLANNER_HORIZON + 1, dtype=np.float32) * (speed_mps * 0.1)
     trajectory[:, 2] = 1.0
     return trajectory
 

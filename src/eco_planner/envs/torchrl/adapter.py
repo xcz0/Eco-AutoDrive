@@ -11,9 +11,9 @@ from tensordict import TensorDict, TensorDictBase
 from torchrl.data import Binary, Composite, Unbounded
 from torchrl.envs import EnvBase
 
-from eco_planner.envs.execution import TrajectoryExecutionRecord
+from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
+from eco_planner.envs.metadrive.slot import EnvSlotReset, EnvSlotStep, MetaDriveEnvSlot
 from eco_planner.envs.observation import PlannerObservationSpec
-from eco_planner.envs.slot import EnvSlotReset, EnvSlotStep, MetaDriveEnvSlot
 from eco_planner.execution_contracts import PLANNER_FUTURE_STEPS
 
 _CPU_DEVICE = torch.device("cpu")
@@ -67,9 +67,7 @@ class TorchRLMetaDriveEnv(EnvBase):
         self._last_reset = reset
         self._last_warmup_executions = tuple(self._slot.warmup())
         self._last_environment_s = perf_counter() - environment_started
-        self._last_programmatic_lane_speed_limit_audit = (
-            reset.programmatic_lane_speed_limit_audit
-        )
+        self._last_programmatic_lane_speed_limit_audit = reset.programmatic_lane_speed_limit_audit
         observation_started = perf_counter()
         observation = self._slot.observe()
         self._last_observation_s = perf_counter() - observation_started

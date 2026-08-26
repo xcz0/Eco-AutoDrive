@@ -65,7 +65,7 @@ def test_rollout_profile_excludes_fixed_runtime_semantics() -> None:
         config = compose(config_name="jobs/training/rollout_smoke")
 
     parsed = parse_rollout_config(config)
-    assert parsed.env["trajectory_execution_steps"] == 1
+    assert parsed.env["execution_mode"] == "rollout"
     assert set(config.rollout) == {
         "mode",
         "max_transitions",

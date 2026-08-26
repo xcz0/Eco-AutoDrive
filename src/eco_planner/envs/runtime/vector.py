@@ -16,11 +16,11 @@ from torchrl.data import Composite, Unbounded
 from torchrl.envs import ParallelEnv
 
 from eco_planner.envs.array_types import SingleObservation
-from eco_planner.envs.execution import TrajectoryExecutionRecord
+from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
+from eco_planner.envs.metadrive.observation import TrafficObservationAudit
+from eco_planner.envs.metadrive.slot import MetaDriveEnvSlot, ObservationMode
 from eco_planner.envs.observation import PlannerObservationSpec
-from eco_planner.envs.observation_adapter import TrafficObservationAudit
-from eco_planner.envs.slot import MetaDriveEnvSlot, ObservationMode
-from eco_planner.envs.torchrl_env import TorchRLMetaDriveEnv
+from eco_planner.envs.torchrl.adapter import TorchRLMetaDriveEnv
 from eco_planner.execution_contracts import PLANNER_FUTURE_STEPS
 
 _OBSERVATION_KEYS = (
@@ -128,9 +128,9 @@ class _TorchRLScenarioMetaDriveEnv(TorchRLMetaDriveEnv):
         super().__init__(*args, **kwargs)
         self._scenarios = scenarios
         self._active_scenario_index = 0
-        self._operation_result: (
-            _WorkerResetResult | _WorkerStepResult | _WorkerFailure | None
-        ) = None
+        self._operation_result: _WorkerResetResult | _WorkerStepResult | _WorkerFailure | None = (
+            None
+        )
         self.state_spec = Composite(
             scenario_index=Unbounded(shape=(1,), dtype=torch.int64, device="cpu"),
             shape=(),
@@ -161,9 +161,7 @@ class _TorchRLScenarioMetaDriveEnv(TorchRLMetaDriveEnv):
                 initial_state=self.last_initial_state,
                 warmup_executions=self.last_warmup_executions,
                 traffic_audit=self.last_traffic_audit,
-                programmatic_lane_speed_limit_audit=(
-                    reset.programmatic_lane_speed_limit_audit
-                ),
+                programmatic_lane_speed_limit_audit=(reset.programmatic_lane_speed_limit_audit),
                 timing=VectorEnvTiming(
                     environment_s=self.last_environment_s,
                     observation_s=self.last_observation_s,
@@ -236,9 +234,7 @@ class VectorMetaDriveEnv:
         _validate_shared_environment_configuration(env_configs)
         self._num_envs = len(env_configs)
         self._scenarios = scenario_catalog
-        self._scenario_indices = {
-            scenario: index for index, scenario in enumerate(self._scenarios)
-        }
+        self._scenario_indices = {scenario: index for index, scenario in enumerate(self._scenarios)}
         self._active_scenario_indices = [0] * self._num_envs
         self._operation_lock = RLock()
         self._closed = False
@@ -306,9 +302,7 @@ class VectorMetaDriveEnv:
             raise ValueError("step_slots must not repeat a slot")
         for slot in slots_tuple:
             self._validate_slot(slot)
-        actions = torch.zeros(
-            (self.num_envs, PLANNER_FUTURE_STEPS, 4), dtype=torch.float32
-        )
+        actions = torch.zeros((self.num_envs, PLANNER_FUTURE_STEPS, 4), dtype=torch.float32)
         for slot, trajectory in zip(slots_tuple, trajectories, strict=True):
             array = np.asarray(trajectory)
             if array.shape != (PLANNER_FUTURE_STEPS, 4) or array.dtype != np.float32:
@@ -319,9 +313,7 @@ class VectorMetaDriveEnv:
         with self._operation_lock:
             output = self._call("step", lambda: self._env.step(input_td))["next"]
             domains = self._env.operation_result()
-            return tuple(
-                self._step_result(output, slot, domains[slot]) for slot in slots_tuple
-            )
+            return tuple(self._step_result(output, slot, domains[slot]) for slot in slots_tuple)
 
     def step_at(self, slot: int, trajectory: np.ndarray) -> VectorEnvStep:
         """Step one physical slot without advancing the others."""
@@ -375,15 +367,12 @@ class VectorMetaDriveEnv:
             output = self._call("reset", lambda: self._env.reset(input_td))
             domains = self._env.operation_result()
             results = tuple(
-                self._reset_result(output, slot, expected[slot], domains[slot])
-                for slot in slots
+                self._reset_result(output, slot, expected[slot], domains[slot]) for slot in slots
             )
             self._active_scenario_indices = indices
             return results
 
-    def _call(
-        self, operation: str, function: Callable[[], TensorDictBase]
-    ) -> TensorDictBase:
+    def _call(self, operation: str, function: Callable[[], TensorDictBase]) -> TensorDictBase:
         if self._closed:
             raise RuntimeError("VectorMetaDriveEnv is closed")
         try:
@@ -425,15 +414,11 @@ class VectorMetaDriveEnv:
             initial_state=domain.initial_state,
             warmup_executions=domain.warmup_executions,
             traffic_audit=domain.traffic_audit,
-            programmatic_lane_speed_limit_audit=(
-                domain.programmatic_lane_speed_limit_audit
-            ),
+            programmatic_lane_speed_limit_audit=(domain.programmatic_lane_speed_limit_audit),
             timing=domain.timing,
         )
 
-    def _step_result(
-        self, output: TensorDictBase, slot: int, domain: object
-    ) -> VectorEnvStep:
+    def _step_result(self, output: TensorDictBase, slot: int, domain: object) -> VectorEnvStep:
         self._raise_worker_failure(slot, domain)
         if not isinstance(domain, _WorkerStepResult):
             self.close()
@@ -542,6 +527,4 @@ def _validate_shared_environment_configuration(
     for config in env_configs[1:]:
         actual = {key: value for key, value in config.items() if key != "map"}
         if actual != expected:
-            raise ValueError(
-                "all vector workers must share one non-map environment configuration"
-            )
+            raise ValueError("all vector workers must share one non-map environment configuration")

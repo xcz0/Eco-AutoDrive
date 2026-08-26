@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from eco_planner.envs.execution import metadrive_fuel_proxy_step_energy_ml
+from eco_planner.envs.metadrive.execution import metadrive_fuel_proxy_step_energy_ml
 
 
 def test_metadrive_fuel_proxy_matches_upstream_formula() -> None:

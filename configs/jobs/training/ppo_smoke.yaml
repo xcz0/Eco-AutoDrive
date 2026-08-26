@@ -27,7 +27,7 @@ training:
   resume_checkpoint_path: null
 
 env:
-  trajectory_execution_steps: 1
+  execution_mode: rollout
   horizon: 16
   driving_reward: ${reward.driving_reward}
   speed_reward: ${reward.speed_reward}

@@ -26,13 +26,13 @@ from eco_planner.envs.array_types import (
     StaticObjectsArray,
     WorldVectorArray,
 )
-from eco_planner.envs.geometry import rear_axle_position, world_vectors_to_local
-from eco_planner.envs.map_adapter import MetaDriveMapAdapter
-from eco_planner.envs.observation import PlannerObservationSpec
-from eco_planner.envs.traffic_state import (
+from eco_planner.envs.domain.traffic import (
     StaticTrafficObjectState,
     TrafficFrame,
 )
+from eco_planner.envs.geometry import rear_axle_position, world_vectors_to_local
+from eco_planner.envs.metadrive.map import MetaDriveMapAdapter
+from eco_planner.envs.observation import PlannerObservationSpec
 
 _EGO_CURRENT_STATE: EgoStateArray = np.array(
     [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32

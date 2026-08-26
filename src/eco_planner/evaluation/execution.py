@@ -311,9 +311,7 @@ def run_vector_scenarios(
     slot_count = min(configured_slots, len(specs))
     initial_specs = specs[:slot_count]
     configured_envs = tuple({**config.env, "map": spec.map} for spec in initial_specs)
-    scenarios = tuple(
-        VectorEnvScenario(spec.name, spec.map, spec.seed) for spec in specs
-    )
+    scenarios = tuple(VectorEnvScenario(spec.name, spec.map, spec.seed) for spec in specs)
     with VectorMetaDriveEnv(
         configured_envs,
         mode=config.evaluation.mode,

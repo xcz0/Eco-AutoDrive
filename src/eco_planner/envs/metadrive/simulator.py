@@ -16,17 +16,22 @@ from eco_planner.envs.array_types import (
     TrajectoryArray,
     WorldVectorArray,
 )
-from eco_planner.envs.execution import (
+from eco_planner.envs.contracts import (
+    METADRIVE_DECISION_REPEAT,
+    METADRIVE_PHYSICS_STEP_S,
+    ExecutionMode,
+)
+from eco_planner.envs.domain.traffic import TrafficFrame
+from eco_planner.envs.domain.trajectory import WorldTrajectory, to_world_trajectory
+from eco_planner.envs.metadrive.execution import (
     TRAJECTORY_TIMESTEP_S,
-    KinematicTrajectoryPolicy,
     TrajectoryExecutionRecorder,
-    WorldTrajectory,
     execution_steps_from_config,
     finite_info_scalar,
-    to_world_trajectory,
 )
-from eco_planner.envs.lane_speed import ProgrammaticLaneSpeedAdapter
-from eco_planner.envs.traffic_state import TrafficFrame, capture_traffic_frame
+from eco_planner.envs.metadrive.lane_speed import ProgrammaticLaneSpeedAdapter
+from eco_planner.envs.metadrive.policy import KinematicTrajectoryPolicy
+from eco_planner.envs.metadrive.snapshot import capture_traffic_frame
 
 _PLANNER_ONLY_OBSERVATION: PlannerOnlyObservationArray = np.zeros(1, dtype=np.float32)
 _ZERO_VELOCITY: WorldVectorArray = np.zeros(2, dtype=np.float64)
@@ -51,8 +56,11 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         config = super().default_config()
         config.update(
             {
+                # Compatibility input keys for resolved experiments created before execution_mode.
+                # They are normalized at construction and are not used by the execution path.
                 "trajectory_horizon": None,
                 "trajectory_execution_steps": None,
+                "execution_mode": None,
                 "programmatic_lane_speed_limit_kmh": None,
                 "programmatic_lane_speed_limit_profile_kmh": None,
             },
@@ -64,10 +72,6 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         if config is None:
             raise ValueError("TrajectoryMetaDriveEnv requires an explicit configuration")
         required = {
-            "physics_world_step_size",
-            "decision_repeat",
-            "trajectory_horizon",
-            "trajectory_execution_steps",
             "programmatic_lane_speed_limit_kmh",
         }
         missing = sorted(required - set(config))
@@ -80,7 +84,15 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         supplied_policy = config.get("agent_policy")
         if supplied_policy is not None and supplied_policy is not KinematicTrajectoryPolicy:
             raise ValueError("agent_policy must be KinematicTrajectoryPolicy")
+        execution_steps = execution_steps_from_config(config)
         configured = dict(config)
+        configured["physics_world_step_size"] = METADRIVE_PHYSICS_STEP_S
+        configured["decision_repeat"] = METADRIVE_DECISION_REPEAT
+        configured["execution_mode"] = (
+            ExecutionMode.ROLLOUT.value
+            if execution_steps == ExecutionMode.ROLLOUT.steps
+            else ExecutionMode.EVALUATION.value
+        )
         configured["agent_policy"] = KinematicTrajectoryPolicy
         configured["agent_observation"] = _PlannerOnlyObservation
         super().__init__(configured)
@@ -88,7 +100,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             raise ValueError("TrajectoryMetaDriveEnv supports only single-agent operation")
         if self.config["manual_control"]:
             raise ValueError("TrajectoryMetaDriveEnv does not support manual control")
-        self._execution_steps = execution_steps_from_config(self.config)
+        self._execution_steps = execution_steps
         self._programmatic_lane_speed_adapter = ProgrammaticLaneSpeedAdapter(
             self.config["programmatic_lane_speed_limit_kmh"],
             self.config["programmatic_lane_speed_limit_profile_kmh"],

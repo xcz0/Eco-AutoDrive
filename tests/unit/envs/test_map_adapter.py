@@ -6,11 +6,11 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
-from eco_planner.envs.lane_speed import (
+from eco_planner.envs.metadrive.lane_speed import (
     ProgrammaticLaneSpeedAdapter,
     model_lane_speed_limit_mps,
 )
-from eco_planner.envs.map_adapter import MetaDriveMapAdapter
+from eco_planner.envs.metadrive.map import MetaDriveMapAdapter
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 

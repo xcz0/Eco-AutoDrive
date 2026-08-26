@@ -7,8 +7,8 @@ import pytest
 import torch
 
 from eco_planner.envs import MetaDriveEnvSlot, PlannerObservationSpec, TrajectoryExecutionRecord
-from eco_planner.envs import slot as slot_module
-from eco_planner.envs.traffic_state import TrafficFrame
+from eco_planner.envs.domain.traffic import TrafficFrame
+from eco_planner.envs.metadrive import slot as slot_module
 
 
 def _spec() -> PlannerObservationSpec:
@@ -167,7 +167,7 @@ class _FakeTrafficAdapter(_FakeNoTrafficAdapter):
         self.frames.extend(frames)
 
     def build(self, env: _FakeEnv):
-        from eco_planner.envs.observation_adapter import TrafficObservationAudit
+        from eco_planner.envs.metadrive.observation import TrafficObservationAudit
 
         return _observation(), TrafficObservationAudit((), len(self.frames) - 1, 0, None)
 

@@ -11,7 +11,7 @@ from eco_planner.envs import (
     EnvSlotStep,
     TrajectoryExecutionRecord,
 )
-from eco_planner.envs.traffic_state import TrafficFrame
+from eco_planner.envs.domain.traffic import TrafficFrame
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl import collector
 from eco_planner.rl.collector import (
@@ -133,6 +133,7 @@ def test_collector_aligns_one_substep_observations_actions_and_tail_bootstrap(
         assert trajectory.dtype == np.float32
         assert np.isfinite(trajectory).all()
         assert np.all(np.linalg.norm(trajectory[:, 2:4], axis=-1) > 0.0)
+
 
 def test_vector_collector_keeps_other_slot_rng_and_gae_boundaries_after_reset(monkeypatch) -> None:
     class FakeVectorEnv:

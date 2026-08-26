@@ -20,7 +20,7 @@ rollout:
   stopped_speed_threshold_mps: 0.1
 
 env:
-  trajectory_execution_steps: 1
+  execution_mode: rollout
   horizon: 4
 
 runtime:

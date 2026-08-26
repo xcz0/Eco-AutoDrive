@@ -16,8 +16,8 @@ from eco_planner.envs import (
     EnvSlotStep,
     TrajectoryExecutionRecord,
 )
-from eco_planner.envs.observation_adapter import TrafficObservationAudit
-from eco_planner.envs.traffic_state import TrafficFrame
+from eco_planner.envs.domain.traffic import TrafficFrame
+from eco_planner.envs.metadrive.observation import TrafficObservationAudit
 from eco_planner.evaluation import execution as serial
 from eco_planner.evaluation.runtime import (
     InferenceDecision,

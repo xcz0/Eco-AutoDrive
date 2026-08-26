@@ -9,14 +9,14 @@ from typing import Any, Literal
 import numpy as np
 
 from eco_planner.envs.array_types import SingleObservation, TrajectoryArray
-from eco_planner.envs.execution import TrajectoryExecutionRecord
-from eco_planner.envs.metadrive_env import TrajectoryMetaDriveEnv
-from eco_planner.envs.observation import PlannerObservationSpec
-from eco_planner.envs.observation_adapter import (
+from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
+from eco_planner.envs.metadrive.observation import (
     MetaDriveObservationAdapter,
     NoTrafficMetaDriveObservationAdapter,
     TrafficObservationAudit,
 )
+from eco_planner.envs.metadrive.simulator import TrajectoryMetaDriveEnv
+from eco_planner.envs.observation import PlannerObservationSpec
 from eco_planner.execution_contracts import PLANNER_FUTURE_STEPS
 
 ObservationMode = Literal["traffic", "no_traffic"]
@@ -183,9 +183,7 @@ class MetaDriveEnvSlot:
         self,
     ) -> MetaDriveObservationAdapter | NoTrafficMetaDriveObservationAdapter:
         if self._mode == "traffic":
-            return MetaDriveObservationAdapter(
-                self._observation_spec, self._map_query_radius_m
-            )
+            return MetaDriveObservationAdapter(self._observation_spec, self._map_query_radius_m)
         return NoTrafficMetaDriveObservationAdapter(
             self._observation_spec, self._map_query_radius_m
         )

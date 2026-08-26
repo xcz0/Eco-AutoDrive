@@ -74,8 +74,9 @@ def collect_rollout_episode(
         raise ValueError("stopped_speed_threshold_mps must be a positive finite float")
     configured = dict(env_config)
     configured["map"] = spec.map
-    if configured.get("trajectory_execution_steps") != 1:
-        raise ValueError("rollout requires env.trajectory_execution_steps=1")
+    if configured.get("execution_mode") not in {None, "rollout"}:
+        raise ValueError("rollout requires env.execution_mode=rollout")
+    configured["execution_mode"] = "rollout"
     env_slot = MetaDriveEnvSlot(
         configured,
         mode=mode,
@@ -196,8 +197,10 @@ class VectorRolloutCollector:
     ) -> None:
         if not specs:
             raise ValueError("vector rollout requires at least one scenario")
-        if env_config.get("trajectory_execution_steps") != 1:
-            raise ValueError("rollout requires env.trajectory_execution_steps=1")
+        configured = dict(env_config)
+        if configured.get("execution_mode") not in {None, "rollout"}:
+            raise ValueError("rollout requires env.execution_mode=rollout")
+        configured["execution_mode"] = "rollout"
         if physical_slot_count is None:
             physical_slot_count = len(specs)
         if type(physical_slot_count) is not int or physical_slot_count <= 0:
@@ -207,7 +210,7 @@ class VectorRolloutCollector:
         self._physical_slot_count = min(physical_slot_count, len(specs))
         self._scenarios = tuple(VectorEnvScenario(spec.name, spec.map, spec.seed) for spec in specs)
         configured_envs = tuple(
-            {**env_config, "map": spec.map} for spec in specs[: self._physical_slot_count]
+            {**configured, "map": spec.map} for spec in specs[: self._physical_slot_count]
         )
         self._envs = VectorMetaDriveEnv(
             configured_envs,

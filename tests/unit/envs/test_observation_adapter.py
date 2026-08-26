@@ -8,14 +8,14 @@ import torch
 from metadrive.component.static_object.traffic_object import TrafficCone
 
 from eco_planner.envs import collate_observations
-from eco_planner.envs.observation_adapter import (
-    MetaDriveObservationAdapter,
-    NoTrafficMetaDriveObservationAdapter,
-)
-from eco_planner.envs.traffic_state import (
+from eco_planner.envs.domain.traffic import (
     StaticTrafficObjectState,
     TrafficFrame,
     TrafficParticipantState,
+)
+from eco_planner.envs.metadrive.observation import (
+    MetaDriveObservationAdapter,
+    NoTrafficMetaDriveObservationAdapter,
 )
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
