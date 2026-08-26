@@ -30,6 +30,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pyright",
     "pytest",
     "ruff",
 ]
