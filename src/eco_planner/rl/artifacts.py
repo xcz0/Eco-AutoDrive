@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import asdict
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import torch
@@ -15,12 +16,28 @@ from tensordict import TensorDictBase
 from eco_planner.artifacts import collect_repository_metadata, write_json, write_tracked_diff
 from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.ppo import PPOUpdateReport
-from eco_planner.rl.rollout import AUDIT_FIELD_KEYS, RolloutEpisode
+from eco_planner.rl.rollout import (
+    AUDIT_FIELD_KEYS,
+    ENERGY_REWARD_AUDIT_FIELD_KEYS,
+    RolloutEpisode,
+)
 from eco_planner.runtime_resources import ResourceProfileConfig
 
 
 class _ArtifactModel(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True, extra="forbid", allow_inf_nan=False)
+
+
+class RewardComponentMeans(_ArtifactModel):
+    reward_gate: StrictFloat = Field(ge=0.0, le=1.0)
+    collision_score: StrictFloat = Field(ge=0.0, le=1.0)
+    drivable_score: StrictFloat = Field(ge=0.0, le=1.0)
+    wrong_direction_score: StrictFloat = Field(ge=0.0, le=1.0)
+    ttc_score: StrictFloat = Field(ge=0.0, le=1.0)
+    progress_score: StrictFloat = Field(ge=0.0, le=1.0)
+    comfort_score: StrictFloat = Field(ge=0.0, le=1.0)
+    speed_score: StrictFloat = Field(ge=0.0, le=1.0)
+    energy_score: StrictFloat = Field(ge=0.0, le=1.0)
 
 
 class TrainingUpdateSummary(_ArtifactModel):
@@ -52,6 +69,13 @@ class TrainingUpdateSummary(_ArtifactModel):
     mean_explained_variance: StrictFloat
     maximum_pre_clip_gradient_norm: StrictFloat
     final_learning_rate: StrictFloat = Field(ge=0.0)
+    reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"] = (
+        "metadrive_builtin_v1"
+    )
+    native_step_energy_total_ml: StrictFloat = Field(default=0.0, ge=0.0)
+    executed_fuel_proxy_total_ml: StrictFloat = Field(default=0.0, ge=0.0)
+    executed_fuel_proxy_ml_per_km: StrictFloat | None = Field(default=None, ge=0.0)
+    reward_component_means: RewardComponentMeans | None = None
 
 
 class PolicyProbeSummary(_ArtifactModel):
@@ -75,6 +99,9 @@ class TrainingRunSummary(_ArtifactModel):
     probe_before: PolicyProbeSummary
     probe_after: PolicyProbeSummary
     updates: tuple[TrainingUpdateSummary, ...]
+    reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"] = (
+        "metadrive_builtin_v1"
+    )
 
 
 def policy_state_hash(policy: ExplorationPolicy) -> str:
@@ -97,6 +124,11 @@ def write_rollout_episode(path: Path, episode: RolloutEpisode) -> None:
     arrays = _trajectory_arrays(episode.audit)
     arrays.update(
         {
+            "reward_profile": np.asarray(
+                "plannerrft_energy_v1"
+                if "reward_gate" in episode.audit.keys()
+                else "metadrive_builtin_v1"
+            ),
             "tail_kind": np.asarray(episode.tail_kind),
             "tail_bootstrap_value": episode.tail_bootstrap_value.cpu().numpy(),
         }
@@ -117,6 +149,8 @@ def build_update_summary(
         | trajectory["crash_building"]
         | trajectory["crash_human"]
     )
+    if "crash_sidewalk" in trajectory.keys():
+        collision |= trajectory["crash_sidewalk"]
     payload = {
         "update_index": update_index,
         "sample_count": sample_count,
@@ -139,6 +173,35 @@ def build_update_summary(
             float(value) for value in trajectory["guidance_action"].var(dim=0, correction=0)
         ),
     }
+    if "reward_gate" in trajectory.keys():
+        proxy_total = float(trajectory["executed_fuel_proxy_step_energy_ml"].sum())
+        distance_total = float(trajectory["step_distance_m"].sum())
+        payload.update(
+            {
+                "reward_profile": "plannerrft_energy_v1",
+                "native_step_energy_total_ml": float(
+                    trajectory["native_step_energy_ml"].sum()
+                ),
+                "executed_fuel_proxy_total_ml": proxy_total,
+                "executed_fuel_proxy_ml_per_km": (
+                    proxy_total * 1000.0 / distance_total if distance_total > 0.0 else None
+                ),
+                "reward_component_means": {
+                    name: float(trajectory[name].mean())
+                    for name in (
+                        "reward_gate",
+                        "collision_score",
+                        "drivable_score",
+                        "wrong_direction_score",
+                        "ttc_score",
+                        "progress_score",
+                        "comfort_score",
+                        "speed_score",
+                        "energy_score",
+                    )
+                },
+            }
+        )
     payload.update(asdict(report))
     payload.pop("optimizer_step_count")
     return TrainingUpdateSummary.model_validate(payload)
@@ -163,4 +226,9 @@ def write_training_runtime_metadata(
 
 
 def _trajectory_arrays(trajectory: TensorDictBase) -> dict[str, np.ndarray]:
-    return {name: trajectory[name].detach().cpu().numpy() for name in AUDIT_FIELD_KEYS}
+    keys = (
+        ENERGY_REWARD_AUDIT_FIELD_KEYS
+        if "reward_gate" in trajectory.keys()
+        else AUDIT_FIELD_KEYS
+    )
+    return {name: trajectory[name].detach().cpu().numpy() for name in keys}

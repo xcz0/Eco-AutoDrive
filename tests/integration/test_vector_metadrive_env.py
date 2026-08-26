@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
+from omegaconf import OmegaConf
 
 from eco_planner.envs import (
     MetaDriveEnvSlot,
@@ -14,6 +17,7 @@ from eco_planner.envs import (
 from eco_planner.envs.metadrive.observation import (
     MetaDriveObservationAdapter,
 )
+from eco_planner.envs.metadrive.reward import PlannerRFTEnergyRewardConfig
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 
 
@@ -31,6 +35,13 @@ def _environment_config(map_sequence: str) -> dict[str, object]:
         "trajectory_execution_steps": 5,
         "programmatic_lane_speed_limit_kmh": 50.0,
     }
+
+
+def _energy_reward_config() -> PlannerRFTEnergyRewardConfig:
+    path = Path(__file__).parents[2] / "configs" / "rl" / "reward" / "plannerrft_energy_v1.yaml"
+    return PlannerRFTEnergyRewardConfig.model_validate(
+        OmegaConf.to_container(OmegaConf.load(path), resolve=True)
+    )
 
 
 def _straight_trajectory(speed_mps: float = 5.0) -> np.ndarray:
@@ -140,6 +151,51 @@ def test_resetting_one_vector_slot_does_not_change_another_slot(
     np.testing.assert_allclose(
         actual.execution.substep_states,
         expected_step.execution.substep_states,
+        rtol=0.0,
+        atol=1e-12,
+    )
+
+
+@pytest.mark.simulator
+def test_vector_energy_reward_replays_the_serial_execution_audit(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    config = _environment_config("S")
+    config["trajectory_execution_steps"] = 1
+    scenario = VectorEnvScenario(name="energy", map="S", seed=0)
+    profile = _energy_reward_config()
+    observation_spec = PlannerObservationSpec.from_planner_config(official_model_config)
+    baseline = MetaDriveEnvSlot(
+        config.copy(),
+        mode="no_traffic",
+        observation_spec=observation_spec,
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+        reward_profile=profile,
+    )
+    try:
+        baseline.reset(map_name="S", seed=0)
+        expected = baseline.step(_straight_trajectory())
+    finally:
+        baseline.close()
+
+    with VectorMetaDriveEnv(
+        [config],
+        mode="no_traffic",
+        observation_spec=observation_spec,
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+        scenarios=(scenario,),
+        reward_profile=profile,
+    ) as envs:
+        envs.reset((scenario,))
+        actual = envs.step((_straight_trajectory(),))[0]
+
+    assert actual.reward == pytest.approx(expected.reward, rel=1e-6, abs=1e-6)
+    assert actual.execution.substep_reward_audits == expected.execution.substep_reward_audits
+    np.testing.assert_allclose(
+        actual.execution.substep_executed_fuel_proxy_energy_ml,
+        expected.execution.substep_executed_fuel_proxy_energy_ml,
         rtol=0.0,
         atol=1e-12,
     )

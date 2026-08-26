@@ -8,7 +8,7 @@ defaults:
   - /planner/sampler: ddim5
   - /planner/guidance: orthogonal_policy
   - /rl/exploration_policy
-  - /rl/reward
+  - /rl/reward: metadrive_builtin_v1
   - /rl: ppo_closed_loop_smoke
   - _self_
 
@@ -18,6 +18,8 @@ map_query_radius_m: 100.0
 training:
   update_count: 4
   transitions_per_environment: 16
+  mode: no_traffic
+  history_warmup_steps: 0
   replay_id: ???
   deterministic: true
   stopped_speed_threshold_mps: 0.1
@@ -29,14 +31,6 @@ training:
 env:
   execution_mode: rollout
   horizon: 16
-  driving_reward: ${reward.driving_reward}
-  speed_reward: ${reward.speed_reward}
-  success_reward: ${reward.success_reward}
-  out_of_road_penalty: ${reward.out_of_road_penalty}
-  crash_vehicle_penalty: ${reward.crash_vehicle_penalty}
-  crash_object_penalty: ${reward.crash_object_penalty}
-  crash_sidewalk_penalty: ${reward.crash_sidewalk_penalty}
-  use_lateral_reward: ${reward.use_lateral_reward}
 
 runtime:
   accelerator: cuda

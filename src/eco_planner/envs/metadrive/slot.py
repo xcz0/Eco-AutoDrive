@@ -15,6 +15,7 @@ from eco_planner.envs.metadrive.observation import (
     NoTrafficMetaDriveObservationAdapter,
     TrafficObservationAudit,
 )
+from eco_planner.envs.metadrive.reward import RewardProfileConfig
 from eco_planner.envs.metadrive.simulator import TrajectoryMetaDriveEnv
 from eco_planner.envs.observation import PlannerObservationSpec
 from eco_planner.execution_contracts import PLANNER_FUTURE_STEPS
@@ -61,6 +62,7 @@ class MetaDriveEnvSlot:
         observation_spec: PlannerObservationSpec,
         map_query_radius_m: float,
         history_warmup_steps: int,
+        reward_profile: RewardProfileConfig | None = None,
     ) -> None:
         if mode not in {"traffic", "no_traffic"}:
             raise ValueError("mode must be either 'traffic' or 'no_traffic'")
@@ -77,8 +79,9 @@ class MetaDriveEnvSlot:
         self._observation_spec = observation_spec
         self._map_query_radius_m = float(map_query_radius_m)
         self._history_warmup_steps = history_warmup_steps
+        self._reward_profile = reward_profile
         self._adapter = self._create_adapter()
-        self._env = TrajectoryMetaDriveEnv(self._env_config)
+        self._env = self._create_environment()
 
     @property
     def env(self) -> TrajectoryMetaDriveEnv:
@@ -188,11 +191,16 @@ class MetaDriveEnvSlot:
             self._observation_spec, self._map_query_radius_m
         )
 
+    def _create_environment(self) -> TrajectoryMetaDriveEnv:
+        if self._reward_profile is None:
+            return TrajectoryMetaDriveEnv(self._env_config)
+        return TrajectoryMetaDriveEnv(self._env_config, reward_profile=self._reward_profile)
+
     def _replace_environment(self, map_name: str) -> None:
         self._env.close()
         self._env_config["map"] = map_name
         self._adapter = self._create_adapter()
-        self._env = TrajectoryMetaDriveEnv(self._env_config)
+        self._env = self._create_environment()
 
 
 def _stationary_trajectory() -> TrajectoryArray:

@@ -29,8 +29,20 @@ from eco_planner.envs.metadrive.execution import (
     execution_steps_from_config,
     finite_info_scalar,
 )
-from eco_planner.envs.metadrive.lane_speed import ProgrammaticLaneSpeedAdapter
+from eco_planner.envs.metadrive.lane_speed import (
+    ProgrammaticLaneSpeedAdapter,
+    model_lane_speed_limit_mps,
+)
 from eco_planner.envs.metadrive.policy import KinematicTrajectoryPolicy
+from eco_planner.envs.metadrive.reward import (
+    MetaDriveBuiltinRewardAudit,
+    MetaDriveBuiltinRewardConfig,
+    PlannerRFTEnergyRewardConfig,
+    RewardProfileConfig,
+    RewardStepInput,
+    executed_fuel_proxy_step_energy_ml,
+    score_plannerrft_energy_step,
+)
 from eco_planner.envs.metadrive.snapshot import capture_traffic_frame
 
 _PLANNER_ONLY_OBSERVATION: PlannerOnlyObservationArray = np.zeros(1, dtype=np.float32)
@@ -68,7 +80,12 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         )
         return config
 
-    def __init__(self, config: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any] | None = None,
+        *,
+        reward_profile: RewardProfileConfig | None = None,
+    ) -> None:
         if config is None:
             raise ValueError("TrajectoryMetaDriveEnv requires an explicit configuration")
         required = {
@@ -86,6 +103,8 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             raise ValueError("agent_policy must be KinematicTrajectoryPolicy")
         execution_steps = execution_steps_from_config(config)
         configured = dict(config)
+        if isinstance(reward_profile, MetaDriveBuiltinRewardConfig):
+            configured.update(reward_profile.model_dump(exclude={"name"}))
         configured["physics_world_step_size"] = METADRIVE_PHYSICS_STEP_S
         configured["decision_repeat"] = METADRIVE_DECISION_REPEAT
         configured["execution_mode"] = (
@@ -95,6 +114,10 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         )
         configured["agent_policy"] = KinematicTrajectoryPolicy
         configured["agent_observation"] = _PlannerOnlyObservation
+        self._reward_profile = reward_profile
+        self._previous_reward_position: np.ndarray | None = None
+        self._previous_reward_velocity: np.ndarray | None = None
+        self._previous_reward_acceleration: np.ndarray | None = None
         super().__init__(configured)
         if self.config["is_multi_agent"]:
             raise ValueError("TrajectoryMetaDriveEnv supports only single-agent operation")
@@ -172,6 +195,9 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             raise RuntimeError("MetaDrive did not create a current map during reset")
         self._programmatic_lane_speed_adapter.apply(current_map)
         self._initial_traffic_frame = capture_traffic_frame(self)
+        self._previous_reward_position = np.asarray(self.agent.position, dtype=np.float64).copy()
+        self._previous_reward_velocity = np.asarray(self.agent.velocity, dtype=np.float64).copy()
+        self._previous_reward_acceleration = np.zeros(2, dtype=np.float64)
         return result
 
     def step(self, trajectory: TrajectoryArray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
@@ -194,7 +220,9 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             # this intervening physics phase, including when a new trajectory is supplied.
             self.agent.set_velocity(_ZERO_VELOCITY)
             self.agent.set_angular_velocity(0.0)
-            observation, reward, terminated, truncated, info = self._step_once(action)
+            observation, reward, terminated, truncated, info = self._step_once(
+                action, float(world_trajectory.angular_velocities[index])
+            )
             total_reward += float(reward)
             step_record.append(
                 self.agent,
@@ -205,7 +233,8 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
                 terminated,
                 truncated,
                 float(world_trajectory.angular_velocities[index]),
-                capture_traffic_frame(self),
+                info.pop("_project_traffic_frame"),
+                info.pop("_project_reward_audit"),
             )
             if terminated or truncated:
                 break
@@ -213,14 +242,13 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         return observation, total_reward, terminated, truncated, result_info
 
     def _step_once(
-        self, action: WorldTrajectory | None
+        self, action: WorldTrajectory | None, yaw_rate_radps: float
     ) -> tuple[PlannerOnlyObservationArray, float, bool, bool, dict[str, Any]]:
         actions = {DEFAULT_AGENT: action}
         engine_info = self._step_planner_simulator(actions)
         agent_id, agent = next(iter(self.agents.items()))
         self.episode_lengths[agent_id] += 1
-        reward, reward_info = self.reward_function(agent_id)
-        self.episode_rewards[agent_id] += reward
+        builtin_reward, reward_info = super().reward_function(agent_id)
         done, done_info = self.done_function(agent_id)
         _, cost_info = self.cost_function(agent_id)
         self.dones[agent_id] = done or self.dones[agent_id]
@@ -229,6 +257,43 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         )
         agent_info = info.pop(agent_id)
         info.update(agent_info)
+        traffic_frame = capture_traffic_frame(self)
+        reward_input = self._reward_step_input(info, traffic_frame, yaw_rate_radps)
+        if isinstance(self._reward_profile, PlannerRFTEnergyRewardConfig):
+            reward_audit = score_plannerrft_energy_step(self._reward_profile, reward_input)
+            reward = reward_audit.reward_total
+            info["step_reward"] = reward_audit.reward_ungated
+            info["route_completion"] = self.route_completion
+        else:
+            reward = float(builtin_reward)
+            distance_m = float(
+                np.linalg.norm(
+                    np.asarray(reward_input.position_xy_m)
+                    - np.asarray(reward_input.previous_position_xy_m)
+                )
+            )
+            proxy_ml = executed_fuel_proxy_step_energy_ml(
+                reward_input.previous_position_xy_m,
+                reward_input.position_xy_m,
+                float(np.linalg.norm(reward_input.velocity_xy_mps)),
+            )
+            distance_valid = distance_m > 0.0
+            reward_audit = MetaDriveBuiltinRewardAudit(
+                profile_name="metadrive_builtin_v1",
+                reward_total=reward,
+                dense_reward=finite_info_scalar(info, "step_reward"),
+                terminal_override=reward - finite_info_scalar(info, "step_reward"),
+                step_distance_m=distance_m,
+                native_step_energy_ml=reward_input.native_step_energy_ml,
+                native_episode_energy_ml=reward_input.native_episode_energy_ml,
+                executed_fuel_proxy_step_energy_ml=proxy_ml,
+                executed_fuel_proxy_ml_per_km=(
+                    proxy_ml * 1000.0 / distance_m if distance_valid else 0.0
+                ),
+                energy_distance_valid=distance_valid,
+            )
+        self.episode_rewards[agent_id] += reward
+        self._advance_reward_state(reward_input)
         truncated = bool(info.get(TerminationState.MAX_STEP, False))
         terminated = bool(self.dones[agent_id])
         if self.config["horizon"] and self.episode_step > 5 * self.config["horizon"]:
@@ -239,7 +304,72 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         info["episode_length"] = self.episode_lengths[agent_id]
         if agent is not self.agent:
             raise RuntimeError("single-agent environment changed its active agent")
+        info["_project_traffic_frame"] = traffic_frame
+        info["_project_reward_audit"] = reward_audit
         return _PLANNER_ONLY_OBSERVATION.copy(), float(reward), terminated, truncated, info
+
+    def _reward_step_input(
+        self, info: dict[str, Any], traffic_frame: TrafficFrame, yaw_rate_radps: float
+    ) -> RewardStepInput:
+        if (
+            self._previous_reward_position is None
+            or self._previous_reward_velocity is None
+            or self._previous_reward_acceleration is None
+        ):
+            raise RuntimeError("reward state is unavailable before environment reset")
+        vehicle = self.agent
+        reference_lanes = vehicle.navigation.current_ref_lanes
+        if not reference_lanes:
+            raise RuntimeError("navigation did not expose current reference lanes")
+        lane = vehicle.lane if vehicle.lane in reference_lanes else reference_lanes[0]
+        previous_longitudinal, _ = lane.local_coordinates(self._previous_reward_position)
+        current_longitudinal, _ = lane.local_coordinates(vehicle.position)
+        lane_length = float(lane.length)
+        route_heading = float(
+            lane.heading_theta_at(float(np.clip(current_longitudinal, 0.0, lane_length)))
+        )
+        speed_limit_mps, has_speed_limit = model_lane_speed_limit_mps(lane)
+        if not has_speed_limit:
+            raise RuntimeError("current route lane does not expose a configured speed limit")
+        return RewardStepInput(
+            previous_position_xy_m=tuple(float(value) for value in self._previous_reward_position),
+            position_xy_m=tuple(float(value) for value in vehicle.position),
+            previous_velocity_xy_mps=tuple(
+                float(value) for value in self._previous_reward_velocity
+            ),
+            velocity_xy_mps=tuple(float(value) for value in vehicle.velocity),
+            previous_acceleration_xy_mps2=tuple(
+                float(value) for value in self._previous_reward_acceleration
+            ),
+            heading_rad=float(vehicle.heading_theta),
+            yaw_rate_radps=yaw_rate_radps,
+            route_progress_delta_m=float(current_longitudinal - previous_longitudinal),
+            route_heading_rad=route_heading,
+            speed_limit_mps=speed_limit_mps,
+            ego_width_m=float(vehicle.WIDTH),
+            ego_length_m=float(vehicle.LENGTH),
+            traffic_frame=traffic_frame,
+            crash_vehicle=bool(info["crash_vehicle"]),
+            crash_object=bool(info["crash_object"]),
+            crash_building=bool(info["crash_building"]),
+            crash_human=bool(info["crash_human"]),
+            crash_sidewalk=bool(info["crash_sidewalk"]),
+            out_of_road=bool(info["out_of_road"]),
+            native_step_energy_ml=finite_info_scalar(info, "step_energy"),
+            native_episode_energy_ml=finite_info_scalar(info, "episode_energy"),
+            timestep_s=TRAJECTORY_TIMESTEP_S,
+        )
+
+    def _advance_reward_state(self, reward_input: RewardStepInput) -> None:
+        previous_velocity = np.asarray(reward_input.previous_velocity_xy_mps, dtype=np.float64)
+        velocity = np.asarray(reward_input.velocity_xy_mps, dtype=np.float64)
+        self._previous_reward_position = np.asarray(
+            reward_input.position_xy_m, dtype=np.float64
+        )
+        self._previous_reward_velocity = velocity
+        self._previous_reward_acceleration = (
+            velocity - previous_velocity
+        ) / reward_input.timestep_s
 
     def _step_planner_simulator(self, actions: dict[str, WorldTrajectory | None]) -> dict:
         before_info = self.engine.before_step(actions)

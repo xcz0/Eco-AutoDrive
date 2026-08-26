@@ -7,6 +7,7 @@ import pytest
 import torch
 from hydra import compose, initialize_config_dir
 from metadrive.utils import merge_dicts
+from omegaconf import OmegaConf
 
 from eco_planner.envs import (
     TrajectoryMetaDriveEnv,
@@ -16,6 +17,12 @@ from eco_planner.envs.metadrive.map import MetaDriveMapAdapter
 from eco_planner.envs.metadrive.observation import (
     MetaDriveObservationAdapter,
     NoTrafficMetaDriveObservationAdapter,
+)
+from eco_planner.envs.metadrive.reward import (
+    MetaDriveBuiltinRewardAudit,
+    MetaDriveBuiltinRewardConfig,
+    PlannerRFTEnergyRewardAudit,
+    PlannerRFTEnergyRewardConfig,
 )
 from eco_planner.evaluation.config import RuntimeConfig, parse_evaluation_config
 from eco_planner.evaluation.runtime import (
@@ -59,6 +66,20 @@ def _environment_config(map_sequence: str) -> dict[str, object]:
     }
 
 
+def _energy_reward_config() -> PlannerRFTEnergyRewardConfig:
+    path = Path(__file__).parents[2] / "configs" / "rl" / "reward" / "plannerrft_energy_v1.yaml"
+    return PlannerRFTEnergyRewardConfig.model_validate(
+        OmegaConf.to_container(OmegaConf.load(path), resolve=True)
+    )
+
+
+def _builtin_reward_config() -> MetaDriveBuiltinRewardConfig:
+    path = Path(__file__).parents[2] / "configs" / "rl" / "reward" / "metadrive_builtin_v1.yaml"
+    return MetaDriveBuiltinRewardConfig.model_validate(
+        OmegaConf.to_container(OmegaConf.load(path), resolve=True)
+    )
+
+
 def _straight_trajectory(speed_mps: float) -> np.ndarray:
     trajectory = np.zeros((80, 4), dtype=np.float32)
     trajectory[:, 0] = np.arange(1, 81, dtype=np.float32) * speed_mps * 0.1
@@ -78,6 +99,15 @@ def _turning_trajectory() -> np.ndarray:
 def _stationary_trajectory() -> np.ndarray:
     trajectory = np.zeros((80, 4), dtype=np.float32)
     trajectory[:, 2] = 1.0
+    return trajectory
+
+
+def _first_step_trajectory(*, x_m: float, y_m: float, heading_rad: float) -> np.ndarray:
+    trajectory = _stationary_trajectory()
+    trajectory[0, 0] = x_m
+    trajectory[0, 1] = y_m
+    trajectory[0, 2] = np.cos(heading_rad)
+    trajectory[0, 3] = np.sin(heading_rad)
     return trajectory
 
 
@@ -106,13 +136,15 @@ def test_trajectory_environment_executes_five_simulator_steps() -> None:
         assert info["trajectory_execution"] is execution
         assert "trajectory_substep_states" not in info
         assert execution.substep_states.shape == (5, 7)
-        assert execution.substep_energy_ml.shape == (5,)
-        assert execution.substep_episode_energy_ml.shape == (5,)
-        assert np.isfinite(execution.substep_energy_ml).all()
-        assert np.isfinite(execution.substep_episode_energy_ml).all()
-        assert np.all(execution.substep_energy_ml >= 0.0)
-        assert np.all(np.diff(execution.substep_episode_energy_ml) >= 0.0)
-        assert execution.substep_episode_energy_ml[-1] == pytest.approx(info["episode_energy"])
+        assert execution.substep_native_energy_ml.shape == (5,)
+        assert execution.substep_native_episode_energy_ml.shape == (5,)
+        assert np.isfinite(execution.substep_native_energy_ml).all()
+        assert np.isfinite(execution.substep_native_episode_energy_ml).all()
+        assert np.all(execution.substep_native_energy_ml >= 0.0)
+        assert np.all(np.diff(execution.substep_native_episode_energy_ml) >= 0.0)
+        assert execution.substep_native_episode_energy_ml[-1] == pytest.approx(
+            info["episode_energy"]
+        )
         assert execution.route_completion == pytest.approx(info["route_completion"])
         np.testing.assert_allclose(
             execution.substep_states[-1, :2],
@@ -153,6 +185,102 @@ def test_trajectory_environment_executes_one_rollout_substep() -> None:
         assert execution.substep_states.shape == (1, 7)
         assert not terminated
         assert not truncated
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
+def test_explicit_builtin_reward_profile_preserves_metadrive_reward_values() -> None:
+    config = _environment_config("S")
+    config["trajectory_execution_steps"] = 1
+    baseline = TrajectoryMetaDriveEnv(config.copy())
+    try:
+        baseline.reset(seed=0)
+        _, expected_reward, _, _, expected_info = baseline.step(_straight_trajectory(5.0))
+    finally:
+        baseline.close()
+
+    profiled = TrajectoryMetaDriveEnv(config, reward_profile=_builtin_reward_config())
+    try:
+        profiled.reset(seed=0)
+        _, actual_reward, _, _, actual_info = profiled.step(_straight_trajectory(5.0))
+    finally:
+        profiled.close()
+
+    expected_execution = expected_info["trajectory_execution"]
+    actual_execution = actual_info["trajectory_execution"]
+    assert actual_reward == pytest.approx(expected_reward, rel=0.0, abs=1e-12)
+    np.testing.assert_allclose(
+        actual_execution.substep_rewards,
+        expected_execution.substep_rewards,
+        rtol=0.0,
+        atol=1e-12,
+    )
+    assert isinstance(actual_execution.substep_reward_audits[0], MetaDriveBuiltinRewardAudit)
+
+
+@pytest.mark.simulator
+def test_trajectory_environment_emits_energy_reward_and_dual_energy_audit() -> None:
+    config = _environment_config("S")
+    config["trajectory_execution_steps"] = 1
+    env = TrajectoryMetaDriveEnv(config, reward_profile=_energy_reward_config())
+    try:
+        env.reset(seed=0)
+        _, reward, terminated, truncated, info = env.step(_straight_trajectory(5.0))
+        execution = info["trajectory_execution"]
+        audit = execution.substep_reward_audits[0]
+
+        assert isinstance(audit, PlannerRFTEnergyRewardAudit)
+        assert reward == pytest.approx(audit.reward_total)
+        assert execution.substep_native_energy_ml[0] == pytest.approx(audit.native_step_energy_ml)
+        assert execution.substep_native_episode_energy_ml[0] == pytest.approx(
+            audit.native_episode_energy_ml
+        )
+        assert execution.substep_executed_fuel_proxy_energy_ml[0] == pytest.approx(
+            audit.executed_fuel_proxy_step_energy_ml
+        )
+        assert execution.substep_executed_fuel_proxy_energy_ml[0] > 0.0
+        assert execution.substep_distance_m[0] > 0.0
+        assert not terminated
+        assert not truncated
+    finally:
+        env.close()
+
+
+@pytest.mark.simulator
+def test_energy_reward_uses_current_route_limit_and_gates_wrong_way_or_out_of_road() -> None:
+    config = _environment_config("S")
+    config["trajectory_execution_steps"] = 1
+    env = TrajectoryMetaDriveEnv(config, reward_profile=_energy_reward_config())
+    try:
+        env.reset(seed=0)
+        _, _, _, _, speed_info = env.step(_straight_trajectory(20.0))
+        speed_audit = speed_info["trajectory_execution"].substep_reward_audits[0]
+        assert isinstance(speed_audit, PlannerRFTEnergyRewardAudit)
+        assert speed_audit.speed_limit_mps == pytest.approx(50.0 / 3.6)
+        assert speed_audit.overspeed_mps == pytest.approx(20.0 - 50.0 / 3.6, abs=1e-4)
+        assert speed_audit.speed_score == 0.0
+        assert speed_audit.wrong_direction_score == 1.0
+
+        env.reset(seed=0)
+        _, wrong_reward, _, _, wrong_info = env.step(
+            _first_step_trajectory(x_m=-0.5, y_m=0.0, heading_rad=np.pi)
+        )
+        wrong_audit = wrong_info["trajectory_execution"].substep_reward_audits[0]
+        assert isinstance(wrong_audit, PlannerRFTEnergyRewardAudit)
+        assert wrong_audit.wrong_direction_score == 0.0
+        assert wrong_reward == 0.0
+
+        env.reset(seed=0)
+        _, road_reward, _, _, road_info = env.step(
+            _first_step_trajectory(x_m=0.5, y_m=20.0, heading_rad=0.0)
+        )
+        road_execution = road_info["trajectory_execution"]
+        road_audit = road_execution.substep_reward_audits[0]
+        assert isinstance(road_audit, PlannerRFTEnergyRewardAudit)
+        assert road_execution.out_of_road
+        assert road_audit.drivable_score == 0.0
+        assert road_reward == 0.0
     finally:
         env.close()
 

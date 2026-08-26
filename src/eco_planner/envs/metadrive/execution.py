@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -25,6 +25,10 @@ from eco_planner.envs.geometry import (
     local_points_to_world,
     rear_axle_position,
     shortest_angle_delta,
+)
+from eco_planner.envs.metadrive.reward import (
+    RewardAudit,
+    executed_fuel_proxy_step_energy_ml,
 )
 from eco_planner.execution_contracts import (
     EVALUATION_EXECUTION_STEPS,
@@ -53,8 +57,8 @@ class TrajectoryExecutionRecord:
     heading_errors_rad: ExecutionScalarArray
     substep_rewards: ExecutionScalarArray
     substep_dense_rewards: ExecutionScalarArray
-    substep_energy_ml: ExecutionScalarArray
-    substep_episode_energy_ml: ExecutionScalarArray
+    substep_native_energy_ml: ExecutionScalarArray
+    substep_native_episode_energy_ml: ExecutionScalarArray
     substep_terminated: ExecutionBooleanArray
     substep_truncated: ExecutionBooleanArray
     traffic_frames: tuple[TrafficFrame, ...]
@@ -66,7 +70,14 @@ class TrajectoryExecutionRecord:
     crash_building: bool
     crash_human: bool
     max_step: bool
-
+    crash_sidewalk: bool = False
+    substep_executed_fuel_proxy_energy_ml: ExecutionScalarArray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
+    substep_distance_m: ExecutionScalarArray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
+    substep_reward_audits: tuple[RewardAudit, ...] = ()
 
 @dataclass(frozen=True, slots=True)
 class WorldTrajectory:
@@ -81,8 +92,11 @@ class TrajectoryExecutionRecorder:
     states: ExecutionStateArray
     rewards: ExecutionScalarArray
     dense_rewards: ExecutionScalarArray
-    step_energy_ml: ExecutionScalarArray
-    episode_energy_ml: ExecutionScalarArray
+    native_energy_ml: ExecutionScalarArray
+    native_episode_energy_ml: ExecutionScalarArray
+    executed_fuel_proxy_energy_ml: ExecutionScalarArray
+    distance_m: ExecutionScalarArray
+    reward_audits: list[RewardAudit]
     terminated: ExecutionBooleanArray
     truncated: ExecutionBooleanArray
     traffic_frames: list[TrafficFrame]
@@ -94,8 +108,11 @@ class TrajectoryExecutionRecorder:
             states=np.empty((execution_steps, 7), dtype=np.float64),
             rewards=np.empty(execution_steps, dtype=np.float64),
             dense_rewards=np.empty(execution_steps, dtype=np.float64),
-            step_energy_ml=np.empty(execution_steps, dtype=np.float64),
-            episode_energy_ml=np.empty(execution_steps, dtype=np.float64),
+            native_energy_ml=np.empty(execution_steps, dtype=np.float64),
+            native_episode_energy_ml=np.empty(execution_steps, dtype=np.float64),
+            executed_fuel_proxy_energy_ml=np.empty(execution_steps, dtype=np.float64),
+            distance_m=np.empty(execution_steps, dtype=np.float64),
+            reward_audits=[],
             terminated=np.empty(execution_steps, dtype=np.bool_),
             truncated=np.empty(execution_steps, dtype=np.bool_),
             traffic_frames=[],
@@ -107,12 +124,13 @@ class TrajectoryExecutionRecorder:
         agent: Any,
         reward: float,
         dense_reward: float,
-        step_energy_ml: float,
-        episode_energy_ml: float,
+        native_energy_ml: float,
+        native_episode_energy_ml: float,
         terminated: bool,
         truncated: bool,
         angular_velocity: float,
         traffic_frame: TrafficFrame,
+        reward_audit: RewardAudit,
     ) -> None:
         index = self.count
         self.states[index, :2] = np.asarray(agent.position, dtype=np.float64)
@@ -122,8 +140,13 @@ class TrajectoryExecutionRecorder:
         self.states[index, 6] = angular_velocity
         self.rewards[index] = reward
         self.dense_rewards[index] = dense_reward
-        self.step_energy_ml[index] = step_energy_ml
-        self.episode_energy_ml[index] = episode_energy_ml
+        self.native_energy_ml[index] = native_energy_ml
+        self.native_episode_energy_ml[index] = native_episode_energy_ml
+        self.executed_fuel_proxy_energy_ml[index] = (
+            reward_audit.executed_fuel_proxy_step_energy_ml
+        )
+        self.distance_m[index] = reward_audit.step_distance_m
+        self.reward_audits.append(reward_audit)
         self.terminated[index] = terminated
         self.truncated[index] = truncated
         self.traffic_frames.append(traffic_frame)
@@ -151,8 +174,15 @@ class TrajectoryExecutionRecorder:
             heading_errors_rad=np.abs(shortest_angle_delta(state_array[:, 2] - target_headings)),
             substep_rewards=self.rewards[:executed_steps].copy(),
             substep_dense_rewards=self.dense_rewards[:executed_steps].copy(),
-            substep_energy_ml=self.step_energy_ml[:executed_steps].copy(),
-            substep_episode_energy_ml=self.episode_energy_ml[:executed_steps].copy(),
+            substep_native_energy_ml=self.native_energy_ml[:executed_steps].copy(),
+            substep_native_episode_energy_ml=(
+                self.native_episode_energy_ml[:executed_steps].copy()
+            ),
+            substep_executed_fuel_proxy_energy_ml=(
+                self.executed_fuel_proxy_energy_ml[:executed_steps].copy()
+            ),
+            substep_distance_m=self.distance_m[:executed_steps].copy(),
+            substep_reward_audits=tuple(self.reward_audits),
             substep_terminated=self.terminated[:executed_steps].copy(),
             substep_truncated=self.truncated[:executed_steps].copy(),
             traffic_frames=tuple(self.traffic_frames),
@@ -164,6 +194,7 @@ class TrajectoryExecutionRecorder:
             crash_building=bool(final_info["crash_building"]),
             crash_human=bool(final_info["crash_human"]),
             max_step=bool(final_info["max_step"]),
+            crash_sidewalk=bool(final_info["crash_sidewalk"]),
         )
         result = dict(final_info)
         result["trajectory_execution_steps"] = executed_steps
@@ -207,12 +238,7 @@ def metadrive_fuel_proxy_step_energy_ml(
 ) -> float:
     """Evaluate MetaDrive's fuel proxy for one executed 0.1 s substep."""
 
-    distance_km = float(np.linalg.norm(end_position - start_position)) / 1000.0
-    speed_kmh = float(speed_mps) * 3.6
-    energy_ml = 3.25 * float(np.exp(0.01 * speed_kmh)) * distance_km / 100.0 * 1000.0
-    if not np.isfinite(energy_ml) or energy_ml < 0.0:
-        raise ValueError("MetaDrive fuel proxy energy must be finite and non-negative")
-    return energy_ml
+    return executed_fuel_proxy_step_energy_ml(start_position, end_position, speed_mps)
 
 
 def execution_steps_from_config(config: Any) -> int:

@@ -23,6 +23,10 @@ from eco_planner.envs import (
     collate_observations,
 )
 from eco_planner.envs.array_types import SingleObservation
+from eco_planner.envs.metadrive.reward import (
+    PlannerRFTEnergyRewardAudit,
+    RewardProfileConfig,
+)
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl.rollout import (
     RolloutEpisode,
@@ -63,6 +67,7 @@ def collect_rollout_episode(
     policy_generator: torch.Generator | None = None,
     noise_seed: int | None = None,
     policy_action_seed: int | None = None,
+    reward_profile: RewardProfileConfig | None = None,
 ) -> RolloutEpisode:
     """Collect one bounded episode without reset, batching, artifacts, or policy updates."""
 
@@ -87,6 +92,7 @@ def collect_rollout_episode(
         observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
         map_query_radius_m=map_query_radius_m,
         history_warmup_steps=history_warmup_steps,
+        reward_profile=reward_profile,
     )
     resolved_noise_seed = runtime.noise_seed if noise_seed is None else _seed(noise_seed, "noise")
     resolved_policy_seed = (
@@ -126,6 +132,9 @@ def collect_rollout_episode(
                 stopped_speed_threshold_mps,
             )
             reward = float(execution.substep_rewards.sum())
+            dense_reward, terminal_override, energy_audit = _reward_audit_values(
+                execution, reward
+            )
             training_transitions.append(
                 build_training_transition(
                     training_decision,
@@ -147,16 +156,16 @@ def collect_rollout_episode(
                     diffusion_rng_state=audit_result.diffusion_rng_state,
                     policy_rng_state=audit_result.policy_rng_state,
                     reward=reward,
-                    dense_reward=float(execution.substep_dense_rewards.sum()),
-                    terminal_override=float(
-                        (execution.substep_rewards - execution.substep_dense_rewards).sum()
-                    ),
+                    dense_reward=dense_reward,
+                    terminal_override=terminal_override,
                     terminated=terminated,
                     truncated=truncated,
                     map_seed=spec.seed,
                     noise_seed=resolved_noise_seed,
                     policy_action_seed=resolved_policy_seed,
                     planning_cycle_index=cycle,
+                    reward_audit=energy_audit,
+                    crash_sidewalk=execution.crash_sidewalk,
                     **audit,
                 )
             )
@@ -220,6 +229,7 @@ class VectorRolloutCollector:
         history_warmup_steps: int,
         physical_slot_count: int | None = None,
         torch_threads_per_worker: int | None = None,
+        reward_profile: RewardProfileConfig | None = None,
     ) -> None:
         if not specs:
             raise ValueError("vector rollout requires at least one scenario")
@@ -246,6 +256,7 @@ class VectorRolloutCollector:
             history_warmup_steps=history_warmup_steps,
             scenarios=self._scenarios,
             torch_threads_per_worker=torch_threads_per_worker,
+            reward_profile=reward_profile,
         )
         self._close_finalizer = finalize(self, self._envs.close)
 
@@ -454,6 +465,7 @@ def _append_slot_transition(
     if execution.substep_states.shape[0] != 1:
         raise RuntimeError("rollout transition must execute exactly one substep")
     reward = float(execution.substep_rewards.sum())
+    dense_reward, terminal_override, energy_audit = _reward_audit_values(execution, reward)
     state.training.append(
         build_training_transition(
             decision.training_decision,
@@ -476,16 +488,16 @@ def _append_slot_transition(
             diffusion_rng_state=audit_result.diffusion_rng_state,
             policy_rng_state=audit_result.policy_rng_state,
             reward=reward,
-            dense_reward=float(execution.substep_dense_rewards.sum()),
-            terminal_override=float(
-                (execution.substep_rewards - execution.substep_dense_rewards).sum()
-            ),
+            dense_reward=dense_reward,
+            terminal_override=terminal_override,
             terminated=step.terminated,
             truncated=step.truncated,
             map_seed=state.spec.seed,
             noise_seed=state.noise_seed,
             policy_action_seed=state.policy_action_seed,
             planning_cycle_index=state.episode_cycle,
+            reward_audit=energy_audit,
+            crash_sidewalk=execution.crash_sidewalk,
             **_transition_audit(
                 execution,
                 state.previous_route_completion,
@@ -569,6 +581,7 @@ def collect_vector_rollout_episodes(
     noise_seeds: tuple[int, ...],
     policy_action_seeds: tuple[int, ...],
     timings: list[VectorRolloutRoundTiming] | None = None,
+    reward_profile: RewardProfileConfig | None = None,
 ) -> tuple[tuple[RolloutEpisode, ...], ...]:
     """Collect one PPO batch with a temporary vector worker pool.
 
@@ -583,6 +596,7 @@ def collect_vector_rollout_episodes(
         mode=mode,
         map_query_radius_m=map_query_radius_m,
         history_warmup_steps=history_warmup_steps,
+        reward_profile=reward_profile,
     ) as rollout_collector:
         return rollout_collector.collect(
             transitions_per_slot=transitions_per_slot,
@@ -634,6 +648,23 @@ def _transition_audit(
         "crash_building": execution.crash_building,
         "crash_human": execution.crash_human,
     }
+
+
+def _reward_audit_values(
+    execution: TrajectoryExecutionRecord, reward: float
+) -> tuple[float, float, PlannerRFTEnergyRewardAudit | None]:
+    if not execution.substep_reward_audits:
+        dense = float(execution.substep_dense_rewards.sum())
+        return dense, reward - dense, None
+    if len(execution.substep_reward_audits) != 1:
+        raise RuntimeError("rollout transition must expose exactly one reward audit")
+    audit = execution.substep_reward_audits[0]
+    if not isinstance(audit, PlannerRFTEnergyRewardAudit):
+        dense = float(execution.substep_dense_rewards.sum())
+        return dense, reward - dense, None
+    if not np.isclose(reward, audit.reward_total, rtol=0.0, atol=1e-12):
+        raise RuntimeError("environment reward disagrees with its PlannerRFT energy audit")
+    return audit.reward_ungated, audit.reward_total - audit.reward_ungated, audit
 
 
 def _seed(value: int, name: str) -> int:

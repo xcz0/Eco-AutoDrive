@@ -79,8 +79,12 @@ class FakeEnv:
             heading_errors_rad=np.zeros(5),
             substep_rewards=np.ones(5),
             substep_dense_rewards=np.ones(5),
-            substep_energy_ml=np.full(5, 0.1),
-            substep_episode_energy_ml=np.arange(start + 1, start + 6, dtype=np.float64) / 10.0,
+            substep_native_energy_ml=np.full(5, 0.1),
+            substep_native_episode_energy_ml=(
+                np.arange(start + 1, start + 6, dtype=np.float64) / 10.0
+            ),
+            substep_executed_fuel_proxy_energy_ml=np.full(5, 0.1),
+            substep_distance_m=np.full(5, 1.0),
             substep_terminated=np.array([False, False, False, False, terminated]),
             substep_truncated=np.zeros(5, dtype=np.bool_),
             traffic_frames=tuple(
@@ -327,7 +331,9 @@ def matrix_trace_arrays() -> dict[str, np.ndarray]:
     for index in range(4):
         warmup_execution = replace(
             execution,
-            substep_episode_energy_ml=execution.substep_episode_energy_ml + index * 0.5,
+            substep_native_episode_energy_ml=(
+                execution.substep_native_episode_energy_ml + index * 0.5
+            ),
         )
         recorder.append_warmup(
             warmup_execution,
@@ -346,7 +352,12 @@ def matrix_trace_arrays() -> dict[str, np.ndarray]:
             },
             batch_size=[1],
         ),
-        replace(execution, substep_episode_energy_ml=execution.substep_episode_energy_ml + 2.0),
+        replace(
+            execution,
+            substep_native_episode_energy_ml=(
+                execution.substep_native_episode_energy_ml + 2.0
+            ),
+        ),
         0,
         TrafficObservationAudit(("participant-000000",), 1, 0, 1.0),
     )

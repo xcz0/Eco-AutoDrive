@@ -240,19 +240,21 @@ def _energy_summary(trace_arrays: dict[str, np.ndarray]) -> dict[str, float | st
     states = trace_arrays["executed_states"]
     if not states.size:
         return None
-    step_energy_ml = trace_arrays["executed_step_energy_ml"]
-    episode_energy_ml = trace_arrays["executed_episode_energy_ml"]
+    native_step_energy_ml = trace_arrays["executed_native_step_energy_ml"]
+    native_episode_energy_ml = trace_arrays["executed_native_episode_energy_ml"]
+    step_energy_ml = trace_arrays["executed_fuel_proxy_step_energy_ml"]
+    step_distance_m = trace_arrays["executed_step_distance_m"]
     expected_shape = (states.shape[0],)
     for name, values in (
-        ("executed_step_energy_ml", step_energy_ml),
-        ("executed_episode_energy_ml", episode_energy_ml),
+        ("executed_native_step_energy_ml", native_step_energy_ml),
+        ("executed_native_episode_energy_ml", native_episode_energy_ml),
+        ("executed_fuel_proxy_step_energy_ml", step_energy_ml),
+        ("executed_step_distance_m", step_distance_m),
     ):
         if values.shape != expected_shape or not np.isfinite(values).all() or np.any(values < 0.0):
             raise RuntimeError(f"trace {name} must be finite, non-negative, and state-aligned")
-    positions = np.vstack((trace_arrays["initial_state"][None, :2], states[:, :2]))
-    distances_m = np.linalg.norm(np.diff(positions, axis=0), axis=1)
     total_ml = float(step_energy_ml.sum(dtype=np.float64))
-    distance_m = float(distances_m.sum())
+    distance_m = float(step_distance_m.sum(dtype=np.float64))
     return {
         "metric": "metadrive_fuel_proxy",
         "total_ml": total_ml,

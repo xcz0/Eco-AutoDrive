@@ -46,8 +46,10 @@ def _execution() -> TrajectoryExecutionRecord:
         heading_errors_rad=np.zeros(5),
         substep_rewards=np.ones(5),
         substep_dense_rewards=np.ones(5),
-        substep_energy_ml=np.zeros(5),
-        substep_episode_energy_ml=np.zeros(5),
+        substep_native_energy_ml=np.zeros(5),
+        substep_native_episode_energy_ml=np.zeros(5),
+        substep_executed_fuel_proxy_energy_ml=np.zeros(5),
+        substep_distance_m=np.zeros(5),
         substep_terminated=np.array([False, False, False, False, True]),
         substep_truncated=np.zeros(5, dtype=np.bool_),
         traffic_frames=tuple(
@@ -85,8 +87,8 @@ def test_trace_recorder_finalizes_stable_schema_once() -> None:
     assert arrays["observation_route_lanes_has_speed_limit"].dtype == np.bool_
     assert arrays["observation_neighbor_agents_past"].shape == (1, 32, 21, 11)
     assert arrays["executed_states"].shape == (5, 7)
-    np.testing.assert_array_equal(arrays["executed_step_energy_ml"], np.zeros(5))
-    np.testing.assert_array_equal(arrays["executed_episode_energy_ml"], np.zeros(5))
+    np.testing.assert_array_equal(arrays["executed_native_step_energy_ml"], np.zeros(5))
+    np.testing.assert_array_equal(arrays["executed_native_episode_energy_ml"], np.zeros(5))
     assert arrays["warmup_states"].shape == (0, 7)
     assert arrays["traffic_selected_ids"].shape == (1, 32)
     with pytest.raises(RuntimeError, match="already finalized"):

@@ -15,6 +15,10 @@ from pydantic import (
     model_validator,
 )
 
+from eco_planner.envs.metadrive.reward import (
+    MetaDriveBuiltinRewardConfig,
+    RewardProfileConfig,
+)
 from eco_planner.evaluation.config import ModelPathsConfig, ScenarioConfig
 from eco_planner.models import (
     OrthogonalPolicyGuidanceConfig,
@@ -132,22 +136,13 @@ class RolloutJobConfig(_StrictModel):
         return self
 
 
-class MetaDriveBuiltinRewardConfig(_StrictModel):
-    driving_reward: StrictFloat = Field(ge=0.0)
-    speed_reward: StrictFloat = Field(ge=0.0)
-    success_reward: StrictFloat = Field(ge=0.0)
-    out_of_road_penalty: StrictFloat = Field(ge=0.0)
-    crash_vehicle_penalty: StrictFloat = Field(ge=0.0)
-    crash_object_penalty: StrictFloat = Field(ge=0.0)
-    crash_sidewalk_penalty: StrictFloat = Field(ge=0.0)
-    use_lateral_reward: StrictBool
-
-
 class TrainingConfig(_StrictModel):
     """General closed-loop PPO run controls; smoke values live in YAML."""
 
     update_count: StrictInt = Field(gt=0)
     transitions_per_environment: StrictInt = Field(gt=0)
+    mode: Literal["no_traffic", "traffic"]
+    history_warmup_steps: StrictInt = Field(ge=0)
     replay_id: StrictInt = Field(ge=0)
     deterministic: StrictBool
     stopped_speed_threshold_mps: StrictFloat = Field(gt=0.0)
@@ -155,6 +150,14 @@ class TrainingConfig(_StrictModel):
     boundary_sample_count: StrictInt = Field(gt=0)
     diagnostic_seed: StrictInt = Field(ge=0)
     resume_checkpoint_path: str | None = None
+
+    @model_validator(mode="after")
+    def validate_training_mode(self) -> TrainingConfig:
+        if self.mode == "no_traffic" and self.history_warmup_steps != 0:
+            raise ValueError("no-traffic training requires zero history warmup steps")
+        if self.mode == "traffic" and self.history_warmup_steps != 20:
+            raise ValueError("traffic training requires exactly 20 history warmup steps")
+        return self
 
 
 class RLTrainingJobConfig(_StrictModel):
@@ -167,7 +170,7 @@ class RLTrainingJobConfig(_StrictModel):
     sampler: SamplerConfig
     guidance: OrthogonalPolicyGuidanceConfig
     policy: ExplorationPolicyConfig
-    reward: MetaDriveBuiltinRewardConfig
+    reward: RewardProfileConfig
     rl: PPOConfig
     resources: ResourceProfileConfig
     scenarios: tuple[ScenarioConfig, ...]
@@ -177,18 +180,26 @@ class RLTrainingJobConfig(_StrictModel):
         if not self.scenarios:
             raise ValueError("training requires at least one scenario")
         _validate_rollout_environment(self.env, 0, self.training.transitions_per_environment)
-        for name in (
-            "driving_reward",
-            "speed_reward",
-            "success_reward",
-            "out_of_road_penalty",
-            "crash_vehicle_penalty",
-            "crash_object_penalty",
-            "crash_sidewalk_penalty",
-            "use_lateral_reward",
-        ):
-            if self.env.get(name) != getattr(self.reward, name):
-                raise ValueError(f"env.{name} must equal the selected reward profile")
+        if isinstance(self.reward, MetaDriveBuiltinRewardConfig):
+            conflicting = {
+                name
+                for name in (
+                    "driving_reward",
+                    "speed_reward",
+                    "success_reward",
+                    "out_of_road_penalty",
+                    "crash_vehicle_penalty",
+                    "crash_object_penalty",
+                    "crash_sidewalk_penalty",
+                    "use_lateral_reward",
+                )
+                if name in self.env and self.env[name] != getattr(self.reward, name)
+            }
+            if conflicting:
+                raise ValueError(
+                    "env reward fields conflict with the selected reward profile: "
+                    f"{sorted(conflicting)}"
+                )
         sample_count = len(self.scenarios) * self.training.transitions_per_environment
         if self.rl.batch_size != sample_count:
             raise ValueError("rl.batch_size must equal all closed-loop transitions per update")

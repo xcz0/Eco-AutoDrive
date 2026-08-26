@@ -5,10 +5,12 @@ import pytest
 import torch
 from tensordict import TensorDictBase
 
+from eco_planner.envs.metadrive.reward import PlannerRFTEnergyRewardAudit
 from eco_planner.rl.artifacts import write_rollout_episode
 from eco_planner.rl.policy import ExplorationPolicyContext
 from eco_planner.rl.rollout import (
     AUDIT_FIELD_KEYS,
+    ENERGY_REWARD_AUDIT_FIELD_KEYS,
     build_rollout_audit,
     build_training_decision,
     build_training_transition,
@@ -131,6 +133,7 @@ def test_complete_rollout_artifact_uses_the_audit_tensor_dict(tmp_path) -> None:
     with np.load(path, allow_pickle=False) as arrays:
         assert set(arrays.files) == {
             *AUDIT_FIELD_KEYS,
+            "reward_profile",
             "tail_kind",
             "tail_bootstrap_value",
         }
@@ -146,6 +149,91 @@ def test_complete_rollout_artifact_uses_the_audit_tensor_dict(tmp_path) -> None:
         ):
             assert arrays[name].dtype == np.bool_
             assert not arrays[name].item()
+
+
+def test_energy_rollout_artifact_preserves_components_and_raw_proxy_quantities(
+    tmp_path,
+) -> None:
+    training, _ = _transitions()
+    context = _context()
+    component = PlannerRFTEnergyRewardAudit(
+        profile_name="plannerrft_energy_v1",
+        reward_total=0.25,
+        reward_ungated=0.5,
+        reward_gate=0.5,
+        collision_score=1.0,
+        drivable_score=1.0,
+        wrong_direction_score=0.5,
+        ttc_score=0.25,
+        progress_score=1.0,
+        comfort_score=0.0,
+        speed_score=1.0,
+        energy_score=0.4,
+        has_ttc_candidate=True,
+        min_ttc_s=1.75,
+        route_progress_delta_m=1.0,
+        speed_mps=10.0,
+        speed_limit_mps=13.0,
+        overspeed_mps=0.0,
+        longitudinal_acceleration_mps2=2.0,
+        lateral_acceleration_mps2=1.0,
+        jerk_mps3=4.0,
+        yaw_rate_radps=0.1,
+        step_distance_m=1.0,
+        native_step_energy_ml=0.0,
+        native_episode_energy_ml=0.0,
+        executed_fuel_proxy_step_energy_ml=0.05,
+        executed_fuel_proxy_ml_per_km=50.0,
+        energy_distance_valid=True,
+    )
+    audit = build_rollout_audit(
+        policy_context=context,
+        base_action=torch.tensor([[0.25, 0.75]], dtype=torch.float32),
+        guidance_action=torch.tensor([[-0.5, 0.5]], dtype=torch.float32),
+        old_joint_guidance_log_prob=torch.tensor([0.5]),
+        state_value=torch.tensor([1.0]),
+        beta_alpha=torch.full((1, 2), 2.0),
+        beta_beta=torch.full((1, 2), 2.0),
+        initial_noise=torch.zeros((1, 11, 80, 4)),
+        diffusion_rng_state=torch.ones(5, dtype=torch.uint8),
+        policy_rng_state=torch.ones(5, dtype=torch.uint8),
+        reward=0.25,
+        dense_reward=0.5,
+        terminal_override=-0.25,
+        route_completion_delta=0.01,
+        distance_m=1.0,
+        speed_mps=10.0,
+        stopped=False,
+        position_error_m=0.0,
+        heading_error_rad=0.0,
+        arrive_dest=False,
+        out_of_road=False,
+        crash_vehicle=False,
+        crash_object=False,
+        crash_building=False,
+        crash_human=False,
+        terminated=False,
+        truncated=False,
+        map_seed=0,
+        noise_seed=1,
+        policy_action_seed=2,
+        planning_cycle_index=0,
+        reward_audit=component,
+    )
+    episode = finalize_rollout_episode([training], [audit], "rollout_limit", torch.zeros(1))
+    path = tmp_path / "energy-episode.npz"
+    write_rollout_episode(path, episode)
+
+    with np.load(path, allow_pickle=False) as arrays:
+        assert set(arrays.files) == {
+            *ENERGY_REWARD_AUDIT_FIELD_KEYS,
+            "reward_profile",
+            "tail_kind",
+            "tail_bootstrap_value",
+        }
+        assert arrays["reward_profile"].item() == "plannerrft_energy_v1"
+        assert arrays["executed_fuel_proxy_ml_per_km"].item() == pytest.approx(50.0)
+        assert arrays["energy_distance_valid"].item()
 
 
 def test_rollout_validates_complete_audit_at_the_episode_boundary() -> None:

@@ -266,8 +266,10 @@ def _execution_arrays(execution: TrajectoryExecutionRecord) -> dict[str, np.ndar
     return {
         "states": execution.substep_states,
         "rewards": execution.substep_rewards,
-        "step_energy_ml": execution.substep_energy_ml,
-        "episode_energy_ml": execution.substep_episode_energy_ml,
+        "native_step_energy_ml": execution.substep_native_energy_ml,
+        "native_episode_energy_ml": execution.substep_native_episode_energy_ml,
+        "fuel_proxy_step_energy_ml": execution.substep_executed_fuel_proxy_energy_ml,
+        "step_distance_m": execution.substep_distance_m,
         "terminated": execution.substep_terminated,
         "truncated": execution.substep_truncated,
     }

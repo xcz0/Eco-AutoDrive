@@ -182,7 +182,9 @@ policy action generator 不得改变 PyTorch 全局 RNG，且与 map/noise seed 
 
 rollout 使用独立的 single-device Fabric runtime 和 `guidance=orthogonal_policy`。训练在 update loop 前创建固定物理 slot 的 collector，其 MetaDrive worker pool 在整个 training run 内复用并在 collector 生命周期结束时关闭。逻辑 scenario 数和 `transitions_per_environment` 决定 PPO batch；resource profile 的 `rollout_worker_count` 只决定同时运行的物理 slots。当逻辑 scenarios 多于物理 slots 时，collector 按确定性 wave 复用 worker，并保留每个逻辑 slot 自己的 noise/action generator、seed 和 episode 边界；map 改变时 worker 在同一进程中重建对应环境。每个 PPO update 仍从所有逻辑 scenarios 收集完整 batch。每个 planning round collate 当前 wave observations，执行一次 batched inference，再把 ego trajectory scatter 回对应 worker；一个 transition 先准备冻结 scene/navigation encoding 与 DDIM reference，以独立 policy generator 抽取 `rsample`，再用同一份 encoding、initial noise 与 DDIM transition randomness 完成 guided pass。planner 保持 eval/frozen；普通 evaluation 和固定 action guidance 路径不变。
 
-collector 为每个 slot episode 构造两个按时间维组织的 TensorDict。每个 slot 维持独立、持久的 noise/action generator；episode terminal 或 truncation 只 reset 该 slot，且 GAE 不跨其 episode boundary。PPO training trajectory 在 root 保存 policy context、guidance action、old transformed joint log-prob 与当前 value；在 `next` 保存 reward、done、terminated、truncated 与 next state value。下一次已生成的 policy decision 直接链接前一 transition 的 next state value，episode tail 才注入显式 bootstrap value；已脱离计算图的 PPO fields 在其收集设备上保留至 PPO update。CPU audit/replay trajectory 保留 policy context、base/guidance action、old transformed joint log-prob/value、Beta 参数、initial noise、消费前 diffusion/policy RNG state、map/noise/policy seed、planning-cycle index、reward/audit 以及 terminated/truncated。training 与 audit 在 episode 收集完成时分别按各自 schema 校验，不做逐字段运行时 equality audit。rollout 每次决策只同步复制供 MetaDrive 执行的 ego trajectory；其余 audit/replay 字段在 simulator step 后经独立 CUDA transfer stream 等待并写入，且其 CPU copy 不决定 training trajectory 的设备生命周期。rollout 必须设置`trajectory_execution_steps=1`；evaluation config 要求 5。不保存 DDIM denoise chain。纯 truncation 与 rollout-limit tail 通过同一 batched bootstrap pass 保存各 slot 最终状态的冻结 critic value；terminal tail 保存零。
+collector 为每个 slot episode 构造两个按时间维组织的 TensorDict。每个 slot 维持独立、持久的 noise/action generator；episode terminal 或 truncation 只 reset 该 slot，且 GAE 不跨其 episode boundary。PPO training trajectory 在 root 保存 policy context、guidance action、old transformed joint log-prob 与当前 value；在 `next` 保存最终 scalar reward、done、terminated、truncated 与 next state value。下一次已生成的 policy decision 直接链接前一 transition 的 next state value，episode tail 才注入显式 bootstrap value；已脱离计算图的 PPO fields 在其收集设备上保留至 PPO update。CPU audit/replay trajectory 保留 policy context、base/guidance action、old transformed joint log-prob/value、Beta 参数、initial noise、消费前 diffusion/policy RNG state、map/noise/policy seed、planning-cycle index、profile-specific reward audit 以及 terminated/truncated。training 与 audit 在 episode 收集完成时分别按各自 schema 校验，不做逐字段运行时 equality audit。rollout 每次决策只同步复制供 MetaDrive 执行的 ego trajectory；其余 audit/replay 字段在 simulator step 后经独立 CUDA transfer stream 等待并写入，且其 CPU copy 不决定 training trajectory 的设备生命周期。rollout 必须设置`trajectory_execution_steps=1`；evaluation config 要求 5。不保存 DDIM denoise chain。纯 truncation 与 rollout-limit tail 通过同一 batched bootstrap pass 保存各 slot 最终状态的冻结 critic value；terminal tail 保存零。
+
+训练 reward 配置是以 `name` 判别、`extra="forbid"` 的严格联合。`metadrive_builtin_v1` 保留 MetaDrive 原有 dense reward、terminal override 和最终数值语义。`plannerrft_energy_v1` 在 `TrajectoryMetaDriveEnv` 的每个实际 10 Hz execution 子步评分；serial slot 与 TorchRL vector worker 接收同一 typed profile，不在 trainer 或 collector 隐藏阈值。其 gate 为 collision、当前 `out_of_road` 与当前 route/reference lane 前向切线的 wrong-direction 判定之积；collision 覆盖 vehicle、object、building、human 和 sidewalk。未 gated 的 component 为 TTC、非负 route-lane 纵向 progress、实际执行 velocity/acceleration/yaw-rate 得到的 comfort、当前 lane speed limit 下的 speed，以及 execution trace 重算 fuel proxy 得到的 energy。全部阈值、权重、归一化尺度和 corridor margin 来自 resolved reward profile；具体 MetaDrive adaptation 见 ADR 0024。PPO/GAE 只接收 gate 后 scalar reward，不接收 component tensor。
 
 ## GAE、PPO 与训练
 
@@ -192,7 +194,7 @@ TorchRL `GAE` 产生未标准化 advantage 与 value target。多个 episode 仅
 
 可 sweep 的训练参数由 `RLTrainingJobConfig` 和 YAML profile 决定；PPO 固定使用完整 batch advantage normalization、unclipped L2 value loss、Adam 与 cosine scheduler。每个逻辑 slot 拥有独立、持久的 diffusion noise 与 policy action generator；实际 seeds 由固定 SeedSequence namespace 和 training seed 确定性派生。训练状态 checkpoint 使用 Fabric 保存 policy、optimizer、scheduler、PPO minibatch replay sampler/RNG state、CPU/CUDA RNG 以及已完成 update 的 loop state，可从 checkpoint 恢复。训练前后冻结 planner 参数 hash 必须相同，只有 Exploration Policy 可被 optimizer 更新。
 
-RL 训练输出与 evaluation 输出使用各自独立的数据边界。每个训练 episode 的 NPZ 在输出边界由 TensorDict 转换，并保存完整、统一定义的 rollout audit 字段集合：policy context、Beta 参数、base/guidance action、old log-prob/value、initial noise、两条 RNG state、reward/audit、`terminated`、`truncated`、`arrive_dest`、`out_of_road`、`crash_vehicle`、`crash_object`、`crash_building`、`crash_human` 和 seeds；不保存 DDIM denoise chain。每次运行保存 resolved config、runtime metadata、tracked diff、policy export checkpoints、training-state checkpoint 和严格 summary。`configs/resources/` 的版本化 profile 是 host scheduling 的唯一配置层：resolved config 保存完整 profile，runtime metadata 保存所选 profile 与实际 execution report；它不得覆盖 PPO、reward、sampler 或 guidance 字段。rollout 内部错误直接终止训练，不保存 partial trajectory。
+RL 训练输出与 evaluation 输出使用各自独立的数据边界。每个训练 episode 的 NPZ 在输出边界由 TensorDict 转换，并保存严格的 profile-specific 字段集合。`metadrive_builtin_v1` 保留既有 dense/terminal audit；`plannerrft_energy_v1` 另存 gate、全部 component score、TTC/progress/comfort/speed/energy 原始量、五类 collision、termination、native MetaDrive energy、execution fuel proxy、step distance、mL/km 与 denominator-valid。两种 schema 都保存 policy context、Beta 参数、base/guidance action、old log-prob/value、initial noise、两条 RNG state、reward、episode status 和 seeds，不保存 DDIM denoise chain。每次 update summary 保存 reward profile；energy profile 还聚合 native step energy、execution fuel proxy 总量/里程强度和 component means。每次运行保存 resolved config、runtime metadata、tracked diff、policy export checkpoints、training-state checkpoint 和严格 summary。`configs/resources/` 的版本化 profile 是 host scheduling 的唯一配置层：resolved config 保存完整 profile，runtime metadata 保存所选 profile 与实际 execution report；它不得覆盖 PPO、reward、sampler 或 guidance 字段。rollout 内部错误直接终止训练，不保存 partial trajectory。
 
 ## 轨迹执行
 
@@ -202,24 +204,26 @@ RL 训练输出与 evaluation 输出使用各自独立的数据边界。每个�
 
 该接口不生成 steering、throttle 或 brake，也不证明低层车辆动力学可执行性。原始轨迹必须原样执行和保存；不得平滑、裁剪、限幅、旋转、投影到中心线、选择最佳噪声 seed、切换回退控制器，或在异常时返回零轨迹。
 
-`TrajectoryMetaDriveEnv.step` 在环境边界直接用本次执行缓冲、交通快照和 MetaDrive 终止字段构造不可变的 `TrajectoryExecutionRecord`，并通过 `info["trajectory_execution"]` 返回；不再先展开为逐字段 `info` 数组后由调用方二次解析。数组的 shape/dtype 由固定容量执行缓冲、jaxtyping 接口契约和 producer 测试保证；evaluation、RL、trace、rendering 和 summary 组件只消费该 record，不读取原始轨迹字段。
+`TrajectoryMetaDriveEnv.step` 在环境边界直接用本次执行缓冲、交通快照、typed per-substep reward audit 和 MetaDrive 终止字段构造不可变的 `TrajectoryExecutionRecord`，并通过 `info["trajectory_execution"]` 返回；不再先展开为逐字段 `info` 数组后由调用方二次解析。record 中 `substep_native_energy_ml` / `substep_native_episode_energy_ml` 与 `substep_executed_fuel_proxy_energy_ml` / `substep_distance_m` 是不同数据流。数组的 shape/dtype 由固定容量执行缓冲、jaxtyping 接口契约和 producer 测试保证；evaluation、RL、trace、rendering 和 summary 组件只消费该 record，不读取原始轨迹字段，也不二次实现 reward 或 fuel 公式。
 
 ## 能耗记录
 
 * 每种能耗指标使用独立名称、单位和累计边界。
-* `metadrive_fuel_proxy` 的原始值由每个实际执行 0.1 s 子步的 MetaDrive `step_energy` 记录一次；summary 的 `total_ml` 仅对 trace 中的 `executed_step_energy_ml` 聚合，不得重新执行公式或改用其他能耗流。trace 同时保存累计的 `executed_episode_energy_ml`（mL），仅作累积边界审计；不同指标或累计边界不得静默互换。
+* MetaDrive native audit 直接保存上游每个 simulator 子步产生的 `step_energy` 和 reset-bounded `episode_energy`，单位均为 mL；execution record 使用 `substep_native_*`，evaluation trace 使用 `warmup_native_*` / `executed_native_*`。当前 kinematic waypoint phase ordering 下这些值可能恒为零，只能审计上游 phase boundary，不进入 reward 或 evaluation energy summary。
+* `metadrive_fuel_proxy` 在 environment execution boundary 使用相邻实际 center position、实际执行速度和 MetaDrive 原公式逐子步重算；保存为 `*_fuel_proxy_step_energy_ml` 与配套 `*_step_distance_m`。evaluation summary 的 `total_ml`、`distance_m` 和 `ml_per_km` 只聚合 trace 中该重算流，不得重算公式或改用 native 流。
+* `plannerrft_energy_v1` 对位移小于 reward profile `minimum_step_distance_m` 的子步保存 denominator-valid=false、mL/km=0、energy score=0；有效子步使用 `exp(-ml_per_km / reference_ml_per_km)`。该 denominator 判定是 reward 子步契约，不改变 episode summary 对总 execution distance 的分母。
 * 该指标记录 `total_ml`、`distance_m` 和 `ml_per_km`，后者在零距离时为 null。失败回合若存在 partial trace 也记录已产生的能耗；空 trace 没有能耗值。
 * MetaDrive 代理能耗与 FASTSim 等精细模型不得混用。
 * 能耗结果必须关联实际执行 trace、采样间隔、车辆配置、场景特征和终止类型。
 * 程序化地图没有原生坡度时不得假设高程信息。
-* 结果必须明确限定在运动学执行条件；当前系统不定义最终奖励或优化目标。
+* 结果必须明确限定在运动学执行条件；`plannerrft_energy_v1` 是 smoke-only PlannerRFT-style MetaDrive adaptation，不代表 PlannerRFT/nuPlan scorer parity、真实车辆舒适性或已验证的节能目标。
 * 若 completed episode 的执行距离为零，`ml_per_km` 为 null；固定 matrix 不对该未定义指标 bootstrap，而是明确失败。
 
 ## 评测与产物
 
 每个评测作业必须保存 resolved config、Hydra overrides、runtime Git metadata、tracked diff、地图/场景 seed、噪声 seed、Fabric 请求与解析后的 accelerator/precision、实际设备、依赖环境和场景特征。`tracked_diff.patch` 必须存在，但干净工作区时允许为空。
 
-每个回合至少保存 `summary.json` 和 `trace.npz`；开启视频时保存闭环 GIF。trace 必须包含 raw observation、初始噪声、完整联合预测、规划锚点、目标与实际状态、逐点误差、奖励、逐子步 MetaDrive `step_energy`/`episode_energy`、终止标志；交通回合还保存预热、对象 ID、交通数量、最近交通距离和历史有效性。
+每个回合至少保存 `summary.json` 和 `trace.npz`；开启视频时保存闭环 GIF。trace 必须包含 raw observation、初始噪声、完整联合预测、规划锚点、目标与实际状态、逐点误差、奖励、逐子步 native MetaDrive energy、execution-recomputed fuel proxy、实际 distance 和终止标志；交通回合还保存预热、对象 ID、交通数量、最近交通距离和历史有效性。
 
 trace recorder 必须在回合开始时按最大 planning/warmup 容量，根据当前 trace field contract 预分配数组并直接写入槽位；`finalize()` 只暴露已记录切片。`trace.npz` 使用标准未压缩 NPZ，以降低长程写盘墙钟。
 

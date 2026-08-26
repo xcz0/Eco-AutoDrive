@@ -79,11 +79,12 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
         config.scenarios,
         runtime,
         config.env,
-        mode="no_traffic",
+        mode=config.training.mode,
         map_query_radius_m=config.map_query_radius_m,
-        history_warmup_steps=0,
+        history_warmup_steps=config.training.history_warmup_steps,
         physical_slot_count=config.resources.rollout_worker_count,
         torch_threads_per_worker=config.resources.torch_threads_per_worker,
+        reward_profile=config.reward,
     ) as rollout_collector:
         for update_index in range(start_update, config.training.update_count):
             update_episodes: list[RolloutEpisode] = []
@@ -187,6 +188,7 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
         probe_before=probe_before,
         probe_after=probe_after,
         updates=tuple(update_summaries),
+        reward_profile=config.reward.name,
     )
     write_json(output_dir / "summary.json", summary)
     write_training_runtime_metadata(output_dir / "runtime_metadata.json", runtime, config.resources)

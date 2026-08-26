@@ -18,6 +18,7 @@ from torchrl.envs import ParallelEnv
 from eco_planner.envs.array_types import SingleObservation
 from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
 from eco_planner.envs.metadrive.observation import TrafficObservationAudit
+from eco_planner.envs.metadrive.reward import RewardProfileConfig
 from eco_planner.envs.metadrive.slot import MetaDriveEnvSlot, ObservationMode
 from eco_planner.envs.observation import PlannerObservationSpec
 from eco_planner.envs.torchrl.adapter import TorchRLMetaDriveEnv
@@ -211,6 +212,7 @@ class VectorMetaDriveEnv:
         history_warmup_steps: int,
         scenarios: Sequence[VectorEnvScenario],
         torch_threads_per_worker: int | None = None,
+        reward_profile: RewardProfileConfig | None = None,
     ) -> None:
         _validate_configuration(
             env_configs,
@@ -246,6 +248,7 @@ class VectorMetaDriveEnv:
             float(map_query_radius_m),
             history_warmup_steps,
             self._scenarios,
+            reward_profile,
         )
         self._env = ParallelEnv(
             self._num_envs,
@@ -458,6 +461,7 @@ def _make_torchrl_scenario_env(
     map_query_radius_m: float,
     history_warmup_steps: int,
     scenarios: tuple[VectorEnvScenario, ...],
+    reward_profile: RewardProfileConfig | None,
 ) -> _TorchRLScenarioMetaDriveEnv:
     scenario = scenarios[0]
     slot = MetaDriveEnvSlot(
@@ -466,6 +470,7 @@ def _make_torchrl_scenario_env(
         observation_spec=observation_spec,
         map_query_radius_m=map_query_radius_m,
         history_warmup_steps=history_warmup_steps,
+        reward_profile=reward_profile,
     )
     return _TorchRLScenarioMetaDriveEnv(
         slot,
