@@ -91,11 +91,21 @@ evaluate-matrix mode="traffic" *overrides:
 energy output_root *options:
     {{python}} scripts/energy_matrix.py --output-root "{{output_root}}" {{options}}
 
+# Audit fixed synthetic PlannerRFT-style reward cases without running PPO.
+[group('evaluation')]
+reward-sanity output_root config="configs/matrices/reward_sanity.yaml":
+    {{python}} scripts/reward_sanity.py --config "{{config}}" --output-root "{{output_root}}"
+
 
 # Run one training profile with explicit seed and replay identity.
 [group('training')]
 train profile="ppo_smoke" seed="0" replay="0" *overrides:
     {{python}} scripts/train.py --config-name jobs/training/{{profile}} runtime.seed={{seed}} training.replay_id={{replay}} {{overrides}}
+
+# Run the matched builtin/energy PPO A/B and produce a pending human-review report.
+[group('training')]
+ppo-reward-ab output_root matrix="configs/matrices/ppo_reward_ab.yaml":
+    {{python}} scripts/ppo_reward_ab.py --matrix "{{matrix}}" --output-root "{{output_root}}"
 
 
 # Run one reusable benchmark profile.
@@ -116,3 +126,7 @@ summarize-matrix root *options:
 [group('analysis')]
 summarize-training root:
     {{python}} scripts/summarize_training.py "{{root}}"
+
+[group('analysis')]
+review-ppo-reward-ab root:
+    {{python}} scripts/summarize_ppo_reward_ab.py "{{root}}"

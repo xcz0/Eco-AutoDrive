@@ -8,7 +8,10 @@ from typing import Literal
 import torch
 from tensordict import TensorDict, TensorDictBase
 
-from eco_planner.envs.metadrive.reward import PlannerRFTEnergyRewardAudit
+from eco_planner.envs.metadrive.reward import (
+    PlannerRFTEnergyRewardAudit,
+    RewardAudit,
+)
 from eco_planner.rl.policy import ExplorationPolicyContext
 
 TailKind = Literal["terminated", "truncated", "rollout_limit"]
@@ -64,16 +67,22 @@ AUDIT_FIELD_KEYS: tuple[str, ...] = (
     "crash_object",
     "crash_building",
     "crash_human",
+    "crash_sidewalk",
     "terminated",
     "truncated",
     "map_seed",
     "noise_seed",
     "policy_action_seed",
     "planning_cycle_index",
+    "step_distance_m",
+    "native_step_energy_ml",
+    "native_episode_energy_ml",
+    "executed_fuel_proxy_step_energy_ml",
+    "executed_fuel_proxy_ml_per_km",
+    "energy_distance_valid",
 )
 ENERGY_REWARD_AUDIT_FIELD_KEYS: tuple[str, ...] = (
     *AUDIT_FIELD_KEYS,
-    "crash_sidewalk",
     "reward_gate",
     "collision_score",
     "drivable_score",
@@ -92,12 +101,6 @@ ENERGY_REWARD_AUDIT_FIELD_KEYS: tuple[str, ...] = (
     "lateral_acceleration_mps2",
     "jerk_mps3",
     "yaw_rate_radps",
-    "step_distance_m",
-    "native_step_energy_ml",
-    "native_episode_energy_ml",
-    "executed_fuel_proxy_step_energy_ml",
-    "executed_fuel_proxy_ml_per_km",
-    "energy_distance_valid",
 )
 
 
@@ -216,7 +219,7 @@ def build_rollout_audit(
     noise_seed: int,
     policy_action_seed: int,
     planning_cycle_index: int,
-    reward_audit: PlannerRFTEnergyRewardAudit | None = None,
+    reward_audit: RewardAudit,
     crash_sidewalk: bool = False,
 ) -> TensorDictBase:
     """Build one CPU audit transition; validate it when the episode closes."""
@@ -251,19 +254,29 @@ def build_rollout_audit(
         "crash_object": _bool(crash_object),
         "crash_building": _bool(crash_building),
         "crash_human": _bool(crash_human),
+        "crash_sidewalk": _bool(crash_sidewalk),
         "terminated": _bool(terminated),
         "truncated": _bool(truncated),
         "map_seed": _integer(map_seed),
         "noise_seed": _integer(noise_seed),
         "policy_action_seed": _integer(policy_action_seed),
         "planning_cycle_index": _integer(planning_cycle_index),
+        "step_distance_m": _float(reward_audit.step_distance_m),
+        "native_step_energy_ml": _float(reward_audit.native_step_energy_ml),
+        "native_episode_energy_ml": _float(reward_audit.native_episode_energy_ml),
+        "executed_fuel_proxy_step_energy_ml": _float(
+            reward_audit.executed_fuel_proxy_step_energy_ml
+        ),
+        "executed_fuel_proxy_ml_per_km": _float(
+            reward_audit.executed_fuel_proxy_ml_per_km
+        ),
+        "energy_distance_valid": _bool(reward_audit.energy_distance_valid),
     }
-    if reward_audit is not None:
-        if reward != reward_audit.reward_total:
-            raise ValueError("rollout reward must equal the PlannerRFT energy audit total")
+    if reward != reward_audit.reward_total:
+        raise ValueError("rollout reward must equal its typed environment reward audit")
+    if isinstance(reward_audit, PlannerRFTEnergyRewardAudit):
         payload.update(
             {
-                "crash_sidewalk": _bool(crash_sidewalk),
                 "reward_gate": _float(reward_audit.reward_gate),
                 "collision_score": _float(reward_audit.collision_score),
                 "drivable_score": _float(reward_audit.drivable_score),
@@ -286,16 +299,6 @@ def build_rollout_audit(
                 ),
                 "jerk_mps3": _float(reward_audit.jerk_mps3),
                 "yaw_rate_radps": _float(reward_audit.yaw_rate_radps),
-                "step_distance_m": _float(reward_audit.step_distance_m),
-                "native_step_energy_ml": _float(reward_audit.native_step_energy_ml),
-                "native_episode_energy_ml": _float(reward_audit.native_episode_energy_ml),
-                "executed_fuel_proxy_step_energy_ml": _float(
-                    reward_audit.executed_fuel_proxy_step_energy_ml
-                ),
-                "executed_fuel_proxy_ml_per_km": _float(
-                    reward_audit.executed_fuel_proxy_ml_per_km
-                ),
-                "energy_distance_valid": _bool(reward_audit.energy_distance_valid),
             }
         )
     return TensorDict(payload, batch_size=[1])

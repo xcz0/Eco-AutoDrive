@@ -5,9 +5,13 @@ import pytest
 import torch
 from tensordict import TensorDictBase
 
-from eco_planner.envs.metadrive.reward import PlannerRFTEnergyRewardAudit
-from eco_planner.rl.artifacts import write_rollout_episode
+from eco_planner.envs.metadrive.reward import (
+    MetaDriveBuiltinRewardAudit,
+    PlannerRFTEnergyRewardAudit,
+)
+from eco_planner.rl.artifacts import build_update_summary, write_rollout_episode
 from eco_planner.rl.policy import ExplorationPolicyContext
+from eco_planner.rl.ppo import PPOUpdateReport
 from eco_planner.rl.rollout import (
     AUDIT_FIELD_KEYS,
     ENERGY_REWARD_AUDIT_FIELD_KEYS,
@@ -26,6 +30,21 @@ def _context() -> ExplorationPolicyContext:
         navigation_tokens=torch.zeros((1, 1, 4), dtype=torch.float32),
         navigation_padding_mask=torch.zeros((1, 1), dtype=torch.bool),
         reference_trajectory=torch.zeros((1, 80, 4), dtype=torch.float32),
+    )
+
+
+def _builtin_audit(reward: float = 0.25) -> MetaDriveBuiltinRewardAudit:
+    return MetaDriveBuiltinRewardAudit(
+        profile_name="metadrive_builtin_v1",
+        reward_total=reward,
+        dense_reward=reward,
+        terminal_override=0.0,
+        step_distance_m=1.0,
+        native_step_energy_ml=0.0,
+        native_episode_energy_ml=0.0,
+        executed_fuel_proxy_step_energy_ml=0.05,
+        executed_fuel_proxy_ml_per_km=50.0,
+        energy_distance_valid=True,
     )
 
 
@@ -76,6 +95,7 @@ def _transitions(
         noise_seed=1,
         policy_action_seed=2,
         planning_cycle_index=index,
+        reward_audit=_builtin_audit(),
     )
     return training, audit
 
@@ -146,6 +166,7 @@ def test_complete_rollout_artifact_uses_the_audit_tensor_dict(tmp_path) -> None:
             "crash_object",
             "crash_building",
             "crash_human",
+            "crash_sidewalk",
         ):
             assert arrays[name].dtype == np.bool_
             assert not arrays[name].item()
@@ -234,6 +255,32 @@ def test_energy_rollout_artifact_preserves_components_and_raw_proxy_quantities(
         assert arrays["reward_profile"].item() == "plannerrft_energy_v1"
         assert arrays["executed_fuel_proxy_ml_per_km"].item() == pytest.approx(50.0)
         assert arrays["energy_distance_valid"].item()
+
+
+def test_builtin_update_summary_uses_the_common_execution_fuel_proxy() -> None:
+    training, audit = _transitions()
+    episode = finalize_rollout_episode([training], [audit], "rollout_limit", torch.zeros(1))
+    report = PPOUpdateReport(
+        sample_count=1,
+        optimizer_step_count=1,
+        mean_policy_loss=0.0,
+        mean_value_loss=0.0,
+        mean_entropy_loss=0.0,
+        mean_total_loss=0.0,
+        mean_approximate_kl=0.0,
+        mean_clip_fraction=0.0,
+        mean_entropy=0.0,
+        mean_explained_variance=0.0,
+        maximum_pre_clip_gradient_norm=1.0,
+        final_learning_rate=1e-4,
+    )
+
+    summary = build_update_summary(0, (episode,), report)
+
+    assert summary.reward_profile == "metadrive_builtin_v1"
+    assert summary.executed_fuel_proxy_total_ml == pytest.approx(0.05)
+    assert summary.executed_fuel_proxy_ml_per_km == pytest.approx(50.0)
+    assert summary.reward_component_means is None
 
 
 def test_rollout_validates_complete_audit_at_the_episode_boundary() -> None:

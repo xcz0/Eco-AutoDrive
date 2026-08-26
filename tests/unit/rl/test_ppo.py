@@ -4,6 +4,7 @@ import pytest
 import torch
 from tensordict import TensorDict
 
+from eco_planner.envs.metadrive.reward import MetaDriveBuiltinRewardAudit
 from eco_planner.rl.config import PPOConfig
 from eco_planner.rl.distributions import AffineBeta
 from eco_planner.rl.policy import ExplorationPolicy, ExplorationPolicyContext
@@ -49,6 +50,21 @@ def _context(hidden_dim: int) -> ExplorationPolicyContext:
         navigation_tokens=torch.zeros((1, 1, hidden_dim)),
         navigation_padding_mask=torch.zeros((1, 1), dtype=torch.bool),
         reference_trajectory=torch.zeros((1, 80, 4)),
+    )
+
+
+def _builtin_audit(reward: float) -> MetaDriveBuiltinRewardAudit:
+    return MetaDriveBuiltinRewardAudit(
+        profile_name="metadrive_builtin_v1",
+        reward_total=reward,
+        dense_reward=reward,
+        terminal_override=0.0,
+        step_distance_m=1.0,
+        native_step_energy_ml=0.0,
+        native_episode_energy_ml=0.0,
+        executed_fuel_proxy_step_energy_ml=0.05,
+        executed_fuel_proxy_ml_per_km=50.0,
+        energy_distance_valid=True,
     )
 
 
@@ -110,6 +126,7 @@ def _episode(policy: ExplorationPolicy):
                 noise_seed=1,
                 policy_action_seed=2,
                 planning_cycle_index=index,
+                reward_audit=_builtin_audit(reward),
             )
         )
     return finalize_rollout_episode(

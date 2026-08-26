@@ -149,8 +149,7 @@ def build_update_summary(
         | trajectory["crash_building"]
         | trajectory["crash_human"]
     )
-    if "crash_sidewalk" in trajectory.keys():
-        collision |= trajectory["crash_sidewalk"]
+    collision |= trajectory["crash_sidewalk"]
     payload = {
         "update_index": update_index,
         "sample_count": sample_count,
@@ -173,19 +172,25 @@ def build_update_summary(
             float(value) for value in trajectory["guidance_action"].var(dim=0, correction=0)
         ),
     }
+    proxy_total = float(trajectory["executed_fuel_proxy_step_energy_ml"].sum())
+    distance_total = float(trajectory["step_distance_m"].sum())
+    payload.update(
+        {
+            "reward_profile": (
+                "plannerrft_energy_v1"
+                if "reward_gate" in trajectory.keys()
+                else "metadrive_builtin_v1"
+            ),
+            "native_step_energy_total_ml": float(trajectory["native_step_energy_ml"].sum()),
+            "executed_fuel_proxy_total_ml": proxy_total,
+            "executed_fuel_proxy_ml_per_km": (
+                proxy_total * 1000.0 / distance_total if distance_total > 0.0 else None
+            ),
+        }
+    )
     if "reward_gate" in trajectory.keys():
-        proxy_total = float(trajectory["executed_fuel_proxy_step_energy_ml"].sum())
-        distance_total = float(trajectory["step_distance_m"].sum())
         payload.update(
             {
-                "reward_profile": "plannerrft_energy_v1",
-                "native_step_energy_total_ml": float(
-                    trajectory["native_step_energy_ml"].sum()
-                ),
-                "executed_fuel_proxy_total_ml": proxy_total,
-                "executed_fuel_proxy_ml_per_km": (
-                    proxy_total * 1000.0 / distance_total if distance_total > 0.0 else None
-                ),
                 "reward_component_means": {
                     name: float(trajectory[name].mean())
                     for name in (

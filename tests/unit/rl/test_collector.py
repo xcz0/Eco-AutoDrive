@@ -12,6 +12,7 @@ from eco_planner.envs import (
     TrajectoryExecutionRecord,
 )
 from eco_planner.envs.domain.traffic import TrafficFrame
+from eco_planner.envs.metadrive.reward import MetaDriveBuiltinRewardAudit
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl import collector
 from eco_planner.rl.collector import (
@@ -501,6 +502,20 @@ def _info() -> dict[str, object]:
             substep_native_episode_energy_ml=np.asarray([0.0]),
             substep_executed_fuel_proxy_energy_ml=np.asarray([0.0]),
             substep_distance_m=np.asarray([0.0]),
+            substep_reward_audits=(
+                MetaDriveBuiltinRewardAudit(
+                    profile_name="metadrive_builtin_v1",
+                    reward_total=0.25,
+                    dense_reward=0.25,
+                    terminal_override=0.0,
+                    step_distance_m=0.0,
+                    native_step_energy_ml=0.0,
+                    native_episode_energy_ml=0.0,
+                    executed_fuel_proxy_step_energy_ml=0.0,
+                    executed_fuel_proxy_ml_per_km=0.0,
+                    energy_distance_valid=False,
+                ),
+            ),
             substep_terminated=np.asarray([False]),
             substep_truncated=np.asarray([False]),
             traffic_frames=(TrafficFrame(1, (0.0, 0.0), 0.0, 1.0, (), ()),),

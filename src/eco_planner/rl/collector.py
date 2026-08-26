@@ -24,7 +24,9 @@ from eco_planner.envs import (
 )
 from eco_planner.envs.array_types import SingleObservation
 from eco_planner.envs.metadrive.reward import (
+    MetaDriveBuiltinRewardAudit,
     PlannerRFTEnergyRewardAudit,
+    RewardAudit,
     RewardProfileConfig,
 )
 from eco_planner.evaluation.config import ScenarioConfig
@@ -132,7 +134,7 @@ def collect_rollout_episode(
                 stopped_speed_threshold_mps,
             )
             reward = float(execution.substep_rewards.sum())
-            dense_reward, terminal_override, energy_audit = _reward_audit_values(
+            dense_reward, terminal_override, reward_audit = _reward_audit_values(
                 execution, reward
             )
             training_transitions.append(
@@ -164,7 +166,7 @@ def collect_rollout_episode(
                     noise_seed=resolved_noise_seed,
                     policy_action_seed=resolved_policy_seed,
                     planning_cycle_index=cycle,
-                    reward_audit=energy_audit,
+                    reward_audit=reward_audit,
                     crash_sidewalk=execution.crash_sidewalk,
                     **audit,
                 )
@@ -465,7 +467,7 @@ def _append_slot_transition(
     if execution.substep_states.shape[0] != 1:
         raise RuntimeError("rollout transition must execute exactly one substep")
     reward = float(execution.substep_rewards.sum())
-    dense_reward, terminal_override, energy_audit = _reward_audit_values(execution, reward)
+    dense_reward, terminal_override, reward_audit = _reward_audit_values(execution, reward)
     state.training.append(
         build_training_transition(
             decision.training_decision,
@@ -496,7 +498,7 @@ def _append_slot_transition(
             noise_seed=state.noise_seed,
             policy_action_seed=state.policy_action_seed,
             planning_cycle_index=state.episode_cycle,
-            reward_audit=energy_audit,
+            reward_audit=reward_audit,
             crash_sidewalk=execution.crash_sidewalk,
             **_transition_audit(
                 execution,
@@ -652,19 +654,17 @@ def _transition_audit(
 
 def _reward_audit_values(
     execution: TrajectoryExecutionRecord, reward: float
-) -> tuple[float, float, PlannerRFTEnergyRewardAudit | None]:
-    if not execution.substep_reward_audits:
-        dense = float(execution.substep_dense_rewards.sum())
-        return dense, reward - dense, None
+) -> tuple[float, float, RewardAudit]:
     if len(execution.substep_reward_audits) != 1:
         raise RuntimeError("rollout transition must expose exactly one reward audit")
     audit = execution.substep_reward_audits[0]
-    if not isinstance(audit, PlannerRFTEnergyRewardAudit):
-        dense = float(execution.substep_dense_rewards.sum())
-        return dense, reward - dense, None
     if not np.isclose(reward, audit.reward_total, rtol=0.0, atol=1e-12):
-        raise RuntimeError("environment reward disagrees with its PlannerRFT energy audit")
-    return audit.reward_ungated, audit.reward_total - audit.reward_ungated, audit
+        raise RuntimeError("environment reward disagrees with its typed reward audit")
+    if isinstance(audit, PlannerRFTEnergyRewardAudit):
+        return audit.reward_ungated, audit.reward_total - audit.reward_ungated, audit
+    if isinstance(audit, MetaDriveBuiltinRewardAudit):
+        return audit.dense_reward, audit.terminal_override, audit
+    raise TypeError("rollout transition returned an unsupported reward audit type")
 
 
 def _seed(value: int, name: str) -> int:
