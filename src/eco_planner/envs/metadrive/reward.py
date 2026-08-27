@@ -194,9 +194,7 @@ def score_plannerrft_energy_step(
     position = _vector(step.position_xy_m, "position")
     previous_velocity = _vector(step.previous_velocity_xy_mps, "previous velocity")
     velocity = _vector(step.velocity_xy_mps, "velocity")
-    previous_acceleration = _vector(
-        step.previous_acceleration_xy_mps2, "previous acceleration"
-    )
+    previous_acceleration = _vector(step.previous_acceleration_xy_mps2, "previous acceleration")
     scalars = {
         "heading": step.heading_rad,
         "yaw rate": step.yaw_rate_radps,
@@ -249,9 +247,7 @@ def score_plannerrft_energy_step(
     reward_gate = collision_score * drivable_score * wrong_direction_score
 
     min_ttc_s, has_ttc_candidate = _minimum_ttc_s(config, step, position, velocity, forward)
-    ttc_score = _linear_score(
-        min_ttc_s, config.ttc.critical_ttc_s, config.ttc.safe_ttc_s
-    )
+    ttc_score = _linear_score(min_ttc_s, config.ttc.critical_ttc_s, config.ttc.safe_ttc_s)
     progress_score = float(
         np.clip(
             max(0.0, step.route_progress_delta_m) / config.progress.full_score_delta_m,
@@ -275,10 +271,7 @@ def score_plannerrft_energy_step(
         np.clip(
             1.0
             - max(0.0, overspeed_mps - config.speed.overspeed_margin_mps)
-            / (
-                config.speed.zero_score_overspeed_mps
-                - config.speed.overspeed_margin_mps
-            ),
+            / (config.speed.zero_score_overspeed_mps - config.speed.overspeed_margin_mps),
             0.0,
             1.0,
         )
@@ -292,9 +285,7 @@ def score_plannerrft_energy_step(
     )
     energy_distance_valid = step_distance_m >= config.energy.minimum_step_distance_m
     fuel_proxy_ml_per_km = (
-        fuel_proxy_step_energy_ml * 1000.0 / step_distance_m
-        if energy_distance_valid
-        else 0.0
+        fuel_proxy_step_energy_ml * 1000.0 / step_distance_m if energy_distance_valid else 0.0
     )
     energy_score = (
         math.exp(-fuel_proxy_ml_per_km / config.energy.reference_ml_per_km)
@@ -342,9 +333,7 @@ def score_plannerrft_energy_step(
         energy_distance_valid=energy_distance_valid,
     )
     values = [
-        value
-        for item in fields(output)
-        if isinstance((value := getattr(output, item.name)), float)
+        value for item in fields(output) if isinstance((value := getattr(output, item.name)), float)
     ]
     if not all(math.isfinite(value) for value in values):
         raise RuntimeError("PlannerRFT energy reward produced a non-finite audit value")
@@ -400,9 +389,7 @@ def _minimum_ttc_s(
         if closing_speed < config.ttc.minimum_closing_speed_mps:
             continue
         clearance = longitudinal - (
-            step.ego_length_m / 2
-            + projected_half_length
-            + config.ttc.longitudinal_margin_m
+            step.ego_length_m / 2 + projected_half_length + config.ttc.longitudinal_margin_m
         )
         candidates.append(max(0.0, clearance) / closing_speed)
     if not candidates:
@@ -432,13 +419,7 @@ def executed_fuel_proxy_step_energy_ml(
     if not math.isfinite(speed_mps) or speed_mps < 0.0:
         raise ValueError("fuel proxy speed must be finite and non-negative")
     distance_m = float(np.linalg.norm(end - start))
-    return (
-        3.25
-        * math.exp(0.01 * speed_mps * 3.6)
-        * (distance_m / 1000.0)
-        / 100.0
-        * 1000.0
-    )
+    return 3.25 * math.exp(0.01 * speed_mps * 3.6) * (distance_m / 1000.0) / 100.0 * 1000.0
 
 
 def _vector(value: tuple[float, float], name: str) -> np.ndarray:

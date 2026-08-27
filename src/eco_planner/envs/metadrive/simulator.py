@@ -363,9 +363,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
     def _advance_reward_state(self, reward_input: RewardStepInput) -> None:
         previous_velocity = np.asarray(reward_input.previous_velocity_xy_mps, dtype=np.float64)
         velocity = np.asarray(reward_input.velocity_xy_mps, dtype=np.float64)
-        self._previous_reward_position = np.asarray(
-            reward_input.position_xy_m, dtype=np.float64
-        )
+        self._previous_reward_position = np.asarray(reward_input.position_xy_m, dtype=np.float64)
         self._previous_reward_velocity = velocity
         self._previous_reward_acceleration = (
             velocity - previous_velocity

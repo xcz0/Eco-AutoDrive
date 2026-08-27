@@ -267,9 +267,7 @@ def build_rollout_audit(
         "executed_fuel_proxy_step_energy_ml": _float(
             reward_audit.executed_fuel_proxy_step_energy_ml
         ),
-        "executed_fuel_proxy_ml_per_km": _float(
-            reward_audit.executed_fuel_proxy_ml_per_km
-        ),
+        "executed_fuel_proxy_ml_per_km": _float(reward_audit.executed_fuel_proxy_ml_per_km),
         "energy_distance_valid": _bool(reward_audit.energy_distance_valid),
     }
     if reward != reward_audit.reward_total:
@@ -294,9 +292,7 @@ def build_rollout_audit(
                 "longitudinal_acceleration_mps2": _float(
                     reward_audit.longitudinal_acceleration_mps2
                 ),
-                "lateral_acceleration_mps2": _float(
-                    reward_audit.lateral_acceleration_mps2
-                ),
+                "lateral_acceleration_mps2": _float(reward_audit.lateral_acceleration_mps2),
                 "jerk_mps3": _float(reward_audit.jerk_mps3),
                 "yaw_rate_radps": _float(reward_audit.yaw_rate_radps),
             }
@@ -349,9 +345,7 @@ def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
 def _validate_audit_trajectory(trajectory: TensorDictBase) -> None:
     actual_keys = set(trajectory.keys(include_nested=False))
     expected_keys = (
-        ENERGY_REWARD_AUDIT_FIELD_KEYS
-        if "reward_gate" in actual_keys
-        else AUDIT_FIELD_KEYS
+        ENERGY_REWARD_AUDIT_FIELD_KEYS if "reward_gate" in actual_keys else AUDIT_FIELD_KEYS
     )
     _validate_trajectory(trajectory, frozenset(expected_keys), "rollout audit")
     unexpected = actual_keys - set(expected_keys)

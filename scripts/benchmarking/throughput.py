@@ -260,9 +260,7 @@ def _representative_observation(
         observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.evaluation.history_warmup_steps,
-        scenarios=(
-            VectorEnvScenario("benchmark-observation", str(env_config["map"]), 0),
-        ),
+        scenarios=(VectorEnvScenario("benchmark-observation", str(env_config["map"]), 0),),
     ) as environments:
         reset = environments.reset(
             (VectorEnvScenario("benchmark-observation", str(env_config["map"]), 0),)

@@ -134,9 +134,7 @@ def collect_rollout_episode(
                 stopped_speed_threshold_mps,
             )
             reward = float(execution.substep_rewards.sum())
-            dense_reward, terminal_override, reward_audit = _reward_audit_values(
-                execution, reward
-            )
+            dense_reward, terminal_override, reward_audit = _reward_audit_values(execution, reward)
             training_transitions.append(
                 build_training_transition(
                     training_decision,

@@ -131,5 +131,3 @@ def test_opposite_lateral_guidance_moves_trajectory_in_opposite_directions(
         not parameter.requires_grad and parameter.grad is None
         for parameter in left_planner.parameters()
     )
-
-

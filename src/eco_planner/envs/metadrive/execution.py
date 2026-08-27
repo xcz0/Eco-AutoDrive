@@ -79,6 +79,7 @@ class TrajectoryExecutionRecord:
     )
     substep_reward_audits: tuple[RewardAudit, ...] = ()
 
+
 @dataclass(frozen=True, slots=True)
 class WorldTrajectory:
     centers: WorldPointArray
@@ -142,9 +143,7 @@ class TrajectoryExecutionRecorder:
         self.dense_rewards[index] = dense_reward
         self.native_energy_ml[index] = native_energy_ml
         self.native_episode_energy_ml[index] = native_episode_energy_ml
-        self.executed_fuel_proxy_energy_ml[index] = (
-            reward_audit.executed_fuel_proxy_step_energy_ml
-        )
+        self.executed_fuel_proxy_energy_ml[index] = reward_audit.executed_fuel_proxy_step_energy_ml
         self.distance_m[index] = reward_audit.step_distance_m
         self.reward_audits.append(reward_audit)
         self.terminated[index] = terminated

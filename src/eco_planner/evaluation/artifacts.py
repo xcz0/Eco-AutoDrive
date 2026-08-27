@@ -348,9 +348,7 @@ _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
     "executed_rewards": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "executed_native_step_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "executed_native_episode_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
-    "executed_fuel_proxy_step_energy_ml": TraceFieldSpec(
-        (_SIMULATOR,), np.dtype(np.float64)
-    ),
+    "executed_fuel_proxy_step_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "executed_step_distance_m": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "executed_terminated": TraceFieldSpec((_SIMULATOR,), np.dtype(np.bool_), finite=False),
     "executed_truncated": TraceFieldSpec((_SIMULATOR,), np.dtype(np.bool_), finite=False),

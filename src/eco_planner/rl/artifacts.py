@@ -69,9 +69,7 @@ class TrainingUpdateSummary(_ArtifactModel):
     mean_explained_variance: StrictFloat
     maximum_pre_clip_gradient_norm: StrictFloat
     final_learning_rate: StrictFloat = Field(ge=0.0)
-    reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"] = (
-        "metadrive_builtin_v1"
-    )
+    reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"] = "metadrive_builtin_v1"
     native_step_energy_total_ml: StrictFloat = Field(default=0.0, ge=0.0)
     executed_fuel_proxy_total_ml: StrictFloat = Field(default=0.0, ge=0.0)
     executed_fuel_proxy_ml_per_km: StrictFloat | None = Field(default=None, ge=0.0)
@@ -99,9 +97,7 @@ class TrainingRunSummary(_ArtifactModel):
     probe_before: PolicyProbeSummary
     probe_after: PolicyProbeSummary
     updates: tuple[TrainingUpdateSummary, ...]
-    reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"] = (
-        "metadrive_builtin_v1"
-    )
+    reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"] = "metadrive_builtin_v1"
 
 
 def policy_state_hash(policy: ExplorationPolicy) -> str:
@@ -232,8 +228,6 @@ def write_training_runtime_metadata(
 
 def _trajectory_arrays(trajectory: TensorDictBase) -> dict[str, np.ndarray]:
     keys = (
-        ENERGY_REWARD_AUDIT_FIELD_KEYS
-        if "reward_gate" in trajectory.keys()
-        else AUDIT_FIELD_KEYS
+        ENERGY_REWARD_AUDIT_FIELD_KEYS if "reward_gate" in trajectory.keys() else AUDIT_FIELD_KEYS
     )
     return {name: trajectory[name].detach().cpu().numpy() for name in keys}

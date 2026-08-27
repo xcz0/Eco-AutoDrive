@@ -29,9 +29,7 @@ class _Lane:
 
 def _straight_trajectory(speed_mps: float = 5.0) -> np.ndarray:
     trajectory = np.zeros((PLANNER_HORIZON, 4), dtype=np.float32)
-    trajectory[:, 0] = np.arange(1, PLANNER_HORIZON + 1, dtype=np.float32) * (
-        speed_mps * 0.1
-    )
+    trajectory[:, 0] = np.arange(1, PLANNER_HORIZON + 1, dtype=np.float32) * (speed_mps * 0.1)
     trajectory[:, 2] = 1.0
     return trajectory
 
