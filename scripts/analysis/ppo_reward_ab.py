@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 
@@ -50,6 +51,7 @@ def summarize_ab(root: Path) -> dict[str, object]:
         "mechanical_status": "passed" if passed else "failed",
         "review_status": "pending_human_review" if passed else "mechanical_failure",
         "pairs": pairs,
+        "cross_seed_summary": aggregate_pair_reports(pairs),
         "mechanical_checks": mechanical_checks,
         "review_questions": [
             "Did longitudinal guidance change beyond the configured deadband?",
@@ -166,26 +168,7 @@ def _pair_report(
 ) -> dict[str, object]:
     builtin_metrics = _effect_metrics(builtin)
     energy_metrics = _effect_metrics(energy)
-    changes = {
-        "longitudinal_action_mean_delta": (
-            energy_metrics["longitudinal_action_mean"] - builtin_metrics["longitudinal_action_mean"]
-        ),
-        "energy_intensity_change_fraction": _fraction_change(
-            builtin_metrics["fuel_proxy_ml_per_km"], energy_metrics["fuel_proxy_ml_per_km"]
-        ),
-        "progress_change_fraction": _fraction_change(
-            builtin_metrics["route_progress_delta"], energy_metrics["route_progress_delta"]
-        ),
-        "mean_speed_change_fraction": _fraction_change(
-            builtin_metrics["mean_speed_mps"], energy_metrics["mean_speed_mps"]
-        ),
-        "collision_count_delta": (
-            energy_metrics["collision_count"] - builtin_metrics["collision_count"]
-        ),
-        "out_of_road_count_delta": (
-            energy_metrics["out_of_road_count"] - builtin_metrics["out_of_road_count"]
-        ),
-    }
+    changes = _metric_changes(builtin_metrics, energy_metrics)
     thresholds = config.review_thresholds
     flags = {
         "longitudinal_action_changed": (
@@ -222,6 +205,7 @@ def _pair_report(
         "builtin": builtin_metrics,
         "energy": energy_metrics,
         "changes": changes,
+        "update_series": _effect_update_series(builtin, energy),
         "review_flags": flags,
         "ppo_diagnostics": {
             "builtin": _ppo_diagnostics(_summary(builtin)),
@@ -230,10 +214,41 @@ def _pair_report(
     }
 
 
+def _metric_changes(
+    builtin_metrics: dict[str, float | int], energy_metrics: dict[str, float | int]
+) -> dict[str, float | int]:
+    return {
+        "longitudinal_action_mean_delta": (
+            energy_metrics["longitudinal_action_mean"] - builtin_metrics["longitudinal_action_mean"]
+        ),
+        "energy_intensity_change_fraction": _fraction_change(
+            builtin_metrics["fuel_proxy_ml_per_km"], energy_metrics["fuel_proxy_ml_per_km"]
+        ),
+        "progress_change_fraction": _fraction_change(
+            builtin_metrics["route_progress_delta"], energy_metrics["route_progress_delta"]
+        ),
+        "mean_speed_change_fraction": _fraction_change(
+            builtin_metrics["mean_speed_mps"], energy_metrics["mean_speed_mps"]
+        ),
+        "collision_count_delta": (
+            energy_metrics["collision_count"] - builtin_metrics["collision_count"]
+        ),
+        "out_of_road_count_delta": (
+            energy_metrics["out_of_road_count"] - builtin_metrics["out_of_road_count"]
+        ),
+    }
+
+
 def _effect_metrics(run: dict[str, object]) -> dict[str, float | int]:
     updates = _updates(run)[1:]
     if not updates:
         raise ValueError("PPO reward A/B effect window requires at least one post-update rollout")
+    return _effect_metrics_for_updates(updates)
+
+
+def _effect_metrics_for_updates(
+    updates: tuple[dict[str, np.ndarray], ...],
+) -> dict[str, float | int]:
     actions = np.concatenate([item["guidance_action"] for item in updates], axis=0)
     distance = float(sum(item["step_distance_m"].sum() for item in updates))
     fuel = float(sum(item["executed_fuel_proxy_step_energy_ml"].sum() for item in updates))
@@ -270,6 +285,64 @@ def _effect_metrics(run: dict[str, object]) -> dict[str, float | int]:
     }
 
 
+def _effect_update_series(
+    builtin: dict[str, object], energy: dict[str, object]
+) -> list[dict[str, object]]:
+    builtin_updates = _updates(builtin)[1:]
+    energy_updates = _updates(energy)[1:]
+    if len(builtin_updates) != len(energy_updates):
+        raise ValueError("matched PPO reward runs have different effect-window lengths")
+    series: list[dict[str, object]] = []
+    for update_index, (builtin_update, energy_update) in enumerate(
+        zip(builtin_updates, energy_updates, strict=True), start=1
+    ):
+        builtin_metrics = _effect_metrics_for_updates((builtin_update,))
+        energy_metrics = _effect_metrics_for_updates((energy_update,))
+        series.append(
+            {
+                "update_index": update_index,
+                "builtin": builtin_metrics,
+                "energy": energy_metrics,
+            }
+        )
+    return series
+
+
+def aggregate_pair_reports(pairs: list[dict[str, object]]) -> dict[str, object]:
+    """Aggregate one effect estimate per matched seed/replay pair."""
+
+    if not pairs:
+        raise ValueError("PPO reward A/B aggregation requires at least one matched pair")
+    changes = [cast(dict[str, float | int], pair["changes"]) for pair in pairs]
+    flags = [cast(dict[str, bool], pair["review_flags"]) for pair in pairs]
+    change_names = tuple(changes[0])
+    if any(tuple(item) != change_names for item in changes[1:]):
+        raise ValueError("PPO reward A/B pairs expose different change metrics")
+    flag_names = tuple(flags[0])
+    if any(tuple(item) != flag_names for item in flags[1:]):
+        raise ValueError("PPO reward A/B pairs expose different review flags")
+
+    statistics: dict[str, object] = {}
+    for name in change_names:
+        values = np.asarray([item[name] for item in changes], dtype=np.float64)
+        statistics[name] = {
+            "mean": float(values.mean()),
+            "sample_standard_deviation": (float(values.std(ddof=1)) if values.size > 1 else None),
+            "minimum": float(values.min()),
+            "maximum": float(values.max()),
+        }
+    return {
+        "aggregation_unit": "matched training seed/replay pair",
+        "pair_count": len(pairs),
+        "training_seed_count": len({int(pair["training_seed"]) for pair in pairs}),
+        "replay_id_count": len({int(pair["replay_id"]) for pair in pairs}),
+        "change_statistics": statistics,
+        "review_flag_counts": {
+            name: sum(bool(item[name]) for item in flags) for name in flag_names
+        },
+    }
+
+
 def _ppo_diagnostics(summary: TrainingRunSummary) -> list[dict[str, float | int]]:
     return [
         {
@@ -296,8 +369,13 @@ def _matched_configs(left: dict[str, object], right: dict[str, object]) -> bool:
 def _resolved_matches_matrix(config: PPORewardABConfig, run: dict[str, object]) -> bool:
     resolved = _resolved(run)
     training = resolved.get("training")
+    rl = resolved.get("rl")
     scenarios = resolved.get("scenarios")
-    if not isinstance(training, dict) or not isinstance(scenarios, list):
+    if (
+        not isinstance(training, dict)
+        or not isinstance(rl, dict)
+        or not isinstance(scenarios, list)
+    ):
         return False
     expected_scenarios = [
         item.model_dump(mode="python") for item in config.matched_training.scenarios
@@ -306,6 +384,8 @@ def _resolved_matches_matrix(config: PPORewardABConfig, run: dict[str, object]) 
         training.get("update_count") == config.matched_training.update_count
         and training.get("transitions_per_environment")
         == config.matched_training.transitions_per_environment
+        and rl.get("scheduler_total_optimizer_steps")
+        == config.matched_training.scheduler_total_optimizer_steps
         and scenarios == expected_scenarios
     )
 

@@ -37,6 +37,7 @@ class ScenarioSpec(_StrictModel):
 class MatchedTrainingSpec(_StrictModel):
     update_count: StrictInt = Field(ge=2)
     transitions_per_environment: StrictInt = Field(gt=0)
+    scheduler_total_optimizer_steps: StrictInt = Field(gt=0)
     training_seeds: list[StrictInt] = Field(min_length=1)
     replay_ids: list[StrictInt] = Field(min_length=1)
     scenarios: list[ScenarioSpec] = Field(min_length=1)
@@ -52,7 +53,7 @@ class ReviewThresholds(_StrictModel):
 
 
 class PPORewardABConfig(_StrictModel):
-    version: Literal[1]
+    version: Literal[2]
     base_training_config: str
     profiles: list[RewardProfileSpec]
     matched_training: MatchedTrainingSpec
@@ -96,6 +97,7 @@ def build_training_command(
         f"training.replay_id={replay_id}",
         f"training.update_count={matched.update_count}",
         f"training.transitions_per_environment={matched.transitions_per_environment}",
+        f"rl.scheduler_total_optimizer_steps={matched.scheduler_total_optimizer_steps}",
         f"name=ppo_reward_ab_{profile.id}",
         f"hydra.run.dir={run_dir.as_posix()}",
     ]
