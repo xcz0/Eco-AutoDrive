@@ -60,6 +60,7 @@
 | [E-022](records/e-022-persistent-vector-evaluation-benchmark.md) | 2026-08-24 | 本机正式基准 | Issue #65 的 chunked/persistent/serial vector evaluation 对照 | persistent pool 比 chunked 快 15.2%，并保留场景完成语义；仅限此机器与矩阵 |
 | [E-023](records/e-023-torchrl-parallel-env-correctness.md) | 2026-08-25 | 本机迁移验证 | 自定义 MetaDrive IPC 到 TorchRL ParallelEnv 的单次真实差分 | 正确性通过；未形成性能结论 |
 | [E-024](records/e-024-plannerrft-energy-reward-smoke.md) | 2026-08-26 | 本机实现验收 | `plannerrft_energy_v1` 的 32-transition 单次真实 PPO update | 链路、审计与有限值通过；不构成 A/B、parity 或节能结论 |
+| [E-025](records/e-025-issue59-stage-a-ppo-reward-ab-mechanical-gate.md) | 2026-08-27 | 本机机械门控 | Issue #59 阶段 A builtin/energy 匹配 PPO A/B（4 updates × 2 profiles） | 9 项机械检查全部通过，无 reward hacking；阶段 A 验收完成 |
 
 ## 服务器训练与正式实验登记模板
 
