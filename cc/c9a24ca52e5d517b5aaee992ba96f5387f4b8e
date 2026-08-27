@@ -1,0 +1,21 @@
+docs/experiments/README.md
+  s_9df324e93f6e34::t_5c20b451fa0a63 63
+docs/experiments/records/e-025-issue59-stage-a-ppo-reward-ab-mechanical-gate.md
+  s_9df324e93f6e34::t_338b2a9e561aa3 1-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "ccc9a24ca52e5d517b5aaee992ba96f5387f4b8e",
+  "prompts": {},
+  "sessions": {
+    "s_9df324e93f6e34": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fbdc356c9ffeezk6JPRdeZ0wTh",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
