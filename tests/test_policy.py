@@ -32,7 +32,10 @@ def _context() -> ExplorationPolicyContext:
 
 
 def test_beta_policy_action_and_log_prob_are_positive_and_finite() -> None:
-    output, action = ExplorationPolicy(_config()).act(
+    with torch.random.fork_rng():
+        torch.manual_seed(0)
+        policy = ExplorationPolicy(_config())
+    output, action = policy.act(
         _context(), "sample", torch.Generator().manual_seed(23)
     )
 

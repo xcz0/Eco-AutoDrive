@@ -1,10 +1,13 @@
-"""Small real-MetaDrive boundary checks for evaluation and rollout."""
+"""Real MetaDrive boundaries and the checkpoint-backed closed-loop smoke."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import numpy as np
 import pytest
 import torch
+from hydra import compose, initialize_config_dir
 
 from eco_planner.envs import (
     PlannerObservationSpec,
@@ -14,6 +17,20 @@ from eco_planner.envs import (
 )
 from eco_planner.envs.metadrive.observation import MetaDriveObservationAdapter
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.rl.collector import collect_rollout_episode
+from eco_planner.rl.config import PPOConfig, parse_rollout_config
+from eco_planner.rl.ppo import PPOUpdater
+from eco_planner.rl.runtime import create_fabric_rollout_runtime
+
+
+@pytest.fixture(scope="module")
+def baseline_checkpoint_dir() -> Path:
+    checkpoint_dir = Path(__file__).resolve().parents[2] / "checkpoints" / "DP-Origin"
+    required_assets = (checkpoint_dir / "args.json", checkpoint_dir / "model.pth")
+    missing_assets = [str(path) for path in required_assets if not path.is_file()]
+    if missing_assets:
+        pytest.skip(f"checkpoint assets are unavailable: {', '.join(missing_assets)}")
+    return checkpoint_dir
 
 
 def _environment_config(
@@ -48,6 +65,27 @@ def _stationary_trajectory() -> np.ndarray:
     trajectory = np.zeros((80, 4), dtype=np.float32)
     trajectory[:, 2] = 1.0
     return trajectory
+
+
+def _ppo_config() -> PPOConfig:
+    return PPOConfig(
+        name="closed_loop_smoke",
+        gamma=0.99,
+        gae_lambda=0.95,
+        clip_epsilon=0.2,
+        value_coefficient=0.5,
+        entropy_coefficient=0.01,
+        learning_rate=0.00025,
+        adam_epsilon=1e-5,
+        weight_decay=0.0,
+        max_gradient_norm=0.5,
+        epochs=1,
+        batch_size=2,
+        minibatch_size=2,
+        minibatch_seed=7,
+        scheduler_total_optimizer_steps=1,
+        scheduler_minimum_learning_rate=0.0,
+    )
 
 
 @pytest.mark.simulator
@@ -133,3 +171,54 @@ def test_two_slot_vector_rollout_executes_current_training_path(
         assert isinstance(step.terminated, bool)
         assert isinstance(step.truncated, bool)
         assert np.isfinite(step.reward)
+
+
+@pytest.mark.simulator
+@pytest.mark.slow
+def test_real_checkpoint_metadrive_rollout_updates_policy_without_changing_planner(
+    baseline_checkpoint_dir: Path,
+) -> None:
+    config_dir = Path(__file__).resolve().parents[2] / "configs"
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
+        config = compose(config_name="jobs/training/rollout_smoke")
+    parsed = parse_rollout_config(config)
+    runtime = create_fabric_rollout_runtime(
+        parsed.runtime,
+        parsed.sampler,
+        parsed.guidance,
+        parsed.policy,
+        baseline_checkpoint_dir / "args.json",
+        baseline_checkpoint_dir / "model.pth",
+        parsed.rollout.policy_action_seed,
+    )
+
+    episode = collect_rollout_episode(
+        parsed.scenario,
+        runtime,
+        parsed.env,
+        mode=parsed.rollout.mode,
+        map_query_radius_m=parsed.map_query_radius_m,
+        history_warmup_steps=parsed.rollout.history_warmup_steps,
+        max_transitions=2,
+        stopped_speed_threshold_mps=parsed.rollout.stopped_speed_threshold_mps,
+    )
+    planner_hash = runtime.frozen_planner_hash()
+    policy_before = {
+        name: parameter.detach().clone() for name, parameter in runtime.policy.state_dict().items()
+    }
+
+    update = PPOUpdater(runtime.policy, _ppo_config()).update((episode,))
+
+    assert runtime.checkpoint_report.ema_tensor_count > 0
+    assert runtime.checkpoint_report.parameter_count > 0
+    assert episode.transition_count == 2
+    assert episode.training["guidance_action"].shape == (2, 2)
+    assert episode.audit["initial_noise"].shape == (2, 11, 80, 4)
+    assert episode.tail_kind == "rollout_limit"
+    assert episode.training["next", "reward"].shape == (2, 1)
+    assert update.optimizer_step_count == 1
+    assert any(
+        not torch.equal(parameter, policy_before[name])
+        for name, parameter in runtime.policy.state_dict().items()
+    )
+    assert runtime.frozen_planner_hash() == planner_hash

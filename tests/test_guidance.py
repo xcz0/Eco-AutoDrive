@@ -133,17 +133,3 @@ def test_opposite_lateral_guidance_moves_trajectory_in_opposite_directions(
     )
 
 
-def test_policy_update_leaves_the_frozen_planner_unchanged() -> None:
-    planner = _planner(NoGuidanceConfig())
-    policy = nn.Linear(4, 1)
-    before = {name: value.detach().clone() for name, value in planner.state_dict().items()}
-    optimizer = torch.optim.Adam(policy.parameters(), lr=0.1)
-
-    optimizer.zero_grad()
-    policy(torch.ones((1, 4))).sum().backward()
-    optimizer.step()
-
-    assert all(
-        torch.equal(value, before[name]) for name, value in planner.state_dict().items()
-    )
-    assert all(parameter.grad is None for parameter in planner.parameters())

@@ -45,7 +45,11 @@ url = "https://download.pytorch.org/whl/cu126"
 explicit = true
 
 [tool.pytest.ini_options]
-addopts = ["--import-mode=importlib"]
+addopts = [
+    "--import-mode=importlib",
+    "-m",
+    "not gpu and not simulator and not slow",
+]
 pythonpath = ["src", "scripts"]
 testpaths = ["tests"]
 strict_markers = true

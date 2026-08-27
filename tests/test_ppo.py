@@ -149,14 +149,11 @@ def test_gae_uses_terminal_and_truncated_bootstrap_semantics() -> None:
     assert torch.isfinite(truncated["value_target"]).all()
 
 
-def test_ppo_update_changes_policy_without_changing_frozen_planner() -> None:
-    policy = ExplorationPolicy(_policy_config())
-    frozen_planner = torch.nn.Linear(4, 1)
-    frozen_planner.requires_grad_(False)
+def test_ppo_update_changes_policy_and_reports_finite_metrics() -> None:
+    with torch.random.fork_rng():
+        torch.manual_seed(0)
+        policy = ExplorationPolicy(_policy_config())
     policy_before = {name: value.detach().clone() for name, value in policy.state_dict().items()}
-    planner_before = {
-        name: value.detach().clone() for name, value in frozen_planner.state_dict().items()
-    }
 
     report = PPOUpdater(policy, _ppo_config()).update(
         (
@@ -168,11 +165,6 @@ def test_ppo_update_changes_policy_without_changing_frozen_planner() -> None:
     assert any(
         not torch.equal(value, policy_before[name]) for name, value in policy.state_dict().items()
     )
-    assert all(
-        torch.equal(value, planner_before[name])
-        for name, value in frozen_planner.state_dict().items()
-    )
-    assert all(parameter.grad is None for parameter in frozen_planner.parameters())
     assert report.sample_count == 2
     metrics = (value for value in report.__dict__.values() if isinstance(value, float))
     assert all(math.isfinite(value) for value in metrics)

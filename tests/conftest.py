@@ -6,23 +6,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from eco_planner.evaluation.runtime import (
-    FabricInferenceRuntime,
-    create_fabric_inference_runtime,
-)
-from eco_planner.models import (
-    Ddim5SamplerConfig,
-    Dpm10SamplerConfig,
-    NoGuidanceConfig,
-    OfficialDiffusionPlannerConfig,
-    OrthogonalReferenceGuidanceConfig,
-)
-from eco_planner.runtime.config import RuntimeConfig
-
-
-@pytest.fixture(autouse=True)
-def resource_profile_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
+from eco_planner.models import OfficialDiffusionPlannerConfig
 
 
 @pytest.fixture
@@ -119,81 +103,3 @@ def baseline_observation() -> dict[str, torch.Tensor]:
     observation["route_lanes_speed_limit"][0, 0, 0] = 13.89
     observation["route_lanes_has_speed_limit"][0, 0, 0] = True
     return observation
-
-
-@pytest.fixture(scope="session")
-def baseline_checkpoint_dir() -> Path:
-    checkpoint_dir = Path(__file__).resolve().parents[1] / "checkpoints" / "DP-Origin"
-    required_assets = (checkpoint_dir / "args.json", checkpoint_dir / "model.pth")
-    missing_assets = [str(path) for path in required_assets if not path.is_file()]
-    if missing_assets:
-        pytest.fail(f"checkpoint assets are required: {', '.join(missing_assets)}")
-    return checkpoint_dir
-
-
-@pytest.fixture(scope="session")
-def baseline_runtime(baseline_checkpoint_dir: Path) -> FabricInferenceRuntime:
-    runtime_config = RuntimeConfig(accelerator="cpu", precision="32-true", seed=0)
-    return create_fabric_inference_runtime(
-        runtime_config,
-        Dpm10SamplerConfig(),
-        NoGuidanceConfig(),
-        baseline_checkpoint_dir / "args.json",
-        baseline_checkpoint_dir / "model.pth",
-    )
-
-
-@pytest.fixture(scope="session")
-def ddim_runtime(baseline_checkpoint_dir: Path) -> FabricInferenceRuntime:
-    runtime_config = RuntimeConfig(accelerator="cpu", precision="32-true", seed=0)
-    sampler_config = Ddim5SamplerConfig(
-        name="ddim5",
-        num_steps=5,
-        timesteps=(1.0, 0.8, 0.6, 0.4, 0.2, 0.0),
-        initial_noise_scale=1.0,
-        ddim_stochasticity=0.0,
-        parity_label="plannerrft_paper_text",
-    )
-    return create_fabric_inference_runtime(
-        runtime_config,
-        sampler_config,
-        NoGuidanceConfig(),
-        baseline_checkpoint_dir / "args.json",
-        baseline_checkpoint_dir / "model.pth",
-    )
-
-
-@pytest.fixture(scope="session")
-def guided_runtime(baseline_checkpoint_dir: Path) -> FabricInferenceRuntime:
-    runtime_config = RuntimeConfig(accelerator="cpu", precision="32-true", seed=0)
-    sampler_config = Ddim5SamplerConfig(
-        name="ddim5",
-        num_steps=5,
-        timesteps=(1.0, 0.8, 0.6, 0.4, 0.2, 0.0),
-        initial_noise_scale=1.0,
-        ddim_stochasticity=0.0,
-        parity_label="plannerrft_paper_text",
-    )
-    guidance_config = OrthogonalReferenceGuidanceConfig(
-        name="orthogonal_reference",
-        formula_label="centered_energy_gradient_delta_v1",
-        lateral_scale=1.0,
-        longitudinal_scale=0.0,
-        lateral_max_offset_m=2.5,
-        longitudinal_max_speed_fraction=0.25,
-        trajectory_dt_s=0.1,
-        gradient_step_coefficient=1.0,
-        reference_refresh_cycles=1,
-        share_scene_encoding=True,
-        share_initial_noise=True,
-        share_transition_noise=True,
-        heading_norm_epsilon=1e-6,
-        zero_speed_tolerance_mps=1e-6,
-    )
-    return create_fabric_inference_runtime(
-        runtime_config,
-        sampler_config,
-        guidance_config,
-        baseline_checkpoint_dir / "args.json",
-        baseline_checkpoint_dir / "model.pth",
-    )
