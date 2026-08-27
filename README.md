@@ -77,13 +77,20 @@ Issue #59 reward sanity 与匹配 PPO A/B：
 
 ```powershell
 just reward-sanity outputs/reward_sanity/manual-run
+# 阶段 A：4 updates × 1 seed 的机械与短方向门控
 just ppo-reward-ab outputs/training/ppo-reward-ab/manual-run
 just review-ppo-reward-ab outputs/training/ppo-reward-ab/manual-run
+
+# 阶段 B：20 updates × 3 seeds 的匹配短趋势运行
+just ppo-reward-ab outputs/training/ppo-reward-ab-phase-b/manual-run `
+    configs/studies/reward/ppo_ab_phase_b.yaml
 ```
 
 第一条只计算配置中声明的固定合成 reward case；第二条运行相同 seed、scenario、transition
-与 update 数的 builtin/energy 训练，并生成 `review_report.json`。报告只执行 pairing、finite、
-policy/planner hash 和退化阈值检查，最终研究结论仍需人工审查后登记。
+与 update 数的 builtin/energy 阶段 A 训练。阶段 B 使用独立 study manifest，并显式把 scheduler
+horizon 扩展到 20 updates 所需的 160 optimizer steps。两种 A/B 都生成 `review_report.json`；
+报告保存逐 update 指标、每个匹配 seed 的 effect estimate、跨 seed 均值/样本标准差，以及
+pairing、finite、policy/planner hash 和退化阈值检查；最终研究结论仍需人工审查后登记。
 
 机器资源通过版本化 profile 选择，例如 `components/resources=rtx_a4000`；它只改变 worker、slot 和线程预算。运行训练、评测或基准脚本时，会先读取仓库根目录的 `.env`，并以 `MACHINE_NAME` 选择同名的 `configs/components/resources/<机器名>.yaml`；可用值见该目录，`.env.example` 给出格式。命令行 `components/resources=...` 仍可显式覆盖默认选择。sampler、precision、随机性、时间尺度、并行和 artifact 的精确语义以 [system-contract.md](docs/agents/system-contract.md) 和实际 resolved config 为准。
 
