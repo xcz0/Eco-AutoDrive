@@ -12,6 +12,7 @@ from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import collect_repository_metadata
+from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation.artifacts import load_runtime_metadata
 
 from .common import measurement, write_benchmark_artifacts
@@ -120,11 +121,7 @@ def _jobs(root: Path) -> list[dict[str, object]]:
         config_path = path.parent / "resolved_config.yaml"
         if not config_path.is_file():
             raise ValueError(f"{path.parent} contains no resolved_config.yaml")
-        payload = OmegaConf.to_container(
-            OmegaConf.load(config_path), resolve=True, throw_on_missing=True
-        )
-        if not isinstance(payload, dict):
-            raise TypeError(f"{config_path} must resolve to a mapping")
+        payload = load_resolved_yaml_mapping(config_path)
         metadata = load_runtime_metadata(path).model_dump(mode="json")
         execution = _execution(payload)
         workload = _workload(payload)

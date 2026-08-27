@@ -1,0 +1,15 @@
+# @package _global_
+
+defaults:
+  - /jobs/training/ppo/smoke
+  - override /components/reward: plannerrft_energy_v1
+  - _self_
+
+name: plannerrft_energy_ppo_smoke
+
+training:
+  update_count: 1
+
+hydra:
+  run:
+    dir: outputs/training/ppo-energy/${now:%Y-%m-%d}/${now:%H-%M-%S}-seed-${runtime.seed}-replay-${training.replay_id}

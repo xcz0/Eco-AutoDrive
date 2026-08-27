@@ -1,0 +1,15 @@
+# @package _global_
+
+defaults:
+  - /jobs/evaluation/traffic/full
+  - _self_
+
+evaluation:
+  profile: smoke
+  evaluated_horizon_steps: 100
+
+env:
+  horizon: 120
+
+video:
+  enabled: false

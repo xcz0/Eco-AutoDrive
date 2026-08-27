@@ -1,8 +1,8 @@
 # @package _global_
 
 defaults:
-  - /jobs/training/ppo_smoke
-  - /benchmark: rollout
+  - /jobs/training/ppo/base
+  - /components/benchmark: rollout
   - _self_
 
 name: policy_rollout_throughput_benchmark

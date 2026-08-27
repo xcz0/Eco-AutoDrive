@@ -1,0 +1,15 @@
+# @package _global_
+
+defaults:
+  - /jobs/evaluation/base
+  - override /components/sampler: ddim5
+  - _self_
+
+evaluation:
+  profile: energy_matrix
+
+env:
+  traffic_density: 0.0
+  random_traffic: false
+  random_agent_model: false
+  accident_prob: 0.0

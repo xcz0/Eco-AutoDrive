@@ -50,7 +50,7 @@ addopts = [
     "-m",
     "not gpu and not simulator and not slow",
 ]
-pythonpath = ["src", "scripts"]
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 strict_markers = true
 xfail_strict = true

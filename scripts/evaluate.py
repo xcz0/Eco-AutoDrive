@@ -6,19 +6,20 @@ from pathlib import Path
 
 import hydra
 from hydra.core.hydra_config import HydraConfig
-from local_environment import load_local_environment
 from omegaconf import DictConfig
 
+from eco_planner.configuration import load_local_environment
 from eco_planner.evaluation.config import parse_evaluation_config
 from eco_planner.evaluation.runner import run_evaluation
+from scripts._paths import LOCAL_ENVIRONMENT_PATH
 
-load_local_environment()
+load_local_environment(LOCAL_ENVIRONMENT_PATH)
 
 
 @hydra.main(
     version_base="1.3",
     config_path="../configs",
-    config_name="jobs/evaluation/no_traffic",
+    config_name="jobs/evaluation/no_traffic/full",
 )
 def main(config: DictConfig) -> None:
     output_dir = Path(HydraConfig.get().runtime.output_dir)

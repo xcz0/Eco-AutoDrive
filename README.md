@@ -31,16 +31,16 @@ just check
 
 ```powershell
 # 无交通 smoke
-just evaluate no_traffic_smoke
+just evaluate no_traffic/smoke
 
 # 有交通 smoke
-just evaluate traffic_smoke
+just evaluate traffic/smoke
 
 # 无交通 full evaluation
-just evaluate no_traffic
+just evaluate no_traffic/full
 
 # 有交通 full evaluation
-just evaluate traffic
+just evaluate traffic/full
 ```
 
 矩阵评测：
@@ -53,15 +53,15 @@ just evaluate-matrix traffic
 固定 reference guidance smoke：
 
 ```powershell
-just evaluate no_traffic_smoke planner/sampler=ddim5 `
-    planner/guidance=orthogonal_reference `
+just evaluate no_traffic/smoke components/sampler=ddim5 `
+    components/guidance=orthogonal_reference `
     guidance.lateral_scale=1 guidance.longitudinal_scale=0
 ```
 
 PPO closed-loop smoke training：
 
 ```powershell
-just train ppo_smoke 0 0
+just train ppo/smoke 0 0
 ```
 
 可复用性能诊断与固定能耗矩阵：
@@ -85,7 +85,7 @@ just review-ppo-reward-ab outputs/training/ppo-reward-ab/manual-run
 与 update 数的 builtin/energy 训练，并生成 `review_report.json`。报告只执行 pairing、finite、
 policy/planner hash 和退化阈值检查，最终研究结论仍需人工审查后登记。
 
-机器资源通过版本化 profile 选择，例如 `resources=rtx_a4000`；它只改变 worker、slot 和线程预算。运行训练、评测或基准脚本时，会先读取仓库根目录的 `.env`，并以 `MACHINE_NAME` 选择同名的 `configs/resources/<机器名>.yaml`；可用值见该目录，`.env.example` 给出格式。命令行 `resources=...` 仍可显式覆盖默认选择。sampler、precision、随机性、时间尺度、并行和 artifact 的精确语义以 [system-contract.md](docs/agents/system-contract.md) 和实际 resolved config 为准。
+机器资源通过版本化 profile 选择，例如 `components/resources=rtx_a4000`；它只改变 worker、slot 和线程预算。运行训练、评测或基准脚本时，会先读取仓库根目录的 `.env`，并以 `MACHINE_NAME` 选择同名的 `configs/components/resources/<机器名>.yaml`；可用值见该目录，`.env.example` 给出格式。命令行 `components/resources=...` 仍可显式覆盖默认选择。sampler、precision、随机性、时间尺度、并行和 artifact 的精确语义以 [system-contract.md](docs/agents/system-contract.md) 和实际 resolved config 为准。
 
 ## 结果与实验记录
 

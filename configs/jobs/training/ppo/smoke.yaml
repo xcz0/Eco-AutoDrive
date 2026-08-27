@@ -1,0 +1,14 @@
+# @package _global_
+
+defaults:
+  - /jobs/training/ppo/base
+  - _self_
+
+name: plannerrft_ppo_closed_loop_smoke
+
+hydra:
+  run:
+    dir: outputs/training/ppo/${now:%Y-%m-%d}/${now:%H-%M-%S}-seed-${runtime.seed}-replay-${training.replay_id}
+  sweep:
+    dir: outputs/training/ppo/${now:%Y-%m-%d}/${now:%H-%M-%S}-acceptance
+    subdir: seed-${runtime.seed}-replay-${training.replay_id}

@@ -1,0 +1,32 @@
+# @package _global_
+
+defaults:
+  - /components/env
+  - /components/model
+  - /components/runtime
+  - /components/sampler: ddim5
+  - /components/guidance: orthogonal_policy
+  - /components/policy
+  - _self_
+
+name: plannerrft_rollout_smoke
+map_query_radius_m: 100.0
+
+rollout:
+  mode: no_traffic
+  max_transitions: 4
+  history_warmup_steps: 0
+  policy_action_seed: 1
+  stopped_speed_threshold_mps: 0.1
+
+env:
+  execution_mode: rollout
+  horizon: 4
+
+runtime:
+  seed: 0
+
+scenario:
+  name: straight
+  map: S
+  seed: 0

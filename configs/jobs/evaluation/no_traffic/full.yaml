@@ -1,0 +1,27 @@
+# @package _global_
+
+defaults:
+  - /jobs/evaluation/base
+  - _self_
+
+name: official_no_traffic_closed_loop
+
+evaluation:
+  mode: no_traffic
+  profile: full
+  history_warmup_steps: 0
+  evaluated_horizon_steps: 200
+env:
+  horizon: 200
+
+scenarios:
+  - name: straight
+    map: S
+    seed: 0
+  - name: gentle_curve
+    map: SC
+    seed: 0
+
+hydra:
+  run:
+    dir: outputs/no_traffic/${now:%Y-%m-%d}/${now:%H-%M-%S}

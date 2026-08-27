@@ -8,41 +8,23 @@ defaults:
   - /components/video
   - /components/sampler: dpm10
   - /components/guidance: none
-  - /components/benchmark: throughput
   - _self_
 
-name: reference_throughput_benchmark
 map_query_radius_m: 100.0
 
 evaluation:
-  mode: no_traffic
-  profile: throughput
-  history_warmup_steps: 0
-  evaluated_horizon_steps: 100
   execution:
     mode: serial
     vector_env_slots: ${resources.evaluation_vector_env_slots}
     torch_threads_per_worker: ${resources.torch_threads_per_worker}
     deterministic: false
 
-env:
-  start_seed: 0
-  num_scenarios: 8
-  horizon: 100
-
 runtime:
   seed: 0
-
-scenarios:
-  - name: straight
-    map: S
-    seed: 0
 
 video:
   enabled: false
 
 hydra:
-  run:
-    dir: outputs/benchmarks/reference/${now:%Y-%m-%d}/${now:%H-%M-%S}
   job:
     chdir: false

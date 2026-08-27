@@ -78,55 +78,55 @@ check: lint format test
 
 # Run one evaluation job profile. Append Hydra overrides as needed.
 [group('evaluation')]
-evaluate profile="no_traffic" *overrides:
-    {{python}} scripts/evaluate.py --config-name jobs/evaluation/{{profile}} {{overrides}}
+evaluate profile="no_traffic/full" *overrides:
+    {{python}} -m scripts.evaluate --config-name jobs/evaluation/{{profile}} {{overrides}}
 
 # Run a no-traffic or traffic Hydra matrix.
 [group('evaluation')]
 evaluate-matrix mode="traffic" *overrides:
-    {{python}} scripts/evaluate.py --config-name jobs/evaluation/{{mode}}_matrix --multirun {{overrides}}
+    {{python}} -m scripts.evaluate --config-name jobs/evaluation/{{mode}}/matrix --multirun {{overrides}}
 
 # Run the fixed-seed energy matrix.
 [group('evaluation')]
 energy output_root *options:
-    {{python}} scripts/energy_matrix.py --output-root "{{output_root}}" {{options}}
+    {{python}} -m scripts.studies.energy_matrix --output-root "{{output_root}}" {{options}}
 
 # Audit fixed synthetic PlannerRFT-style reward cases without running PPO.
 [group('evaluation')]
-reward-sanity output_root config="configs/matrices/reward_sanity.yaml":
-    {{python}} scripts/reward_sanity.py --config "{{config}}" --output-root "{{output_root}}"
+reward-sanity output_root config="configs/studies/reward/sanity.yaml":
+    {{python}} -m scripts.studies.reward_sanity --config "{{config}}" --output-root "{{output_root}}"
 
 
 # Run one training profile with explicit seed and replay identity.
 [group('training')]
-train profile="ppo_smoke" seed="0" replay="0" *overrides:
-    {{python}} scripts/train.py --config-name jobs/training/{{profile}} runtime.seed={{seed}} training.replay_id={{replay}} {{overrides}}
+train profile="ppo/smoke" seed="0" replay="0" *overrides:
+    {{python}} -m scripts.train --config-name jobs/training/{{profile}} runtime.seed={{seed}} training.replay_id={{replay}} {{overrides}}
 
 # Run the matched builtin/energy PPO A/B and produce a pending human-review report.
 [group('training')]
-ppo-reward-ab output_root matrix="configs/matrices/ppo_reward_ab.yaml":
-    {{python}} scripts/ppo_reward_ab.py --matrix "{{matrix}}" --output-root "{{output_root}}"
+ppo-reward-ab output_root study="configs/studies/reward/ppo_ab.yaml":
+    {{python}} -m scripts.studies.ppo_reward_ab --study "{{study}}" --output-root "{{output_root}}"
 
 
 # Run one reusable benchmark profile.
 [group('benchmark')]
 benchmark profile="throughput" *overrides:
-    {{python}} scripts/benchmark.py --config-name jobs/benchmark/{{profile}} {{overrides}}
+    {{python}} -m scripts.benchmark --config-name jobs/benchmark/{{profile}} {{overrides}}
 
 # Consolidate serial, job-level, and vector evaluation measurements.
 [group('benchmark')]
 benchmark-report serial job_level vector serial_wall_s job_level_wall_s vector_wall_s:
-    {{python}} scripts/benchmark_report.py "{{serial}}" "{{job_level}}" "{{vector}}" --serial-wall-s {{serial_wall_s}} --job-level-wall-s {{job_level_wall_s}} --vector-wall-s {{vector_wall_s}}
+    {{python}} -m scripts.benchmarking.evaluation_report "{{serial}}" "{{job_level}}" "{{vector}}" --serial-wall-s {{serial_wall_s}} --job-level-wall-s {{job_level_wall_s}} --vector-wall-s {{vector_wall_s}}
 
 
 [group('analysis')]
 summarize-matrix root *options:
-    {{python}} scripts/summarize_matrix.py "{{root}}" {{options}}
+    {{python}} -m scripts.analysis.evaluation_matrix "{{root}}" {{options}}
 
 [group('analysis')]
 summarize-training root:
-    {{python}} scripts/summarize_training.py "{{root}}"
+    {{python}} -m scripts.analysis.training "{{root}}"
 
 [group('analysis')]
 review-ppo-reward-ab root:
-    {{python}} scripts/summarize_ppo_reward_ab.py "{{root}}"
+    {{python}} -m scripts.analysis.ppo_reward_ab "{{root}}"

@@ -1,0 +1,55 @@
+version: 1
+planner_noise_seed: 0
+
+execution:
+  simulator_hz: 10
+  planner_hz: 2
+  physics_world_step_size_s: 0.02
+  decision_repeat: 5
+  trajectory_execution_steps: 5
+
+sampler:
+  name: ddim5
+  ddim_stochasticity: 0.0
+
+energy_metric:
+  name: metadrive_fuel_proxy
+  implementation: recompute_metadrive_base_vehicle_formula_on_executed_trace
+  formula: 3.25 * exp(0.01 * speed_kmh) * distance_km / 100 * 1000
+  unit: mL
+  sampling_interval_s: 0.1
+  interpretation: MetaDrive fuel-consumption proxy, not physical vehicle energy
+
+vehicle_config:
+  random_agent_model: false
+
+guidance_profiles:
+  - id: baseline
+    config: none
+    longitudinal_scale: null
+  - id: longitudinal_negative
+    config: energy_longitudinal_negative
+    longitudinal_scale: -1.0
+  - id: longitudinal_zero
+    config: orthogonal_reference
+    longitudinal_scale: 0.0
+  - id: longitudinal_positive
+    config: energy_longitudinal_positive
+    longitudinal_scale: 1.0
+
+jobs:
+  - id: structures
+    config_name: studies/energy/evaluation/structures
+    scenarios:
+      - {name: cruise, map: SSS, seed: 0, traffic_condition: no_traffic}
+      - {name: curve, map: SCS, seed: 1, traffic_condition: no_traffic}
+      - {name: intersection, map: SXS, seed: 2, traffic_condition: no_traffic}
+      - {name: merge_lane_change, map: SyS, seed: 3, traffic_condition: no_traffic}
+  - id: speed_limit
+    config_name: studies/energy/evaluation/speed_profile
+    scenarios:
+      - {name: speed_limit_50_30_50, map: SSS, seed: 4, traffic_condition: no_traffic}
+  - id: traffic_follow
+    config_name: studies/energy/evaluation/traffic
+    scenarios:
+      - {name: traffic_follow, map: SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS, seed: 5, traffic_condition: low_density_trigger_0.05}

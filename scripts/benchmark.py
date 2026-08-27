@@ -5,16 +5,18 @@ from __future__ import annotations
 from importlib import import_module
 
 import hydra
-from local_environment import load_local_environment
 from omegaconf import DictConfig, OmegaConf
 
+from eco_planner.configuration import load_local_environment
+from scripts._paths import LOCAL_ENVIRONMENT_PATH
+
 _BENCHMARK_MODULES = {
-    "environment": "benchmarking.environment",
-    "throughput": "benchmarking.throughput",
-    "rollout": "benchmarking.rollout",
+    "environment": "scripts.benchmarking.environment",
+    "throughput": "scripts.benchmarking.throughput",
+    "rollout": "scripts.benchmarking.rollout",
 }
 
-load_local_environment()
+load_local_environment(LOCAL_ENVIRONMENT_PATH)
 
 
 def _benchmark_module(kind: object) -> str:

@@ -1,9 +1,9 @@
 # @package _global_
 
 defaults:
-  - /env: metadrive
-  - /planner/model
-  - /benchmark: environment
+  - /components/env
+  - /components/model
+  - /components/benchmark: environment
   - _self_
 
 name: planner_facing_environment_benchmark

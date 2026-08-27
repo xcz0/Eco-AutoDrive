@@ -1,0 +1,7 @@
+# @package guidance
+
+defaults:
+  - orthogonal_reference
+  - _self_
+
+longitudinal_scale: -1.0
