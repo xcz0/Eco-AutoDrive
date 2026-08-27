@@ -1,0 +1,40 @@
+"""Sampler checks that protect finite, reproducible planner inputs and outputs."""
+
+from __future__ import annotations
+
+import torch
+
+from eco_planner.models import Ddim5SamplerConfig
+from eco_planner.models.sampling import DiffusionSampler
+
+
+def _config() -> Ddim5SamplerConfig:
+    return Ddim5SamplerConfig(
+        name="ddim5",
+        num_steps=5,
+        timesteps=(1.0, 0.8, 0.6, 0.4, 0.2, 0.0),
+        initial_noise_scale=1.0,
+        ddim_stochasticity=0.7,
+        parity_label="plannerrft_paper_text",
+    )
+
+
+def test_seeded_ddim_sampling_returns_a_finite_constrained_sample() -> None:
+    initial = torch.randn((2, 3, 12), generator=torch.Generator().manual_seed(11))
+
+    def model(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
+        return sample * 0.2 + timestep[:, None, None]
+
+    def constrain(sample: torch.Tensor) -> torch.Tensor:
+        constrained = sample.clone()
+        constrained[:, :, :4] = 0.0
+        return constrained
+
+    sampler = DiffusionSampler(_config())
+    first = sampler.sample(initial, model, constrain, torch.Generator().manual_seed(13))
+    second = sampler.sample(initial, model, constrain, torch.Generator().manual_seed(13))
+
+    assert first.shape == initial.shape
+    assert torch.isfinite(first).all()
+    assert torch.equal(first, second)
+    assert torch.count_nonzero(first[:, :, :4]) == 0

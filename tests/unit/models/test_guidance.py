@@ -1,14 +1,68 @@
+"""Guidance invariants over a frozen planner and fixed diffusion noise."""
+
 from __future__ import annotations
 
-import math
+from types import SimpleNamespace
 
 import torch
+from torch import nn
 
-from eco_planner.models.config import OrthogonalReferenceGuidanceConfig, StateNormalizer
-from eco_planner.models.guidance import OrthogonalGuidance
+from eco_planner.models import (
+    Ddim5SamplerConfig,
+    NoGuidanceConfig,
+    OrthogonalReferenceGuidanceConfig,
+    PretrainedDiffusionPlanner,
+)
 
 
-def _config() -> OrthogonalReferenceGuidanceConfig:
+class _IdentityStateNormalizer:
+    def inverse(self, value: torch.Tensor) -> torch.Tensor:
+        return value
+
+
+class _IdentityDenoiser(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.anchor = nn.Parameter(torch.ones(()))
+
+    def encode(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
+        return torch.zeros((inputs["ego_current_state"].shape[0], 1, 1))
+
+    def encode_route(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
+        return torch.zeros((inputs["ego_current_state"].shape[0], 1))
+
+    def denoise(
+        self,
+        sample: torch.Tensor,
+        timestep: torch.Tensor,
+        encoding: torch.Tensor,
+        route_encoding: torch.Tensor,
+        current_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        return sample * self.anchor
+
+
+def _planner_config() -> SimpleNamespace:
+    return SimpleNamespace(
+        predicted_neighbor_num=10,
+        future_len=80,
+        observation_normalizer=lambda observation: dict(observation),
+        state_normalizer=_IdentityStateNormalizer(),
+    )
+
+
+def _sampler_config() -> Ddim5SamplerConfig:
+    return Ddim5SamplerConfig(
+        name="ddim5",
+        num_steps=5,
+        timesteps=(1.0, 0.8, 0.6, 0.4, 0.2, 0.0),
+        initial_noise_scale=1.0,
+        ddim_stochasticity=0.0,
+        parity_label="plannerrft_paper_text",
+    )
+
+
+def _guidance_config() -> OrthogonalReferenceGuidanceConfig:
     return OrthogonalReferenceGuidanceConfig(
         name="orthogonal_reference",
         formula_label="centered_energy_gradient_delta_v1",
@@ -27,143 +81,69 @@ def _config() -> OrthogonalReferenceGuidanceConfig:
     )
 
 
-def _identity_normalizer() -> StateNormalizer:
-    return StateNormalizer(
-        torch.zeros((11, 1, 4)),
-        torch.ones((11, 1, 4)),
+def _noise() -> torch.Tensor:
+    noise = torch.zeros((1, 11, 80, 4), dtype=torch.float32)
+    noise[..., 0] = torch.arange(1, 81, dtype=torch.float32)
+    noise[..., 2] = 1.0
+    return noise
+
+
+def _planner(
+    guidance: NoGuidanceConfig | OrthogonalReferenceGuidanceConfig,
+) -> PretrainedDiffusionPlanner:
+    return PretrainedDiffusionPlanner(  # type: ignore[arg-type]
+        _planner_config(), _IdentityDenoiser(), _sampler_config(), guidance
     )
 
 
-def _straight_reference() -> tuple[torch.Tensor, torch.Tensor]:
-    current = torch.zeros((1, 11, 4), dtype=torch.float32)
-    current[..., 2] = 1.0
-    reference = torch.zeros((1, 11, 80, 4), dtype=torch.float32)
-    reference[..., 0] = torch.arange(1, 81, dtype=torch.float32)
-    reference[..., 2] = 1.0
-    return current, reference
+def test_zero_guidance_is_identical_to_the_unguided_reference(
+    baseline_observation: dict[str, torch.Tensor],
+) -> None:
+    unguided = _planner(NoGuidanceConfig())(baseline_observation, _noise())
+    guided = _planner(_guidance_config())(baseline_observation, _noise())
+
+    assert guided.reference_prediction is not None
+    assert guided.guidance_action is not None
+    assert torch.equal(guided.guidance_action, torch.zeros((1, 2)))
+    assert torch.equal(guided.prediction, guided.reference_prediction)
+    assert torch.equal(guided.prediction, unguided.prediction)
 
 
-def test_centered_lateral_guidance_has_exact_neutral_and_opposite_signed_gradients() -> None:
-    current, reference = _straight_reference()
-    state = torch.cat([current[:, :, None], reference], dim=2).reshape(1, 11, -1)
-    sample = state.clone().requires_grad_(True)
-    guidance = OrthogonalGuidance(_config(), _identity_normalizer())
+def test_opposite_lateral_guidance_moves_trajectory_in_opposite_directions(
+    baseline_observation: dict[str, torch.Tensor],
+) -> None:
+    left_planner = _planner(_guidance_config())
+    left = left_planner(baseline_observation, _noise(), guidance_action=torch.tensor([[1.0, 0.0]]))
+    right = _planner(_guidance_config())(
+        baseline_observation, _noise(), guidance_action=torch.tensor([[-1.0, 0.0]])
+    )
 
-    neutral = guidance.gradient(sample, sample, reference, current, torch.zeros((1, 2)))
-    positive = guidance.gradient(sample, sample, reference, current, torch.tensor([[1.0, 0.0]]))
-    negative = guidance.gradient(sample, sample, reference, current, torch.tensor([[-1.0, 0.0]]))
-
-    assert torch.count_nonzero(neutral.applied_gradient) == 0
+    assert left.reference_prediction is not None
+    assert right.reference_prediction is not None
+    assert torch.all(left.prediction[:, 0, :, 1] > left.reference_prediction[:, 0, :, 1])
     torch.testing.assert_close(
-        positive.applied_gradient,
-        -negative.applied_gradient,
+        left.prediction[..., 1] - left.reference_prediction[..., 1],
+        -(right.prediction[..., 1] - right.reference_prediction[..., 1]),
         rtol=0.0,
         atol=0.0,
     )
-    expected_y_gradient = torch.full((80,), -0.0625)
-    torch.testing.assert_close(
-        positive.applied_gradient.reshape(1, 11, 81, 4)[0, 0, 1:, 1],
-        expected_y_gradient,
-        rtol=0.0,
-        atol=0.0,
-    )
-    assert torch.count_nonzero(positive.applied_gradient.reshape(1, 11, 81, 4)[:, 1:]) == 0
-    assert positive.raw_neighbor_gradient_l2.item() == 0.0
-
-
-def test_centered_longitudinal_guidance_uses_ten_hz_velocity_and_opposite_signs() -> None:
-    current, reference = _straight_reference()
-    state = torch.cat([current[:, :, None], reference], dim=2).reshape(1, 11, -1)
-    sample = state.clone().requires_grad_(True)
-    guidance = OrthogonalGuidance(_config(), _identity_normalizer())
-
-    positive = guidance.gradient(sample, sample, reference, current, torch.tensor([[0.0, 1.0]]))
-    negative = guidance.gradient(sample, sample, reference, current, torch.tensor([[0.0, -1.0]]))
-
-    torch.testing.assert_close(
-        positive.applied_gradient,
-        -negative.applied_gradient,
-        rtol=0.0,
-        atol=0.0,
-    )
-    gradient = positive.applied_gradient.reshape(1, 11, 81, 4)
-    assert gradient[0, 0, -1, 0].item() == -0.625
-    assert torch.count_nonzero(gradient[0, 0, 1:-1, 0]) == 0
-    assert positive.zero_speed_count.item() == 0
-    target = guidance.longitudinal_target_speed_delta_mps(
-        reference,
-        current,
-        torch.tensor([[0.0, 1.0]]),
-    )
-    torch.testing.assert_close(target, torch.full((1, 80), 2.5), rtol=0.0, atol=0.0)
-
-
-def test_guidance_is_rigid_transform_equivariant() -> None:
-    current, reference = _straight_reference()
-    predicted = reference.clone()
-    predicted[:, 0, :, 1] = 0.5
-    state = torch.cat([current[:, :, None], predicted], dim=2)
-    guidance = OrthogonalGuidance(_config(), _identity_normalizer())
-    original_sample = state.reshape(1, 11, -1).clone().requires_grad_(True)
-    original = guidance.gradient(
-        original_sample,
-        original_sample,
-        reference,
-        current,
-        torch.tensor([[1.0, 0.0]]),
-    )
-
-    angle = math.pi / 3.0
-    rotation = torch.tensor(
-        [[math.cos(angle), -math.sin(angle)], [math.sin(angle), math.cos(angle)]],
-        dtype=torch.float32,
-    )
-    translation = torch.tensor([13.0, -7.0])
-
-    def transform(value: torch.Tensor) -> torch.Tensor:
-        result = value.clone()
-        result[..., :2] = value[..., :2] @ rotation.T + translation
-        result[..., 2:4] = value[..., 2:4] @ rotation.T
-        return result
-
-    transformed_current = transform(current)
-    transformed_reference = transform(reference)
-    transformed_predicted = transform(predicted)
-    transformed_state = torch.cat([transformed_current[:, :, None], transformed_predicted], dim=2)
-    transformed_sample = transformed_state.reshape(1, 11, -1).requires_grad_(True)
-    transformed = guidance.gradient(
-        transformed_sample,
-        transformed_sample,
-        transformed_reference,
-        transformed_current,
-        torch.tensor([[1.0, 0.0]]),
-    )
-
-    original_xy = original.applied_gradient.reshape(1, 11, 81, 4)[..., :2]
-    transformed_xy = transformed.applied_gradient.reshape(1, 11, 81, 4)[..., :2]
-    torch.testing.assert_close(transformed_xy, original_xy @ rotation.T, atol=1e-6, rtol=0.0)
-    torch.testing.assert_close(
-        transformed.lateral_objective_delta,
-        original.lateral_objective_delta,
-        atol=5e-6,
-        rtol=0.0,
+    assert all(
+        not parameter.requires_grad and parameter.grad is None
+        for parameter in left_planner.parameters()
     )
 
 
-def test_zero_speed_reference_is_audited_without_longitudinal_fallback() -> None:
-    current, reference = _straight_reference()
-    reference[..., 0] = 0.0
-    state = torch.cat([current[:, :, None], reference], dim=2).reshape(1, 11, -1)
-    sample = state.clone().requires_grad_(True)
+def test_policy_update_leaves_the_frozen_planner_unchanged() -> None:
+    planner = _planner(NoGuidanceConfig())
+    policy = nn.Linear(4, 1)
+    before = {name: value.detach().clone() for name, value in planner.state_dict().items()}
+    optimizer = torch.optim.Adam(policy.parameters(), lr=0.1)
 
-    result = OrthogonalGuidance(_config(), _identity_normalizer()).gradient(
-        sample,
-        sample,
-        reference,
-        current,
-        torch.tensor([[0.0, 1.0]]),
+    optimizer.zero_grad()
+    policy(torch.ones((1, 4))).sum().backward()
+    optimizer.step()
+
+    assert all(
+        torch.equal(value, before[name]) for name, value in planner.state_dict().items()
     )
-
-    assert result.zero_speed_count.item() == 80
-    assert result.longitudinal_objective_delta.item() == 0.0
-    assert torch.count_nonzero(result.applied_gradient) == 0
+    assert all(parameter.grad is None for parameter in planner.parameters())
