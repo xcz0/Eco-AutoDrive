@@ -7,11 +7,13 @@ from pathlib import Path
 
 import hydra
 from hydra.core.hydra_config import HydraConfig
+from local_environment import load_local_environment
 from omegaconf import DictConfig, OmegaConf
 
-os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-
 from eco_planner.rl import parse_training_config, train
+
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+load_local_environment()
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="jobs/training/ppo_smoke")

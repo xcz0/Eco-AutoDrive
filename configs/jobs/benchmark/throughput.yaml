@@ -4,7 +4,7 @@ defaults:
   - /env: metadrive
   - /planner/model
   - /runtime: fabric
-  - /resources: rtx3050_laptop
+  - /resources: ${oc.env:MACHINE_NAME}
   - /video: default
   - /planner/sampler: dpm10
   - /planner/guidance: none

@@ -5,6 +5,7 @@ from __future__ import annotations
 from importlib import import_module
 
 import hydra
+from local_environment import load_local_environment
 from omegaconf import DictConfig, OmegaConf
 
 _BENCHMARK_MODULES = {
@@ -12,6 +13,8 @@ _BENCHMARK_MODULES = {
     "throughput": "benchmarking.throughput",
     "rollout": "benchmarking.rollout",
 }
+
+load_local_environment()
 
 
 def _benchmark_module(kind: object) -> str:

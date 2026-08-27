@@ -20,6 +20,11 @@ from eco_planner.models import (
 from eco_planner.runtime.config import RuntimeConfig
 
 
+@pytest.fixture(autouse=True)
+def resource_profile_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
+
+
 @pytest.fixture
 def official_config_args() -> dict[str, object]:
     observation_dimensions = {

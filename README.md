@@ -85,7 +85,7 @@ just review-ppo-reward-ab outputs/training/ppo-reward-ab/manual-run
 与 update 数的 builtin/energy 训练，并生成 `review_report.json`。报告只执行 pairing、finite、
 policy/planner hash 和退化阈值检查，最终研究结论仍需人工审查后登记。
 
-机器资源通过版本化 profile 选择，例如 `resources=rtx_a4000`；它只改变 worker、slot 和线程预算。仓库本身不读取 `.env`；若在命令包装层使用它，其中只能保存本机的 profile 选择（例如 `ECO_RESOURCE_PROFILE=rtx_a4000`）。sampler、precision、随机性、时间尺度、并行和 artifact 的精确语义以 [system-contract.md](docs/agents/system-contract.md) 和实际 resolved config 为准。
+机器资源通过版本化 profile 选择，例如 `resources=rtx_a4000`；它只改变 worker、slot 和线程预算。运行训练、评测或基准脚本时，会先读取仓库根目录的 `.env`，并以 `MACHINE_NAME` 选择同名的 `configs/resources/<机器名>.yaml`；可用值见该目录，`.env.example` 给出格式。命令行 `resources=...` 仍可显式覆盖默认选择。sampler、precision、随机性、时间尺度、并行和 artifact 的精确语义以 [system-contract.md](docs/agents/system-contract.md) 和实际 resolved config 为准。
 
 ## 结果与实验记录
 

@@ -6,10 +6,13 @@ from pathlib import Path
 
 import hydra
 from hydra.core.hydra_config import HydraConfig
+from local_environment import load_local_environment
 from omegaconf import DictConfig
 
 from eco_planner.evaluation.config import parse_evaluation_config
 from eco_planner.evaluation.runner import run_evaluation
+
+load_local_environment()
 
 
 @hydra.main(
