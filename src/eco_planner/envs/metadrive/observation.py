@@ -146,9 +146,7 @@ class MetaDriveObservationAdapter:
             "ego_current_state": _EGO_CURRENT_STATE.copy(),
             "neighbor_agents_past": neighbor_agents,
             "static_objects": static_objects,
-            **self._map_adapter.build_arrays(
-                env, allow_empty_route=env.is_out_of_road_terminal
-            ),
+            **self._map_adapter.build_arrays(env, allow_empty_route=env.is_out_of_road_terminal),
         }
         return _to_cpu_tensors(observation), audit
 
@@ -351,9 +349,7 @@ class NoTrafficMetaDriveObservationAdapter:
             "static_objects": np.zeros(
                 (config.static_objects_num, config.static_objects_state_dim), dtype=np.float32
             ),
-            **self._map_adapter.build_arrays(
-                env, allow_empty_route=env.is_out_of_road_terminal
-            ),
+            **self._map_adapter.build_arrays(env, allow_empty_route=env.is_out_of_road_terminal),
         }
         return _to_cpu_tensors(observation)
 

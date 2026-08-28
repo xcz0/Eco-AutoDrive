@@ -224,6 +224,7 @@ class MetaDriveMapAdapter:
         if not selected:
             raise RuntimeError("navigation route did not resolve to a selected local lane")
         return selected[: self._config.route_num]
+
     def _allocate_arrays(self) -> NumpyMapObservation:
         config = self._config
         return {

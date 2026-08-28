@@ -227,9 +227,7 @@ class RolloutEpisodeBuilder:
         )
         self._audit.append(build_rollout_audit(decision_audit, execution, provenance))
 
-    def finish(
-        self, tail_kind: TailKind, tail_bootstrap_value: torch.Tensor
-    ) -> RolloutEpisode:
+    def finish(self, tail_kind: TailKind, tail_bootstrap_value: torch.Tensor) -> RolloutEpisode:
         if self._reward_profile is None:
             raise ValueError("rollout episode must contain at least one transition")
         return finalize_rollout_episode(
