@@ -26,6 +26,7 @@ dependencies = [
     "tensordict==0.13.0",
     "torchrl==0.13.3",
     "jaxtyping",
+    "optuna>=4.9.0",
 ]
 
 [dependency-groups]
