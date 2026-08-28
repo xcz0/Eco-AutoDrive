@@ -40,6 +40,7 @@ class TrainingUpdateSummary(_ArtifactModel):
     update_index: StrictInt = Field(ge=0)
     sample_count: StrictInt = Field(gt=0)
     episode_count: StrictInt = Field(gt=0)
+    mean_episode_length: StrictFloat = Field(gt=0.0)
     total_reward: StrictFloat
     dense_reward: StrictFloat
     terminal_override: StrictFloat
@@ -52,9 +53,17 @@ class TrainingUpdateSummary(_ArtifactModel):
     maximum_position_error_m: StrictFloat = Field(ge=0.0)
     maximum_heading_error_rad: StrictFloat = Field(ge=0.0)
     beta_alpha_mean: tuple[StrictFloat, StrictFloat]
+    beta_alpha_min: tuple[StrictFloat, StrictFloat]
+    beta_alpha_max: tuple[StrictFloat, StrictFloat]
     beta_beta_mean: tuple[StrictFloat, StrictFloat]
+    beta_beta_min: tuple[StrictFloat, StrictFloat]
+    beta_beta_max: tuple[StrictFloat, StrictFloat]
     action_mean: tuple[StrictFloat, StrictFloat]
-    action_variance: tuple[StrictFloat, StrictFloat]
+    action_std: tuple[StrictFloat, StrictFloat]
+    action_min: tuple[StrictFloat, StrictFloat]
+    action_max: tuple[StrictFloat, StrictFloat]
+    mean_state_value: StrictFloat
+    std_state_value: StrictFloat
     mean_policy_loss: StrictFloat
     mean_value_loss: StrictFloat
     mean_entropy_loss: StrictFloat
@@ -65,6 +74,8 @@ class TrainingUpdateSummary(_ArtifactModel):
     mean_explained_variance: StrictFloat
     maximum_pre_clip_gradient_norm: StrictFloat
     final_learning_rate: StrictFloat = Field(ge=0.0)
+    mean_value_target: StrictFloat
+    std_value_target: StrictFloat
     reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"]
     native_step_energy_total_ml: StrictFloat = Field(ge=0.0)
     executed_fuel_proxy_total_ml: StrictFloat = Field(ge=0.0)
@@ -138,6 +149,8 @@ def build_update_summary(
     reward_profile = reward_profiles.pop()
     trajectory = torch.cat([episode.audit for episode in episodes], dim=0)
     sample_count = trajectory.batch_size[0]
+    episode_count = len(episodes)
+    mean_episode_length = sample_count / episode_count
     collision = (
         trajectory["crash_vehicle"]
         | trajectory["crash_object"]
@@ -145,10 +158,15 @@ def build_update_summary(
         | trajectory["crash_human"]
     )
     collision |= trajectory["crash_sidewalk"]
+    state_value = trajectory["state_value"]
+    beta_alpha = trajectory["beta_alpha"]
+    beta_beta = trajectory["beta_beta"]
+    guidance_action = trajectory["guidance_action"]
     payload = {
         "update_index": update_index,
         "sample_count": sample_count,
-        "episode_count": len(episodes),
+        "episode_count": episode_count,
+        "mean_episode_length": float(mean_episode_length),
         "total_reward": float(trajectory["reward"].sum()),
         "dense_reward": float(trajectory["dense_reward"].sum()),
         "terminal_override": float(trajectory["terminal_override"].sum()),
@@ -160,12 +178,18 @@ def build_update_summary(
         "out_of_road_count": int(trajectory["out_of_road"].sum()),
         "maximum_position_error_m": float(trajectory["position_error_m"].max()),
         "maximum_heading_error_rad": float(trajectory["heading_error_rad"].max()),
-        "beta_alpha_mean": tuple(float(value) for value in trajectory["beta_alpha"].mean(dim=0)),
-        "beta_beta_mean": tuple(float(value) for value in trajectory["beta_beta"].mean(dim=0)),
-        "action_mean": tuple(float(value) for value in trajectory["guidance_action"].mean(dim=0)),
-        "action_variance": tuple(
-            float(value) for value in trajectory["guidance_action"].var(dim=0, correction=0)
-        ),
+        "beta_alpha_mean": tuple(float(value) for value in beta_alpha.mean(dim=0)),
+        "beta_alpha_min": tuple(float(value) for value in beta_alpha.min(dim=0).values),
+        "beta_alpha_max": tuple(float(value) for value in beta_alpha.max(dim=0).values),
+        "beta_beta_mean": tuple(float(value) for value in beta_beta.mean(dim=0)),
+        "beta_beta_min": tuple(float(value) for value in beta_beta.min(dim=0).values),
+        "beta_beta_max": tuple(float(value) for value in beta_beta.max(dim=0).values),
+        "action_mean": tuple(float(value) for value in guidance_action.mean(dim=0)),
+        "action_std": tuple(float(value) for value in guidance_action.std(dim=0, correction=0)),
+        "action_min": tuple(float(value) for value in guidance_action.min(dim=0).values),
+        "action_max": tuple(float(value) for value in guidance_action.max(dim=0).values),
+        "mean_state_value": float(state_value.mean()),
+        "std_state_value": float(state_value.std(correction=0)),
     }
     proxy_total = float(trajectory["executed_fuel_proxy_step_energy_ml"].sum())
     distance_total = float(trajectory["step_distance_m"].sum())

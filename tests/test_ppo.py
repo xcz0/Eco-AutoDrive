@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from eco_planner.envs.metadrive.reward import MetaDriveBuiltinRewardAudit
+from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater, compute_episode_gae
 from eco_planner.rl.policy import (
     ExplorationPolicy,
@@ -189,3 +190,69 @@ def test_ppo_update_changes_policy_and_reports_finite_metrics() -> None:
     assert report.sample_count == 2
     metrics = (value for value in report.__dict__.values() if isinstance(value, float))
     assert all(math.isfinite(value) for value in metrics)
+
+
+def test_ppo_report_records_value_target_moments() -> None:
+    with torch.random.fork_rng():
+        torch.manual_seed(0)
+        policy = ExplorationPolicy(_policy_config())
+
+    report = PPOUpdater(policy, _ppo_config()).update(
+        (
+            _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0),
+            _episode(reward=2.0, terminated=True, truncated=False, bootstrap=0.0),
+        )
+    )
+
+    assert math.isfinite(report.mean_value_target)
+    assert math.isfinite(report.std_value_target)
+    assert report.std_value_target >= 0.0
+
+
+def test_update_summary_records_stability_diagnostics() -> None:
+    with torch.random.fork_rng():
+        torch.manual_seed(0)
+        policy = ExplorationPolicy(_policy_config())
+    updater = PPOUpdater(policy, _ppo_config())
+    episodes = (
+        _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0),
+        _episode(reward=2.0, terminated=True, truncated=False, bootstrap=0.0),
+    )
+    report = updater.update(episodes)
+
+    summary = build_update_summary(0, episodes, report)
+
+    assert isinstance(summary, TrainingUpdateSummary)
+    assert summary.update_index == 0
+    assert summary.episode_count == 2
+    assert summary.sample_count == 2
+    assert math.isclose(summary.mean_episode_length, 1.0)
+    assert math.isfinite(summary.mean_state_value)
+    assert math.isfinite(summary.std_state_value)
+    assert summary.std_state_value >= 0.0
+    assert math.isfinite(summary.mean_value_target)
+    assert math.isfinite(summary.std_value_target)
+    assert summary.std_value_target >= 0.0
+    for field in (
+        summary.beta_alpha_mean,
+        summary.beta_alpha_min,
+        summary.beta_alpha_max,
+        summary.beta_beta_mean,
+        summary.beta_beta_min,
+        summary.beta_beta_max,
+        summary.action_mean,
+        summary.action_std,
+        summary.action_min,
+        summary.action_max,
+    ):
+        assert len(field) == 2
+        assert all(math.isfinite(value) for value in field)
+    for dim in range(2):
+        assert summary.beta_alpha_min[dim] <= summary.beta_alpha_mean[dim]
+        assert summary.beta_alpha_mean[dim] <= summary.beta_alpha_max[dim]
+        assert summary.beta_beta_min[dim] <= summary.beta_beta_mean[dim]
+        assert summary.beta_beta_mean[dim] <= summary.beta_beta_max[dim]
+        assert summary.action_min[dim] <= summary.action_mean[dim]
+        assert summary.action_mean[dim] <= summary.action_max[dim]
+        assert summary.action_std[dim] >= 0.0
+    assert summary.reward_profile == "metadrive_builtin_v1"

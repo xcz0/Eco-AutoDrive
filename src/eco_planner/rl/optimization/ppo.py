@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -67,6 +68,8 @@ class PPOUpdateReport:
     mean_explained_variance: float
     maximum_pre_clip_gradient_norm: float
     final_learning_rate: float
+    mean_value_target: float
+    std_value_target: float
 
 
 def compute_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> TensorDictBase:
@@ -211,6 +214,11 @@ class PPOUpdater:
         ):
             raise RuntimeError("PPO update would exceed the configured scheduler horizon")
         _normalize_full_batch_advantage(batch)
+        value_target = batch["value_target"]
+        value_target_mean = float(value_target.mean())
+        value_target_std = float(value_target.std(correction=0))
+        if not (math.isfinite(value_target_mean) and math.isfinite(value_target_std)):
+            raise FloatingPointError("PPO value target statistics must be finite")
         self._minibatch_replay_buffer.extend(batch)
         batch = batch.to(self.device)
         frozen_inputs = {key: batch[key].clone() for key in _PPO_IMMUTABLE_KEYS}
@@ -279,6 +287,8 @@ class PPOUpdater:
             mean_explained_variance=metric_values[7],
             maximum_pre_clip_gradient_norm=metric_values[8],
             final_learning_rate=float(self.optimizer.param_groups[0]["lr"]),
+            mean_value_target=value_target_mean,
+            std_value_target=value_target_std,
         )
 
 
