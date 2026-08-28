@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import torch
 
 from eco_planner.envs.metadrive.reward import MetaDriveBuiltinRewardAudit
-from eco_planner.rl import ExplorationPolicy, ExplorationPolicyConfig
-from eco_planner.rl.config import PPOConfig
-from eco_planner.rl.policy import ExplorationPolicyContext
-from eco_planner.rl.ppo import PPOUpdater, _append_episode_gae
+from eco_planner.rl.optimization import PPOConfig, PPOUpdater, compute_episode_gae
+from eco_planner.rl.policy import (
+    ExplorationPolicy,
+    ExplorationPolicyConfig,
+    ExplorationPolicyContext,
+)
 from eco_planner.rl.rollout import (
-    build_rollout_audit,
+    DecisionAudit,
+    ExecutionTransitionAudit,
+    RolloutEpisodeBuilder,
+    RolloutProvenance,
     build_training_decision,
-    build_training_transition,
-    finalize_rollout_episode,
 )
 
 
@@ -63,19 +67,27 @@ def _context() -> ExplorationPolicyContext:
     )
 
 
-def _audit(reward: float, *, terminated: bool, truncated: bool):
+def _decision_audit() -> DecisionAudit:
     context = _context()
-    return build_rollout_audit(
+    return DecisionAudit(
+        prediction=np.zeros((1, 11, 80, 4), dtype=np.float32),
+        initial_noise=torch.zeros((1, 11, 80, 4)),
         policy_context=context,
         base_action=torch.tensor([[0.25, 0.75]]),
         guidance_action=torch.tensor([[-0.5, 0.5]]),
         old_joint_guidance_log_prob=torch.tensor([0.5]),
-        state_value=torch.tensor([1.0]),
+        old_value=torch.tensor([1.0]),
         beta_alpha=torch.full((1, 2), 2.0),
         beta_beta=torch.full((1, 2), 2.0),
-        initial_noise=torch.zeros((1, 11, 80, 4)),
         diffusion_rng_state=torch.ones(5, dtype=torch.uint8),
         policy_rng_state=torch.ones(5, dtype=torch.uint8),
+    )
+
+
+def _execution_audit(
+    reward: float, *, terminated: bool, truncated: bool
+) -> ExecutionTransitionAudit:
+    return ExecutionTransitionAudit(
         reward=reward,
         dense_reward=reward,
         terminal_override=0.0,
@@ -91,12 +103,9 @@ def _audit(reward: float, *, terminated: bool, truncated: bool):
         crash_object=False,
         crash_building=False,
         crash_human=False,
+        crash_sidewalk=False,
         terminated=terminated,
         truncated=truncated,
-        map_seed=0,
-        noise_seed=1,
-        policy_action_seed=2,
-        planning_cycle_index=0,
         reward_audit=MetaDriveBuiltinRewardAudit(
             profile_name="metadrive_builtin_v1",
             reward_total=reward,
@@ -120,24 +129,23 @@ def _episode(*, reward: float, terminated: bool, truncated: bool, bootstrap: flo
         torch.tensor([0.5]),
         torch.tensor([1.0]),
     )
-    training = build_training_transition(
-        decision, reward=reward, terminated=terminated, truncated=truncated
+    builder = RolloutEpisodeBuilder()
+    builder.append(
+        decision,
+        _decision_audit(),
+        _execution_audit(reward, terminated=terminated, truncated=truncated),
+        RolloutProvenance(0, 1, 2, 0),
     )
     tail_kind = "terminated" if terminated else "truncated" if truncated else "rollout_limit"
-    return finalize_rollout_episode(
-        [training],
-        [_audit(reward, terminated=terminated, truncated=truncated)],
-        tail_kind,
-        torch.tensor([bootstrap]),
-    )
+    return builder.finish(tail_kind, torch.tensor([bootstrap]))
 
 
 def test_gae_uses_terminal_and_truncated_bootstrap_semantics() -> None:
     config = _ppo_config()
-    terminal = _append_episode_gae(
+    terminal = compute_episode_gae(
         _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0), config
     )
-    truncated = _append_episode_gae(
+    truncated = compute_episode_gae(
         _episode(reward=0.25, terminated=False, truncated=True, bootstrap=2.0), config
     )
 

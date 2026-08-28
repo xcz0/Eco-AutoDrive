@@ -11,16 +11,12 @@ import numpy as np
 import torch
 from hydra.utils import to_absolute_path
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
-from tensordict import TensorDictBase
 
 from eco_planner.artifacts import collect_repository_metadata, write_json, write_tracked_diff
+from eco_planner.rl.artifacts.schema import rollout_artifact_fields
+from eco_planner.rl.optimization.ppo import PPOUpdateReport
 from eco_planner.rl.policy import ExplorationPolicy
-from eco_planner.rl.ppo import PPOUpdateReport
-from eco_planner.rl.rollout import (
-    AUDIT_FIELD_KEYS,
-    ENERGY_REWARD_AUDIT_FIELD_KEYS,
-    RolloutEpisode,
-)
+from eco_planner.rl.rollout.contracts import RolloutEpisode, rollout_audit_keys
 from eco_planner.runtime_resources import ResourceProfileConfig
 
 
@@ -69,11 +65,11 @@ class TrainingUpdateSummary(_ArtifactModel):
     mean_explained_variance: StrictFloat
     maximum_pre_clip_gradient_norm: StrictFloat
     final_learning_rate: StrictFloat = Field(ge=0.0)
-    reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"] = "metadrive_builtin_v1"
-    native_step_energy_total_ml: StrictFloat = Field(default=0.0, ge=0.0)
-    executed_fuel_proxy_total_ml: StrictFloat = Field(default=0.0, ge=0.0)
-    executed_fuel_proxy_ml_per_km: StrictFloat | None = Field(default=None, ge=0.0)
-    reward_component_means: RewardComponentMeans | None = None
+    reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"]
+    native_step_energy_total_ml: StrictFloat = Field(ge=0.0)
+    executed_fuel_proxy_total_ml: StrictFloat = Field(ge=0.0)
+    executed_fuel_proxy_ml_per_km: StrictFloat | None = Field(ge=0.0)
+    reward_component_means: RewardComponentMeans | None
 
 
 class PolicyProbeSummary(_ArtifactModel):
@@ -84,7 +80,7 @@ class PolicyProbeSummary(_ArtifactModel):
 
 
 class TrainingRunSummary(_ArtifactModel):
-    status: str = "completed"
+    status: Literal["completed"]
     training_seed: StrictInt = Field(ge=0)
     replay_id: StrictInt = Field(ge=0)
     noise_seeds: tuple[StrictInt, ...]
@@ -97,7 +93,7 @@ class TrainingRunSummary(_ArtifactModel):
     probe_before: PolicyProbeSummary
     probe_after: PolicyProbeSummary
     updates: tuple[TrainingUpdateSummary, ...]
-    reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"] = "metadrive_builtin_v1"
+    reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"]
 
 
 def policy_state_hash(policy: ExplorationPolicy) -> str:
@@ -117,18 +113,17 @@ def write_rollout_episode(path: Path, episode: RolloutEpisode) -> None:
     """Persist the complete audit trajectory through the stable NumPy artifact boundary."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    arrays = _trajectory_arrays(episode.audit)
+    arrays = _trajectory_arrays(episode)
     arrays.update(
         {
-            "reward_profile": np.asarray(
-                "plannerrft_energy_v1"
-                if "reward_gate" in episode.audit.keys()
-                else "metadrive_builtin_v1"
-            ),
+            "reward_profile": np.asarray(episode.reward_profile),
             "tail_kind": np.asarray(episode.tail_kind),
             "tail_bootstrap_value": episode.tail_bootstrap_value.cpu().numpy(),
         }
     )
+    expected_fields = set(rollout_artifact_fields(episode.reward_profile))
+    if set(arrays) != expected_fields:
+        raise RuntimeError("rollout artifact payload does not match its explicit schema")
     np.savez(path, **arrays)
 
 
@@ -137,6 +132,10 @@ def build_update_summary(
 ) -> TrainingUpdateSummary:
     if not episodes:
         raise ValueError("training update summary requires at least one episode")
+    reward_profiles = {episode.reward_profile for episode in episodes}
+    if len(reward_profiles) != 1:
+        raise ValueError("training update cannot mix rollout reward profiles")
+    reward_profile = reward_profiles.pop()
     trajectory = torch.cat([episode.audit for episode in episodes], dim=0)
     sample_count = trajectory.batch_size[0]
     collision = (
@@ -172,19 +171,16 @@ def build_update_summary(
     distance_total = float(trajectory["step_distance_m"].sum())
     payload.update(
         {
-            "reward_profile": (
-                "plannerrft_energy_v1"
-                if "reward_gate" in trajectory.keys()
-                else "metadrive_builtin_v1"
-            ),
+            "reward_profile": reward_profile,
             "native_step_energy_total_ml": float(trajectory["native_step_energy_ml"].sum()),
             "executed_fuel_proxy_total_ml": proxy_total,
             "executed_fuel_proxy_ml_per_km": (
                 proxy_total * 1000.0 / distance_total if distance_total > 0.0 else None
             ),
+            "reward_component_means": None,
         }
     )
-    if "reward_gate" in trajectory.keys():
+    if reward_profile == "plannerrft_energy_v1":
         payload.update(
             {
                 "reward_component_means": {
@@ -226,8 +222,8 @@ def write_training_runtime_metadata(
     write_tracked_diff(path.parent / "tracked_diff.patch", repository_root)
 
 
-def _trajectory_arrays(trajectory: TensorDictBase) -> dict[str, np.ndarray]:
-    keys = (
-        ENERGY_REWARD_AUDIT_FIELD_KEYS if "reward_gate" in trajectory.keys() else AUDIT_FIELD_KEYS
-    )
-    return {name: trajectory[name].detach().cpu().numpy() for name in keys}
+def _trajectory_arrays(episode: RolloutEpisode) -> dict[str, np.ndarray]:
+    return {
+        name: episode.audit[name].detach().cpu().numpy()
+        for name in rollout_audit_keys(episode.reward_profile)
+    }

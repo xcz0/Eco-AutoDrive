@@ -1,4 +1,4 @@
-# @package rl
+# @package ppo
 
 name: ppo_closed_loop_smoke
 gamma: 0.99

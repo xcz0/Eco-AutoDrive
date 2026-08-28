@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -21,20 +20,20 @@ from eco_planner.models import (
     load_official_diffusion_planner,
     sampler_report,
 )
-from eco_planner.rl.config import ExplorationPolicyConfig
-from eco_planner.rl.distributions import (
-    AffineBetaAction,
-    AffineBetaParameters,
-    ExplicitGeneratorBetaSampler,
-)
 from eco_planner.rl.policy import (
     ExplorationPolicy,
+    ExplorationPolicyConfig,
     ExplorationPolicyContext,
     ExplorationPolicyOutput,
     policy_context_tensordict,
     validate_exploration_policy_context,
 )
-from eco_planner.rl.rollout import build_training_decision
+from eco_planner.rl.policy.distribution import (
+    AffineBetaAction,
+    AffineBetaParameters,
+    ExplicitGeneratorBetaSampler,
+)
+from eco_planner.rl.rollout.contracts import DecisionAudit, build_training_decision
 from eco_planner.runtime.config import RuntimeConfig
 from eco_planner.runtime.contracts import HostExecutionResult
 from eco_planner.runtime.fabric import InferenceRuntimeReport, create_single_device_fabric
@@ -43,27 +42,6 @@ from eco_planner.runtime.host_transfer import (
     copy_execution_trajectory,
     defer_host_tensors,
 )
-
-
-@dataclass(frozen=True)
-class RolloutAudit:
-    """CPU data retained for one policy-guided planner decision."""
-
-    prediction: np.ndarray
-    initial_noise: torch.Tensor
-    policy_context: ExplorationPolicyContext
-    base_action: torch.Tensor
-    guidance_action: torch.Tensor
-    old_joint_guidance_log_prob: torch.Tensor
-    old_value: torch.Tensor
-    beta_alpha: torch.Tensor
-    beta_beta: torch.Tensor
-    diffusion_rng_state: torch.Tensor
-    policy_rng_state: torch.Tensor
-
-    @property
-    def ego_trajectory(self) -> np.ndarray:
-        return self.prediction[0, 0]
 
 
 class RolloutDecision:
@@ -82,7 +60,7 @@ class RolloutDecision:
         self._diffusion_rng_state = diffusion_rng_state
         self._policy_rng_state = policy_rng_state
         self._training_decision = training_decision
-        self._audit: RolloutAudit | None = None
+        self._audit: DecisionAudit | None = None
 
     @property
     def ego_trajectory(self) -> np.ndarray:
@@ -94,7 +72,7 @@ class RolloutDecision:
 
         return self._training_decision
 
-    def audit_result(self) -> RolloutAudit:
+    def audit_result(self) -> DecisionAudit:
         """Wait for the stored PPO/replay payload after simulator execution."""
 
         if self._audit is None:
@@ -106,7 +84,7 @@ class RolloutDecision:
                 navigation_padding_mask=host["navigation_padding_mask"],
                 reference_trajectory=host["reference_trajectory"],
             )
-            self._audit = RolloutAudit(
+            self._audit = DecisionAudit(
                 prediction=host["prediction"].numpy(),
                 initial_noise=host["initial_noise"],
                 policy_context=context,

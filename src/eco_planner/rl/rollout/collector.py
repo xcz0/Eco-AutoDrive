@@ -10,7 +10,6 @@ from weakref import finalize
 
 import numpy as np
 import torch
-from tensordict import TensorDictBase
 
 from eco_planner.envs import (
     MetaDriveEnvSlot,
@@ -26,19 +25,17 @@ from eco_planner.envs.array_types import SingleObservation
 from eco_planner.envs.metadrive.reward import (
     MetaDriveBuiltinRewardAudit,
     PlannerRFTEnergyRewardAudit,
-    RewardAudit,
     RewardProfileConfig,
 )
 from eco_planner.evaluation.config import ScenarioConfig
-from eco_planner.rl.rollout import (
+from eco_planner.rl.rollout.contracts import (
+    ExecutionTransitionAudit,
     RolloutEpisode,
+    RolloutEpisodeBuilder,
+    RolloutProvenance,
     TailKind,
-    build_rollout_audit,
-    build_training_transition,
-    finalize_rollout_episode,
-    set_training_transition_next_state_value,
 )
-from eco_planner.rl.runtime import FabricRolloutRuntime, RolloutDecision
+from eco_planner.rl.rollout.runtime import FabricRolloutRuntime, RolloutDecision
 
 
 @dataclass(frozen=True)
@@ -106,8 +103,7 @@ def collect_rollout_episode(
         diffusion_generator = runtime.new_noise_generator()
     if policy_generator is None:
         policy_generator = runtime.new_policy_generator()
-    training_transitions = []
-    audit_transitions = []
+    episode = RolloutEpisodeBuilder()
     try:
         env_slot.reset(map_name=spec.map, seed=spec.seed)
         tuple(env_slot.warmup())
@@ -116,78 +112,40 @@ def collect_rollout_episode(
         for cycle in range(max_transitions):
             observation = collate_observations([env_slot.observe().observation])
             decision = runtime.decide(observation, diffusion_generator, policy_generator)
-            training_decision = decision.training_decision
-            if training_transitions:
-                set_training_transition_next_state_value(
-                    training_transitions[-1], training_decision["state_value"]
-                )
+            if not episode.empty:
+                episode.link_next_state_value(decision.training_decision["state_value"])
             step = env_slot.step(decision.ego_trajectory)
             terminated = step.terminated
             truncated = step.truncated
-            audit_result = decision.audit_result()
             execution = step.execution
-            if execution.substep_states.shape[0] != 1:
-                raise RuntimeError("rollout transition must execute exactly one substep")
-            audit = _transition_audit(
-                execution,
-                previous_route_completion,
-                stopped_speed_threshold_mps,
-            )
-            reward = float(execution.substep_rewards.sum())
-            dense_reward, terminal_override, reward_audit = _reward_audit_values(execution, reward)
-            training_transitions.append(
-                build_training_transition(
-                    training_decision,
-                    reward=reward,
+            episode.append(
+                decision.training_decision,
+                decision.audit_result(),
+                _execution_transition_audit(
+                    execution,
+                    previous_route_completion,
+                    stopped_speed_threshold_mps,
                     terminated=terminated,
                     truncated=truncated,
-                )
-            )
-            audit_transitions.append(
-                build_rollout_audit(
-                    policy_context=audit_result.policy_context,
-                    base_action=audit_result.base_action,
-                    guidance_action=audit_result.guidance_action,
-                    old_joint_guidance_log_prob=audit_result.old_joint_guidance_log_prob,
-                    state_value=audit_result.old_value,
-                    beta_alpha=audit_result.beta_alpha,
-                    beta_beta=audit_result.beta_beta,
-                    initial_noise=audit_result.initial_noise,
-                    diffusion_rng_state=audit_result.diffusion_rng_state,
-                    policy_rng_state=audit_result.policy_rng_state,
-                    reward=reward,
-                    dense_reward=dense_reward,
-                    terminal_override=terminal_override,
-                    terminated=terminated,
-                    truncated=truncated,
+                ),
+                RolloutProvenance(
                     map_seed=spec.seed,
                     noise_seed=resolved_noise_seed,
                     policy_action_seed=resolved_policy_seed,
                     planning_cycle_index=cycle,
-                    reward_audit=reward_audit,
-                    crash_sidewalk=execution.crash_sidewalk,
-                    **audit,
-                )
+                ),
             )
             previous_route_completion = execution.route_completion
             if terminated:
-                return finalize_rollout_episode(
-                    training_transitions, audit_transitions, "terminated", torch.zeros(1)
-                )
+                return episode.finish("terminated", torch.zeros(1))
             if truncated:
                 next_observation = collate_observations([env_slot.observe().observation])
-                return finalize_rollout_episode(
-                    training_transitions,
-                    audit_transitions,
-                    "truncated",
-                    runtime.bootstrap_value(next_observation, diffusion_generator),
+                return episode.finish(
+                    "truncated", runtime.bootstrap_value(next_observation, diffusion_generator)
                 )
         next_observation = collate_observations([env_slot.observe().observation])
-        return finalize_rollout_episode(
-            training_transitions,
-            audit_transitions,
-            "rollout_limit",
-            runtime.bootstrap_value(next_observation, diffusion_generator),
+        return episode.finish(
+            "rollout_limit", runtime.bootstrap_value(next_observation, diffusion_generator)
         )
     finally:
         env_slot.close()
@@ -205,8 +163,7 @@ class _SlotCollectionState:
     previous_route_completion: float
     collected: int = 0
     episode_cycle: int = 0
-    training: list[TensorDictBase] = field(default_factory=list)
-    audit: list[TensorDictBase] = field(default_factory=list)
+    episode: RolloutEpisodeBuilder = field(default_factory=RolloutEpisodeBuilder)
     episodes: list[RolloutEpisode] = field(default_factory=list)
 
     def reset(self, result: VectorEnvReset) -> None:
@@ -381,9 +338,9 @@ class VectorRolloutCollector:
                 tuple(state.policy_generator for state in states),
             )
             for slot, state in enumerate(states):
-                if state.training:
-                    set_training_transition_next_state_value(
-                        state.training[-1], decision.slot(slot).training_decision["state_value"]
+                if not state.episode.empty:
+                    state.episode.link_next_state_value(
+                        decision.slot(slot).training_decision["state_value"]
                     )
             planner_s = perf_counter() - planner_started if profile else 0.0
             environment_started = perf_counter() if profile else 0.0
@@ -433,22 +390,19 @@ class VectorRolloutCollector:
             for slot, kind in tails:
                 state = states[slot]
                 state.episodes.append(
-                    finalize_rollout_episode(
-                        state.training,
-                        state.audit,
+                    state.episode.finish(
                         kind,
-                        (torch.zeros(1) if kind == "terminated" else bootstrap_values[slot]),
+                        torch.zeros(1) if kind == "terminated" else bootstrap_values[slot],
                     )
                 )
-                state.training = []
-                state.audit = []
+                state.episode = RolloutEpisodeBuilder()
                 if state.collected < transitions_per_slot:
                     state.reset(self._envs.reset_at(slot, state.scenario))
             for slot, (state, step) in enumerate(zip(states, steps, strict=True)):
                 if state.collected < transitions_per_slot and slot not in tail_slots:
                     state.observation = step.observation
 
-        if any(state.training or state.audit for state in states):
+        if any(not state.episode.empty for state in states):
             raise RuntimeError("vector rollout ended with an unfinished episode")
         return tuple(tuple(state.episodes) for state in states)
 
@@ -462,48 +416,22 @@ def _append_slot_transition(
     stopped_speed_threshold_mps: float,
 ) -> TailKind | None:
     execution = step.execution
-    if execution.substep_states.shape[0] != 1:
-        raise RuntimeError("rollout transition must execute exactly one substep")
-    reward = float(execution.substep_rewards.sum())
-    dense_reward, terminal_override, reward_audit = _reward_audit_values(execution, reward)
-    state.training.append(
-        build_training_transition(
-            decision.training_decision,
-            reward=reward,
+    state.episode.append(
+        decision.training_decision,
+        decision.audit_result(),
+        _execution_transition_audit(
+            execution,
+            state.previous_route_completion,
+            stopped_speed_threshold_mps,
             terminated=step.terminated,
             truncated=step.truncated,
-        )
-    )
-    audit_result = decision.audit_result()
-    state.audit.append(
-        build_rollout_audit(
-            policy_context=audit_result.policy_context,
-            base_action=audit_result.base_action,
-            guidance_action=audit_result.guidance_action,
-            old_joint_guidance_log_prob=audit_result.old_joint_guidance_log_prob,
-            state_value=audit_result.old_value,
-            beta_alpha=audit_result.beta_alpha,
-            beta_beta=audit_result.beta_beta,
-            initial_noise=audit_result.initial_noise,
-            diffusion_rng_state=audit_result.diffusion_rng_state,
-            policy_rng_state=audit_result.policy_rng_state,
-            reward=reward,
-            dense_reward=dense_reward,
-            terminal_override=terminal_override,
-            terminated=step.terminated,
-            truncated=step.truncated,
+        ),
+        RolloutProvenance(
             map_seed=state.spec.seed,
             noise_seed=state.noise_seed,
             policy_action_seed=state.policy_action_seed,
             planning_cycle_index=state.episode_cycle,
-            reward_audit=reward_audit,
-            crash_sidewalk=execution.crash_sidewalk,
-            **_transition_audit(
-                execution,
-                state.previous_route_completion,
-                stopped_speed_threshold_mps,
-            ),
-        )
+        ),
     )
     state.collected += 1
     state.episode_cycle += 1
@@ -626,33 +554,47 @@ def _validate_vector_slots(
             raise ValueError(f"{name} must contain one value per vector slot")
 
 
-def _transition_audit(
+def _execution_transition_audit(
     execution: TrajectoryExecutionRecord,
     previous_route_completion: float,
     stopped_speed_threshold_mps: float,
-) -> dict[str, float | bool]:
+    *,
+    terminated: bool,
+    truncated: bool,
+) -> ExecutionTransitionAudit:
+    if execution.substep_states.shape[0] != 1:
+        raise RuntimeError("rollout transition must execute exactly one substep")
+    reward = float(execution.substep_rewards.sum())
+    dense_reward, terminal_override, reward_audit = _reward_audit_values(execution, reward)
     state = execution.substep_states[0]
     distance_m = float(np.linalg.norm(state[:2] - execution.start_center))
     speed_mps = float(state[5])
-    return {
-        "route_completion_delta": float(execution.route_completion - previous_route_completion),
-        "distance_m": distance_m,
-        "speed_mps": speed_mps,
-        "stopped": speed_mps < stopped_speed_threshold_mps,
-        "position_error_m": float(execution.position_errors_m[0]),
-        "heading_error_rad": float(execution.heading_errors_rad[0]),
-        "arrive_dest": execution.arrive_dest,
-        "out_of_road": execution.out_of_road,
-        "crash_vehicle": execution.crash_vehicle,
-        "crash_object": execution.crash_object,
-        "crash_building": execution.crash_building,
-        "crash_human": execution.crash_human,
-    }
+    return ExecutionTransitionAudit(
+        reward=reward,
+        dense_reward=dense_reward,
+        terminal_override=terminal_override,
+        route_completion_delta=float(execution.route_completion - previous_route_completion),
+        distance_m=distance_m,
+        speed_mps=speed_mps,
+        stopped=speed_mps < stopped_speed_threshold_mps,
+        position_error_m=float(execution.position_errors_m[0]),
+        heading_error_rad=float(execution.heading_errors_rad[0]),
+        arrive_dest=execution.arrive_dest,
+        out_of_road=execution.out_of_road,
+        crash_vehicle=execution.crash_vehicle,
+        crash_object=execution.crash_object,
+        crash_building=execution.crash_building,
+        crash_human=execution.crash_human,
+        crash_sidewalk=execution.crash_sidewalk,
+        terminated=terminated,
+        truncated=truncated,
+        reward_audit=reward_audit,
+    )
 
 
 def _reward_audit_values(
     execution: TrajectoryExecutionRecord, reward: float
-) -> tuple[float, float, RewardAudit]:
+) -> tuple[float, float, MetaDriveBuiltinRewardAudit | PlannerRFTEnergyRewardAudit]:
     if len(execution.substep_reward_audits) != 1:
         raise RuntimeError("rollout transition must expose exactly one reward audit")
     audit = execution.substep_reward_audits[0]

@@ -26,6 +26,11 @@ from eco_planner.models import (
     parse_guidance_config,
     parse_sampler_config,
 )
+from eco_planner.rl.optimization.config import PPOConfig, parse_ppo_config
+from eco_planner.rl.policy.config import (
+    ExplorationPolicyConfig,
+    parse_exploration_policy_config,
+)
 from eco_planner.runtime.config import RuntimeConfig
 from eco_planner.runtime_resources import ResourceProfileConfig
 
@@ -38,64 +43,6 @@ class _StrictModel(BaseModel):
         allow_inf_nan=False,
         arbitrary_types_allowed=True,
     )
-
-
-class ExplorationPolicyConfig(_StrictModel):
-    """Architecture and affine-Beta initialization parameters."""
-
-    hidden_dim: StrictInt = Field(gt=0)
-    reference_mixer_depth: StrictInt = Field(gt=0)
-    reference_token_mlp_hidden_dim: StrictInt = Field(gt=0)
-    reference_channel_mlp_hidden_dim: StrictInt = Field(gt=0)
-    cross_attention_heads: StrictInt = Field(gt=0)
-    cross_attention_dropout: StrictFloat = Field(ge=0.0, lt=1.0)
-    fusion_mlp_depth: StrictInt = Field(gt=0)
-    fusion_hidden_dim: StrictInt = Field(gt=0)
-    initial_concentration: StrictFloat = Field(gt=0.0)
-    minimum_concentration: StrictFloat = Field(gt=0.0)
-
-    @model_validator(mode="after")
-    def validate_policy_contract(self) -> ExplorationPolicyConfig:
-        if self.hidden_dim % self.cross_attention_heads:
-            raise ValueError("policy.hidden_dim must be divisible by cross_attention_heads")
-        if self.initial_concentration <= self.minimum_concentration:
-            raise ValueError("policy.initial_concentration must exceed minimum_concentration")
-        return self
-
-
-class PPOConfig(_StrictModel):
-    """GAE, PPO, optimizer, and scheduler parameters for one update profile."""
-
-    name: str = Field(min_length=1)
-    gamma: StrictFloat = Field(gt=0.0, lt=1.0)
-    gae_lambda: StrictFloat = Field(gt=0.0, lt=1.0)
-    clip_epsilon: StrictFloat = Field(gt=0.0, lt=1.0)
-    value_coefficient: StrictFloat = Field(ge=0.0)
-    entropy_coefficient: StrictFloat = Field(ge=0.0)
-    learning_rate: StrictFloat = Field(gt=0.0)
-    adam_epsilon: StrictFloat = Field(gt=0.0)
-    weight_decay: StrictFloat = Field(ge=0.0)
-    max_gradient_norm: StrictFloat = Field(gt=0.0)
-    epochs: StrictInt = Field(gt=0)
-    batch_size: StrictInt = Field(gt=0)
-    minibatch_size: StrictInt = Field(gt=0)
-    minibatch_seed: StrictInt = Field(ge=0)
-    scheduler_total_optimizer_steps: StrictInt = Field(gt=0)
-    scheduler_minimum_learning_rate: StrictFloat = Field(ge=0.0)
-
-    @property
-    def optimizer_steps_per_update(self) -> int:
-        return self.epochs * (self.batch_size // self.minibatch_size)
-
-    @model_validator(mode="after")
-    def validate_optimization_contract(self) -> PPOConfig:
-        if self.batch_size % self.minibatch_size:
-            raise ValueError("rl.batch_size must be divisible by rl.minibatch_size")
-        if self.scheduler_minimum_learning_rate >= self.learning_rate:
-            raise ValueError("scheduler minimum learning rate must be below the initial rate")
-        if self.scheduler_total_optimizer_steps < self.optimizer_steps_per_update:
-            raise ValueError("scheduler horizon must cover at least one complete PPO update")
-        return self
 
 
 class RolloutConfig(_StrictModel):
@@ -136,7 +83,7 @@ class RolloutJobConfig(_StrictModel):
         return self
 
 
-class TrainingConfig(_StrictModel):
+class TrainingLoopConfig(_StrictModel):
     """General closed-loop PPO run controls; smoke values live in YAML."""
 
     update_count: StrictInt = Field(gt=0)
@@ -152,7 +99,7 @@ class TrainingConfig(_StrictModel):
     resume_checkpoint_path: str | None = None
 
     @model_validator(mode="after")
-    def validate_training_mode(self) -> TrainingConfig:
+    def validate_training_mode(self) -> TrainingLoopConfig:
         if self.mode == "no_traffic" and self.history_warmup_steps != 0:
             raise ValueError("no-traffic training requires zero history warmup steps")
         if self.mode == "traffic" and self.history_warmup_steps != 20:
@@ -160,10 +107,10 @@ class TrainingConfig(_StrictModel):
         return self
 
 
-class RLTrainingJobConfig(_StrictModel):
+class TrainingJobConfig(_StrictModel):
     name: str = Field(min_length=1)
     map_query_radius_m: StrictFloat = Field(gt=0.0)
-    training: TrainingConfig
+    training: TrainingLoopConfig
     env: dict[str, Any]
     model: ModelPathsConfig
     runtime: RuntimeConfig
@@ -171,12 +118,12 @@ class RLTrainingJobConfig(_StrictModel):
     guidance: OrthogonalPolicyGuidanceConfig
     policy: ExplorationPolicyConfig
     reward: RewardProfileConfig
-    rl: PPOConfig
+    ppo: PPOConfig
     resources: ResourceProfileConfig
     scenarios: tuple[ScenarioConfig, ...]
 
     @model_validator(mode="after")
-    def validate_training_job(self) -> RLTrainingJobConfig:
+    def validate_training_job(self) -> TrainingJobConfig:
         if not self.scenarios:
             raise ValueError("training requires at least one scenario")
         _validate_rollout_environment(self.env, 0, self.training.transitions_per_environment)
@@ -201,24 +148,12 @@ class RLTrainingJobConfig(_StrictModel):
                     f"{sorted(conflicting)}"
                 )
         sample_count = len(self.scenarios) * self.training.transitions_per_environment
-        if self.rl.batch_size != sample_count:
-            raise ValueError("rl.batch_size must equal all closed-loop transitions per update")
-        required_steps = self.training.update_count * self.rl.optimizer_steps_per_update
-        if self.rl.scheduler_total_optimizer_steps < required_steps:
+        if self.ppo.batch_size != sample_count:
+            raise ValueError("ppo.batch_size must equal all closed-loop transitions per update")
+        required_steps = self.training.update_count * self.ppo.optimizer_steps_per_update
+        if self.ppo.scheduler_total_optimizer_steps < required_steps:
             raise ValueError("scheduler horizon must cover every configured PPO update")
         return self
-
-
-def parse_exploration_policy_config(config: DictConfig) -> ExplorationPolicyConfig:
-    return ExplorationPolicyConfig.model_validate(
-        dict(OmegaConf.to_container(config, resolve=True, throw_on_missing=True))
-    )
-
-
-def parse_ppo_config(config: DictConfig) -> PPOConfig:
-    return PPOConfig.model_validate(
-        dict(OmegaConf.to_container(config, resolve=True, throw_on_missing=True))
-    )
 
 
 def parse_rollout_config(config: DictConfig) -> RolloutJobConfig:
@@ -232,7 +167,7 @@ def parse_rollout_config(config: DictConfig) -> RolloutJobConfig:
     return RolloutJobConfig.model_validate(raw)
 
 
-def parse_training_config(config: DictConfig) -> RLTrainingJobConfig:
+def parse_training_config(config: DictConfig) -> TrainingJobConfig:
     raw = dict(OmegaConf.to_container(config, resolve=True, throw_on_missing=True))
     guidance = parse_guidance_config(config["guidance"])
     if not isinstance(guidance, OrthogonalPolicyGuidanceConfig):
@@ -240,10 +175,10 @@ def parse_training_config(config: DictConfig) -> RLTrainingJobConfig:
     raw["sampler"] = parse_sampler_config(config["sampler"])
     raw["guidance"] = guidance
     raw["policy"] = parse_exploration_policy_config(config["policy"])
-    raw["rl"] = parse_ppo_config(config["rl"])
+    raw["ppo"] = parse_ppo_config(config["ppo"])
     if isinstance(raw.get("scenarios"), list):
         raw["scenarios"] = tuple(raw["scenarios"])
-    return RLTrainingJobConfig.model_validate(raw)
+    return TrainingJobConfig.model_validate(raw)
 
 
 def _validate_rollout_environment(

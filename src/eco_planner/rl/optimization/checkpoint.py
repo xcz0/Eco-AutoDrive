@@ -10,8 +10,8 @@ from typing import Any
 import torch
 from lightning.fabric import Fabric
 
+from eco_planner.rl.optimization.ppo import PPOUpdater
 from eco_planner.rl.policy import ExplorationPolicy
-from eco_planner.rl.ppo import PPOUpdater
 
 _FORMAT_VERSION = 1
 

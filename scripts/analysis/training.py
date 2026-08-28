@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from eco_planner.artifacts import write_json
-from eco_planner.rl.analysis import summarize_training_runs
+from eco_planner.rl.artifacts import summarize_training_runs
 
 
 def main() -> None:

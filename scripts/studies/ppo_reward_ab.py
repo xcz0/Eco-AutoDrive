@@ -97,7 +97,7 @@ def build_training_command(
         f"training.replay_id={replay_id}",
         f"training.update_count={matched.update_count}",
         f"training.transitions_per_environment={matched.transitions_per_environment}",
-        f"rl.scheduler_total_optimizer_steps={matched.scheduler_total_optimizer_steps}",
+        f"ppo.scheduler_total_optimizer_steps={matched.scheduler_total_optimizer_steps}",
         f"name=ppo_reward_ab_{profile.id}",
         f"hydra.run.dir={run_dir.as_posix()}",
     ]

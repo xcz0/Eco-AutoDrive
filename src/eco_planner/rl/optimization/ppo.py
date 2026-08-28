@@ -19,10 +19,11 @@ from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 
-from eco_planner.rl.config import PPOConfig
-from eco_planner.rl.distributions import AffineBeta
-from eco_planner.rl.policy import POLICY_CONTEXT_KEYS, ExplorationPolicy
-from eco_planner.rl.rollout import RolloutEpisode
+from eco_planner.rl.optimization.config import PPOConfig
+from eco_planner.rl.policy import ExplorationPolicy
+from eco_planner.rl.policy.distribution import AffineBeta
+from eco_planner.rl.policy.model import POLICY_CONTEXT_KEYS
+from eco_planner.rl.rollout.contracts import RolloutEpisode
 
 _PPO_BATCH_KEYS = (
     *POLICY_CONTEXT_KEYS,
@@ -68,7 +69,7 @@ class PPOUpdateReport:
     final_learning_rate: float
 
 
-def _append_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> TensorDictBase:
+def compute_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> TensorDictBase:
     """Run TorchRL GAE and append its detached outputs to the PPO trajectory."""
 
     tensordict = episode.training.select("state_value", "next").clone()
@@ -306,7 +307,7 @@ def _batch_trajectories(episodes: Sequence[RolloutEpisode], config: PPOConfig) -
         raise ValueError("PPO update requires at least one rollout episode")
     trajectories = []
     for episode in episode_tuple:
-        trajectories.append(_append_episode_gae(episode, config))
+        trajectories.append(compute_episode_gae(episode, config))
     return torch.cat(trajectories, dim=0).select(*_PPO_BATCH_KEYS)
 
 

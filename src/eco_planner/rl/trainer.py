@@ -9,37 +9,39 @@ import numpy as np
 import torch
 from hydra.utils import to_absolute_path
 
+from eco_planner.artifacts import write_json
 from eco_planner.rl.artifacts import (
     PolicyProbeSummary,
     TrainingRunSummary,
     TrainingUpdateSummary,
     build_update_summary,
     policy_state_hash,
-    write_json,
     write_rollout_episode,
     write_training_runtime_metadata,
 )
-from eco_planner.rl.checkpoint import (
+from eco_planner.rl.config import TrainingJobConfig
+from eco_planner.rl.optimization import (
+    PPOUpdater,
     load_training_checkpoint,
     save_exploration_policy_checkpoint,
     save_training_checkpoint,
 )
-from eco_planner.rl.collector import VectorRolloutCollector
-from eco_planner.rl.config import RLTrainingJobConfig
-from eco_planner.rl.distributions import AffineBeta
 from eco_planner.rl.policy import ExplorationPolicyContext, policy_context_tensordict
-from eco_planner.rl.ppo import PPOUpdater
-from eco_planner.rl.rollout import RolloutEpisode
-from eco_planner.rl.runtime import create_fabric_rollout_runtime
+from eco_planner.rl.policy.distribution import AffineBeta
+from eco_planner.rl.rollout import (
+    RolloutEpisode,
+    VectorRolloutCollector,
+    create_fabric_rollout_runtime,
+)
 
 _SEED_NAMESPACE = 6_002_024
 
 
-def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
+def train(config: TrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
     """Run a configured closed-loop PPO job and persist policies and research artifacts."""
 
-    if not isinstance(config, RLTrainingJobConfig):
-        raise TypeError("config must be RLTrainingJobConfig")
+    if not isinstance(config, TrainingJobConfig):
+        raise TypeError("config must be TrainingJobConfig")
     if not isinstance(output_dir, Path):
         raise TypeError("output_dir must be pathlib.Path")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -59,7 +61,7 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
         Path(to_absolute_path(config.model.checkpoint_path)),
         policy_seeds[0],
     )
-    updater = PPOUpdater(runtime.policy, config.rl)
+    updater = PPOUpdater(runtime.policy, config.ppo)
     (
         start_update,
         total_transitions,
@@ -158,7 +160,7 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
 
     if probe_contexts is None or probe_before is None:
         raise RuntimeError("training did not capture fixed probe contexts")
-    expected_total = config.training.update_count * config.rl.batch_size
+    expected_total = config.training.update_count * config.ppo.batch_size
     if total_transitions != expected_total:
         raise RuntimeError(
             f"training collected {total_transitions} transitions, expected {expected_total}"
@@ -176,6 +178,7 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
     if planner_hash_after != planner_hash_before:
         raise RuntimeError("PPO mutated the frozen planner")
     summary = TrainingRunSummary(
+        status="completed",
         training_seed=config.runtime.seed,
         replay_id=config.training.replay_id,
         noise_seeds=noise_seeds,
@@ -196,7 +199,7 @@ def train(config: RLTrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
 
 
 def _resume_state(
-    config: RLTrainingJobConfig, runtime: object, updater: PPOUpdater
+    config: TrainingJobConfig, runtime: object, updater: PPOUpdater
 ) -> tuple[
     int,
     int,

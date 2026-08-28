@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import torch
 
-from eco_planner.rl import ExplorationPolicy, ExplorationPolicyConfig
-from eco_planner.rl.policy import ExplorationPolicyContext
+from eco_planner.rl.policy import (
+    ExplorationPolicy,
+    ExplorationPolicyConfig,
+    ExplorationPolicyContext,
+)
 
 
 def _config() -> ExplorationPolicyConfig:
@@ -51,3 +54,29 @@ def test_beta_policy_action_and_log_prob_are_positive_and_finite() -> None:
             action.joint_guidance_entropy,
         )
     )
+
+    generator = torch.Generator().manual_seed(23)
+    replay_state = generator.get_state().clone()
+    global_state = torch.random.get_rng_state().clone()
+    _, first = policy.act(_context(), "sample", generator)
+    consumed_state = generator.get_state().clone()
+    replay_generator = torch.Generator()
+    replay_generator.set_state(replay_state)
+    _, replay = policy.act(_context(), "sample", replay_generator)
+
+    torch.testing.assert_close(first.base_action, replay.base_action, rtol=1e-6, atol=1e-6)
+    torch.testing.assert_close(first.guidance_action, replay.guidance_action, rtol=1e-6, atol=1e-6)
+    torch.testing.assert_close(
+        first.joint_guidance_log_prob,
+        replay.joint_guidance_log_prob,
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    torch.testing.assert_close(
+        first.joint_guidance_entropy,
+        replay.joint_guidance_entropy,
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    assert torch.equal(consumed_state, replay_generator.get_state())
+    assert torch.equal(global_state, torch.random.get_rng_state())

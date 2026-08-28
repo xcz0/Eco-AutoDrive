@@ -14,15 +14,16 @@ from hydra.utils import to_absolute_path
 from omegaconf import DictConfig
 
 from eco_planner.evaluation.config import ScenarioConfig
-from eco_planner.rl.collector import (
+from eco_planner.rl.config import TrainingJobConfig, parse_training_config
+from eco_planner.rl.optimization import PPOUpdater
+from eco_planner.rl.rollout import (
+    FabricRolloutRuntime,
+    RolloutEpisode,
     VectorRolloutCollector,
     VectorRolloutRoundTiming,
     collect_rollout_episode,
+    create_fabric_rollout_runtime,
 )
-from eco_planner.rl.config import RLTrainingJobConfig, parse_training_config
-from eco_planner.rl.ppo import PPOUpdater
-from eco_planner.rl.rollout import RolloutEpisode
-from eco_planner.rl.runtime import FabricRolloutRuntime, create_fabric_rollout_runtime
 
 from .common import (
     RolloutBenchmarkConfig,
@@ -45,7 +46,7 @@ def run(config: DictConfig) -> None:
             "sampler": asdict(parsed.sampler),
             "guidance": asdict(parsed.guidance),
             "policy": parsed.policy.model_dump(mode="json"),
-            "base_ppo_config": parsed.rl.model_dump(mode="json"),
+            "base_ppo_config": parsed.ppo.model_dump(mode="json"),
             "traffic": {
                 "mode": benchmark.mode,
                 "density": parsed.env.get("traffic_density"),
@@ -70,7 +71,7 @@ def run(config: DictConfig) -> None:
 
 
 def _measure_batch_size(
-    config: RLTrainingJobConfig,
+    config: TrainingJobConfig,
     collector_mode: str,
     batch_size: int,
     benchmark: RolloutBenchmarkConfig,
@@ -86,7 +87,7 @@ def _measure_batch_size(
     worker_pool_startup_samples: list[float] = []
 
     for _ in range(benchmark.repeats):
-        ppo_config = config.rl.model_copy(
+        ppo_config = config.ppo.model_copy(
             update={
                 "epochs": benchmark.ppo_epochs,
                 "batch_size": sample_count,
@@ -198,7 +199,7 @@ def _measure_batch_size(
 def _collect_serial_slots(
     specs: Sequence[ScenarioConfig],
     runtime: FabricRolloutRuntime,
-    config: RLTrainingJobConfig,
+    config: TrainingJobConfig,
     benchmark: RolloutBenchmarkConfig,
     diffusion_generators: Sequence[torch.Generator],
     policy_generators: Sequence[torch.Generator],

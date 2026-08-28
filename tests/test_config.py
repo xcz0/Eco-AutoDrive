@@ -7,8 +7,8 @@ from hydra import compose, initialize_config_dir
 
 from eco_planner.evaluation.config import EvaluationJobConfig, parse_evaluation_config
 from eco_planner.rl.config import (
-    RLTrainingJobConfig,
     RolloutJobConfig,
+    TrainingJobConfig,
     parse_rollout_config,
     parse_training_config,
 )
@@ -62,7 +62,7 @@ def test_training_jobs_compose_into_typed_boundaries(
     )
     rollout = _compose("jobs/training/rollout/smoke")
 
-    assert isinstance(parse_training_config(training), RLTrainingJobConfig)
+    assert isinstance(parse_training_config(training), TrainingJobConfig)
     assert isinstance(parse_rollout_config(rollout), RolloutJobConfig)
 
 
@@ -83,7 +83,7 @@ def test_benchmark_jobs_compose_into_typed_boundaries(
     assert isinstance(throughput, ScalingBenchmarkConfig)
     assert isinstance(parse_evaluation_config(throughput_job), EvaluationJobConfig)
     assert isinstance(rollout, RolloutBenchmarkConfig)
-    assert isinstance(parse_training_config(rollout_job), RLTrainingJobConfig)
+    assert isinstance(parse_training_config(rollout_job), TrainingJobConfig)
 
 
 def test_study_manifests_are_strict_and_reference_composable_jobs(
@@ -93,7 +93,7 @@ def test_study_manifests_are_strict_and_reference_composable_jobs(
     energy = load_energy_study(CONFIG_ROOT / "studies" / "energy" / "matrix.yaml")
     reward_studies = [
         load_ab_config(CONFIG_ROOT / "studies" / "reward" / name)
-        for name in ("ppo_ab.yaml", "ppo_ab_phase_b.yaml")
+        for name in ("ppo_ab.yaml", "ppo_ab_long_term.yaml")
     ]
 
     for job in energy.jobs:
@@ -114,17 +114,17 @@ def test_study_manifests_are_strict_and_reference_composable_jobs(
                 "training.replay_id=0",
                 f"training.update_count={matched.update_count}",
                 (f"training.transitions_per_environment={matched.transitions_per_environment}"),
-                (f"rl.scheduler_total_optimizer_steps={matched.scheduler_total_optimizer_steps}"),
+                (f"ppo.scheduler_total_optimizer_steps={matched.scheduler_total_optimizer_steps}"),
             ],
         )
         parsed = parse_training_config(training)
-        assert isinstance(parsed, RLTrainingJobConfig)
+        assert isinstance(parsed, TrainingJobConfig)
         assert parsed.training.update_count == matched.update_count
-        assert parsed.rl.scheduler_total_optimizer_steps == matched.scheduler_total_optimizer_steps
+        assert parsed.ppo.scheduler_total_optimizer_steps == matched.scheduler_total_optimizer_steps
 
 
-def test_phase_b_reward_ab_builds_explicit_duration_and_scheduler_overrides() -> None:
-    config = load_ab_config(CONFIG_ROOT / "studies" / "reward" / "ppo_ab_phase_b.yaml")
+def test_long_term_reward_ab_builds_explicit_duration_and_scheduler_overrides() -> None:
+    config = load_ab_config(CONFIG_ROOT / "studies" / "reward" / "ppo_ab_long_term.yaml")
     command = build_training_command(
         config,
         config.profiles[1],
@@ -136,10 +136,10 @@ def test_phase_b_reward_ab_builds_explicit_duration_and_scheduler_overrides() ->
     assert config.matched_training.update_count == 20
     assert config.matched_training.training_seeds == [0, 1, 2]
     assert "training.update_count=20" in command
-    assert "rl.scheduler_total_optimizer_steps=160" in command
+    assert "ppo.scheduler_total_optimizer_steps=160" in command
 
 
-def test_phase_b_reward_ab_aggregates_one_effect_estimate_per_seed() -> None:
+def test_long_term_reward_ab_aggregates_one_effect_estimate_per_seed() -> None:
     pairs = [
         {
             "training_seed": seed,

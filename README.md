@@ -83,7 +83,7 @@ just review-ppo-reward-ab outputs/training/ppo-reward-ab/manual-run
 
 # 阶段 B：20 updates × 3 seeds 的匹配短趋势运行
 just ppo-reward-ab outputs/training/ppo-reward-ab-phase-b/manual-run `
-    configs/studies/reward/ppo_ab_phase_b.yaml
+    configs/studies/reward/ppo_ab_long_term.yaml
 ```
 
 第一条只计算配置中声明的固定合成 reward case；第二条运行相同 seed、scenario、transition

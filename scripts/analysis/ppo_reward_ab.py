@@ -11,8 +11,11 @@ import numpy as np
 
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.rl.artifacts import TrainingRunSummary
-from eco_planner.rl.rollout import AUDIT_FIELD_KEYS, ENERGY_REWARD_AUDIT_FIELD_KEYS
+from eco_planner.rl.artifacts import (
+    BUILTIN_ROLLOUT_ARTIFACT_FIELDS,
+    ENERGY_ROLLOUT_ARTIFACT_FIELDS,
+    TrainingRunSummary,
+)
 from scripts.studies.ppo_reward_ab import PPORewardABConfig, load_ab_config
 
 _COMMON_PAIR_FIELDS = (
@@ -84,12 +87,11 @@ def _load_update(path: Path, update_index: int, expected_profile: str) -> dict[s
     if not files:
         raise ValueError(f"{path} update {update_index} has no rollout artifacts")
     values: dict[str, list[np.ndarray]] = {name: [] for name in _COMMON_PAIR_FIELDS}
-    profile_fields = (
-        ENERGY_REWARD_AUDIT_FIELD_KEYS
+    expected_fields = set(
+        ENERGY_ROLLOUT_ARTIFACT_FIELDS
         if expected_profile == "plannerrft_energy_v1"
-        else AUDIT_FIELD_KEYS
+        else BUILTIN_ROLLOUT_ARTIFACT_FIELDS
     )
-    expected_fields = {*profile_fields, "reward_profile", "tail_kind", "tail_bootstrap_value"}
     for artifact in files:
         with np.load(artifact, allow_pickle=False) as arrays:
             if str(arrays["reward_profile"]) != expected_profile:
@@ -369,11 +371,11 @@ def _matched_configs(left: dict[str, object], right: dict[str, object]) -> bool:
 def _resolved_matches_matrix(config: PPORewardABConfig, run: dict[str, object]) -> bool:
     resolved = _resolved(run)
     training = resolved.get("training")
-    rl = resolved.get("rl")
+    ppo = resolved.get("ppo")
     scenarios = resolved.get("scenarios")
     if (
         not isinstance(training, dict)
-        or not isinstance(rl, dict)
+        or not isinstance(ppo, dict)
         or not isinstance(scenarios, list)
     ):
         return False
@@ -384,7 +386,7 @@ def _resolved_matches_matrix(config: PPORewardABConfig, run: dict[str, object]) 
         training.get("update_count") == config.matched_training.update_count
         and training.get("transitions_per_environment")
         == config.matched_training.transitions_per_environment
-        and rl.get("scheduler_total_optimizer_steps")
+        and ppo.get("scheduler_total_optimizer_steps")
         == config.matched_training.scheduler_total_optimizer_steps
         and scenarios == expected_scenarios
     )

@@ -17,10 +17,9 @@ from eco_planner.envs import (
 )
 from eco_planner.envs.metadrive.observation import MetaDriveObservationAdapter
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
-from eco_planner.rl.collector import collect_rollout_episode
-from eco_planner.rl.config import PPOConfig, parse_rollout_config
-from eco_planner.rl.ppo import PPOUpdater
-from eco_planner.rl.runtime import create_fabric_rollout_runtime
+from eco_planner.rl.config import parse_rollout_config
+from eco_planner.rl.optimization import PPOConfig, PPOUpdater
+from eco_planner.rl.rollout import collect_rollout_episode, create_fabric_rollout_runtime
 
 
 @pytest.fixture(scope="module")

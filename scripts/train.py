@@ -10,7 +10,8 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 
 from eco_planner.configuration import load_local_environment
-from eco_planner.rl import parse_training_config, train
+from eco_planner.rl.config import parse_training_config
+from eco_planner.rl.trainer import train
 from scripts._paths import LOCAL_ENVIRONMENT_PATH
 
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
