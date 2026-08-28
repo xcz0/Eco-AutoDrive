@@ -1,0 +1,27 @@
+docs/experiments/records/e-026-issue59-stage-b-ppo-reward-ab-short-trend.md
+  s_9471f357dc96c8::t_c54dd262d2555d 1-143
+src/eco_planner/envs/torchrl/adapter.py
+  s_9471f357dc96c8::t_63f25035ffd05d 65-73
+docs/agents/system-contract.md
+  s_9471f357dc96c8::t_71c4f18c4c1619 133
+docs/experiments/README.md
+  s_9471f357dc96c8::t_a993d6dfadc790 64
+src/eco_planner/envs/metadrive/slot.py
+  s_9471f357dc96c8::t_62f4be05c85f11 199-207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "5ae14ec313a5a4916951e81ca667d0a278b325f9",
+  "prompts": {},
+  "sessions": {
+    "s_9471f357dc96c8": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fb99d62ccffecvJPjDX4rDoLse",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
