@@ -1,0 +1,31 @@
+tests/test_ppo.py
+  s_800969146c9901::t_104e3b5c6693d4 9
+  s_800969146c9901::t_eede6c28862b98 193-258
+src/eco_planner/rl/optimization/ppo.py
+  s_800969146c9901::t_96e7c8e23bd7ab 290-291
+  s_800969146c9901::t_9d5cbe267a1e2b 220
+  s_800969146c9901::t_eae7ccf4261377 71-72
+  s_800969146c9901::t_b0ff24f785395b 217-219,221
+  s_800969146c9901::t_485522d6505782 5
+src/eco_planner/rl/artifacts/io.py
+  s_800969146c9901::t_9d5cbe267a1e2b 188
+  s_800969146c9901::t_7f224e9766a2a3 162-164,181-187,189-190
+  s_800969146c9901::t_a3f1bb52fce68b 152-153,161,168-169,191-192
+  s_800969146c9901::t_958600dcd7ad96 43,56-57,59-60,62-66,77-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "86ffdf203436fce343a10cb4f2fea4f67ac5d376",
+  "prompts": {},
+  "sessions": {
+    "s_800969146c9901": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fb8e545f8ffegxD4Mk2YJn8SK7",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
