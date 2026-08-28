@@ -433,8 +433,6 @@ def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
         value = next_transition[key]
         if value.dtype != torch.bool or tuple(value.shape[1:]) != (1,):
             raise TypeError(f"PPO training next {key} must be bool with shape [T, 1]")
-    if torch.any(next_transition["terminated"] & next_transition["truncated"]):
-        raise ValueError("PPO training transition cannot be both terminated and truncated")
 
 
 def rollout_audit_keys(reward_profile: RewardProfileName) -> tuple[str, ...]:
@@ -540,7 +538,7 @@ def _validate_tail(trajectory: TensorDictBase, tail_kind: TailKind, value: torch
     terminated = bool(next_transition["terminated"][-1].item())
     truncated = bool(next_transition["truncated"][-1].item())
     if tail_kind == "terminated":
-        if not terminated or truncated or not torch.equal(value, torch.zeros_like(value)):
+        if not terminated or not torch.equal(value, torch.zeros_like(value)):
             raise ValueError("terminated tail must have a zero bootstrap value")
     elif tail_kind == "truncated":
         if terminated or not truncated:

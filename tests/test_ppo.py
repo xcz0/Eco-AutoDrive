@@ -157,6 +157,19 @@ def test_gae_uses_terminal_and_truncated_bootstrap_semantics() -> None:
     assert torch.isfinite(truncated["value_target"]).all()
 
 
+def test_gae_treats_simultaneous_termination_and_truncation_as_terminal() -> None:
+    episode = _episode(reward=0.25, terminated=True, truncated=True, bootstrap=0.0)
+
+    assert episode.tail_kind == "terminated"
+    assert bool(episode.training["next", "terminated"][-1].item())
+    assert bool(episode.training["next", "truncated"][-1].item())
+    torch.testing.assert_close(episode.tail_bootstrap_value, torch.zeros(1))
+
+    trajectory = compute_episode_gae(episode, _ppo_config())
+    torch.testing.assert_close(trajectory["advantage"], torch.tensor([[-0.75]]))
+    torch.testing.assert_close(trajectory["value_target"], torch.tensor([[0.25]]))
+
+
 def test_ppo_update_changes_policy_and_reports_finite_metrics() -> None:
     with torch.random.fork_rng():
         torch.manual_seed(0)

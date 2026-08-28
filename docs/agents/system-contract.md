@@ -188,7 +188,7 @@ collector 为每个 slot episode 构造两个按时间维组织的 TensorDict。
 
 ## GAE、PPO 与训练
 
-每个 `RolloutEpisode` 的 PPO training TensorDict 在 root 包含当前 value，在 `next` 包含 reward、done、terminated、truncated 与 next state value；audit/replay TensorDict 不带 GAE 派生字段。episode 最后一项总是 GAE recursion boundary；真实 terminal 不 bootstrap，纯 truncation 与 rollout-limit tail bootstrap，advantage 不跨 episode 泄漏。
+每个 `RolloutEpisode` 的 PPO training TensorDict 在 root 包含当前 value，在 `next` 包含 reward、done、terminated、truncated 与 next state value；audit/replay TensorDict 不带 GAE 派生字段。episode 最后一项总是 GAE recursion boundary；真实 terminal 不 bootstrap，纯 truncation 与 rollout-limit tail bootstrap，advantage 不跨 episode 泄漏。若 MetaDrive 在同一 transition 同时返回 `terminated=true` 和 `truncated=true`，保留两个原始标志并按真实 terminal 处理：tail kind 为 `terminated`，bootstrap value 为零。
 
 TorchRL `GAE` 产生未标准化 advantage 与 value target。多个 episode 仅在 GAE 后拼接，advantage 只在完整 PPO batch 上使用 sample standard deviation 标准化一次；少于两个样本、零方差或非有限统计立即失败。设备传输前 PPO batch 严格只选择 policy context、guidance action、old transformed joint log-prob、advantage 和 value target；`next`、reward、边界标记和 collection-time value 仅用于 GAE，不进入 `ClipPPOLoss` 更新。TorchRL `ClipPPOLoss` 的 actor TensorDict adapter 一次执行 `ExplorationPolicy` 并写入 `alpha`、`beta` 与当前 value；critic adapter 复用该 value，不重复执行 shared trunk。PPO ratio 使用保存的 old transformed joint log-prob，entropy 含仿射 Jacobian，不使用 DDIM transition probability。value loss 为 unclipped L2，policy、value 与 entropy loss 共同更新 policy actor head、value head 和共享 trunk。
 
