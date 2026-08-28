@@ -62,6 +62,15 @@ class TorchRLMetaDriveEnv(EnvBase):
 
     def _reset(self, tensordict: TensorDictBase | None, **kwargs: object) -> TensorDictBase:
         del tensordict, kwargs
+        try:
+            return self._do_reset()
+        except RuntimeError as error:
+            if "no connected navigation route lanes" not in str(error):
+                raise
+        self._slot.recreate_environment()
+        return self._do_reset()
+
+    def _do_reset(self) -> TensorDictBase:
         environment_started = perf_counter()
         reset = self._slot.reset(map_name=self._map_name, seed=self._seed)
         self._last_reset = reset

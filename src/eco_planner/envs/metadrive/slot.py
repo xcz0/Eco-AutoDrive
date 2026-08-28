@@ -196,6 +196,15 @@ class MetaDriveEnvSlot:
             return TrajectoryMetaDriveEnv(self._env_config)
         return TrajectoryMetaDriveEnv(self._env_config, reward_profile=self._reward_profile)
 
+    def recreate_environment(self) -> None:
+        """Close and recreate the MetaDrive environment with the current map.
+
+        MetaDrive's navigation state can corrupt after many same-map resets; this
+        method rebuilds the environment from scratch without changing the config.
+        """
+
+        self._replace_environment(self._env_config["map"])
+
     def _replace_environment(self, map_name: str) -> None:
         self._env.close()
         self._env_config["map"] = map_name

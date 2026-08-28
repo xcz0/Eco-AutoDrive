@@ -130,7 +130,7 @@ jaxtyping `TypedDict` 表达，collator 运行时只拒绝空序列，不重复�
 
 `NoTrafficMetaDriveObservationAdapter` 只允许显式满足 `traffic_density=0`、`random_traffic=false`、`accident_prob=0` 的场景。reset 后若存在任何动态或静态交通对象必须失败；邻车历史和静态物体字段为全零 padding。该入口不得用于有交通场景。
 
-`VectorMetaDriveEnv.reset` 在 worker-owned `MetaDriveEnvSlot` 内完成与 serial 路径相同的 adapter reset 和 history warmup，再返回单 observation 与 reset 时的 route completion；换图时该 slot 同时重建 environment、adapter 和 map cache。`reset_at` 和 `step_at` 分别使用 TorchRL partial `_reset` 和 `_step` mask，只推进指定 slot；worker 异常带回 slot 和 operation，并使整个 vector run 明确失败。
+`VectorMetaDriveEnv.reset` 在 worker-owned `MetaDriveEnvSlot` 内完成与 serial 路径相同的 adapter reset 和 history warmup，再返回单 observation 与 reset 时的 route completion；换图时该 slot 同时重建 environment、adapter 和 map cache。`TorchRLMetaDriveEnv._reset` 在观测构建时若遇到 MetaDrive navigation 损坏（`no connected navigation route lanes`，发生于同 map 累积大量 reset 后），捕获该 `RuntimeError`、调用 `MetaDriveEnvSlot.recreate_environment` 重建 env 并重试一次 reset；此恢复路径不改变正常 reset 行为。`reset_at` 和 `step_at` 分别使用 TorchRL partial `_reset` 和 `_step` mask，只推进指定 slot；worker 异常带回 slot 和 operation，并使整个 vector run 明确失败。
 
 ## 扩散与随机性
 
