@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -43,6 +44,7 @@ def run(config: DictConfig) -> None:
             **benchmark_provenance(benchmark),
             **host_resource_provenance(),
             "runtime": parsed.runtime.model_dump(mode="json"),
+            "planner_compile_mode": parsed.training.planner_compile_mode,
             "sampler": asdict(parsed.sampler),
             "guidance": asdict(parsed.guidance),
             "policy": parsed.policy.model_dump(mode="json"),
@@ -85,8 +87,11 @@ def _measure_batch_size(
     cold_update_samples: list[float] = []
     cold_timing_samples: list[tuple[VectorRolloutRoundTiming, ...]] = []
     worker_pool_startup_samples: list[float] = []
+    peak_device_memory_samples: list[float] = []
 
     for _ in range(benchmark.repeats):
+        if config.runtime.accelerator == "cuda":
+            torch.cuda.reset_peak_memory_stats()
         ppo_config = _effective_ppo_config(config.ppo, benchmark, sample_count, update_count)
         runtime = create_fabric_rollout_runtime(
             config.runtime,
@@ -96,6 +101,7 @@ def _measure_batch_size(
             Path(to_absolute_path(config.model.args_path)),
             Path(to_absolute_path(config.model.checkpoint_path)),
             policy_action_seed=benchmark.policy_action_seed_base,
+            planner_compile_mode=config.training.planner_compile_mode,
         )
         updater = PPOUpdater(runtime.policy, ppo_config)
         specs = tuple(
@@ -166,6 +172,12 @@ def _measure_batch_size(
                 timing_samples.append(tuple(timings) if collector_mode == "vector" else ())
         if vector_collector is not None:
             vector_collector.close()
+        if runtime.device.type == "cuda":
+            peak_device_memory_samples.append(float(torch.cuda.max_memory_allocated(runtime.device)))
+        del vector_collector, updater, runtime
+        gc.collect()
+        if config.runtime.accelerator == "cuda":
+            torch.cuda.empty_cache()
 
     result = _rollout_result(
         collector_mode,
@@ -185,6 +197,9 @@ def _measure_batch_size(
     )
     result["worker_pool_startup_wall_s"] = (
         measurement(worker_pool_startup_samples) if worker_pool_startup_samples else None
+    )
+    result["peak_device_memory_bytes"] = (
+        measurement(peak_device_memory_samples) if peak_device_memory_samples else None
     )
     return result
 

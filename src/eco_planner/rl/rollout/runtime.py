@@ -238,6 +238,7 @@ class FabricRolloutRuntime:
         checkpoint_report: CheckpointLoadReport,
         sampler: SamplerReport,
         guidance_config: OrthogonalPolicyGuidanceConfig,
+        planner_compile_mode: Literal["eager", "dit_reduce_overhead"],
     ) -> None:
         self._fabric = fabric
         self._planner = planner
@@ -249,6 +250,7 @@ class FabricRolloutRuntime:
         self.checkpoint_report = checkpoint_report
         self.sampler_report = sampler
         self.guidance_config = guidance_config
+        self.planner_compile_mode = planner_compile_mode
 
     @property
     def device(self) -> torch.device:
@@ -372,13 +374,6 @@ class FabricRolloutRuntime:
             )
         if result.guidance_action is None:
             raise RuntimeError("policy-guided planner did not return its guidance action")
-        _, action_check_timing = _profile_call(
-            self.device,
-            profile,
-            lambda: torch.testing.assert_close(
-                result.guidance_action, action.guidance_action
-            ),
-        )
         training_decision = build_training_decision(
             policy_context,
             action.guidance_action,
@@ -420,7 +415,7 @@ class FabricRolloutRuntime:
                     policy_forward=_require_phase(policy_timing),
                     action_sampling=_require_phase(action_timing),
                     complete_policy_guidance=_require_phase(complete_timing),
-                    guidance_action_check=_require_phase(action_check_timing),
+                    guidance_action_check=None,
                     execution_to_host=_require_phase(execution_timing),
                     profile_sync_wait_wall_s=sync_wait_s,
                 )
@@ -518,6 +513,8 @@ def create_fabric_rollout_runtime(
     args_path: Path,
     checkpoint_path: Path,
     policy_action_seed: int,
+    *,
+    planner_compile_mode: Literal["eager", "dit_reduce_overhead"],
 ) -> FabricRolloutRuntime:
     """Load the frozen planner and an exploration policy through one single-device Fabric."""
 
@@ -527,6 +524,15 @@ def create_fabric_rollout_runtime(
     planner, checkpoint_report = load_official_diffusion_planner(
         args_path, checkpoint_path, sampler_config, guidance_config
     )
+    if planner_compile_mode == "dit_reduce_overhead":
+        if fabric.device.type != "cuda":
+            raise ValueError("dit_reduce_overhead requires a CUDA rollout runtime")
+        planner.model.decoder.dit.forward = torch.compile(
+            planner.model.decoder.dit.forward,
+            mode="reduce-overhead",
+            fullgraph=True,
+            dynamic=False,
+        )
     policy = ExplorationPolicy(policy_config)
     wrapped_planner = fabric.setup_module(planner)
     wrapped_policy = fabric.setup_module(policy)
@@ -543,6 +549,7 @@ def create_fabric_rollout_runtime(
         checkpoint_report=checkpoint_report,
         sampler=sampler_report(sampler_config),
         guidance_config=guidance_config,
+        planner_compile_mode=planner_compile_mode,
     )
 
 

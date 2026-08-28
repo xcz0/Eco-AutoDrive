@@ -202,6 +202,7 @@ class _DdimSampler:
         generator: torch.Generator | None,
         variance_noise: torch.Tensor | None,
     ) -> torch.Tensor:
+        random_noise: torch.Tensor | None
         if variance_noise is not None:
             random_noise = variance_noise
         elif stochasticity > 0.0 and index < scheduler.num_inference_steps - 1:
@@ -212,7 +213,7 @@ class _DdimSampler:
                 generator=generator,
             )
         else:
-            random_noise = torch.zeros_like(sample)
+            random_noise = None
         result = scheduler.step(
             model_output=prediction,
             timestep=discrete_timestep,

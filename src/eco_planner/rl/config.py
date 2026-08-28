@@ -96,6 +96,7 @@ class TrainingLoopConfig(_StrictModel):
     boundary_distance: StrictFloat = Field(gt=0.0, lt=0.5)
     boundary_sample_count: StrictInt = Field(gt=0)
     diagnostic_seed: StrictInt = Field(ge=0)
+    planner_compile_mode: Literal["eager", "dit_reduce_overhead"]
     resume_checkpoint_path: str | None = None
 
     @model_validator(mode="after")

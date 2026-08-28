@@ -63,6 +63,7 @@
 | [E-025](records/e-025-issue59-stage-a-ppo-reward-ab-mechanical-gate.md) | 2026-08-27 | 本机机械门控 | Issue #59 阶段 A builtin/energy 匹配 PPO A/B（4 updates × 2 profiles） | 9 项机械检查全部通过，无 reward hacking；阶段 A 验收完成 |
 | [E-026](records/e-026-issue74-corrected-rollout-profiler.md) | 2026-08-28 | 本机正式基准 | Issue #74 的 PPO scheduler 与 CUDA 异步计时口径修复 | B=2/B=4 真实 4-epoch profiler 完成；旧 planner/bootstrap 分项失效，执行路径优化未完成 |
 | [E-026](records/e-026-issue59-stage-b-ppo-reward-ab-short-trend.md) | 2026-08-28 | 本机短趋势验证 | Issue #59 阶段 B builtin/energy 匹配 PPO A/B（20 updates × 3 seeds × 2 profiles） | 27 项机械检查全部通过，无 reward hacking；两 profile 间无显著差异；阶段 B 验收完成 |
+| [E-027](records/e-027-issue74-rollout-hotpath-optimization.md) | 2026-08-28 | 本机优化验证 | Issue #74 的局部 DiT 编译、同步与 DDIM allocation 优化 | 编译因 Windows 无可用 Triton 未过门槛，保持 eager 默认；两项等价微优化落地，不主张全局吞吐改善 |
 
 ## 服务器训练与正式实验登记模板
 

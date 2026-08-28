@@ -25,6 +25,7 @@ training:
   boundary_distance: 0.05
   boundary_sample_count: 4096
   diagnostic_seed: 300000
+  planner_compile_mode: eager
   resume_checkpoint_path: null
 
 env:
