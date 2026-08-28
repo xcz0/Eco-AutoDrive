@@ -1,0 +1,23 @@
+src/eco_planner/rl/rollout/contracts.py
+  s_a8c39f6598853c::t_5319c09464a403 230
+src/eco_planner/envs/metadrive/map.py
+  s_a8c39f6598853c::t_5319c09464a403 227
+src/eco_planner/envs/metadrive/observation.py
+  s_a8c39f6598853c::t_5319c09464a403 149,352
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "5ea4d2a258edb10ec9d8cde0efd9e5ff8c7c8f92",
+  "prompts": {},
+  "sessions": {
+    "s_a8c39f6598853c": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fb8b47351ffehsDfBnUUHezOUa",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
