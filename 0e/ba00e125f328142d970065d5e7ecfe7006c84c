@@ -1,0 +1,27 @@
+configs/jobs/training/ppo/conservative.yaml
+  s_a8c39f6598853c::t_853eaf0de14b4e 1-30,35-62
+  s_a8c39f6598853c::t_afdd01b0348c65 31-34
+docs/experiments/records/e-027-issue76-stage1-p0-failure-and-p1-conservative-baseline.md
+  s_a8c39f6598853c::t_9246b49bf72b35 1-144
+docs/experiments/README.md
+  s_a8c39f6598853c::t_8e4e6404228b6c 65
+tests/test_config.py
+  s_a8c39f6598853c::t_cbd806125f8225 88-89
+  s_a8c39f6598853c::t_4808c6d693e713 69-87,90-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "0eba00e125f328142d970065d5e7ecfe7006c84c",
+  "prompts": {},
+  "sessions": {
+    "s_a8c39f6598853c": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fb8b47351ffehsDfBnUUHezOUa",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
