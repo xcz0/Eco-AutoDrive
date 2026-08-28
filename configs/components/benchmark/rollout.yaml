@@ -5,11 +5,12 @@ batch_sizes: [1, 2, 4, 8]
 collector_modes: [serial, vector]
 mode: no_traffic
 history_warmup_steps: 0
-ppo_epochs: 1
+ppo_epochs: 4
+ppo_minibatch_size: 16
 scenario_seed_base: 0
 noise_seed_base: 0
 policy_action_seed_base: 10000
 warmup_updates: 1
 measured_updates: 3
-transitions_per_slot: 8
+transitions_per_slot: 16
 repeats: 3

@@ -83,6 +83,9 @@ def test_benchmark_jobs_compose_into_typed_boundaries(
     assert isinstance(throughput, ScalingBenchmarkConfig)
     assert isinstance(parse_evaluation_config(throughput_job), EvaluationJobConfig)
     assert isinstance(rollout, RolloutBenchmarkConfig)
+    assert rollout.ppo_epochs == 4
+    assert rollout.ppo_minibatch_size == 16
+    assert rollout.transitions_per_slot == 16
     assert isinstance(parse_training_config(rollout_job), TrainingJobConfig)
 
 

@@ -62,6 +62,7 @@ class RolloutBenchmarkConfig(StrictBenchmarkModel):
     mode: Literal["no_traffic", "traffic"]
     history_warmup_steps: StrictInt = Field(ge=0)
     ppo_epochs: StrictInt = Field(gt=0)
+    ppo_minibatch_size: StrictInt = Field(gt=0)
     scenario_seed_base: StrictInt = Field(ge=0)
     noise_seed_base: StrictInt = Field(ge=0)
     policy_action_seed_base: StrictInt = Field(ge=0)
@@ -84,6 +85,13 @@ class RolloutBenchmarkConfig(StrictBenchmarkModel):
             raise ValueError("no-traffic rollout benchmark requires zero history warmup steps")
         if any(batch_size * self.transitions_per_slot < 2 for batch_size in self.batch_sizes):
             raise ValueError("each rollout benchmark batch must contain at least two transitions")
+        if any(
+            (batch_size * self.transitions_per_slot) % self.ppo_minibatch_size
+            for batch_size in self.batch_sizes
+        ):
+            raise ValueError(
+                "each rollout benchmark sample count must be divisible by ppo_minibatch_size"
+            )
         return self
 
 
