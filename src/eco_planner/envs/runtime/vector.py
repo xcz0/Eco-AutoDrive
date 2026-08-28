@@ -191,7 +191,7 @@ class _TorchRLScenarioMetaDriveEnv(TorchRLMetaDriveEnv):
         output = self.observation_spec.zero()
         output.update(self.done_spec.zero())
         if operation == "step":
-            output.update(self.reward_spec.zero())
+            output["reward"] = self.reward_spec.zero()
         self._operation_result = _WorkerFailure(
             operation=operation,
             traceback_text=traceback.format_exc(),

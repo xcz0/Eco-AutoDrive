@@ -8,6 +8,8 @@ import numpy as np
 import pytest
 import torch
 from hydra import compose, initialize_config_dir
+from omegaconf import OmegaConf
+from pydantic import TypeAdapter
 
 from eco_planner.envs import (
     PlannerObservationSpec,
@@ -15,7 +17,13 @@ from eco_planner.envs import (
     VectorEnvScenario,
     VectorMetaDriveEnv,
 )
+from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
 from eco_planner.envs.metadrive.observation import MetaDriveObservationAdapter
+from eco_planner.envs.metadrive.reward import (
+    MetaDriveBuiltinRewardConfig,
+    PlannerRFTEnergyRewardConfig,
+    RewardProfileConfig,
+)
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 from eco_planner.rl.config import parse_rollout_config
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater
@@ -64,6 +72,57 @@ def _stationary_trajectory() -> np.ndarray:
     trajectory = np.zeros((80, 4), dtype=np.float32)
     trajectory[:, 2] = 1.0
     return trajectory
+
+
+def _off_route_trajectory(env: TrajectoryMetaDriveEnv, query_radius_m: float) -> np.ndarray:
+    route_roads = {
+        (start, end)
+        for start, end in zip(
+            env.agent.navigation.checkpoints[:-1], env.agent.navigation.checkpoints[1:], strict=True
+        )
+    }
+    route_lanes = [
+        lane
+        for lane in env.current_map.road_network.get_all_lanes()
+        if lane.index[:2] in route_roads
+    ]
+    candidates: list[tuple[str, object, float]] = []
+    for lane in env.current_map.road_network.get_all_lanes():
+        if lane.index[:2] in route_roads:
+            continue
+        longitudinal = float(lane.length) / 2.0
+        point = np.asarray(lane.position(longitudinal, 0.0), dtype=np.float64)
+        if all(float(route_lane.distance(point)) > query_radius_m for route_lane in route_lanes):
+            candidates.append((repr(lane.index), lane, longitudinal))
+    if not candidates:
+        raise RuntimeError("test map has no non-route lane outside the local route query")
+    _, target_lane, longitudinal = min(candidates, key=lambda candidate: candidate[0])
+    target_rear_axle = np.asarray(target_lane.position(longitudinal, 0.0), dtype=np.float64)
+    target_heading = float(target_lane.heading_theta_at(longitudinal))
+    anchor_rear_axle = rear_axle_position(
+        np.asarray(env.agent.position, dtype=np.float64),
+        float(env.agent.heading_theta),
+        float(env.agent.REAR_WHEELBASE),
+    )
+    target_local = world_points_to_local(
+        target_rear_axle[None], anchor_rear_axle, float(env.agent.heading_theta)
+    )[0]
+    heading_delta = target_heading - float(env.agent.heading_theta)
+    trajectory = np.zeros((80, 4), dtype=np.float32)
+    trajectory[:, :2] = target_local
+    trajectory[:, 2] = np.cos(heading_delta)
+    trajectory[:, 3] = np.sin(heading_delta)
+    return trajectory
+
+
+def _reward_profile(name: str) -> MetaDriveBuiltinRewardConfig | PlannerRFTEnergyRewardConfig:
+    config_root = Path(__file__).resolve().parents[2] / "configs" / "components" / "reward"
+    raw = OmegaConf.to_container(OmegaConf.load(config_root / f"{name}.yaml"), resolve=True)
+    return TypeAdapter(RewardProfileConfig).validate_python(raw)
+
+
+_BUILTIN_REWARD = _reward_profile("metadrive_builtin_v1")
+_ENERGY_REWARD = _reward_profile("plannerrft_energy_v1")
 
 
 def _ppo_config() -> PPOConfig:
@@ -170,6 +229,52 @@ def test_two_slot_vector_rollout_executes_current_training_path(
         assert isinstance(step.terminated, bool)
         assert isinstance(step.truncated, bool)
         assert np.isfinite(step.reward)
+        assert torch.count_nonzero(reset.observation["route_lanes"]).item() > 0
+        assert torch.count_nonzero(step.observation["route_lanes"]).item() > 0
+
+
+@pytest.mark.simulator
+@pytest.mark.parametrize("reward_profile", (_BUILTIN_REWARD, _ENERGY_REWARD))
+def test_off_route_lane_is_terminal_with_padded_route_observation(
+    official_model_config: OfficialDiffusionPlannerConfig,
+    reward_profile: MetaDriveBuiltinRewardConfig | PlannerRFTEnergyRewardConfig,
+) -> None:
+    query_radius_m = 5.0
+    config = _environment_config("SXS", trajectory_execution_steps=1)
+    scenario = VectorEnvScenario(name="off-route", map="SXS", seed=0)
+    with TrajectoryMetaDriveEnv(config) as source:
+        source.reset(seed=scenario.seed)
+        trajectory = _off_route_trajectory(source, query_radius_m)
+
+    with VectorMetaDriveEnv(
+        [config],
+        mode="no_traffic",
+        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        map_query_radius_m=query_radius_m,
+        history_warmup_steps=0,
+        scenarios=(scenario,),
+        reward_profile=reward_profile,
+    ) as envs:
+        envs.reset((scenario,))
+        step = envs.step((trajectory,))[0]
+
+    assert step.terminated is True
+    assert step.truncated is False
+    assert step.execution.out_of_road is True
+    assert step.execution.substep_terminated.tolist() == [True]
+    assert step.execution.substep_truncated.tolist() == [False]
+    assert np.isfinite(step.reward)
+    assert all(
+        torch.isfinite(value).all()
+        for value in step.observation.values()
+        if value.is_floating_point()
+    )
+    assert torch.count_nonzero(step.observation["route_lanes"]).item() == 0
+    assert torch.count_nonzero(step.observation["route_lanes_speed_limit"]).item() == 0
+    assert not torch.any(step.observation["route_lanes_has_speed_limit"])
+    reward_audit = step.execution.substep_reward_audits[-1]
+    if isinstance(reward_profile, PlannerRFTEnergyRewardConfig):
+        assert reward_audit.reward_gate == 0.0
 
 
 @pytest.mark.simulator

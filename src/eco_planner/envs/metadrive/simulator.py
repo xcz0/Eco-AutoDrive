@@ -33,6 +33,7 @@ from eco_planner.envs.metadrive.lane_speed import (
     ProgrammaticLaneSpeedAdapter,
     model_lane_speed_limit_mps,
 )
+from eco_planner.envs.metadrive.map import navigation_route_roads
 from eco_planner.envs.metadrive.policy import KinematicTrajectoryPolicy
 from eco_planner.envs.metadrive.reward import (
     MetaDriveBuiltinRewardAudit,
@@ -118,6 +119,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         self._previous_reward_position: np.ndarray | None = None
         self._previous_reward_velocity: np.ndarray | None = None
         self._previous_reward_acceleration: np.ndarray | None = None
+        self._terminal_out_of_road = False
         super().__init__(configured)
         if self.config["is_multi_agent"]:
             raise ValueError("TrajectoryMetaDriveEnv supports only single-agent operation")
@@ -186,8 +188,15 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             lengths.append(float(length))
         return float(sum(lengths))
 
+    @property
+    def is_out_of_road_terminal(self) -> bool:
+        """Whether the latest transition ended because the ego is out of road."""
+
+        return self._terminal_out_of_road
+
     def reset(self, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
         self._initial_traffic_frame = None
+        self._terminal_out_of_road = False
         self._programmatic_lane_speed_adapter.clear_audit()
         result = super().reset(*args, **kwargs)
         current_map = self.current_map
@@ -296,6 +305,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         self._advance_reward_state(reward_input)
         truncated = bool(info.get(TerminationState.MAX_STEP, False))
         terminated = bool(self.dones[agent_id])
+        self._terminal_out_of_road = terminated and bool(info[TerminationState.OUT_OF_ROAD])
         if self.config["horizon"] and self.episode_step > 5 * self.config["horizon"]:
             truncated = True
             if self.config["truncate_as_terminate"]:
@@ -307,6 +317,18 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         info["_project_traffic_frame"] = traffic_frame
         info["_project_reward_audit"] = reward_audit
         return _PLANNER_ONLY_OBSERVATION.copy(), float(reward), terminated, truncated, info
+
+    def _is_out_of_road(self, vehicle: Any) -> bool:
+        """Treat a drivable lane outside the complete navigation route as off-road."""
+
+        if super()._is_out_of_road(vehicle):
+            return True
+        lane = vehicle.lane
+        lane_index = getattr(lane, "index", None)
+        if not isinstance(lane_index, tuple) or len(lane_index) < 2:
+            raise RuntimeError(f"vehicle lane has invalid index: {lane_index!r}")
+        lane_road = (lane_index[0], lane_index[1])
+        return lane_road not in navigation_route_roads(vehicle.navigation)
 
     def _reward_step_input(
         self, info: dict[str, Any], traffic_frame: TrafficFrame, yaw_rate_radps: float

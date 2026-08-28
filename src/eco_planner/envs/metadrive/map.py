@@ -35,6 +35,15 @@ class _LaneSnapshot:
     has_speed_limit: bool
 
 
+def navigation_route_roads(navigation: Any) -> tuple[tuple[Any, Any], ...]:
+    """Return the complete ordered navigation route as MetaDrive road edges."""
+
+    checkpoints = getattr(navigation, "checkpoints", None)
+    if not isinstance(checkpoints, (list, tuple)) or len(checkpoints) < 2:
+        raise RuntimeError("navigation checkpoints must contain at least one road")
+    return tuple(zip(checkpoints[:-1], checkpoints[1:], strict=True))
+
+
 class MetaDriveMapAdapter:
     """Build raw, unnormalized Diffusion Planner map arrays from a PGMap."""
 
@@ -73,7 +82,7 @@ class MetaDriveMapAdapter:
             for snapshot in snapshots
         )
 
-    def build_arrays(self, env: Any) -> NumpyMapObservation:
+    def build_arrays(self, env: Any, *, allow_empty_route: bool = False) -> NumpyMapObservation:
         """Build raw NumPy map fields before the common observation output boundary."""
 
         current_map, _, ego, navigation = self._environment_parts(env)
@@ -87,7 +96,9 @@ class MetaDriveMapAdapter:
         rear_axle = rear_axle_position(center_position, center_heading, float(ego.REAR_WHEELBASE))
 
         lane_snapshots = self._select_lanes(self._candidate_snapshots(rear_axle), rear_axle)
-        route_snapshots = self._select_route_lanes(lane_snapshots, navigation)
+        route_snapshots = self._select_route_lanes(
+            lane_snapshots, navigation, allow_empty_route=allow_empty_route
+        )
         arrays = self._allocate_arrays()
         encoded = self._encode_lanes(lane_snapshots, rear_axle, center_heading)
         encoded_by_id: dict[str, tuple[EncodedLaneArray, float, bool]] = {}
@@ -188,12 +199,13 @@ class MetaDriveMapAdapter:
         return tuple(self._lane_snapshots[index] for index in indexes)
 
     def _select_route_lanes(
-        self, lane_snapshots: list[_LaneSnapshot], navigation: Any
+        self,
+        lane_snapshots: list[_LaneSnapshot],
+        navigation: Any,
+        *,
+        allow_empty_route: bool,
     ) -> list[_LaneSnapshot]:
-        checkpoints = getattr(navigation, "checkpoints", None)
-        if not isinstance(checkpoints, (list, tuple)) or len(checkpoints) < 2:
-            raise RuntimeError("navigation checkpoints must contain at least one road")
-        route_roads = list(zip(checkpoints[:-1], checkpoints[1:], strict=True))
+        route_roads = navigation_route_roads(navigation)
         local_roads = {snapshot.road for snapshot in lane_snapshots}
         connected_local_route: list[tuple[Any, Any]] = []
         route_started = False
@@ -204,13 +216,14 @@ class MetaDriveMapAdapter:
             elif route_started:
                 break
         if not connected_local_route:
+            if allow_empty_route:
+                return []
             raise RuntimeError("no connected navigation route lanes exist in the local lane set")
         route_road_set = set(connected_local_route)
         selected = [snapshot for snapshot in lane_snapshots if snapshot.road in route_road_set]
         if not selected:
             raise RuntimeError("navigation route did not resolve to a selected local lane")
         return selected[: self._config.route_num]
-
     def _allocate_arrays(self) -> NumpyMapObservation:
         config = self._config
         return {
