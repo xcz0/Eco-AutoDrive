@@ -66,6 +66,29 @@ def test_training_jobs_compose_into_typed_boundaries(
     assert isinstance(parse_rollout_config(rollout), RolloutJobConfig)
 
 
+def test_conservative_training_job_composes_into_typed_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
+
+    training = _compose(
+        "jobs/training/ppo/conservative",
+        overrides=["runtime.seed=0", "training.replay_id=0"],
+    )
+    parsed = parse_training_config(training)
+
+    assert isinstance(parsed, TrainingJobConfig)
+    assert parsed.ppo.learning_rate == 2.5e-5
+    assert parsed.ppo.epochs == 1
+    assert parsed.ppo.batch_size == 256
+    assert parsed.ppo.minibatch_size == 128
+    assert parsed.ppo.scheduler_total_optimizer_steps == 40
+    assert parsed.training.update_count == 20
+    assert len(parsed.scenarios) == 16
+    expected_batch = len(parsed.scenarios) * parsed.training.transitions_per_environment
+    assert parsed.ppo.batch_size == expected_batch
+
+
 def test_benchmark_jobs_compose_into_typed_boundaries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
