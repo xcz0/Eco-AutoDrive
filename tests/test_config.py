@@ -62,7 +62,31 @@ def test_training_jobs_compose_into_typed_boundaries(
     )
     rollout = _compose("jobs/training/rollout/smoke")
 
-    assert isinstance(parse_training_config(training), TrainingJobConfig)
+    parsed_training = parse_training_config(training)
+    assert isinstance(parsed_training, TrainingJobConfig)
+    assert parsed_training.training.planner_compile_mode == "eager"
+    compiled_training = parse_training_config(
+        _compose(
+            "jobs/training/ppo/smoke",
+            overrides=[
+                "runtime.seed=0",
+                "training.replay_id=0",
+                "training.planner_compile_mode=dit_reduce_overhead",
+            ],
+        )
+    )
+    assert compiled_training.training.planner_compile_mode == "dit_reduce_overhead"
+    with pytest.raises(ValueError, match="planner_compile_mode"):
+        parse_training_config(
+            _compose(
+                "jobs/training/ppo/smoke",
+                overrides=[
+                    "runtime.seed=0",
+                    "training.replay_id=0",
+                    "training.planner_compile_mode=automatic",
+                ],
+            )
+        )
     assert isinstance(parse_rollout_config(rollout), RolloutJobConfig)
 
 
@@ -106,6 +130,9 @@ def test_benchmark_jobs_compose_into_typed_boundaries(
     assert isinstance(throughput, ScalingBenchmarkConfig)
     assert isinstance(parse_evaluation_config(throughput_job), EvaluationJobConfig)
     assert isinstance(rollout, RolloutBenchmarkConfig)
+    assert rollout.ppo_epochs == 4
+    assert rollout.ppo_minibatch_size == 16
+    assert rollout.transitions_per_slot == 16
     assert isinstance(parse_training_config(rollout_job), TrainingJobConfig)
 
 

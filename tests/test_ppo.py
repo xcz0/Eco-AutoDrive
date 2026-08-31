@@ -256,3 +256,29 @@ def test_update_summary_records_stability_diagnostics() -> None:
         assert summary.action_mean[dim] <= summary.action_max[dim]
         assert summary.action_std[dim] >= 0.0
     assert summary.reward_profile == "metadrive_builtin_v1"
+
+
+def test_scheduler_horizon_covers_every_epoch_and_minibatch_across_updates() -> None:
+    config = _ppo_config().model_copy(
+        update={
+            "epochs": 4,
+            "batch_size": 4,
+            "minibatch_size": 2,
+            "scheduler_total_optimizer_steps": 32,
+        }
+    )
+    episodes = tuple(
+        _episode(
+            reward=float(index + 1),
+            terminated=True,
+            truncated=False,
+            bootstrap=0.0,
+        )
+        for index in range(4)
+    )
+    updater = PPOUpdater(ExplorationPolicy(_policy_config()), config)
+
+    reports = [updater.update(episodes) for _ in range(4)]
+
+    assert [report.optimizer_step_count for report in reports] == [8, 8, 8, 8]
+    assert updater.completed_optimizer_steps == 32

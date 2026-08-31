@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 
 from eco_planner.models import Ddim5SamplerConfig
-from eco_planner.models.sampling import DiffusionSampler
+from eco_planner.models.sampling import DiffusionSampler, _DdimSampler
 
 
 def _config() -> Ddim5SamplerConfig:
@@ -38,3 +38,24 @@ def test_seeded_ddim_sampling_returns_a_finite_constrained_sample() -> None:
     assert torch.isfinite(first).all()
     assert torch.equal(first, second)
     assert torch.count_nonzero(first[:, :, :4]) == 0
+
+
+def test_deterministic_ddim_step_omits_unused_variance_noise_without_consuming_rng() -> None:
+    sampler = _DdimSampler()
+    sample = torch.randn((1, 2, 12), generator=torch.Generator().manual_seed(17))
+    prediction = sample * 0.25
+    scheduler = sampler._new_scheduler(sample.device, sample.dtype)
+    generator = torch.Generator().manual_seed(19)
+    rng_state = generator.get_state().clone()
+
+    actual = sampler._step(scheduler, sample, prediction, 999, 0, 0.0, generator, None)
+    expected = scheduler.step(
+        model_output=prediction,
+        timestep=999,
+        sample=sample,
+        eta=0.0,
+        variance_noise=torch.zeros_like(sample),
+    ).prev_sample
+
+    assert torch.equal(actual, expected)
+    assert torch.equal(generator.get_state(), rng_state)

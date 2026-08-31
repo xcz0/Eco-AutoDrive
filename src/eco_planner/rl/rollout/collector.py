@@ -35,7 +35,11 @@ from eco_planner.rl.rollout.contracts import (
     RolloutProvenance,
     TailKind,
 )
-from eco_planner.rl.rollout.runtime import FabricRolloutRuntime, RolloutDecision
+from eco_planner.rl.rollout.runtime import (
+    FabricRolloutRuntime,
+    RolloutDecision,
+    RolloutPlannerTiming,
+)
 
 
 @dataclass(frozen=True)
@@ -45,8 +49,12 @@ class VectorRolloutRoundTiming:
     phase: Literal["decision", "bootstrap"]
     active_slots: int
     capacity: int
+    collate_wall_s: float
     planner_wall_s: float
+    planner_timing: RolloutPlannerTiming
     environment_wall_s: float
+    audit_resolve_wall_s: float
+    audit_transfer_accelerator_s: float
     worker_busy_s: float
     transport_sync_s: float
     worker_imbalance_s: float
@@ -331,11 +339,16 @@ class VectorRolloutCollector:
             if any(state.collected != states[0].collected for state in states):
                 raise RuntimeError("vector rollout consumed unequal transition counts")
             profile = timings is not None
+            collate_started = perf_counter() if profile else 0.0
+            observation = collate_observations([state.observation for state in states])
+            collate_s = perf_counter() - collate_started if profile else 0.0
+            planner_timings: list[RolloutPlannerTiming] = []
             planner_started = perf_counter() if profile else 0.0
             decision = self._runtime.decide_batch(
-                collate_observations([state.observation for state in states]),
+                observation,
                 tuple(state.diffusion_generator for state in states),
                 tuple(state.policy_generator for state in states),
+                timings=planner_timings if profile else None,
             )
             for slot, state in enumerate(states):
                 if not state.episode.empty:
@@ -349,13 +362,25 @@ class VectorRolloutCollector:
             else:
                 steps = self._envs.step_slots(active_slots, decision.ego_trajectories)
             environment_s = perf_counter() - environment_started if profile else 0.0
-            _append_decision_timing(
-                timings,
-                steps,
-                capacity=self._physical_slot_count,
-                planner_s=planner_s,
-                environment_s=environment_s,
-            )
+            audit_started = perf_counter() if profile else 0.0
+            if profile:
+                decision.audit_result()
+            audit_resolve_s = perf_counter() - audit_started if profile else 0.0
+            audit_transfer = decision.audit_transfer_timing
+            if profile:
+                _append_decision_timing(
+                    timings,
+                    steps,
+                    capacity=self._physical_slot_count,
+                    collate_s=collate_s,
+                    planner_s=planner_s,
+                    planner_timing=_single_planner_timing(planner_timings, "decision"),
+                    environment_s=environment_s,
+                    audit_resolve_s=audit_resolve_s,
+                    audit_transfer_accelerator_s=(
+                        0.0 if audit_transfer is None else audit_transfer.accelerator_s
+                    ),
+                )
 
             tails: list[tuple[int, TailKind]] = []
             for slot, (state, step) in enumerate(zip(states, steps, strict=True)):
@@ -372,17 +397,31 @@ class VectorRolloutCollector:
             bootstrap_slots = [slot for slot, kind in tails if kind != "terminated"]
             bootstrap_values: dict[int, torch.Tensor] = {}
             if bootstrap_slots:
+                bootstrap_collate_started = perf_counter() if profile else 0.0
+                bootstrap_observation = collate_observations(
+                    [steps[slot].observation for slot in bootstrap_slots]
+                )
+                bootstrap_collate_s = (
+                    perf_counter() - bootstrap_collate_started if profile else 0.0
+                )
+                bootstrap_timings: list[RolloutPlannerTiming] = []
                 bootstrap_started = perf_counter() if timings is not None else 0.0
                 values = self._runtime.bootstrap_value_batch(
-                    collate_observations([steps[slot].observation for slot in bootstrap_slots]),
+                    bootstrap_observation,
                     tuple(states[slot].diffusion_generator for slot in bootstrap_slots),
+                    timings=bootstrap_timings if profile else None,
                 )
-                _append_bootstrap_timing(
-                    timings,
-                    active_slots=len(bootstrap_slots),
-                    capacity=self._physical_slot_count,
-                    planner_s=(perf_counter() - bootstrap_started if timings is not None else 0.0),
-                )
+                if profile:
+                    _append_bootstrap_timing(
+                        timings,
+                        active_slots=len(bootstrap_slots),
+                        capacity=self._physical_slot_count,
+                        collate_s=bootstrap_collate_s,
+                        planner_s=perf_counter() - bootstrap_started,
+                        planner_timing=_single_planner_timing(
+                            bootstrap_timings, "bootstrap"
+                        ),
+                    )
                 for index, slot in enumerate(bootstrap_slots):
                     bootstrap_values[slot] = values[index : index + 1]
 
@@ -450,8 +489,12 @@ def _append_decision_timing(
     steps: tuple[VectorEnvStep, ...],
     *,
     capacity: int,
+    collate_s: float,
     planner_s: float,
+    planner_timing: RolloutPlannerTiming,
     environment_s: float,
+    audit_resolve_s: float,
+    audit_transfer_accelerator_s: float,
 ) -> None:
     if timings is None:
         return
@@ -462,8 +505,12 @@ def _append_decision_timing(
             phase="decision",
             active_slots=len(steps),
             capacity=capacity,
+            collate_wall_s=collate_s,
             planner_wall_s=planner_s,
+            planner_timing=planner_timing,
             environment_wall_s=environment_s,
+            audit_resolve_wall_s=audit_resolve_s,
+            audit_transfer_accelerator_s=audit_transfer_accelerator_s,
             worker_busy_s=sum(worker_busy),
             transport_sync_s=max(0.0, environment_s - slowest),
             worker_imbalance_s=sum(slowest - value for value in worker_busy),
@@ -476,7 +523,9 @@ def _append_bootstrap_timing(
     *,
     active_slots: int,
     capacity: int,
+    collate_s: float,
     planner_s: float,
+    planner_timing: RolloutPlannerTiming,
 ) -> None:
     if timings is None:
         return
@@ -485,13 +534,25 @@ def _append_bootstrap_timing(
             phase="bootstrap",
             active_slots=active_slots,
             capacity=capacity,
+            collate_wall_s=collate_s,
             planner_wall_s=planner_s,
+            planner_timing=planner_timing,
             environment_wall_s=0.0,
+            audit_resolve_wall_s=0.0,
+            audit_transfer_accelerator_s=0.0,
             worker_busy_s=0.0,
             transport_sync_s=0.0,
             worker_imbalance_s=0.0,
         )
     )
+
+
+def _single_planner_timing(
+    timings: list[RolloutPlannerTiming], phase: Literal["decision", "bootstrap"]
+) -> RolloutPlannerTiming:
+    if len(timings) != 1 or timings[0].phase != phase:
+        raise RuntimeError(f"profiled {phase} batch must return exactly one matching timing")
+    return timings[0]
 
 
 def collect_vector_rollout_episodes(

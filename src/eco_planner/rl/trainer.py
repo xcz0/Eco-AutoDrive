@@ -60,6 +60,7 @@ def train(config: TrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
         Path(to_absolute_path(config.model.args_path)),
         Path(to_absolute_path(config.model.checkpoint_path)),
         policy_seeds[0],
+        planner_compile_mode=config.training.planner_compile_mode,
     )
     updater = PPOUpdater(runtime.policy, config.ppo)
     (

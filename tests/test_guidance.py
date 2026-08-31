@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 from types import SimpleNamespace
 
 import torch
@@ -107,6 +108,26 @@ def test_zero_guidance_is_identical_to_the_unguided_reference(
     assert torch.equal(guided.guidance_action, torch.zeros((1, 2)))
     assert torch.equal(guided.prediction, guided.reference_prediction)
     assert torch.equal(guided.prediction, unguided.prediction)
+
+
+def test_explicit_zero_guidance_preserves_reference_and_zero_diagnostics(
+    baseline_observation: dict[str, torch.Tensor],
+) -> None:
+    planner = _planner(_guidance_config())
+    action = torch.zeros((1, 2))
+
+    fixed = planner(baseline_observation, _noise())
+    learned = planner(baseline_observation, _noise(), guidance_action=action)
+
+    assert learned.guidance_action is action
+    assert torch.equal(learned.prediction, fixed.prediction)
+    assert learned.guidance_diagnostics is not None
+    assert fixed.guidance_diagnostics is not None
+    for field in fields(learned.guidance_diagnostics):
+        assert torch.equal(
+            getattr(learned.guidance_diagnostics, field.name),
+            getattr(fixed.guidance_diagnostics, field.name),
+        )
 
 
 def test_opposite_lateral_guidance_moves_trajectory_in_opposite_directions(

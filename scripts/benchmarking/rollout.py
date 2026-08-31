@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -15,7 +16,7 @@ from omegaconf import DictConfig
 
 from eco_planner.evaluation.config import ScenarioConfig
 from eco_planner.rl.config import TrainingJobConfig, parse_training_config
-from eco_planner.rl.optimization import PPOUpdater
+from eco_planner.rl.optimization import PPOConfig, PPOUpdater
 from eco_planner.rl.rollout import (
     FabricRolloutRuntime,
     RolloutEpisode,
@@ -43,6 +44,7 @@ def run(config: DictConfig) -> None:
             **benchmark_provenance(benchmark),
             **host_resource_provenance(),
             "runtime": parsed.runtime.model_dump(mode="json"),
+            "planner_compile_mode": parsed.training.planner_compile_mode,
             "sampler": asdict(parsed.sampler),
             "guidance": asdict(parsed.guidance),
             "policy": parsed.policy.model_dump(mode="json"),
@@ -85,16 +87,12 @@ def _measure_batch_size(
     cold_update_samples: list[float] = []
     cold_timing_samples: list[tuple[VectorRolloutRoundTiming, ...]] = []
     worker_pool_startup_samples: list[float] = []
+    peak_device_memory_samples: list[float] = []
 
     for _ in range(benchmark.repeats):
-        ppo_config = config.ppo.model_copy(
-            update={
-                "epochs": benchmark.ppo_epochs,
-                "batch_size": sample_count,
-                "minibatch_size": sample_count,
-                "scheduler_total_optimizer_steps": update_count,
-            }
-        )
+        if config.runtime.accelerator == "cuda":
+            torch.cuda.reset_peak_memory_stats()
+        ppo_config = _effective_ppo_config(config.ppo, benchmark, sample_count, update_count)
         runtime = create_fabric_rollout_runtime(
             config.runtime,
             config.sampler,
@@ -103,6 +101,7 @@ def _measure_batch_size(
             Path(to_absolute_path(config.model.args_path)),
             Path(to_absolute_path(config.model.checkpoint_path)),
             policy_action_seed=benchmark.policy_action_seed_base,
+            planner_compile_mode=config.training.planner_compile_mode,
         )
         updater = PPOUpdater(runtime.policy, ppo_config)
         specs = tuple(
@@ -173,6 +172,12 @@ def _measure_batch_size(
                 timing_samples.append(tuple(timings) if collector_mode == "vector" else ())
         if vector_collector is not None:
             vector_collector.close()
+        if runtime.device.type == "cuda":
+            peak_device_memory_samples.append(float(torch.cuda.max_memory_allocated(runtime.device)))
+        del vector_collector, updater, runtime
+        gc.collect()
+        if config.runtime.accelerator == "cuda":
+            torch.cuda.empty_cache()
 
     result = _rollout_result(
         collector_mode,
@@ -193,7 +198,29 @@ def _measure_batch_size(
     result["worker_pool_startup_wall_s"] = (
         measurement(worker_pool_startup_samples) if worker_pool_startup_samples else None
     )
+    result["peak_device_memory_bytes"] = (
+        measurement(peak_device_memory_samples) if peak_device_memory_samples else None
+    )
     return result
+
+
+def _effective_ppo_config(
+    base: PPOConfig,
+    benchmark: RolloutBenchmarkConfig,
+    sample_count: int,
+    update_count: int,
+) -> PPOConfig:
+    optimizer_steps_per_update = benchmark.ppo_epochs * (
+        sample_count // benchmark.ppo_minibatch_size
+    )
+    return base.model_copy(
+        update={
+            "epochs": benchmark.ppo_epochs,
+            "batch_size": sample_count,
+            "minibatch_size": benchmark.ppo_minibatch_size,
+            "scheduler_total_optimizer_steps": update_count * optimizer_steps_per_update,
+        }
+    )
 
 
 def _collect_serial_slots(
@@ -251,8 +278,13 @@ def _rollout_result(
             **_common_rollout_measurements(sample_count, collection_samples, update_samples),
             "planner_decision_wall_s": None,
             "planner_bootstrap_wall_s": None,
+            "planner_decision_phases": None,
+            "planner_bootstrap_phases": None,
+            "collate_wall_s": None,
+            "audit_resolve_wall_s": None,
+            "audit_transfer_accelerator_s": None,
             "environment_wall_s": None,
-            "collection_overhead_s": None,
+            "collection_unattributed_wall_s": None,
             "worker_busy_s_per_transition": None,
             "transport_sync_s_per_transition": None,
             "worker_imbalance_s_per_transition": None,
@@ -264,8 +296,11 @@ def _rollout_result(
 
     decision_wall: list[float] = []
     bootstrap_wall: list[float] = []
+    collate_wall: list[float] = []
+    audit_resolve_wall: list[float] = []
+    audit_transfer_accelerator: list[float] = []
     environment_wall: list[float] = []
-    overhead: list[float] = []
+    unattributed: list[float] = []
     worker_busy_per_transition: list[float] = []
     transport_sync_per_transition: list[float] = []
     worker_imbalance_per_transition: list[float] = []
@@ -278,6 +313,9 @@ def _rollout_result(
         bootstraps = [item for item in timings if item.phase == "bootstrap"]
         decision_s = sum(item.planner_wall_s for item in decisions)
         bootstrap_s = sum(item.planner_wall_s for item in bootstraps)
+        collate_s = sum(item.collate_wall_s for item in timings)
+        audit_resolve_s = sum(item.audit_resolve_wall_s for item in decisions)
+        audit_transfer_s = sum(item.audit_transfer_accelerator_s for item in decisions)
         env_s = sum(item.environment_wall_s for item in decisions)
         decision_wall.append(decision_s)
         policy_planner_batch_wall.append(decision_s / len(decisions))
@@ -287,8 +325,18 @@ def _rollout_result(
         if bootstraps:
             bootstrap_wall.append(bootstrap_s)
             bootstrap_fill.append(_fill_ratio(bootstraps))
+        collate_wall.append(collate_s)
+        audit_resolve_wall.append(audit_resolve_s)
+        audit_transfer_accelerator.append(audit_transfer_s)
         environment_wall.append(env_s)
-        overhead.append(collection_s - decision_s - bootstrap_s - env_s)
+        unattributed.append(
+            collection_s
+            - decision_s
+            - bootstrap_s
+            - collate_s
+            - audit_resolve_s
+            - env_s
+        )
         worker_busy_per_transition.append(
             sum(item.worker_busy_s for item in decisions) / sample_count
         )
@@ -306,8 +354,17 @@ def _rollout_result(
         **_common_rollout_measurements(sample_count, collection_samples, update_samples),
         "planner_decision_wall_s": measurement(decision_wall),
         "planner_bootstrap_wall_s": measurement(bootstrap_wall) if bootstrap_wall else None,
+        "planner_decision_phases": _planner_phase_measurements(timing_samples, "decision"),
+        "planner_bootstrap_phases": (
+            _planner_phase_measurements(timing_samples, "bootstrap")
+            if bootstrap_wall
+            else None
+        ),
+        "collate_wall_s": measurement(collate_wall),
+        "audit_resolve_wall_s": measurement(audit_resolve_wall),
+        "audit_transfer_accelerator_s": measurement(audit_transfer_accelerator),
         "environment_wall_s": measurement(environment_wall),
-        "collection_overhead_s": measurement(overhead),
+        "collection_unattributed_wall_s": measurement(unattributed),
         "worker_busy_s_per_transition": measurement(worker_busy_per_transition),
         "transport_sync_s_per_transition": measurement(transport_sync_per_transition),
         "worker_imbalance_s_per_transition": measurement(worker_imbalance_per_transition),
@@ -344,3 +401,51 @@ def _fill_ratio(timings: Sequence[VectorRolloutRoundTiming]) -> float:
     if capacity <= 0:
         raise ValueError("rollout timing capacity must be positive")
     return active / capacity
+
+
+_PLANNER_PHASE_FIELDS = (
+    "host_to_device",
+    "diffusion_noise",
+    "prepare_policy_guidance",
+    "policy_forward",
+    "action_sampling",
+    "complete_policy_guidance",
+    "guidance_action_check",
+    "execution_to_host",
+)
+
+
+def _planner_phase_measurements(
+    timing_samples: Sequence[Sequence[VectorRolloutRoundTiming]],
+    phase: str,
+) -> dict[str, object]:
+    matching = [
+        [item.planner_timing for item in timings if item.phase == phase]
+        for timings in timing_samples
+    ]
+    if any(not timings for timings in matching):
+        raise ValueError(f"each rollout update must contain a {phase} planner timing")
+    result: dict[str, object] = {}
+    for field in _PLANNER_PHASE_FIELDS:
+        values = [[getattr(timing, field) for timing in timings] for timings in matching]
+        present = [[value for value in update if value is not None] for update in values]
+        if all(not update for update in present):
+            result[field] = None
+            continue
+        if any(len(update) != len(values[index]) for index, update in enumerate(present)):
+            raise ValueError(f"planner phase field {field!r} is only partially populated")
+        result[field] = {
+            "host_call_wall_s": measurement(
+                [sum(value.host_call_wall_s for value in update) for update in present]
+            ),
+            "accelerator_s": measurement(
+                [sum(value.accelerator_s for value in update) for update in present]
+            ),
+        }
+    result["profile_sync_wait_wall_s"] = measurement(
+        [
+            sum(timing.profile_sync_wait_wall_s for timing in timings)
+            for timings in matching
+        ]
+    )
+    return result

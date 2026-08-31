@@ -294,6 +294,7 @@ def test_real_checkpoint_metadrive_rollout_updates_policy_without_changing_plann
         baseline_checkpoint_dir / "args.json",
         baseline_checkpoint_dir / "model.pth",
         parsed.rollout.policy_action_seed,
+        planner_compile_mode="eager",
     )
 
     episode = collect_rollout_episode(
