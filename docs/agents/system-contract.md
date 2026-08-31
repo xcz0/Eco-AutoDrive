@@ -40,6 +40,8 @@ Hydra/OmegaConf 只存在于配置 composition 边界。CLI 与内部 study work
 `eco_planner.workflows.compose_job_config` 组合一个 job；随后由
 `run_evaluation_job` 或 `run_training_job` 解析严格 typed config 并执行领域 runner。runner、episode、runtime 和 execution 组件只接收对应的 typed config 或其子模型，不读取 `DictConfig`。`env` 子树是传给 MetaDrive 的开放第三方配置，保留为普通映射；本项目消费的 horizon、traffic 和 evaluation 字段仍必须由顶层模型交叉校验。
 
+`jobs` 是完整 semantic job 的唯一声明位置；`studies` 只选择 job，并声明 study-specific pairing、搜索、ranking 或显式 overrides。study manifest 不得复制 job 的 scenario、runtime、sampler 或 environment 字段后再与 resolved config 对账。
+
 配置、持久化文件以及 MetaDrive、TorchRL、Diffusers、Fabric 等第三方返回值只在首次进入项目 typed domain 的边界校验和转换一次；下游受控数据流依赖明确类型、生产者测试与本节规定的 shape/单位契约，不为静态类型收窄重复执行 `isinstance` 或 Optional 状态检查。有限性、随机流、冻结参数及其他会改变实验语义的显式校验不受此规则影响。
 
 仿真真实状态、模型观测、模型预测和能耗记录必须分别保存。模型预测不得覆盖仿真状态，不同能耗指标不得静默互换或混合累计。业务代码不得从 `ref/` 导入运行时实现。

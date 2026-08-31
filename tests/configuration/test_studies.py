@@ -43,7 +43,11 @@ def test_study_manifests_are_strict_and_reference_composable_jobs(
                 job.config_name,
                 [f"components/guidance={guidance.config}"],
             )
-            assert isinstance(parse_evaluation_config(config), EvaluationJobConfig)
+            parsed = parse_evaluation_config(config)
+            assert isinstance(parsed, EvaluationJobConfig)
+            assert parsed.runtime.seed == 0
+            assert parsed.sampler.name == "ddim5"
+            assert parsed.env["random_agent_model"] is False
     for reward_ab in reward_studies:
         profile = reward_ab.profiles[0]
         matched = reward_ab.matched_training

@@ -26,19 +26,12 @@ class RewardProfileSpec(_StrictModel):
     reward_config: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"]
 
 
-class ScenarioSpec(_StrictModel):
-    name: str
-    map: str
-    seed: StrictInt = Field(ge=0)
-
-
 class MatchedTrainingSpec(_StrictModel):
     update_count: StrictInt = Field(ge=2)
     transitions_per_environment: StrictInt = Field(gt=0)
     scheduler_total_optimizer_steps: StrictInt = Field(gt=0)
     training_seeds: list[StrictInt] = Field(min_length=1)
     replay_ids: list[StrictInt] = Field(min_length=1)
-    scenarios: list[ScenarioSpec] = Field(min_length=1)
 
 
 class ReviewThresholds(_StrictModel):

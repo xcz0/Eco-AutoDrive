@@ -377,23 +377,14 @@ def _resolved_matches_matrix(config: PPORewardABConfig, run: dict[str, object]) 
     resolved = _resolved(run)
     training = resolved.get("training")
     ppo = resolved.get("ppo")
-    scenarios = resolved.get("scenarios")
-    if (
-        not isinstance(training, dict)
-        or not isinstance(ppo, dict)
-        or not isinstance(scenarios, list)
-    ):
+    if not isinstance(training, dict) or not isinstance(ppo, dict):
         return False
-    expected_scenarios = [
-        item.model_dump(mode="python") for item in config.matched_training.scenarios
-    ]
     return (
         training.get("update_count") == config.matched_training.update_count
         and training.get("transitions_per_environment")
         == config.matched_training.transitions_per_environment
         and ppo.get("scheduler_total_optimizer_steps")
         == config.matched_training.scheduler_total_optimizer_steps
-        and scenarios == expected_scenarios
     )
 
 
