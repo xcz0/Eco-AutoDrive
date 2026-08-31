@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal, cast
 import numpy as np
 import torch
 from hydra.utils import to_absolute_path
-from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt
 from tensordict import TensorDictBase
 
 from eco_planner.artifacts import (
@@ -47,6 +47,15 @@ class RewardComponentMeans(_ArtifactModel):
     comfort_score: StrictFloat = Field(ge=0.0, le=1.0)
     speed_score: StrictFloat = Field(ge=0.0, le=1.0)
     energy_score: StrictFloat = Field(ge=0.0, le=1.0)
+
+
+class PPOGradientDiagnosticsSummary(_ArtifactModel):
+    actor_head_policy: StrictFloat = Field(ge=0.0)
+    shared_trunk_policy: StrictFloat = Field(ge=0.0)
+    value_head_critic: StrictFloat = Field(ge=0.0)
+    shared_trunk_critic: StrictFloat = Field(ge=0.0)
+    actor_head_entropy: StrictFloat = Field(ge=0.0)
+    shared_trunk_entropy: StrictFloat = Field(ge=0.0)
 
 
 class TrainingUpdateSummary(_ArtifactModel):
@@ -86,9 +95,23 @@ class TrainingUpdateSummary(_ArtifactModel):
     mean_entropy: StrictFloat
     mean_explained_variance: StrictFloat
     maximum_pre_clip_gradient_norm: StrictFloat
+    evaluated_minibatch_count: StrictInt = Field(gt=0)
+    optimizer_step_count: StrictInt = Field(ge=0)
     final_learning_rate: StrictFloat = Field(ge=0.0)
+    raw_advantage_mean: StrictFloat
+    raw_advantage_std: StrictFloat = Field(ge=0.0)
+    normalized_advantage_mean: StrictFloat
+    normalized_advantage_std: StrictFloat = Field(ge=0.0)
     mean_value_target: StrictFloat
     std_value_target: StrictFloat
+    kl_early_stopped: StrictBool
+    kl_early_stop_trigger: StrictFloat | None
+    cumulative_kl_early_stop_count: StrictInt = Field(ge=0)
+    policy_ratio_mean: StrictFloat = Field(gt=0.0)
+    policy_ratio_std: StrictFloat = Field(ge=0.0)
+    policy_ratio_p95: StrictFloat = Field(gt=0.0)
+    policy_ratio_max: StrictFloat = Field(gt=0.0)
+    gradient_diagnostics: PPOGradientDiagnosticsSummary | None
     reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"]
     native_step_energy_total_ml: StrictFloat = Field(ge=0.0)
     executed_fuel_proxy_total_ml: StrictFloat = Field(ge=0.0)
@@ -237,7 +260,6 @@ def build_update_summary(
             }
         )
     payload.update(asdict(report))
-    payload.pop("optimizer_step_count")
     return TrainingUpdateSummary.model_validate(payload)
 
 

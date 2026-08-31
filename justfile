@@ -119,6 +119,23 @@ train profile="ppo/smoke" seed="0" replay="0" *overrides:
 ppo-reward-ab output_root study="configs/studies/reward/ppo_ab.yaml":
     {{python}} -m scripts.studies.ppo_reward_ab --study "{{study}}" --output-root "{{output_root}}"
 
+# Run Issue #76 PPO stability search and staged validation on the experiment host.
+[group('training')]
+ppo-stability-stage-a output_root study="configs/studies/ppo/stability.yaml":
+    {{python}} -m scripts.studies.ppo_stability stage-a --study "{{study}}" --output-root "{{output_root}}"
+
+[group('training')]
+ppo-stability-stage-b output_root study="configs/studies/ppo/stability.yaml":
+    {{python}} -m scripts.studies.ppo_stability stage-b --study "{{study}}" --output-root "{{output_root}}"
+
+[group('training')]
+ppo-stability-stage-c output_root study="configs/studies/ppo/stability.yaml":
+    {{python}} -m scripts.studies.ppo_stability stage-c --study "{{study}}" --output-root "{{output_root}}"
+
+[group('training')]
+ppo-stability-diagnose output_root diagnostic study="configs/studies/ppo/stability.yaml":
+    {{python}} -m scripts.studies.ppo_stability diagnose --study "{{study}}" --output-root "{{output_root}}" --diagnostic "{{diagnostic}}"
+
 
 # Run one reusable benchmark profile.
 [group('benchmark')]
@@ -138,6 +155,10 @@ summarize-matrix root *options:
 [group('analysis')]
 summarize-training root:
     {{python}} -m scripts.analysis.training "{{root}}"
+
+[group('analysis')]
+summarize-ppo-stability root study="configs/studies/ppo/stability.yaml":
+    {{python}} -m scripts.studies.ppo_stability summarize --study "{{study}}" --output-root "{{root}}"
 
 [group('analysis')]
 review-ppo-reward-ab root:

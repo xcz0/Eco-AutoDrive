@@ -80,3 +80,13 @@ def test_beta_policy_action_and_log_prob_are_positive_and_finite() -> None:
     )
     assert torch.equal(consumed_state, replay_generator.get_state())
     assert torch.equal(global_state, torch.random.get_rng_state())
+
+
+def test_deterministic_policy_mean_does_not_consume_any_rng_state() -> None:
+    policy = ExplorationPolicy(_config())
+    global_state = torch.random.get_rng_state().clone()
+
+    output, action = policy.act(_context(), "mean")
+
+    torch.testing.assert_close(action.guidance_action, output.distribution.mean)
+    assert torch.equal(global_state, torch.random.get_rng_state())

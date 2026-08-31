@@ -298,9 +298,7 @@ class VectorMetaDriveEnv:
         self._validate_slot(slot)
         return self._reset_slots((slot,), (scenario,), partial=True)[0]
 
-    def step(
-        self, trajectories: Sequence[np.ndarray] | np.ndarray
-    ) -> tuple[VectorEnvStep, ...]:
+    def step(self, trajectories: Sequence[np.ndarray] | np.ndarray) -> tuple[VectorEnvStep, ...]:
         """Step every physical slot once."""
 
         return self.step_slots(tuple(range(self.num_envs)), trajectories)
@@ -326,9 +324,7 @@ class VectorMetaDriveEnv:
         mask = _slot_mask(self.num_envs, slots_tuple)
         input_td = TensorDict({"action": actions, "_step": mask}, batch_size=[self.num_envs])
         with self._operation_lock:
-            output = _tensordict_field(
-                self._call("step", lambda: self._env.step(input_td)), "next"
-            )
+            output = _tensordict_field(self._call("step", lambda: self._env.step(input_td)), "next")
             domains = self._env.operation_result()
             return tuple(self._step_result(output, slot, domains[slot]) for slot in slots_tuple)
 
@@ -509,9 +505,7 @@ def _slot_mask(count: int, slots: Sequence[int]) -> torch.Tensor:
 
 
 def _observation(output: TensorDictBase, slot: int) -> SingleObservation:
-    values = {
-        key: _tensor_field(output, key)[slot].detach().clone() for key in _OBSERVATION_KEYS
-    }
+    values = {key: _tensor_field(output, key)[slot].detach().clone() for key in _OBSERVATION_KEYS}
     return cast(SingleObservation, values)
 
 

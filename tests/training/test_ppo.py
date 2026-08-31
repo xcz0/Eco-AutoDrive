@@ -44,8 +44,10 @@ def _ppo_config() -> PPOConfig:
         gamma=0.99,
         gae_lambda=0.95,
         clip_epsilon=0.2,
+        target_kl=None,
         value_coefficient=0.5,
         entropy_coefficient=0.01,
+        gradient_diagnostics=False,
         learning_rate=0.00025,
         adam_epsilon=1e-5,
         weight_decay=0.0,
@@ -189,6 +191,15 @@ def test_ppo_update_changes_policy_and_reports_finite_training_summary() -> None
         not torch.equal(value, policy_before[name]) for name, value in policy.state_dict().items()
     )
     assert report.sample_count == 2
+    assert report.evaluated_minibatch_count == 1
+    assert report.optimizer_step_count == 1
+    assert not report.kl_early_stopped
+    assert report.kl_early_stop_trigger is None
+    assert report.cumulative_kl_early_stop_count == 0
+    assert report.policy_ratio_mean > 0.0
+    assert report.policy_ratio_std >= 0.0
+    assert report.policy_ratio_p95 > 0.0
+    assert report.policy_ratio_max > 0.0
     metrics = (value for value in report.__dict__.values() if isinstance(value, float))
     assert all(math.isfinite(value) for value in metrics)
     assert math.isfinite(report.mean_value_target)
@@ -228,6 +239,56 @@ def test_ppo_update_changes_policy_and_reports_finite_training_summary() -> None
         assert summary.action_mean[dim] <= summary.action_max[dim]
         assert summary.action_std[dim] >= 0.0
     assert summary.reward_profile == "metadrive_builtin_v1"
+
+
+def test_target_kl_stops_before_triggering_minibatch_optimizer_step_and_resumes_state() -> None:
+    config = _ppo_config().model_copy(
+        update={
+            "target_kl": 1e-12,
+            "epochs": 4,
+            "batch_size": 4,
+            "minibatch_size": 2,
+            "scheduler_total_optimizer_steps": 8,
+        }
+    )
+    episodes = tuple(
+        _episode(
+            reward=float(index + 1),
+            terminated=True,
+            truncated=False,
+            bootstrap=0.0,
+        )
+        for index in range(4)
+    )
+    updater = PPOUpdater(ExplorationPolicy(_policy_config()), config)
+
+    report = updater.update(episodes)
+
+    assert report.kl_early_stopped
+    assert report.kl_early_stop_trigger is not None
+    assert report.kl_early_stop_trigger > 1.5 * config.target_kl
+    assert report.evaluated_minibatch_count == report.optimizer_step_count + 1
+    assert 0 <= report.optimizer_step_count < config.optimizer_steps_per_update
+    assert updater.completed_optimizer_steps == report.optimizer_step_count
+    restored = PPOUpdater(ExplorationPolicy(_policy_config()), config)
+    restored.restore_checkpoint_state(updater.checkpoint_state())
+    assert restored.checkpoint_state()["completed_optimizer_steps"] == report.optimizer_step_count
+    assert restored.checkpoint_state()["kl_early_stop_count"] == 1
+
+
+def test_optional_gradient_diagnostics_report_finite_parameter_group_norms() -> None:
+    config = _ppo_config().model_copy(update={"gradient_diagnostics": True})
+    episodes = (
+        _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0),
+        _episode(reward=2.0, terminated=True, truncated=False, bootstrap=0.0),
+    )
+
+    report = PPOUpdater(ExplorationPolicy(_policy_config()), config).update(episodes)
+
+    assert report.gradient_diagnostics is not None
+    values = report.gradient_diagnostics.__dict__.values()
+    assert all(math.isfinite(value) and value >= 0.0 for value in values)
+    assert any(value > 0.0 for value in values)
 
 
 def test_scheduler_horizon_covers_every_epoch_and_minibatch_across_updates() -> None:

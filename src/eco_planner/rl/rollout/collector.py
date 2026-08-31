@@ -245,6 +245,7 @@ class VectorRolloutCollector:
         policy_generators: tuple[torch.Generator, ...],
         noise_seeds: tuple[int, ...],
         policy_action_seeds: tuple[int, ...],
+        policy_sampling: Literal["sample", "mean"] = "sample",
         timings: list[VectorRolloutRoundTiming] | None = None,
     ) -> tuple[tuple[RolloutEpisode, ...], ...]:
         """Collect one PPO batch while retaining workers for a subsequent call."""
@@ -258,6 +259,8 @@ class VectorRolloutCollector:
             noise_seeds,
             policy_action_seeds,
         )
+        if policy_sampling not in {"sample", "mean"}:
+            raise ValueError("policy_sampling must be 'sample' or 'mean'")
         collected: list[tuple[RolloutEpisode, ...]] = []
         for start in range(0, len(self._specs), self._physical_slot_count):
             stop = min(start + self._physical_slot_count, len(self._specs))
@@ -274,6 +277,7 @@ class VectorRolloutCollector:
                     states,
                     transitions_per_slot=transitions_per_slot,
                     stopped_speed_threshold_mps=stopped_speed_threshold_mps,
+                    policy_sampling=policy_sampling,
                     timings=timings,
                 )
             )
@@ -331,6 +335,7 @@ class VectorRolloutCollector:
         *,
         transitions_per_slot: int,
         stopped_speed_threshold_mps: float,
+        policy_sampling: Literal["sample", "mean"],
         timings: list[VectorRolloutRoundTiming] | None,
     ) -> tuple[tuple[RolloutEpisode, ...], ...]:
         active_slots = tuple(range(len(states)))
@@ -344,12 +349,20 @@ class VectorRolloutCollector:
             collate_s = perf_counter() - collate_started if profile else 0.0
             planner_timings: list[RolloutPlannerTiming] = []
             planner_started = perf_counter() if profile else 0.0
-            decision = self._runtime.decide_batch(
-                observation,
-                tuple(state.diffusion_generator for state in states),
-                tuple(state.policy_generator for state in states),
-                timings=planner_timings if profile else None,
-            )
+            diffusion_generators = tuple(state.diffusion_generator for state in states)
+            if policy_sampling == "sample":
+                decision = self._runtime.decide_batch(
+                    observation,
+                    diffusion_generators,
+                    tuple(state.policy_generator for state in states),
+                    timings=planner_timings if profile else None,
+                )
+            else:
+                decision = self._runtime.decide_batch_mean(
+                    observation,
+                    diffusion_generators,
+                    timings=planner_timings if profile else None,
+                )
             for slot, state in enumerate(states):
                 if not state.episode.empty:
                     state.episode.link_next_state_value(
@@ -565,6 +578,7 @@ def collect_vector_rollout_episodes(
     policy_generators: tuple[torch.Generator, ...],
     noise_seeds: tuple[int, ...],
     policy_action_seeds: tuple[int, ...],
+    policy_sampling: Literal["sample", "mean"] = "sample",
     timings: list[VectorRolloutRoundTiming] | None = None,
     reward_profile: RewardProfileConfig | None = None,
 ) -> tuple[tuple[RolloutEpisode, ...], ...]:
@@ -590,6 +604,7 @@ def collect_vector_rollout_episodes(
             policy_generators=policy_generators,
             noise_seeds=noise_seeds,
             policy_action_seeds=policy_action_seeds,
+            policy_sampling=policy_sampling,
             timings=timings,
         )
 

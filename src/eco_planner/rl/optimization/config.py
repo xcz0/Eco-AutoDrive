@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 from omegaconf import DictConfig
-from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    model_validator,
+)
 
 from eco_planner.configuration import resolve_config_mapping
 
@@ -17,8 +25,10 @@ class PPOConfig(BaseModel):
     gamma: StrictFloat = Field(gt=0.0, lt=1.0)
     gae_lambda: StrictFloat = Field(gt=0.0, lt=1.0)
     clip_epsilon: StrictFloat = Field(gt=0.0, lt=1.0)
+    target_kl: StrictFloat | None = Field(gt=0.0)
     value_coefficient: StrictFloat = Field(ge=0.0)
     entropy_coefficient: StrictFloat = Field(ge=0.0)
+    gradient_diagnostics: StrictBool
     learning_rate: StrictFloat = Field(gt=0.0)
     adam_epsilon: StrictFloat = Field(gt=0.0)
     weight_decay: StrictFloat = Field(ge=0.0)

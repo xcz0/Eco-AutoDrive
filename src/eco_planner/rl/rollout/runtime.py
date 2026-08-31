@@ -322,10 +322,43 @@ class FabricRolloutRuntime:
     ) -> BatchRolloutDecision:
         """Sample batched guidance actions with one independent RNG stream per slot."""
 
+        return self._decide_batch(
+            observation,
+            diffusion_generators,
+            policy_generators,
+            timings=timings,
+        )
+
+    def decide_batch_mean(
+        self,
+        observation: BatchObservation | Mapping[str, torch.Tensor],
+        diffusion_generators: Sequence[torch.Generator],
+        *,
+        timings: list[RolloutPlannerTiming] | None = None,
+    ) -> BatchRolloutDecision:
+        """Evaluate deterministic Beta-mean actions without consuming policy RNG."""
+
+        return self._decide_batch(
+            observation,
+            diffusion_generators,
+            None,
+            timings=timings,
+        )
+
+    def _decide_batch(
+        self,
+        observation: BatchObservation | Mapping[str, torch.Tensor],
+        diffusion_generators: Sequence[torch.Generator],
+        policy_generators: Sequence[torch.Generator] | None,
+        *,
+        timings: list[RolloutPlannerTiming] | None,
+    ) -> BatchRolloutDecision:
+
         raw_observation = cast(dict[str, torch.Tensor], dict(observation))
         batch = _observation_batch_size(raw_observation)
         _validate_slot_generators(diffusion_generators, batch, "diffusion_generators")
-        _validate_slot_generators(policy_generators, batch, "policy_generators")
+        if policy_generators is not None:
+            _validate_slot_generators(policy_generators, batch, "policy_generators")
         planner_config = self._planner.config
         profile = timings is not None
         moved, h2d_timing = _profile_call(
@@ -333,7 +366,11 @@ class FabricRolloutRuntime:
         )
         moved = _fabric_observation(moved)
         diffusion_rng_states = tuple(_rng_state(generator) for generator in diffusion_generators)
-        policy_rng_states = tuple(_rng_state(generator) for generator in policy_generators)
+        policy_rng_states = (
+            tuple(_rng_state(generator) for generator in policy_generators)
+            if policy_generators is not None
+            else tuple(torch.empty(0, dtype=torch.uint8) for _ in range(batch))
+        )
         noise, noise_timing = _profile_call(
             self.device,
             profile,
@@ -361,7 +398,11 @@ class FabricRolloutRuntime:
             action, action_timing = _profile_call(
                 self.device,
                 profile,
-                lambda: _sample_policy_actions(output, policy_generators),
+                lambda: (
+                    _sample_policy_actions(output, policy_generators)
+                    if policy_generators is not None
+                    else output.distribution.action_mean()
+                ),
             )
         with torch.enable_grad():
             result, complete_timing = _profile_call(
@@ -576,8 +617,7 @@ def _fabric_observation(value: object) -> dict[str, torch.Tensor]:
     """Validate one Fabric observation transfer at the third-party boundary."""
 
     if not isinstance(value, dict) or not all(
-        isinstance(name, str) and isinstance(tensor, torch.Tensor)
-        for name, tensor in value.items()
+        isinstance(name, str) and isinstance(tensor, torch.Tensor) for name, tensor in value.items()
     ):
         raise TypeError("Fabric must move rollout observations as a string-to-tensor mapping")
     return cast(dict[str, torch.Tensor], value)

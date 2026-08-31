@@ -9,10 +9,16 @@ from eco_planner.rl.optimization.checkpoint import (
     save_training_checkpoint,
 )
 from eco_planner.rl.optimization.config import PPOConfig
-from eco_planner.rl.optimization.ppo import PPOUpdater, PPOUpdateReport, compute_episode_gae
+from eco_planner.rl.optimization.ppo import (
+    PPOGradientDiagnostics,
+    PPOUpdater,
+    PPOUpdateReport,
+    compute_episode_gae,
+)
 
 __all__ = [
     "PPOConfig",
+    "PPOGradientDiagnostics",
     "PPOUpdater",
     "PPOUpdateReport",
     "PolicyCheckpointReport",

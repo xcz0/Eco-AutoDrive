@@ -53,10 +53,23 @@ _PPO_UPDATE_METRIC_NAMES = (
 
 
 @dataclass(frozen=True)
+class PPOGradientDiagnostics:
+    """Mean coefficient-weighted loss gradient norms for policy parameter groups."""
+
+    actor_head_policy: float
+    shared_trunk_policy: float
+    value_head_critic: float
+    shared_trunk_critic: float
+    actor_head_entropy: float
+    shared_trunk_entropy: float
+
+
+@dataclass(frozen=True)
 class PPOUpdateReport:
     """Scalar diagnostics from one complete PPO update."""
 
     sample_count: int
+    evaluated_minibatch_count: int
     optimizer_step_count: int
     mean_policy_loss: float
     mean_value_loss: float
@@ -68,8 +81,20 @@ class PPOUpdateReport:
     mean_explained_variance: float
     maximum_pre_clip_gradient_norm: float
     final_learning_rate: float
+    raw_advantage_mean: float
+    raw_advantage_std: float
+    normalized_advantage_mean: float
+    normalized_advantage_std: float
     mean_value_target: float
     std_value_target: float
+    kl_early_stopped: bool
+    kl_early_stop_trigger: float | None
+    cumulative_kl_early_stop_count: int
+    policy_ratio_mean: float
+    policy_ratio_std: float
+    policy_ratio_p95: float
+    policy_ratio_max: float
+    gradient_diagnostics: PPOGradientDiagnostics | None
 
 
 def compute_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> TensorDictBase:
@@ -109,6 +134,14 @@ class PPOUpdater:
         self.config = config
         self.device = devices.pop()
         self._parameters = parameters
+        actor_parameters = tuple(policy.actor_head.parameters())
+        value_parameters = tuple(policy.value_head.parameters())
+        head_parameter_ids = {id(parameter) for parameter in (*actor_parameters, *value_parameters)}
+        self._actor_parameters = actor_parameters
+        self._value_parameters = value_parameters
+        self._shared_parameters = tuple(
+            parameter for parameter in parameters if id(parameter) not in head_parameter_ids
+        )
         actor, critic = _build_torchrl_policy_adapters(policy)
         self.loss_module = ClipPPOLoss(
             actor_network=actor,
@@ -155,6 +188,7 @@ class PPOUpdater:
             generator=self._minibatch_generator,
         )
         self._completed_optimizer_steps = 0
+        self._kl_early_stop_count = 0
 
     @property
     def completed_optimizer_steps(self) -> int:
@@ -165,6 +199,7 @@ class PPOUpdater:
 
         return {
             "completed_optimizer_steps": self._completed_optimizer_steps,
+            "kl_early_stop_count": self._kl_early_stop_count,
             "minibatch_generator_state": self._minibatch_generator.get_state(),
             "minibatch_sampler_state": self._minibatch_replay_buffer.sampler.state_dict(),
         }
@@ -172,12 +207,14 @@ class PPOUpdater:
     def restore_checkpoint_state(self, state: Mapping[str, object]) -> None:
         expected = {
             "completed_optimizer_steps",
+            "kl_early_stop_count",
             "minibatch_generator_state",
             "minibatch_sampler_state",
         }
         if set(state) != expected:
             raise ValueError("PPO checkpoint state has unexpected fields")
         completed = state["completed_optimizer_steps"]
+        early_stops = state["kl_early_stop_count"]
         generator_state = state["minibatch_generator_state"]
         sampler_state = state["minibatch_sampler_state"]
         if (
@@ -185,11 +222,14 @@ class PPOUpdater:
             or not 0 <= completed <= self.config.scheduler_total_optimizer_steps
         ):
             raise ValueError("PPO checkpoint optimizer step count is invalid")
+        if type(early_stops) is not int or early_stops < 0:
+            raise ValueError("PPO checkpoint KL early-stop count is invalid")
         if not isinstance(generator_state, torch.Tensor) or generator_state.dtype != torch.uint8:
             raise TypeError("PPO checkpoint minibatch generator state must be uint8")
         if not isinstance(sampler_state, Mapping):
             raise TypeError("PPO checkpoint minibatch sampler state must be a mapping")
         self._completed_optimizer_steps = completed
+        self._kl_early_stop_count = early_stops
         self._minibatch_generator.set_state(generator_state)
         self._minibatch_replay_buffer.sampler.load_state_dict(dict(sampler_state))
 
@@ -209,7 +249,11 @@ class PPOUpdater:
             > self.config.scheduler_total_optimizer_steps
         ):
             raise RuntimeError("PPO update would exceed the configured scheduler horizon")
+        raw_advantage_mean, raw_advantage_std = _tensor_statistics(batch["advantage"], correction=1)
         _normalize_full_batch_advantage(batch)
+        normalized_advantage_mean, normalized_advantage_std = _tensor_statistics(
+            batch["advantage"], correction=1
+        )
         value_target = batch["value_target"]
         value_target_mean = float(value_target.mean())
         value_target_std = float(value_target.std(correction=0))
@@ -222,6 +266,10 @@ class PPOUpdater:
             len(_PPO_UPDATE_METRIC_NAMES), device=self.device, dtype=torch.float64
         )
         maximum_gradient_norm = torch.zeros((), device=self.device, dtype=torch.float64)
+        gradient_totals = torch.zeros(6, device=self.device, dtype=torch.float64)
+        evaluated_minibatches = 0
+        optimizer_steps = 0
+        early_stop_trigger: float | None = None
         for _epoch in range(self.config.epochs):
             for host_minibatch in self._minibatch_replay_buffer:
                 minibatch = host_minibatch.exclude("index").to(self.device)
@@ -230,17 +278,6 @@ class PPOUpdater:
                     losses["loss_objective"] + losses["loss_critic"] + losses["loss_entropy"]
                 )
                 _require_finite_scalar(total_loss, "total PPO loss")
-                self.optimizer.zero_grad(set_to_none=True)
-                total_loss.backward()
-                gradient_norm = clip_grad_norm_(
-                    self._parameters,
-                    self.config.max_gradient_norm,
-                    error_if_nonfinite=True,
-                )
-                _require_finite_scalar(gradient_norm, "pre-clip gradient norm")
-                self.optimizer.step()
-                self.scheduler.step()
-                self._completed_optimizer_steps += 1
                 metric_tensors = (
                     losses["loss_objective"],
                     losses["loss_critic"],
@@ -255,24 +292,61 @@ class PPOUpdater:
                     _require_finite_scalar(value, name)
                 scalar_metrics = tuple(value.detach().mean() for value in metric_tensors)
                 metric_totals.add_(torch.stack(scalar_metrics, dim=0).to(dtype=torch.float64))
+                evaluated_minibatches += 1
+                approximate_kl = float(losses["kl_approx"].detach())
+                if (
+                    self.config.target_kl is not None
+                    and approximate_kl > 1.5 * self.config.target_kl
+                ):
+                    early_stop_trigger = approximate_kl
+                    self._kl_early_stop_count += 1
+                    break
+                if self.config.gradient_diagnostics:
+                    gradient_totals.add_(
+                        self._loss_gradient_diagnostics(losses).to(dtype=torch.float64)
+                    )
+                self.optimizer.zero_grad(set_to_none=True)
+                total_loss.backward()
+                gradient_norm = clip_grad_norm_(
+                    self._parameters,
+                    self.config.max_gradient_norm,
+                    error_if_nonfinite=True,
+                )
+                _require_finite_scalar(gradient_norm, "pre-clip gradient norm")
+                self.optimizer.step()
+                self.scheduler.step()
+                self._completed_optimizer_steps += 1
+                optimizer_steps += 1
                 maximum_gradient_norm = torch.maximum(
                     maximum_gradient_norm, gradient_norm.detach().to(dtype=torch.float64)
                 )
+            if early_stop_trigger is not None:
+                break
         for key, expected in frozen_inputs.items():
             if not torch.equal(batch[key], expected):
                 raise RuntimeError(f"PPO update mutated frozen batch field {key!r}")
         host_metrics = torch.cat(
             (
-                metric_totals.div(required_steps),
+                metric_totals.div(evaluated_minibatches),
                 maximum_gradient_norm.unsqueeze(0),
             )
         ).cpu()
         if not torch.isfinite(host_metrics).all():
             raise FloatingPointError("PPO update diagnostics must be finite")
         metric_values = tuple(float(value) for value in host_metrics)
+        ratio_mean, ratio_std, ratio_p95, ratio_max = self._policy_ratio_statistics(batch)
+        gradient_diagnostics = None
+        if self.config.gradient_diagnostics:
+            if optimizer_steps == 0:
+                raise RuntimeError("gradient diagnostics require at least one optimizer step")
+            gradient_values = tuple(
+                float(value) for value in (gradient_totals / optimizer_steps).cpu()
+            )
+            gradient_diagnostics = PPOGradientDiagnostics(*gradient_values)
         return PPOUpdateReport(
             sample_count=sample_count,
-            optimizer_step_count=required_steps,
+            evaluated_minibatch_count=evaluated_minibatches,
+            optimizer_step_count=optimizer_steps,
             mean_policy_loss=metric_values[0],
             mean_value_loss=metric_values[1],
             mean_entropy_loss=metric_values[2],
@@ -283,9 +357,51 @@ class PPOUpdater:
             mean_explained_variance=metric_values[7],
             maximum_pre_clip_gradient_norm=metric_values[8],
             final_learning_rate=float(self.optimizer.param_groups[0]["lr"]),
+            raw_advantage_mean=raw_advantage_mean,
+            raw_advantage_std=raw_advantage_std,
+            normalized_advantage_mean=normalized_advantage_mean,
+            normalized_advantage_std=normalized_advantage_std,
             mean_value_target=value_target_mean,
             std_value_target=value_target_std,
+            kl_early_stopped=early_stop_trigger is not None,
+            kl_early_stop_trigger=early_stop_trigger,
+            cumulative_kl_early_stop_count=self._kl_early_stop_count,
+            policy_ratio_mean=ratio_mean,
+            policy_ratio_std=ratio_std,
+            policy_ratio_p95=ratio_p95,
+            policy_ratio_max=ratio_max,
+            gradient_diagnostics=gradient_diagnostics,
         )
+
+    def _loss_gradient_diagnostics(self, losses: TensorDictBase) -> torch.Tensor:
+        groups = (
+            (losses["loss_objective"], self._actor_parameters),
+            (losses["loss_objective"], self._shared_parameters),
+            (losses["loss_critic"], self._value_parameters),
+            (losses["loss_critic"], self._shared_parameters),
+            (losses["loss_entropy"], self._actor_parameters),
+            (losses["loss_entropy"], self._shared_parameters),
+        )
+        return torch.stack([_gradient_norm(loss, parameters) for loss, parameters in groups])
+
+    def _policy_ratio_statistics(self, batch: TensorDictBase) -> tuple[float, float, float, float]:
+        with torch.no_grad():
+            outputs = self.policy.forward_tensordict(batch.select(*POLICY_CONTEXT_KEYS).clone())
+            distribution = AffineBeta(outputs["alpha"], outputs["beta"], validate_args=False)
+            current_log_prob = distribution.log_prob(batch["guidance_action"]).reshape(-1)
+            old_log_prob = batch["old_joint_guidance_log_prob"].reshape(-1)
+            log_ratio = (current_log_prob - old_log_prob).to(dtype=torch.float32)
+            ratio = torch.exp(log_ratio)
+        if not torch.isfinite(ratio).all() or torch.any(ratio <= 0.0):
+            raise FloatingPointError("PPO current/old policy ratio must be finite and positive")
+        values = (
+            ratio.mean(),
+            ratio.std(correction=0),
+            torch.quantile(ratio, 0.95),
+            ratio.max(),
+        )
+        host = torch.stack(values).cpu()
+        return float(host[0]), float(host[1]), float(host[2]), float(host[3])
 
 
 def _build_torchrl_policy_adapters(
@@ -329,6 +445,28 @@ def _normalize_full_batch_advantage(batch: TensorDictBase) -> None:
     if not torch.isfinite(normalized).all():
         raise ValueError("normalized advantage must be finite")
     batch["advantage"] = normalized
+
+
+def _tensor_statistics(value: torch.Tensor, *, correction: int) -> tuple[float, float]:
+    mean = float(value.mean())
+    standard_deviation = float(value.std(correction=correction))
+    if not (math.isfinite(mean) and math.isfinite(standard_deviation)):
+        raise FloatingPointError("PPO tensor statistics must be finite")
+    return mean, standard_deviation
+
+
+def _gradient_norm(loss: torch.Tensor, parameters: tuple[nn.Parameter, ...]) -> torch.Tensor:
+    gradients = torch.autograd.grad(
+        loss,
+        parameters,
+        retain_graph=True,
+        allow_unused=True,
+    )
+    squared = torch.zeros((), device=loss.device, dtype=torch.float64)
+    for gradient in gradients:
+        if gradient is not None:
+            squared.add_(gradient.detach().to(dtype=torch.float64).square().sum())
+    return torch.sqrt(squared)
 
 
 def _require_finite_scalar(value: torch.Tensor, name: str) -> None:

@@ -3,6 +3,7 @@
 from eco_planner.rl.artifacts.analysis import summarize_training_runs
 from eco_planner.rl.artifacts.io import (
     PolicyProbeSummary,
+    PPOGradientDiagnosticsSummary,
     RewardComponentMeans,
     TrainingRunSummary,
     TrainingUpdateSummary,
@@ -21,6 +22,7 @@ __all__ = [
     "BUILTIN_ROLLOUT_ARTIFACT_FIELDS",
     "ENERGY_ROLLOUT_ARTIFACT_FIELDS",
     "PolicyProbeSummary",
+    "PPOGradientDiagnosticsSummary",
     "RewardComponentMeans",
     "TrainingRunSummary",
     "TrainingUpdateSummary",

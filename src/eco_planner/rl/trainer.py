@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -36,9 +37,15 @@ from eco_planner.rl.rollout import (
 )
 
 _SEED_NAMESPACE = 6_002_024
+TrainingUpdateObserver = Callable[[TrainingUpdateSummary], None]
 
 
-def train(config: TrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
+def train(
+    config: TrainingJobConfig,
+    output_dir: Path,
+    *,
+    update_observer: TrainingUpdateObserver | None = None,
+) -> TrainingRunSummary:
     """Run a configured closed-loop PPO job and persist policies and research artifacts."""
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -135,9 +142,8 @@ def train(config: TrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
                     config.training.diagnostic_seed,
                 )
             report = updater.update(tuple(update_episodes))
-            update_summaries.append(
-                build_update_summary(update_index, tuple(update_episodes), report)
-            )
+            update_summary = build_update_summary(update_index, tuple(update_episodes), report)
+            update_summaries.append(update_summary)
             save_exploration_policy_checkpoint(
                 output_dir / f"policy-update-{update_index:03d}.pt", runtime.policy
             )
@@ -155,6 +161,8 @@ def train(config: TrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
                     initial_policy_hash,
                 ),
             )
+            if update_observer is not None:
+                update_observer(update_summary)
 
     probe_contexts = cast(tuple[ExplorationPolicyContext, ...], probe_contexts)
     probe_before = cast(PolicyProbeSummary, probe_before)

@@ -4,8 +4,10 @@ name: ppo_closed_loop_smoke
 gamma: 0.99
 gae_lambda: 0.95
 clip_epsilon: 0.2
+target_kl: null
 value_coefficient: 0.5
 entropy_coefficient: 0.01
+gradient_diagnostics: false
 learning_rate: 0.00025
 adam_epsilon: 0.00001
 weight_decay: 0.0
