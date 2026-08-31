@@ -173,7 +173,9 @@ def _measure_batch_size(
         if vector_collector is not None:
             vector_collector.close()
         if runtime.device.type == "cuda":
-            peak_device_memory_samples.append(float(torch.cuda.max_memory_allocated(runtime.device)))
+            peak_device_memory_samples.append(
+                float(torch.cuda.max_memory_allocated(runtime.device))
+            )
         del vector_collector, updater, runtime
         gc.collect()
         if config.runtime.accelerator == "cuda":
@@ -330,12 +332,7 @@ def _rollout_result(
         audit_transfer_accelerator.append(audit_transfer_s)
         environment_wall.append(env_s)
         unattributed.append(
-            collection_s
-            - decision_s
-            - bootstrap_s
-            - collate_s
-            - audit_resolve_s
-            - env_s
+            collection_s - decision_s - bootstrap_s - collate_s - audit_resolve_s - env_s
         )
         worker_busy_per_transition.append(
             sum(item.worker_busy_s for item in decisions) / sample_count
@@ -356,9 +353,7 @@ def _rollout_result(
         "planner_bootstrap_wall_s": measurement(bootstrap_wall) if bootstrap_wall else None,
         "planner_decision_phases": _planner_phase_measurements(timing_samples, "decision"),
         "planner_bootstrap_phases": (
-            _planner_phase_measurements(timing_samples, "bootstrap")
-            if bootstrap_wall
-            else None
+            _planner_phase_measurements(timing_samples, "bootstrap") if bootstrap_wall else None
         ),
         "collate_wall_s": measurement(collate_wall),
         "audit_resolve_wall_s": measurement(audit_resolve_wall),
@@ -443,9 +438,6 @@ def _planner_phase_measurements(
             ),
         }
     result["profile_sync_wait_wall_s"] = measurement(
-        [
-            sum(timing.profile_sync_wait_wall_s for timing in timings)
-            for timings in matching
-        ]
+        [sum(timing.profile_sync_wait_wall_s for timing in timings) for timings in matching]
     )
     return result

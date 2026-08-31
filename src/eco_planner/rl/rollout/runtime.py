@@ -340,9 +340,7 @@ class FabricRolloutRuntime:
             prepared, prepare_timing = _profile_call(
                 self.device,
                 profile,
-                lambda: self._planner.prepare_policy_guidance(
-                    moved, noise, diffusion_generators
-                ),
+                lambda: self._planner.prepare_policy_guidance(moved, noise, diffusion_generators),
             )
             policy_context = ExplorationPolicyContext(
                 scene_tokens=prepared.policy_context.scene_tokens,
@@ -354,9 +352,7 @@ class FabricRolloutRuntime:
             policy_outputs, policy_timing = _profile_call(
                 self.device,
                 profile,
-                lambda: self._policy.forward_tensordict(
-                    policy_context_tensordict(policy_context)
-                ),
+                lambda: self._policy.forward_tensordict(policy_context_tensordict(policy_context)),
             )
             output = self._policy.output_from_tensordict(policy_outputs)
             action, action_timing = _profile_call(
@@ -368,9 +364,7 @@ class FabricRolloutRuntime:
             result, complete_timing = _profile_call(
                 self.device,
                 profile,
-                lambda: self._planner.complete_policy_guidance(
-                    prepared, action.guidance_action
-                ),
+                lambda: self._planner.complete_policy_guidance(prepared, action.guidance_action),
             )
         if result.guidance_action is None:
             raise RuntimeError("policy-guided planner did not return its guidance action")
@@ -465,9 +459,7 @@ class FabricRolloutRuntime:
             prepared, prepare_timing = _profile_call(
                 self.device,
                 profile,
-                lambda: self._planner.prepare_policy_guidance(
-                    moved, noise, diffusion_generators
-                ),
+                lambda: self._planner.prepare_policy_guidance(moved, noise, diffusion_generators),
             )
             context = ExplorationPolicyContext(
                 scene_tokens=prepared.policy_context.scene_tokens,
@@ -479,12 +471,14 @@ class FabricRolloutRuntime:
             value, policy_timing = _profile_call(
                 self.device,
                 profile,
-                lambda: self._policy.forward_tensordict(
-                    policy_context_tensordict(context)
-                )["state_value"]
-                .squeeze(-1)
-                .detach()
-                .clone(),
+                lambda: (
+                    self._policy.forward_tensordict(policy_context_tensordict(context))[
+                        "state_value"
+                    ]
+                    .squeeze(-1)
+                    .detach()
+                    .clone()
+                ),
             )
         sync_wait_s = _finish_profile(self.device, profile)
         if timings is not None:

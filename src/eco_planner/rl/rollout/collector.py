@@ -401,9 +401,7 @@ class VectorRolloutCollector:
                 bootstrap_observation = collate_observations(
                     [steps[slot].observation for slot in bootstrap_slots]
                 )
-                bootstrap_collate_s = (
-                    perf_counter() - bootstrap_collate_started if profile else 0.0
-                )
+                bootstrap_collate_s = perf_counter() - bootstrap_collate_started if profile else 0.0
                 bootstrap_timings: list[RolloutPlannerTiming] = []
                 bootstrap_started = perf_counter() if timings is not None else 0.0
                 values = self._runtime.bootstrap_value_batch(
@@ -418,9 +416,7 @@ class VectorRolloutCollector:
                         capacity=self._physical_slot_count,
                         collate_s=bootstrap_collate_s,
                         planner_s=perf_counter() - bootstrap_started,
-                        planner_timing=_single_planner_timing(
-                            bootstrap_timings, "bootstrap"
-                        ),
+                        planner_timing=_single_planner_timing(bootstrap_timings, "bootstrap"),
                     )
                 for index, slot in enumerate(bootstrap_slots):
                     bootstrap_values[slot] = values[index : index + 1]
