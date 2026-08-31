@@ -19,7 +19,7 @@ from eco_planner.studies.ppo_stability import (
     compose_trial_training_config,
     load_stability_config,
 )
-from eco_planner.studies.reward_ab import build_training_command, load_ab_config
+from eco_planner.studies.reward_ab import build_training_overrides, load_ab_config
 from eco_planner.studies.reward_sanity import evaluate_sanity, load_sanity_config
 
 ComposeConfig = Callable[[str, list[str] | None], DictConfig]
@@ -68,18 +68,18 @@ def test_long_term_reward_ab_builds_explicit_duration_and_scheduler_overrides(
     config_root: Path,
 ) -> None:
     config = load_ab_config(config_root / "studies" / "reward" / "ppo_ab_long_term.yaml")
-    command = build_training_command(
+    overrides = build_training_overrides(
         config,
         config.profiles[1],
         training_seed=2,
         replay_id=0,
-        run_dir=Path("phase-b") / "energy",
     )
 
     assert config.matched_training.update_count == 20
     assert config.matched_training.training_seeds == [0, 1, 2]
-    assert "training.update_count=20" in command
-    assert "ppo.scheduler_total_optimizer_steps=160" in command
+    assert "training.update_count=20" in overrides
+    assert "ppo.scheduler_total_optimizer_steps=160" in overrides
+    assert all("scripts.train" not in item for item in overrides)
 
 
 def test_long_term_reward_ab_aggregates_one_effect_estimate_per_seed() -> None:

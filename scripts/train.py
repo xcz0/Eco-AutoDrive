@@ -7,11 +7,10 @@ from pathlib import Path
 
 import hydra
 from hydra.core.hydra_config import HydraConfig
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from eco_planner.configuration import load_local_environment
-from eco_planner.rl.config import parse_training_config
-from eco_planner.rl.trainer import train
+from eco_planner.workflows import run_training_job
 from scripts._paths import LOCAL_ENVIRONMENT_PATH
 
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
@@ -25,9 +24,7 @@ load_local_environment(LOCAL_ENVIRONMENT_PATH)
 )
 def main(config: DictConfig) -> None:
     output_dir = Path(HydraConfig.get().runtime.output_dir)
-    parsed = parse_training_config(config)
-    OmegaConf.save(config, output_dir / "resolved_config.yaml", resolve=True)
-    summary = train(parsed, output_dir)
+    summary = run_training_job(config, output_dir)
     print(summary.model_dump_json(indent=2))
 
 

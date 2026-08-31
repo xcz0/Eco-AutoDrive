@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 from typing import Literal
 
 from omegaconf import OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, field_validator
 
-from eco_planner._repository import CONFIG_ROOT, REPOSITORY_ROOT
+from eco_planner._repository import CONFIG_ROOT
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
+from eco_planner.workflows import compose_job_config, run_evaluation_job
 
 DEFAULT_STUDY = CONFIG_ROOT / "studies" / "energy" / "matrix.yaml"
 
@@ -206,18 +205,17 @@ def run_study(study_path: Path, output_root: Path) -> int:
     for job in study.jobs:
         for guidance in study.guidance_profiles:
             run_dir = output_root / job.id / guidance.id
-            command = [
-                sys.executable,
-                "-m",
-                "scripts.evaluate",
-                f"--config-name={job.config_name}",
-                f"components/sampler={study.sampler.name}",
-                f"components/guidance={guidance.config}",
-                f"hydra.run.dir={run_dir.as_posix()}",
-            ]
-            completed = subprocess.run(command, cwd=REPOSITORY_ROOT, check=False)
-            record = _collect_run(study, job, guidance, run_dir, completed.returncode)
+            config = compose_job_config(
+                job.config_name,
+                (
+                    f"components/sampler={study.sampler.name}",
+                    f"components/guidance={guidance.config}",
+                ),
+            )
+            summary = run_evaluation_job(config, run_dir)
+            returncode = 1 if summary.status == "failed" else 0
+            record = _collect_run(study, job, guidance, run_dir, returncode)
             records.append(record)
             write_json(output_root / "matrix_summary.json", {"runs": records})
-            failed = failed or completed.returncode != 0 or record["status"] != "completed"
+            failed = failed or returncode != 0 or record["status"] != "completed"
     return 1 if failed else 0

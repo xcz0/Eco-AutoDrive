@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 from typing import Literal
 
 from omegaconf import OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 
-from eco_planner._repository import CONFIG_ROOT, REPOSITORY_ROOT
+from eco_planner._repository import CONFIG_ROOT
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
+from eco_planner.workflows import compose_job_config, run_training_job
 
 DEFAULT_STUDY = CONFIG_ROOT / "studies" / "reward" / "ppo_ab.yaml"
 
@@ -78,19 +77,14 @@ def load_ab_config(path: Path) -> PPORewardABConfig:
     return PPORewardABConfig.model_validate(load_resolved_yaml_mapping(path))
 
 
-def build_training_command(
+def build_training_overrides(
     config: PPORewardABConfig,
     profile: RewardProfileSpec,
     training_seed: int,
     replay_id: int,
-    run_dir: Path,
-) -> list[str]:
+) -> tuple[str, ...]:
     matched = config.matched_training
-    return [
-        sys.executable,
-        "-m",
-        "scripts.train",
-        f"--config-name={config.base_training_config}",
+    return (
         f"components/reward={profile.reward_config}",
         f"runtime.seed={training_seed}",
         f"training.replay_id={replay_id}",
@@ -98,8 +92,7 @@ def build_training_command(
         f"training.transitions_per_environment={matched.transitions_per_environment}",
         f"ppo.scheduler_total_optimizer_steps={matched.scheduler_total_optimizer_steps}",
         f"name=ppo_reward_ab_{profile.id}",
-        f"hydra.run.dir={run_dir.as_posix()}",
-    ]
+    )
 
 
 def run_ab(study_path: Path, output_root: Path) -> int:
@@ -113,25 +106,24 @@ def run_ab(study_path: Path, output_root: Path) -> int:
             pair_dir = output_root / f"seed-{training_seed}-replay-{replay_id}"
             for profile in config.profiles:
                 run_dir = pair_dir / profile.id
-                command = build_training_command(config, profile, training_seed, replay_id, run_dir)
-                completed = subprocess.run(command, cwd=REPOSITORY_ROOT, check=False)
-                summary_path = run_dir / "summary.json"
-                status = "launcher_failure"
-                if summary_path.is_file():
-                    payload = json.loads(summary_path.read_text(encoding="utf-8"))
-                    status = str(payload.get("status", "invalid_summary"))
+                raw = compose_job_config(
+                    config.base_training_config,
+                    build_training_overrides(config, profile, training_seed, replay_id),
+                )
+                summary = run_training_job(raw, run_dir)
+                status = summary.status
                 record = {
                     "training_seed": training_seed,
                     "replay_id": replay_id,
                     "profile": profile.id,
                     "reward_config": profile.reward_config,
                     "output_dir": str(run_dir),
-                    "returncode": completed.returncode,
+                    "returncode": 0,
                     "status": status,
                 }
                 runs.append(record)
                 write_json(output_root / "launcher_summary.json", {"runs": runs})
-                failed = failed or completed.returncode != 0 or status != "completed"
+                failed = failed or status != "completed"
     if failed:
         return 1
     from eco_planner.analysis.reward_ab import summarize_ab

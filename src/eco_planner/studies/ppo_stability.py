@@ -9,8 +9,6 @@ from pathlib import Path
 from typing import Literal
 
 import optuna
-from hydra import compose, initialize_config_dir
-from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, OmegaConf, open_dict
 from optuna.importance import get_param_importances
 from optuna.trial import FrozenTrial, Trial, TrialState
@@ -34,7 +32,7 @@ from eco_planner.rl.evaluation import (
     compare_policy_evaluations,
     evaluate_policy_checkpoint,
 )
-from eco_planner.rl.trainer import train
+from eco_planner.workflows import compose_job_config, run_training_job
 
 DEFAULT_STUDY = CONFIG_ROOT / "studies" / "ppo" / "stability.yaml"
 
@@ -212,11 +210,7 @@ def compose_trial_training_config(
     if len(scenarios) != scenario_count:
         raise ValueError("study does not define enough independent training scenarios")
     overrides = [f"runtime.seed={training_seed}", "training.replay_id=0"]
-    if GlobalHydra.instance().is_initialized():
-        config = compose(config_name=study.base_training_config, overrides=overrides)
-    else:
-        with initialize_config_dir(version_base="1.3", config_dir=str(CONFIG_ROOT.resolve())):
-            config = compose(config_name=study.base_training_config, overrides=overrides)
+    config = compose_job_config(study.base_training_config, overrides)
     optimizer_steps = (
         update_count * parameters.epochs * (parameters.batch_size // parameters.minibatch_size)
     )
@@ -353,7 +347,7 @@ def run_diagnostics(
                 config.diagnostics.lateral_max_offset_m,
                 config.diagnostics.longitudinal_max_speed_fraction,
             )
-        raw, parsed = compose_trial_training_config(
+        raw, _ = compose_trial_training_config(
             config,
             parameters,
             training_seed=config.diagnostics.training_seed,
@@ -363,8 +357,7 @@ def run_diagnostics(
         )
         run_dir = diagnostic_root / variant
         run_dir.mkdir(parents=True, exist_ok=False)
-        OmegaConf.save(raw, run_dir / "resolved_config.yaml", resolve=True)
-        summary = train(parsed, run_dir)
+        summary = run_training_job(raw, run_dir)
         runs.append(
             {
                 "variant": variant,
@@ -388,13 +381,12 @@ def _objective(config: PPOStabilityStudyConfig, output_root: Path) -> Callable[[
             trial.set_user_attr("prune_reason", "invalid_batch_minibatch_combination")
             _write_trial_record(trial_dir, trial, parameters, "pruned")
             raise optuna.TrialPruned("invalid_batch_minibatch_combination")
-        raw, parsed = compose_trial_training_config(
+        raw, _ = compose_trial_training_config(
             config,
             parameters,
             training_seed=config.stage_a_training_seed,
             update_count=config.stage_a_update_count,
         )
-        OmegaConf.save(raw, trial_dir / "resolved_config.yaml", resolve=True)
         monitor = StabilityMonitor(config.pruning)
 
         def observe(update: TrainingUpdateSummary) -> None:
@@ -415,7 +407,7 @@ def _objective(config: PPOStabilityStudyConfig, output_root: Path) -> Callable[[
                     raise optuna.TrialPruned("median_pruner")
 
         try:
-            summary = train(parsed, trial_dir, update_observer=observe)
+            summary = run_training_job(raw, trial_dir, update_observer=observe)
         except FloatingPointError as error:
             trial.set_user_attr("prune_reason", "non_finite")
             trial.set_user_attr("failure", str(error))
@@ -456,7 +448,6 @@ def _run_validation(
         training_seed=training_seed,
         update_count=update_count,
     )
-    OmegaConf.save(raw, output_dir / "resolved_config.yaml", resolve=True)
     monitor = StabilityMonitor(config.pruning)
 
     def observe(update: TrainingUpdateSummary) -> None:
@@ -465,7 +456,7 @@ def _run_validation(
             raise StabilityViolation(reason)
 
     try:
-        train(parsed, output_dir, update_observer=observe)
+        run_training_job(raw, output_dir, update_observer=observe)
     except StabilityViolation as error:
         return {
             "stage": stage,
