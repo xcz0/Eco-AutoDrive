@@ -16,7 +16,7 @@ Eco-AutoDrive 研究如何在 MetaDrive 闭环中利用预训练 Diffusion Plann
 
 ## 环境准备
 
-项目使用 Python 3.10、uv 和本地 editable MetaDrive。官方 Diffusion Planner 权重放在 `checkpoints/DP-Origin/`，MetaDrive 源码位于 `third_party/metadrive/`。
+项目在 Windows PowerShell 下使用 Python 3.10、uv 和本地 editable MetaDrive。官方 Diffusion Planner 权重放在 `checkpoints/DP-Origin/`，MetaDrive 源码位于 `third_party/metadrive/`。
 
 ```powershell
 just setup
@@ -31,29 +31,29 @@ just check
 
 ```powershell
 # 无交通 smoke
-just evaluate no_traffic/smoke
+just evaluate --config-name jobs/evaluation/no_traffic/smoke
 
 # 有交通 smoke
-just evaluate traffic/smoke
+just evaluate --config-name jobs/evaluation/traffic/smoke
 
 # 无交通 full evaluation
-just evaluate no_traffic/full
+just evaluate
 
 # 有交通 full evaluation
-just evaluate traffic/full
+just evaluate --config-name jobs/evaluation/traffic/full
 ```
 
 矩阵评测：
 
 ```powershell
-just evaluate-matrix no_traffic
-just evaluate-matrix traffic
+just evaluate --config-name jobs/evaluation/no_traffic/matrix --multirun
+just evaluate --config-name jobs/evaluation/traffic/matrix --multirun
 ```
 
 固定 reference guidance smoke：
 
 ```powershell
-just evaluate no_traffic/smoke components/sampler=ddim5 `
+just evaluate --config-name jobs/evaluation/no_traffic/smoke components/sampler=ddim5 `
     components/guidance=orthogonal_reference `
     guidance.lateral_scale=1 guidance.longitudinal_scale=0
 ```
@@ -61,29 +61,29 @@ just evaluate no_traffic/smoke components/sampler=ddim5 `
 PPO closed-loop smoke training：
 
 ```powershell
-just train ppo/smoke 0 0
+just train runtime.seed=0 training.replay_id=0
 ```
 
 可复用性能诊断与固定能耗矩阵：
 
 ```powershell
-just benchmark throughput
-just benchmark throughput_traffic
-just benchmark rollout
-just energy outputs/energy_matrix/manual-run
+just benchmark
+just benchmark --config-name jobs/benchmark/throughput_traffic
+just benchmark --config-name jobs/benchmark/rollout
+just energy --output-root outputs/energy_matrix/manual-run
 ```
 
 Issue #59 reward sanity 与匹配 PPO A/B：
 
 ```powershell
-just reward-sanity outputs/reward_sanity/manual-run
+just reward-sanity --output-root outputs/reward_sanity/manual-run
 # 阶段 A：4 updates × 1 seed 的机械与短方向门控
-just ppo-reward-ab outputs/training/ppo-reward-ab/manual-run
+just ppo-reward-ab --output-root outputs/training/ppo-reward-ab/manual-run
 just review-ppo-reward-ab outputs/training/ppo-reward-ab/manual-run
 
 # 阶段 B：20 updates × 3 seeds 的匹配短趋势运行
-just ppo-reward-ab outputs/training/ppo-reward-ab-phase-b/manual-run `
-    configs/studies/reward/ppo_ab_long_term.yaml
+just ppo-reward-ab --output-root outputs/training/ppo-reward-ab-phase-b/manual-run `
+    --study configs/studies/reward/ppo_ab_long_term.yaml
 ```
 
 第一条只计算配置中声明的固定合成 reward case；第二条运行相同 seed、scenario、transition
@@ -92,7 +92,9 @@ horizon 扩展到 20 updates 所需的 160 optimizer steps。两种 A/B 都生�
 报告保存逐 update 指标、每个匹配 seed 的 effect estimate、跨 seed 均值/样本标准差，以及
 pairing、finite、policy/planner hash 和退化阈值检查；最终研究结论仍需人工审查后登记。
 
-机器资源通过版本化 profile 选择，例如 `components/resources=rtx_a4000`；它只改变 worker、slot 和线程预算。运行训练、评测或基准脚本时，会先读取仓库根目录的 `.env`，并以 `MACHINE_NAME` 选择同名的 `configs/components/resources/<机器名>.yaml`；可用值见该目录，`.env.example` 给出格式。命令行 `components/resources=...` 仍可显式覆盖默认选择。sampler、precision、随机性、时间尺度、并行和 artifact 的精确语义以 [system-contract.md](docs/agents/system-contract.md) 和实际 resolved config 为准。
+机器资源通过版本化 profile 选择，例如 `components/resources=rtx_a4000`；它只改变 worker、slot 和线程预算。CLI 与 study bootstrap 会按需读取仓库根目录的可选 `.env`，并以 `MACHINE_NAME` 自动选择同名的 `configs/components/resources/<机器名>.yaml`。进程中已有的 `MACHINE_NAME` 优先于 `.env`，显式 Hydra `components/resources=...` override 又优先于两者；可用值见该目录，`.env.example` 给出格式。
+
+未配置机器 profile 时，semantic job 仍可 compose 和 validate；真正需要资源预算的训练、评测或 benchmark 执行会明确失败，不会静默采用默认 worker 数。sampler、precision、随机性、时间尺度、并行和 artifact 的精确语义以 [system-contract.md](docs/agents/system-contract.md) 和实际 resolved config 为准。
 
 ## 结果与实验记录
 

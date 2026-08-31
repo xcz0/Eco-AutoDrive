@@ -1,6 +1,6 @@
 # Separate reusable components, runnable jobs, and research studies
 
-**Status:** Accepted and implemented
+**Status:** Accepted and implemented; application ownership amended by ADR 0027
 **Date:** 2026-08-27
 
 Repository entrypoints previously mixed thin CLI wrappers, benchmark implementations, fixed research
@@ -8,10 +8,9 @@ studies, and directly importable test helpers. Hydra configuration likewise mixe
 runnable jobs, and study manifests under paths such as `configs/matrices/`. This made dependency
 direction and the stability of each interface unclear.
 
-Therefore, `scripts` is a non-installed Python package invoked with `python -m`. Its top-level modules
-are Hydra entrypoints, while `benchmarking`, `studies`, and `analysis` retain repository-only logic.
-Only helpers shared across independent workflows belong in `src/eco_planner`; moving code there does
-not turn repository studies into runtime APIs.
+This ADR's configuration layering remains accepted. Its decision to keep repository-only
+`benchmarking`, `studies`, and `analysis` logic under `scripts` is superseded by
+[ADR 0027](0027-use-internal-application-modules-and-resource-overlays.md).
 
 Hydra configuration has three layers:
 

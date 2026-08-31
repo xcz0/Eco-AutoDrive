@@ -6,13 +6,12 @@ from pathlib import Path
 import pytest
 from omegaconf import DictConfig
 
+from eco_planner.analysis.reward_ab import aggregate_pair_reports
 from eco_planner.evaluation.config import EvaluationJobConfig, parse_evaluation_config
 from eco_planner.rl.artifacts import TrainingUpdateSummary
 from eco_planner.rl.config import TrainingJobConfig, parse_training_config
-from scripts.analysis.ppo_reward_ab import aggregate_pair_reports
-from scripts.studies.energy_matrix import load_energy_study
-from scripts.studies.ppo_reward_ab import build_training_command, load_ab_config
-from scripts.studies.ppo_stability import (
+from eco_planner.studies.energy import load_energy_study
+from eco_planner.studies.ppo_stability import (
     StabilityMonitor,
     TrialParameters,
     _create_study,
@@ -20,7 +19,8 @@ from scripts.studies.ppo_stability import (
     compose_trial_training_config,
     load_stability_config,
 )
-from scripts.studies.reward_sanity import evaluate_sanity, load_sanity_config
+from eco_planner.studies.reward_ab import build_training_overrides, load_ab_config
+from eco_planner.studies.reward_sanity import evaluate_sanity, load_sanity_config
 
 ComposeConfig = Callable[[str, list[str] | None], DictConfig]
 
@@ -43,7 +43,11 @@ def test_study_manifests_are_strict_and_reference_composable_jobs(
                 job.config_name,
                 [f"components/guidance={guidance.config}"],
             )
-            assert isinstance(parse_evaluation_config(config), EvaluationJobConfig)
+            parsed = parse_evaluation_config(config)
+            assert isinstance(parsed, EvaluationJobConfig)
+            assert parsed.runtime.seed == 0
+            assert parsed.sampler.name == "ddim5"
+            assert parsed.env["random_agent_model"] is False
     for reward_ab in reward_studies:
         profile = reward_ab.profiles[0]
         matched = reward_ab.matched_training
@@ -68,18 +72,18 @@ def test_long_term_reward_ab_builds_explicit_duration_and_scheduler_overrides(
     config_root: Path,
 ) -> None:
     config = load_ab_config(config_root / "studies" / "reward" / "ppo_ab_long_term.yaml")
-    command = build_training_command(
+    overrides = build_training_overrides(
         config,
         config.profiles[1],
         training_seed=2,
         replay_id=0,
-        run_dir=Path("phase-b") / "energy",
     )
 
     assert config.matched_training.update_count == 20
     assert config.matched_training.training_seeds == [0, 1, 2]
-    assert "training.update_count=20" in command
-    assert "ppo.scheduler_total_optimizer_steps=160" in command
+    assert "training.update_count=20" in overrides
+    assert "ppo.scheduler_total_optimizer_steps=160" in overrides
+    assert all("scripts.train" not in item for item in overrides)
 
 
 def test_long_term_reward_ab_aggregates_one_effect_estimate_per_seed() -> None:

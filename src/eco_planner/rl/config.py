@@ -121,7 +121,7 @@ class TrainingJobConfig(_StrictModel):
     policy: ExplorationPolicyConfig
     reward: RewardProfileConfig
     ppo: PPOConfig
-    resources: ResourceProfileConfig
+    resources: ResourceProfileConfig | None = None
     scenarios: tuple[ScenarioConfig, ...]
 
     @model_validator(mode="after")

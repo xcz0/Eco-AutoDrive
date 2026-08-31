@@ -140,8 +140,6 @@ class EvaluationJobConfig(_StrictModel):
                 raise ValueError("vector evaluation requires execution.mode=serial")
             if self.video.enabled:
                 raise ValueError("vector evaluation requires video.enabled=false")
-        if execution.mode == "parallel" and self.resources is None:
-            raise ValueError("parallel evaluation requires a resource profile")
         if execution.mode == "parallel" and self.video.enabled:
             raise ValueError("parallel execution requires video.enabled=false")
         return self

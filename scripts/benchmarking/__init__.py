@@ -1,1 +1,1 @@
-"""Non-installed benchmark support used by repository diagnostic entrypoints."""
+"""Repository benchmark command adapters."""

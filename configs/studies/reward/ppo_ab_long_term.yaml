@@ -13,9 +13,6 @@ matched_training:
   scheduler_total_optimizer_steps: 160
   training_seeds: [0, 1, 2]
   replay_ids: [0]
-  scenarios:
-    - {name: straight, map: S, seed: 0}
-    - {name: gentle_curve, map: SC, seed: 0}
 
 # Review-only thresholds. They flag regressions but never claim energy improvement automatically.
 review_thresholds:
