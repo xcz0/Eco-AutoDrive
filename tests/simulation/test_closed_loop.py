@@ -12,6 +12,7 @@ from omegaconf import OmegaConf
 from pydantic import TypeAdapter
 
 from eco_planner.envs import (
+    MetaDriveEnvSlot,
     PlannerObservationSpec,
     TrajectoryMetaDriveEnv,
     VectorEnvScenario,
@@ -172,6 +173,31 @@ def test_trajectory_environment_executes_evaluation_prefix_with_valid_audit() ->
         )
     finally:
         env.close()
+
+
+@pytest.mark.simulator
+def test_same_scenario_reset_restores_spawn_after_trajectory_step(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    config = _environment_config("S", trajectory_execution_steps=1)
+    with MetaDriveEnvSlot(
+        config,
+        mode="no_traffic",
+        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+    ) as slot:
+        initial = slot.reset(map_name="S", seed=0)
+        slot.step(_straight_trajectory())
+
+        repeated = slot.reset(map_name="S", seed=0)
+
+    np.testing.assert_allclose(
+        repeated.warmup_initial_state,
+        initial.warmup_initial_state,
+        atol=1e-6,
+    )
+    assert repeated.route_completion == pytest.approx(initial.route_completion, abs=1e-6)
 
 
 @pytest.mark.simulator

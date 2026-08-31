@@ -197,6 +197,9 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         self._initial_traffic_frame = None
         self._terminal_out_of_road = False
         self._programmatic_lane_speed_adapter.clear_audit()
+        if self.engine is not None:
+            # BaseEnv.reset advances taskMgr once; do not replay the prior episode's trajectory.
+            self.engine.external_actions = None
         result = super().reset(*args, **kwargs)
         current_map = self.current_map
         if current_map is None:
