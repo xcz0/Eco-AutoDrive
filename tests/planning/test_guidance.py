@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import fields
 from types import SimpleNamespace
 
+import pytest
 import torch
 from torch import nn
 
@@ -130,6 +131,7 @@ def test_explicit_zero_guidance_preserves_reference_and_zero_diagnostics(
         )
 
 
+@pytest.mark.smoke
 def test_opposite_lateral_guidance_moves_trajectory_in_opposite_directions(
     baseline_observation: dict[str, torch.Tensor],
 ) -> None:

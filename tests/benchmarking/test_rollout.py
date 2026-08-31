@@ -85,6 +85,7 @@ def test_effective_rollout_ppo_config_covers_every_optimizer_step() -> None:
     assert config.scheduler_total_optimizer_steps == 32
 
 
+@pytest.mark.smoke
 def test_rollout_result_keeps_profiled_boundaries_separate() -> None:
     decision = VectorRolloutRoundTiming(
         phase="decision",

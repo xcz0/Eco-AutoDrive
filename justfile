@@ -27,6 +27,8 @@ pyright := if os_family() == "windows" {
     ".venv/bin/pyright"
 }
 
+smoke_test_files := "tests/benchmarking/test_rollout.py tests/configuration/test_jobs.py tests/evaluation/test_runner.py tests/planning/test_guidance.py tests/planning/test_sampling.py tests/simulation/test_geometry.py tests/simulation/test_reward.py tests/training/test_ppo.py"
+
 
 # Show available commands.
 default:
@@ -51,10 +53,20 @@ format:
     {{ruff}} check --fix .
     {{ruff}} format .
 
-# Default fast test set.
+# Core cross-workflow smoke set.
 [group('development')]
 test:
+    {{pytest}} {{smoke_test_files}} -m "smoke and not gpu and not simulator and not slow"
+
+# Complete CPU test set excluding simulator and slow cases.
+[group('development')]
+test-all-cpu:
     {{pytest}} -m "not gpu and not simulator and not slow"
+
+# Run one research workflow's CPU tests.
+[group('development')]
+test-workflow workflow:
+    {{pytest}} tests/{{workflow}} -m "not gpu and not simulator and not slow"
 
 # Run one or more specific test files, directories, or nodes.
 [group('development')]
@@ -73,7 +85,7 @@ test-gpu:
 
 # Full lightweight repository validation.
 [group('development')]
-check: lint format test
+check: lint format test-all-cpu
 
 
 # Run one evaluation job profile. Append Hydra overrides as needed.

@@ -56,6 +56,7 @@ testpaths = ["tests"]
 strict_markers = true
 xfail_strict = true
 markers = [
+    "smoke: core cross-workflow feedback set",
     "gpu: requires a CUDA-capable PyTorch runtime and GPU",
     "simulator: requires the local MetaDrive runtime and assets",
     "slow: exercises checkpoints or otherwise long-running behavior",

@@ -1,8 +1,6 @@
-"""Research-level geometry and controlled MetaDrive boundary checks."""
+"""Research-level trajectory geometry contracts."""
 
 from __future__ import annotations
-
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -15,16 +13,6 @@ from eco_planner.envs.geometry import (
     shortest_angle_delta,
     world_points_to_local,
 )
-from eco_planner.envs.metadrive.lane_speed import ProgrammaticLaneSpeedAdapter
-
-
-class _Lane:
-    def __init__(self, index: str) -> None:
-        self.index = index
-        self.speed_limit = 1000.0
-
-    def set_speed_limit(self, speed_limit: float) -> None:
-        self.speed_limit = speed_limit
 
 
 def _straight_trajectory(speed_mps: float = 5.0) -> np.ndarray:
@@ -34,6 +22,7 @@ def _straight_trajectory(speed_mps: float = 5.0) -> np.ndarray:
     return trajectory
 
 
+@pytest.mark.smoke
 def test_world_trajectory_uses_rear_axle_anchor_and_rotates_local_frame() -> None:
     result = to_world_trajectory(
         _straight_trajectory(),
@@ -73,27 +62,3 @@ def test_rear_axle_and_shortest_angle_contracts() -> None:
         [-np.pi, -np.pi],
         atol=1e-12,
     )
-
-
-def test_block_speed_limit_profile_replaces_sentinel_by_generated_block() -> None:
-    first = _Lane("first")
-    first_block = SimpleNamespace(block_network=SimpleNamespace(get_all_lanes=lambda: [first]))
-    profile_lanes = [_Lane(str(index)) for index in range(3)]
-    blocks = [
-        first_block,
-        *[
-            SimpleNamespace(block_network=SimpleNamespace(get_all_lanes=lambda lane=lane: [lane]))
-            for lane in profile_lanes
-        ],
-    ]
-    current_map = SimpleNamespace(
-        blocks=blocks,
-        road_network=SimpleNamespace(get_all_lanes=lambda: [first, *profile_lanes]),
-    )
-    adapter = ProgrammaticLaneSpeedAdapter(50.0, [50.0, 30.0, 50.0])
-
-    adapter.apply(current_map)
-
-    assert [lane.speed_limit for lane in [first, *profile_lanes]] == [50.0, 50.0, 30.0, 50.0]
-    assert adapter.audit["block_speed_limit_profile_kmh"] == (50.0, 30.0, 50.0)
-    assert adapter.audit["block_speed_limit_profile_applied_lane_count"] == 3

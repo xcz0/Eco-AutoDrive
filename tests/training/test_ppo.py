@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pytest
 import torch
 
 from eco_planner.envs.metadrive.reward import MetaDriveBuiltinRewardAudit
@@ -171,18 +172,18 @@ def test_gae_treats_simultaneous_termination_and_truncation_as_terminal() -> Non
     torch.testing.assert_close(trajectory["value_target"], torch.tensor([[0.25]]))
 
 
-def test_ppo_update_changes_policy_and_reports_finite_metrics() -> None:
+@pytest.mark.smoke
+def test_ppo_update_changes_policy_and_reports_finite_training_summary() -> None:
     with torch.random.fork_rng():
         torch.manual_seed(0)
         policy = ExplorationPolicy(_policy_config())
     policy_before = {name: value.detach().clone() for name, value in policy.state_dict().items()}
-
-    report = PPOUpdater(policy, _ppo_config()).update(
-        (
-            _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0),
-            _episode(reward=2.0, terminated=True, truncated=False, bootstrap=0.0),
-        )
+    episodes = (
+        _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0),
+        _episode(reward=2.0, terminated=True, truncated=False, bootstrap=0.0),
     )
+    report = PPOUpdater(policy, _ppo_config()).update(episodes)
+    summary = build_update_summary(0, episodes, report)
 
     assert any(
         not torch.equal(value, policy_before[name]) for name, value in policy.state_dict().items()
@@ -190,38 +191,9 @@ def test_ppo_update_changes_policy_and_reports_finite_metrics() -> None:
     assert report.sample_count == 2
     metrics = (value for value in report.__dict__.values() if isinstance(value, float))
     assert all(math.isfinite(value) for value in metrics)
-
-
-def test_ppo_report_records_value_target_moments() -> None:
-    with torch.random.fork_rng():
-        torch.manual_seed(0)
-        policy = ExplorationPolicy(_policy_config())
-
-    report = PPOUpdater(policy, _ppo_config()).update(
-        (
-            _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0),
-            _episode(reward=2.0, terminated=True, truncated=False, bootstrap=0.0),
-        )
-    )
-
     assert math.isfinite(report.mean_value_target)
     assert math.isfinite(report.std_value_target)
     assert report.std_value_target >= 0.0
-
-
-def test_update_summary_records_stability_diagnostics() -> None:
-    with torch.random.fork_rng():
-        torch.manual_seed(0)
-        policy = ExplorationPolicy(_policy_config())
-    updater = PPOUpdater(policy, _ppo_config())
-    episodes = (
-        _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0),
-        _episode(reward=2.0, terminated=True, truncated=False, bootstrap=0.0),
-    )
-    report = updater.update(episodes)
-
-    summary = build_update_summary(0, episodes, report)
-
     assert isinstance(summary, TrainingUpdateSummary)
     assert summary.update_index == 0
     assert summary.episode_count == 2

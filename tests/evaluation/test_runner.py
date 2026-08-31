@@ -29,6 +29,7 @@ from eco_planner.models import CheckpointLoadReport, NoGuidanceConfig, SamplerRe
 from eco_planner.runtime.contracts import HostExecutionResult
 
 
+@pytest.mark.smoke
 def test_runner_writes_readable_finite_short_episode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

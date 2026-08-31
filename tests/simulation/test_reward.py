@@ -101,6 +101,7 @@ def _input(**updates: object) -> RewardStepInput:
     return RewardStepInput(**values)  # type: ignore[arg-type]
 
 
+@pytest.mark.smoke
 def test_plannerrft_energy_reward_matches_the_worked_no_traffic_example() -> None:
     audit = score_plannerrft_energy_step(_config(), _input())
 

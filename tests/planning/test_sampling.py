@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import torch
 
 from eco_planner.models import Ddim5SamplerConfig
@@ -19,6 +20,7 @@ def _config() -> Ddim5SamplerConfig:
     )
 
 
+@pytest.mark.smoke
 def test_seeded_ddim_sampling_returns_a_finite_constrained_sample() -> None:
     initial = torch.randn((2, 3, 12), generator=torch.Generator().manual_seed(11))
 
