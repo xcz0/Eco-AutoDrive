@@ -21,6 +21,7 @@ from pydantic import (
     model_validator,
 )
 
+from eco_planner.artifacts import write_npz
 from eco_planner.execution_contracts import EVALUATION_EXECUTION_STEPS, PLANNER_FUTURE_STEPS
 
 if TYPE_CHECKING:
@@ -105,7 +106,7 @@ class OrthogonalGuidanceSummary(ArtifactModel):
     lateral_max_offset_m: StrictFloat = Field(gt=0.0)
     longitudinal_max_speed_fraction: StrictFloat = Field(gt=0.0)
     trajectory_dt_s: StrictFloat = Field(gt=0.0)
-    gradient_step_coefficient: Literal[1.0]
+    gradient_step_coefficient: StrictFloat = Field(ge=1.0, le=1.0)
     reference_refresh_cycles: Literal[1]
     share_scene_encoding: Literal[True]
     share_initial_noise: Literal[True]
@@ -424,7 +425,7 @@ def trace_shape(spec: TraceFieldSpec, *, plan: int, simulator: int, warmup: int)
     """Resolve declarative axes to a concrete persisted array shape."""
 
     capacities = {_PLAN: plan, _SIMULATOR: simulator, _WARMUP: warmup}
-    return tuple(capacities.get(axis, axis) for axis in spec.axes)
+    return tuple(capacities[axis] if isinstance(axis, str) else axis for axis in spec.axes)
 
 
 def allocate_trace_arrays(
@@ -477,7 +478,9 @@ def validate_trace_arrays(
         value = mapping[name]
         if not isinstance(value, np.ndarray):
             raise TypeError(f"trace array {name!r} must be a numpy.ndarray")
-        expected_shape = tuple(dynamic_shape.get(axis, axis) for axis in spec.axes)
+        expected_shape = tuple(
+            dynamic_shape[axis] if isinstance(axis, str) else axis for axis in spec.axes
+        )
         if len(value.shape) != len(expected_shape) or any(
             expected is not None and actual != expected
             for actual, expected in zip(value.shape, expected_shape, strict=True)
@@ -629,7 +632,7 @@ def write_episode_artifacts(
     """Persist one finalized episode without recomputing trace arrays."""
 
     output_dir.mkdir(parents=True, exist_ok=False)
-    np.savez(output_dir / "trace.npz", **trace_arrays)
+    write_npz(output_dir / "trace.npz", trace_arrays)
     write_json(output_dir / "summary.json", summary)
     if video_config.enabled:
         if summary.status == "completed" and not frames:

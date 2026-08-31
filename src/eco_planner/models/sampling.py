@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from copy import copy
 from dataclasses import dataclass
-from typing import cast
 
 import numpy as np
 import torch
-from diffusers import DDIMScheduler, DPMSolverMultistepScheduler
+from diffusers import (
+    DDIMScheduler,  # pyright: ignore[reportPrivateImportUsage]
+    DPMSolverMultistepScheduler,  # pyright: ignore[reportPrivateImportUsage]
+)
 
 from eco_planner.models.config import Ddim5SamplerConfig, SamplerConfig
 from eco_planner.models.guidance import GuidanceGradientResult
@@ -95,6 +97,7 @@ class _DdimSampler:
         """Sample the fixed DDIM-5 profile while retaining Planner constraints."""
 
         scheduler = self._new_scheduler(initial_sample.device, initial_sample.dtype)
+        generator = self._single_generator(generator, ddim_stochasticity, variance_noises)
         sample = current_state_constraint(initial_sample)
         for index in range(len(scheduler.timesteps)):
             discrete_timestep = int(_DDIM5_TIMESTEPS[index] * _NUM_TRAIN_TIMESTEPS) - 1
@@ -129,6 +132,7 @@ class _DdimSampler:
         """Sample DDIM-5 and apply the project's post-transition guidance policy."""
 
         scheduler = self._new_scheduler(initial_sample.device, initial_sample.dtype)
+        generator = self._single_generator(generator, ddim_stochasticity, variance_noises)
         sample = current_state_constraint(initial_sample)
         diagnostics: list[GuidanceGradientResult] = []
         for index in range(len(scheduler.timesteps)):
@@ -205,13 +209,18 @@ class _DdimSampler:
         random_noise: torch.Tensor | None
         if variance_noise is not None:
             random_noise = variance_noise
-        elif stochasticity > 0.0 and index < scheduler.num_inference_steps - 1:
-            random_noise = torch.randn(
-                sample.shape,
-                dtype=sample.dtype,
-                device=sample.device,
-                generator=generator,
-            )
+        elif stochasticity > 0.0:
+            if scheduler.num_inference_steps is None:
+                raise RuntimeError("DDIM scheduler timesteps were not initialized")
+            if index >= scheduler.num_inference_steps - 1:
+                random_noise = None
+            else:
+                random_noise = torch.randn(
+                    sample.shape,
+                    dtype=sample.dtype,
+                    device=sample.device,
+                    generator=generator,
+                )
         else:
             random_noise = None
         result = scheduler.step(
@@ -220,8 +229,20 @@ class _DdimSampler:
             sample=sample,
             eta=stochasticity,
             variance_noise=random_noise,
-        ).prev_sample
-        return result
+        )
+        return _previous_sample(result)
+
+    @staticmethod
+    def _single_generator(
+        generator: torch.Generator | Sequence[torch.Generator | None] | None,
+        stochasticity: float,
+        variance_noises: tuple[torch.Tensor, ...] | None,
+    ) -> torch.Generator | None:
+        if isinstance(generator, Sequence):
+            if stochasticity > 0.0 and variance_noises is None:
+                raise ValueError("per-slot DDIM generators require prepared variance noises")
+            return None
+        return generator
 
 
 class _DpmSampler:
@@ -249,11 +270,12 @@ class _DpmSampler:
                 prediction = self._prediction(model, scheduler, sample, index)
                 if index == 0:
                     sample = current_state_constraint(sample)
-                sample = scheduler.step(
+                step_result = scheduler.step(
                     model_output=prediction,
                     timestep=scheduler_timestep,
                     sample=sample,
-                ).prev_sample
+                )
+                sample = _previous_sample(step_result)
                 sample = current_state_constraint(sample)
             final_timestep = torch.full(
                 (sample.shape[0],),
@@ -271,7 +293,7 @@ class _DpmSampler:
         if key not in self._scheduler_template_cache:
             self._scheduler_template_cache[key] = self._build_scheduler(device, dtype)
         scheduler = copy(self._scheduler_template_cache[key])
-        scheduler.model_outputs = [None] * scheduler.config.solver_order
+        scheduler.model_outputs = [None] * _solver_order(scheduler)
         scheduler.lower_order_nums = 0
         scheduler._step_index = None
         scheduler._begin_index = None
@@ -393,14 +415,16 @@ class DiffusionSampler:
         initial_sample: torch.Tensor,
         model: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
         current_state_constraint: Callable[[torch.Tensor], torch.Tensor],
-        generator: torch.Generator | None = None,
+        generator: torch.Generator | Sequence[torch.Generator | None] | None = None,
         *,
         guidance_randomness: GuidanceSamplingRandomness | None = None,
     ) -> torch.Tensor:
         """Run this profile's unguided sampling pass."""
 
         if isinstance(self.config, Ddim5SamplerConfig):
-            return self._sampler.sample(
+            sampler = self._sampler
+            assert isinstance(sampler, _DdimSampler)
+            return sampler.sample(
                 initial_sample,
                 model,
                 current_state_constraint,
@@ -412,14 +436,16 @@ class DiffusionSampler:
                     None if guidance_randomness is None else guidance_randomness.variance_noises
                 ),
             )
-        return self._sampler.sample(initial_sample, model, current_state_constraint)
+        sampler = self._sampler
+        assert isinstance(sampler, _DpmSampler)
+        return sampler.sample(initial_sample, model, current_state_constraint)
 
     def sample_guided(
         self,
         initial_sample: torch.Tensor,
         model: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
         current_state_constraint: Callable[[torch.Tensor], torch.Tensor],
-        generator: torch.Generator | None,
+        generator: torch.Generator | Sequence[torch.Generator | None] | None,
         guidance: Callable[[torch.Tensor, torch.Tensor], GuidanceGradientResult],
         *,
         gradient_step_coefficient: float,
@@ -428,7 +454,9 @@ class DiffusionSampler:
         """Run the configured DDIM profile with the project's guidance policy."""
 
         config = self._ddim_config()
-        return self._sampler.sample_guided(
+        sampler = self._sampler
+        assert isinstance(sampler, _DdimSampler)
+        return sampler.sample_guided(
             initial_sample,
             model,
             current_state_constraint,
@@ -450,7 +478,9 @@ class DiffusionSampler:
         return _DpmSampler()
 
     def _ddim_config(self) -> Ddim5SamplerConfig:
-        return cast(Ddim5SamplerConfig, self.config)
+        if not isinstance(self.config, Ddim5SamplerConfig):
+            raise ValueError("guided sampling requires the DDIM-5 profile")
+        return self.config
 
     def _ddim_timesteps(self, sample: torch.Tensor) -> torch.Tensor:
         key = (sample.device, sample.dtype)
@@ -461,3 +491,17 @@ class DiffusionSampler:
                 device=sample.device,
             )
         return self._ddim_timestep_cache[key]
+
+
+def _previous_sample(step_result: object) -> torch.Tensor:
+    sample = getattr(step_result, "prev_sample", None)
+    if not isinstance(sample, torch.Tensor):
+        raise TypeError("Diffusers scheduler step must return a tensor prev_sample")
+    return sample
+
+
+def _solver_order(scheduler: DPMSolverMultistepScheduler) -> int:
+    order = getattr(scheduler.config, "solver_order", None)
+    if type(order) is not int:
+        raise TypeError("DPM scheduler solver_order must be an integer")
+    return order

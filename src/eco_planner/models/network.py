@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from typing import cast
 
 import torch
-from timm.layers import DropPath, Mlp
+from timm.layers import (
+    DropPath,  # pyright: ignore[reportPrivateImportUsage]
+    Mlp,  # pyright: ignore[reportPrivateImportUsage]
+)
 from torch import nn
 
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
@@ -249,6 +253,8 @@ def _modulate(value: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> 
 
 
 class TimestepEmbedder(nn.Module):
+    frequencies: torch.Tensor
+
     def __init__(self, hidden_size: int, frequency_embedding_size: int = 256) -> None:
         super().__init__()
         self.mlp = nn.Sequential(
@@ -269,22 +275,23 @@ class TimestepEmbedder(nn.Module):
         return self.mlp(embedding)
 
 
+class _ApproximateGELU(nn.GELU):
+    def __init__(self) -> None:
+        super().__init__(approximate="tanh")
+
+
 class DiTBlock(nn.Module):
     def __init__(self, dim: int, heads: int, dropout: float, mlp_ratio: float = 4.0) -> None:
         super().__init__()
         self.norm1 = nn.LayerNorm(dim)
         self.attn = nn.MultiheadAttention(dim, heads, dropout, batch_first=True)
         self.norm2 = nn.LayerNorm(dim)
-        self.mlp1 = Mlp(
-            dim, int(dim * mlp_ratio), act_layer=lambda: nn.GELU(approximate="tanh"), drop=0.0
-        )
+        self.mlp1 = Mlp(dim, int(dim * mlp_ratio), act_layer=_ApproximateGELU, drop=0.0)
         self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(dim, 6 * dim))
         self.norm3 = nn.LayerNorm(dim)
         self.cross_attn = nn.MultiheadAttention(dim, heads, dropout, batch_first=True)
         self.norm4 = nn.LayerNorm(dim)
-        self.mlp2 = Mlp(
-            dim, int(dim * mlp_ratio), act_layer=lambda: nn.GELU(approximate="tanh"), drop=0.0
-        )
+        self.mlp2 = Mlp(dim, int(dim * mlp_ratio), act_layer=_ApproximateGELU, drop=0.0)
 
     def forward(
         self,
@@ -458,15 +465,20 @@ class DiffusionPlanner(nn.Module):
         nn.init.normal_(self.encoder.neighbor_encoder.type_emb.weight, std=0.02)
         nn.init.normal_(self.encoder.lane_encoder.speed_limit_emb.weight, std=0.02)
         nn.init.normal_(self.encoder.lane_encoder.traffic_emb.weight, std=0.02)
-        nn.init.normal_(self.decoder.dit.t_embedder.mlp[0].weight, std=0.02)
-        nn.init.normal_(self.decoder.dit.t_embedder.mlp[2].weight, std=0.02)
+        timestep_input = cast(nn.Linear, self.decoder.dit.t_embedder.mlp[0])
+        timestep_output = cast(nn.Linear, self.decoder.dit.t_embedder.mlp[2])
+        nn.init.normal_(timestep_input.weight, std=0.02)
+        nn.init.normal_(timestep_output.weight, std=0.02)
         for block in self.decoder.dit.blocks:
-            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
-            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
-        nn.init.constant_(self.decoder.dit.final_layer.adaLN_modulation[-1].weight, 0)
-        nn.init.constant_(self.decoder.dit.final_layer.adaLN_modulation[-1].bias, 0)
-        nn.init.constant_(self.decoder.dit.final_layer.proj[-1].weight, 0)
-        nn.init.constant_(self.decoder.dit.final_layer.proj[-1].bias, 0)
+            modulation = cast(nn.Linear, cast(DiTBlock, block).adaLN_modulation[-1])
+            nn.init.constant_(modulation.weight, 0)
+            nn.init.constant_(modulation.bias, 0)
+        final_modulation = cast(nn.Linear, self.decoder.dit.final_layer.adaLN_modulation[-1])
+        final_projection = cast(nn.Linear, self.decoder.dit.final_layer.proj[-1])
+        nn.init.constant_(final_modulation.weight, 0)
+        nn.init.constant_(final_modulation.bias, 0)
+        nn.init.constant_(final_projection.weight, 0)
+        nn.init.constant_(final_projection.bias, 0)
 
     def encode(self, inputs: Mapping[str, torch.Tensor]) -> torch.Tensor:
         return self.encoder(inputs)["encoding"]

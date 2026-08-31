@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -15,6 +15,7 @@ from pydantic import (
     model_validator,
 )
 
+from eco_planner.configuration import resolve_config_mapping
 from eco_planner.execution_contracts import EVALUATION_EXECUTION_STEPS, TRAFFIC_HISTORY_STEPS
 from eco_planner.models import (
     GuidanceConfig,
@@ -159,15 +160,16 @@ class EvaluationJobConfig(_StrictModel):
             if self.env.get(name) != expected:
                 raise ValueError(f"traffic evaluation requires env.{name}={expected!r}")
         density = self.env.get("traffic_density")
-        if type(density) not in {int, float} or not 0.0 < float(density) <= 1.0:
+        if not isinstance(density, (int, float)) or isinstance(density, bool):
+            raise ValueError("traffic evaluation requires traffic_density in (0, 1]")
+        if not 0.0 < float(density) <= 1.0:
             raise ValueError("traffic evaluation requires traffic_density in (0, 1]")
 
 
 def parse_evaluation_config(config: DictConfig) -> EvaluationJobConfig:
     """Resolve Hydra values and return the sole typed configuration used by evaluation."""
 
-    raw = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
-    payload = dict(raw)
+    payload = resolve_config_mapping(config)
     payload["sampler"] = parse_sampler_config(config["sampler"])
     payload["guidance"] = parse_guidance_config(config["guidance"])
     scenarios = payload.get("scenarios")

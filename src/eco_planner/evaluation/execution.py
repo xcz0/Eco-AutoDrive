@@ -5,7 +5,6 @@ from __future__ import annotations
 import traceback
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 import torch
@@ -21,6 +20,7 @@ from eco_planner.envs import (
     VectorMetaDriveEnv,
     collate_observations,
 )
+from eco_planner.envs.array_types import SingleObservation
 from eco_planner.evaluation.artifacts import (
     CompletedEpisodeSummary,
     FailedEpisodeSummary,
@@ -52,7 +52,7 @@ class EpisodeFailure(RuntimeError):
 @dataclass
 class _EpisodeState:
     spec: ScenarioConfig
-    observation: dict[str, torch.Tensor] | None
+    observation: SingleObservation | None
     traffic_audit: TrafficObservationAudit | None
     generator: torch.Generator
     trace: EpisodeTraceRecorder
@@ -65,7 +65,7 @@ class _EpisodeState:
 
     def record_cycle(
         self,
-        observation: dict[str, torch.Tensor],
+        observation: SingleObservation,
         inference: TensorDictBase,
         execution: TrajectoryExecutionRecord,
         reward: float,
@@ -139,11 +139,15 @@ def run_scenario(
         if mode == "traffic":
             try:
                 for execution in env_slot.warmup():
-                    frames = execution.traffic_frames
+                    traffic_frames = execution.traffic_frames
                     trace.append_warmup(
                         execution,
-                        np.asarray([len(frame.participants) for frame in frames], dtype=np.int64),
-                        np.asarray([len(frame.static_objects) for frame in frames], dtype=np.int64),
+                        np.asarray(
+                            [len(frame.participants) for frame in traffic_frames], dtype=np.int64
+                        ),
+                        np.asarray(
+                            [len(frame.static_objects) for frame in traffic_frames], dtype=np.int64
+                        ),
                     )
             except Exception as error:
                 raise EpisodeFailure(FailurePhase.WARMUP, error) from error
@@ -369,9 +373,7 @@ def run_vector_scenarios(
                 slot_scenario_indices[slot_index] = slot_index
         active = list(slots)
         while active:
-            observations = [
-                cast(dict[str, torch.Tensor], slots[index].observation) for index in active
-            ]
+            observations = [_state_observation(slots[index]) for index in active]
             generators = tuple(slots[index].generator for index in active)
             noise = runtime.sample_noise(generators)
             decision = runtime.infer_batch(collate_observations(observations), noise, generators)
@@ -382,8 +384,8 @@ def run_vector_scenarios(
                 slot_index = active[batch_index]
                 slot = slots[slot_index]
                 slot.record_cycle(
-                    cast(dict[str, torch.Tensor], slot.observation),
-                    audit[batch_index : batch_index + 1],
+                    _state_observation(slot),
+                    _audit_slot(audit, batch_index),
                     step.execution,
                     step.reward,
                     slot.traffic_audit,
@@ -486,3 +488,16 @@ def _state_from_execution(execution: TrajectoryExecutionRecord) -> np.ndarray:
 
 def _has_traffic(audit: TrafficObservationAudit | None) -> bool:
     return audit is not None and audit.participant_count_in_radius > 0
+
+
+def _state_observation(state: _EpisodeState) -> SingleObservation:
+    if state.observation is None:
+        raise RuntimeError("active vector evaluation slot is missing its observation")
+    return state.observation
+
+
+def _audit_slot(audit: TensorDictBase, index: int) -> TensorDictBase:
+    result = audit[index : index + 1]
+    if not isinstance(result, TensorDictBase):
+        raise TypeError("inference audit slice must remain a TensorDict")
+    return result

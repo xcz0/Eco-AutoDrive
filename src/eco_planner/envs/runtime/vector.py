@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from threading import RLock
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -120,22 +120,32 @@ class _TorchRLScenarioMetaDriveEnv(TorchRLMetaDriveEnv):
 
     def __init__(
         self,
-        *args: object,
+        slot: MetaDriveEnvSlot,
+        *,
+        map_name: str,
+        seed: int,
+        observation_spec: PlannerObservationSpec,
         scenarios: tuple[VectorEnvScenario, ...],
-        **kwargs: object,
     ) -> None:
         if not scenarios:
             raise ValueError("vector environment scenarios must be non-empty")
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            slot,
+            map_name=map_name,
+            seed=seed,
+            observation_spec=observation_spec,
+        )
         self._scenarios = scenarios
         self._active_scenario_index = 0
         self._operation_result: _WorkerResetResult | _WorkerStepResult | _WorkerFailure | None = (
             None
         )
         self.state_spec = Composite(
-            scenario_index=Unbounded(shape=(1,), dtype=torch.int64, device="cpu"),
+            scenario_index=Unbounded(
+                shape=torch.Size((1,)), dtype=torch.int64, device=torch.device("cpu")
+            ),
             shape=(),
-            device="cpu",
+            device=torch.device("cpu"),
         )
 
     def operation_result(self) -> _WorkerResetResult | _WorkerStepResult | _WorkerFailure | None:
@@ -288,13 +298,15 @@ class VectorMetaDriveEnv:
         self._validate_slot(slot)
         return self._reset_slots((slot,), (scenario,), partial=True)[0]
 
-    def step(self, trajectories: Sequence[np.ndarray]) -> tuple[VectorEnvStep, ...]:
+    def step(
+        self, trajectories: Sequence[np.ndarray] | np.ndarray
+    ) -> tuple[VectorEnvStep, ...]:
         """Step every physical slot once."""
 
         return self.step_slots(tuple(range(self.num_envs)), trajectories)
 
     def step_slots(
-        self, slots: Sequence[int], trajectories: Sequence[np.ndarray]
+        self, slots: Sequence[int], trajectories: Sequence[np.ndarray] | np.ndarray
     ) -> tuple[VectorEnvStep, ...]:
         """Let TorchRL route one partial step to the selected physical slots."""
 
@@ -314,7 +326,9 @@ class VectorMetaDriveEnv:
         mask = _slot_mask(self.num_envs, slots_tuple)
         input_td = TensorDict({"action": actions, "_step": mask}, batch_size=[self.num_envs])
         with self._operation_lock:
-            output = self._call("step", lambda: self._env.step(input_td))["next"]
+            output = _tensordict_field(
+                self._call("step", lambda: self._env.step(input_td)), "next"
+            )
             domains = self._env.operation_result()
             return tuple(self._step_result(output, slot, domains[slot]) for slot in slots_tuple)
 
@@ -497,7 +511,24 @@ def _slot_mask(count: int, slots: Sequence[int]) -> torch.Tensor:
 
 
 def _observation(output: TensorDictBase, slot: int) -> SingleObservation:
-    return {key: output[key][slot].detach().clone() for key in _OBSERVATION_KEYS}
+    values = {
+        key: _tensor_field(output, key)[slot].detach().clone() for key in _OBSERVATION_KEYS
+    }
+    return cast(SingleObservation, values)
+
+
+def _tensor_field(output: TensorDictBase, key: str) -> torch.Tensor:
+    value = output.get(key)
+    if not isinstance(value, torch.Tensor):
+        raise TypeError(f"TensorDict field {key!r} must be a tensor")
+    return value
+
+
+def _tensordict_field(output: TensorDictBase, key: str) -> TensorDictBase:
+    value = output.get(key)
+    if not isinstance(value, TensorDictBase):
+        raise TypeError(f"TensorDict field {key!r} must be a nested TensorDict")
+    return value
 
 
 def _validate_configuration(

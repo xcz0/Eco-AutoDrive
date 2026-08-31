@@ -24,9 +24,9 @@ from eco_planner.rl.optimization.config import PPOConfig
 from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.policy.distribution import AffineBeta
 from eco_planner.rl.policy.model import POLICY_CONTEXT_KEYS
-from eco_planner.rl.rollout.contracts import RolloutEpisode
+from eco_planner.rl.rollout.contracts import RolloutEpisode, concatenate_tensordicts
 
-_PPO_BATCH_KEYS = (
+_PPO_BATCH_KEYS: tuple[str, ...] = (
     *POLICY_CONTEXT_KEYS,
     "guidance_action",
     "old_joint_guidance_log_prob",
@@ -304,7 +304,7 @@ def _build_torchrl_policy_adapters(
         return_log_prob=True,
         log_prob_key="joint_guidance_log_prob",
     )
-    actor = ProbabilisticTensorDictSequential(output_module, distribution_module)
+    actor = ProbabilisticTensorDictSequential([output_module, distribution_module])
     critic = TensorDictModule(nn.Identity(), in_keys=["state_value"], out_keys=["state_value"])
     return actor, critic
 
@@ -315,10 +315,10 @@ def _batch_trajectories(episodes: Sequence[RolloutEpisode], config: PPOConfig) -
     episode_tuple = tuple(episodes)
     if not episode_tuple:
         raise ValueError("PPO update requires at least one rollout episode")
-    trajectories = []
+    trajectories: list[TensorDictBase] = []
     for episode in episode_tuple:
         trajectories.append(compute_episode_gae(episode, config))
-    return torch.cat(trajectories, dim=0).select(*_PPO_BATCH_KEYS)
+    return concatenate_tensordicts(trajectories).select(*_PPO_BATCH_KEYS)
 
 
 def _normalize_full_batch_advantage(batch: TensorDictBase) -> None:
@@ -345,4 +345,6 @@ def _require_finite_scalar(value: torch.Tensor, name: str) -> None:
         if not finite:
             raise FloatingPointError(f"{name} must be finite")
     else:
-        torch._assert_async(finite, f"{name} must be finite")
+        torch._assert_async(  # pyright: ignore[reportPrivateImportUsage]
+            finite, f"{name} must be finite"
+        )

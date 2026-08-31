@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 from lightning.fabric import Fabric
@@ -30,7 +31,7 @@ class ResolvedRuntimeSettings:
     requested_accelerator: str
     resolved_accelerator: str
     requested_precision: str
-    resolved_precision: str
+    resolved_precision: Literal["32-true", "16-mixed", "bf16-mixed"]
     seed: int
 
 
@@ -76,7 +77,7 @@ def resolve_runtime_settings(runtime_config: RuntimeConfig) -> ResolvedRuntimeSe
     bf16_supported = resolved_accelerator == "cuda" and torch.cuda.is_bf16_supported()
     if precision == "auto":
         if resolved_accelerator == "cpu":
-            resolved_precision = "32-true"
+            resolved_precision: Literal["32-true", "16-mixed", "bf16-mixed"] = "32-true"
         else:
             resolved_precision = "bf16-mixed" if bf16_supported else "16-mixed"
     else:

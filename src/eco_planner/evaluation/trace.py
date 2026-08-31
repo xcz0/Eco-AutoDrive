@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from tensordict import TensorDictBase
 
+from eco_planner.envs.array_types import SingleObservation
 from eco_planner.evaluation.artifacts import (
     EXECUTION_PREFIX_STEPS,
     OBSERVATION_FIELDS,
@@ -126,7 +127,7 @@ class EpisodeTraceRecorder:
     def append_cycle(
         self,
         anchor: np.ndarray,
-        observation: dict[str, torch.Tensor],
+        observation: SingleObservation,
         inference: TensorDictBase,
         execution: TrajectoryExecutionRecord,
         plan_index: int,
@@ -307,7 +308,7 @@ def _write_traffic_audit(
 
 
 def _raw_observation_for_trace(
-    observation: dict[str, torch.Tensor],
+    observation: SingleObservation,
 ) -> dict[str, np.ndarray]:
     raw: dict[str, np.ndarray] = {}
     for name, (shape, dtype) in _OBSERVATION_ARRAYS.items():

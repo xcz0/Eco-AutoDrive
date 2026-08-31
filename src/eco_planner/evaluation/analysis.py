@@ -12,6 +12,7 @@ import numpy as np
 from omegaconf import OmegaConf
 
 from eco_planner.evaluation.artifacts import (
+    CompletedEpisodeSummary,
     EpisodeSummary,
     JobSummary,
     load_episode_summary,
@@ -274,17 +275,20 @@ def _read_matrix_spec(path: Path) -> MatrixSpec:
 def build_matrix_statistics(episodes: Sequence[EpisodeSummary]) -> dict[str, Any]:
     """Build per-scenario statistics from already validated episode summaries."""
 
-    grouped: defaultdict[tuple[str, float], list[EpisodeSummary]] = defaultdict(list)
+    grouped: defaultdict[tuple[str, float], list[CompletedEpisodeSummary]] = defaultdict(list)
     for episode in episodes:
-        if episode.status == "completed":
+        if isinstance(episode, CompletedEpisodeSummary):
             grouped[(episode.scenario.name, episode.traffic_density)].append(episode)
     statistics: dict[str, Any] = {}
     for (scenario, density), group in sorted(grouped.items()):
-        ml_per_km = [episode.energy.ml_per_km for episode in group]
-        if any(value is None for value in ml_per_km):
-            raise ValueError(
-                "matrix cannot bootstrap energy_ml_per_km for a completed zero-distance episode"
-            )
+        ml_per_km: list[float] = []
+        for episode in group:
+            value = episode.energy.ml_per_km
+            if value is None:
+                raise ValueError(
+                    "matrix cannot bootstrap energy_ml_per_km for a completed zero-distance episode"
+                )
+            ml_per_km.append(value)
         statistics[f"{scenario}/density_{density:.2f}"] = {
             "episode_count": len(group),
             "metrics": {

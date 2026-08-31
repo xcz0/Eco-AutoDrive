@@ -6,10 +6,12 @@ import json
 import platform
 import subprocess
 import sys
+from collections.abc import Mapping
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 from pydantic import BaseModel
 
@@ -21,6 +23,13 @@ def write_json(path: Path, payload: BaseModel | dict[str, object]) -> None:
     path.write_text(
         json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
     )
+
+
+def write_npz(path: Path, arrays: Mapping[str, np.ndarray]) -> None:
+    """Persist named arrays without weakening each artifact schema to ``Any``."""
+
+    # NumPy's stub treats every dynamic keyword as its reserved allow_pickle option.
+    np.savez(path, **arrays)  # pyright: ignore[reportArgumentType]
 
 
 def collect_repository_metadata(repository_root: Path) -> dict[str, object]:

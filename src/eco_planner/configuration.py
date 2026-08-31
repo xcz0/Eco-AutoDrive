@@ -5,9 +5,9 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 _ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
@@ -34,7 +34,20 @@ def load_local_environment(env_path: Path) -> None:
 def load_resolved_yaml_mapping(path: Path) -> dict[str, Any]:
     """Load one YAML file, resolve required values, and require a mapping root."""
 
-    raw = OmegaConf.to_container(OmegaConf.load(path), resolve=True, throw_on_missing=True)
-    if not isinstance(raw, dict):
+    config = OmegaConf.load(path)
+    if not isinstance(config, DictConfig):
         raise TypeError(f"configuration must resolve to a mapping: {path}")
+    return resolve_config_mapping(config)
+
+
+def resolve_config_mapping(config: DictConfig) -> dict[str, Any]:
+    """Resolve one Hydra mapping while preserving its dynamic boundary values."""
+
+    raw = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+    if not _is_string_mapping(raw):
+        raise TypeError("configuration must resolve to a string-keyed mapping")
     return raw
+
+
+def _is_string_mapping(value: object) -> TypeGuard[dict[str, Any]]:
+    return isinstance(value, dict) and all(isinstance(key, str) for key in value)

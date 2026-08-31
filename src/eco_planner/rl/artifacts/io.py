@@ -5,19 +5,32 @@ from __future__ import annotations
 import hashlib
 from dataclasses import asdict
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import torch
 from hydra.utils import to_absolute_path
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
+from tensordict import TensorDictBase
 
-from eco_planner.artifacts import collect_repository_metadata, write_json, write_tracked_diff
+from eco_planner.artifacts import (
+    collect_repository_metadata,
+    write_json,
+    write_npz,
+    write_tracked_diff,
+)
 from eco_planner.rl.artifacts.schema import rollout_artifact_fields
 from eco_planner.rl.optimization.ppo import PPOUpdateReport
 from eco_planner.rl.policy import ExplorationPolicy
-from eco_planner.rl.rollout.contracts import RolloutEpisode, rollout_audit_keys
+from eco_planner.rl.rollout.contracts import (
+    RolloutEpisode,
+    concatenate_tensordicts,
+    rollout_audit_keys,
+)
 from eco_planner.runtime_resources import ResourceProfileConfig
+
+if TYPE_CHECKING:
+    from eco_planner.rl.rollout.runtime import FabricRolloutRuntime
 
 
 class _ArtifactModel(BaseModel):
@@ -135,7 +148,7 @@ def write_rollout_episode(path: Path, episode: RolloutEpisode) -> None:
     expected_fields = set(rollout_artifact_fields(episode.reward_profile))
     if set(arrays) != expected_fields:
         raise RuntimeError("rollout artifact payload does not match its explicit schema")
-    np.savez(path, **arrays)
+    write_npz(path, arrays)
 
 
 def build_update_summary(
@@ -147,37 +160,37 @@ def build_update_summary(
     if len(reward_profiles) != 1:
         raise ValueError("training update cannot mix rollout reward profiles")
     reward_profile = reward_profiles.pop()
-    trajectory = torch.cat([episode.audit for episode in episodes], dim=0)
+    trajectory = concatenate_tensordicts([episode.audit for episode in episodes])
     sample_count = trajectory.batch_size[0]
     episode_count = len(episodes)
     mean_episode_length = sample_count / episode_count
     collision = (
-        trajectory["crash_vehicle"]
-        | trajectory["crash_object"]
-        | trajectory["crash_building"]
-        | trajectory["crash_human"]
+        _tensor(trajectory, "crash_vehicle")
+        | _tensor(trajectory, "crash_object")
+        | _tensor(trajectory, "crash_building")
+        | _tensor(trajectory, "crash_human")
     )
-    collision |= trajectory["crash_sidewalk"]
-    state_value = trajectory["state_value"]
-    beta_alpha = trajectory["beta_alpha"]
-    beta_beta = trajectory["beta_beta"]
-    guidance_action = trajectory["guidance_action"]
+    collision |= _tensor(trajectory, "crash_sidewalk")
+    state_value = _tensor(trajectory, "state_value")
+    beta_alpha = _tensor(trajectory, "beta_alpha")
+    beta_beta = _tensor(trajectory, "beta_beta")
+    guidance_action = _tensor(trajectory, "guidance_action")
     payload = {
         "update_index": update_index,
         "sample_count": sample_count,
         "episode_count": episode_count,
         "mean_episode_length": float(mean_episode_length),
-        "total_reward": float(trajectory["reward"].sum()),
-        "dense_reward": float(trajectory["dense_reward"].sum()),
-        "terminal_override": float(trajectory["terminal_override"].sum()),
-        "route_completion_delta": float(trajectory["route_completion_delta"].sum()),
-        "distance_m": float(trajectory["distance_m"].sum()),
-        "mean_speed_mps": float(trajectory["speed_mps"].mean()),
-        "stopped_fraction": float(trajectory["stopped"].float().mean()),
+        "total_reward": float(_tensor(trajectory, "reward").sum()),
+        "dense_reward": float(_tensor(trajectory, "dense_reward").sum()),
+        "terminal_override": float(_tensor(trajectory, "terminal_override").sum()),
+        "route_completion_delta": float(_tensor(trajectory, "route_completion_delta").sum()),
+        "distance_m": float(_tensor(trajectory, "distance_m").sum()),
+        "mean_speed_mps": float(_tensor(trajectory, "speed_mps").mean()),
+        "stopped_fraction": float(_tensor(trajectory, "stopped").float().mean()),
         "collision_count": int(collision.sum()),
-        "out_of_road_count": int(trajectory["out_of_road"].sum()),
-        "maximum_position_error_m": float(trajectory["position_error_m"].max()),
-        "maximum_heading_error_rad": float(trajectory["heading_error_rad"].max()),
+        "out_of_road_count": int(_tensor(trajectory, "out_of_road").sum()),
+        "maximum_position_error_m": float(_tensor(trajectory, "position_error_m").max()),
+        "maximum_heading_error_rad": float(_tensor(trajectory, "heading_error_rad").max()),
         "beta_alpha_mean": tuple(float(value) for value in beta_alpha.mean(dim=0)),
         "beta_alpha_min": tuple(float(value) for value in beta_alpha.min(dim=0).values),
         "beta_alpha_max": tuple(float(value) for value in beta_alpha.max(dim=0).values),
@@ -191,12 +204,14 @@ def build_update_summary(
         "mean_state_value": float(state_value.mean()),
         "std_state_value": float(state_value.std(correction=0)),
     }
-    proxy_total = float(trajectory["executed_fuel_proxy_step_energy_ml"].sum())
-    distance_total = float(trajectory["step_distance_m"].sum())
+    proxy_total = float(_tensor(trajectory, "executed_fuel_proxy_step_energy_ml").sum())
+    distance_total = float(_tensor(trajectory, "step_distance_m").sum())
     payload.update(
         {
             "reward_profile": reward_profile,
-            "native_step_energy_total_ml": float(trajectory["native_step_energy_ml"].sum()),
+            "native_step_energy_total_ml": float(
+                _tensor(trajectory, "native_step_energy_ml").sum()
+            ),
             "executed_fuel_proxy_total_ml": proxy_total,
             "executed_fuel_proxy_ml_per_km": (
                 proxy_total * 1000.0 / distance_total if distance_total > 0.0 else None
@@ -208,7 +223,7 @@ def build_update_summary(
         payload.update(
             {
                 "reward_component_means": {
-                    name: float(trajectory[name].mean())
+                    name: float(_tensor(trajectory, name).mean())
                     for name in (
                         "reward_gate",
                         "collision_score",
@@ -229,7 +244,7 @@ def build_update_summary(
 
 
 def write_training_runtime_metadata(
-    path: Path, runtime: object, resources: ResourceProfileConfig
+    path: Path, runtime: FabricRolloutRuntime, resources: ResourceProfileConfig
 ) -> None:
     """Record common reproducibility metadata plus the RL runtime selections."""
 
@@ -248,6 +263,13 @@ def write_training_runtime_metadata(
 
 def _trajectory_arrays(episode: RolloutEpisode) -> dict[str, np.ndarray]:
     return {
-        name: episode.audit[name].detach().cpu().numpy()
+        name: _tensor(episode.audit, name).detach().cpu().numpy()
         for name in rollout_audit_keys(episode.reward_profile)
     }
+
+
+def _tensor(trajectory: TensorDictBase, key: str) -> torch.Tensor:
+    value = trajectory.get(key)
+    if not isinstance(value, torch.Tensor):
+        raise TypeError(f"TensorDict field {key!r} must be a tensor")
+    return value

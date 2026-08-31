@@ -11,7 +11,9 @@ from tensordict import TensorDict, TensorDictBase
 from torchrl.data import Binary, Composite, Unbounded
 from torchrl.envs import EnvBase
 
+from eco_planner.envs.array_types import SingleObservation
 from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
+from eco_planner.envs.metadrive.observation import TrafficObservationAudit
 from eco_planner.envs.metadrive.slot import EnvSlotReset, EnvSlotStep, MetaDriveEnvSlot
 from eco_planner.envs.observation import PlannerObservationSpec
 from eco_planner.execution_contracts import PLANNER_FUTURE_STEPS
@@ -34,7 +36,7 @@ class TorchRLMetaDriveEnv(EnvBase):
             raise TypeError("observation_spec must be a PlannerObservationSpec")
         if type(seed) is not int or seed < 0:
             raise ValueError("seed must be a non-negative integer")
-        super().__init__(device=_CPU_DEVICE, batch_size=[])
+        super().__init__(device=_CPU_DEVICE, batch_size=torch.Size())
         self._slot = slot
         self._map_name = map_name
         self._seed = seed
@@ -43,19 +45,23 @@ class TorchRLMetaDriveEnv(EnvBase):
         self._last_step: EnvSlotStep | None = None
         self._last_execution: TrajectoryExecutionRecord | None = None
         self._last_warmup_executions: tuple[TrajectoryExecutionRecord, ...] = ()
-        self._last_traffic_audit = None
+        self._last_traffic_audit: TrafficObservationAudit | None = None
         self._last_programmatic_lane_speed_limit_audit: Mapping[str, object] = {}
         self._last_environment_s = 0.0
         self._last_observation_s = 0.0
         self.observation_spec = _observation_spec(observation_spec)
         self.action_spec = Unbounded(
-            shape=(PLANNER_FUTURE_STEPS, 4), dtype=torch.float32, device=_CPU_DEVICE
+            shape=torch.Size((PLANNER_FUTURE_STEPS, 4)),
+            dtype=torch.float32,
+            device=_CPU_DEVICE,
         )
-        self.reward_spec = Unbounded(shape=(1,), dtype=torch.float32, device=_CPU_DEVICE)
+        self.reward_spec = Unbounded(
+            shape=torch.Size((1,)), dtype=torch.float32, device=_CPU_DEVICE
+        )
         self.done_spec = Composite(
-            done=Binary(1, shape=(1,), dtype=torch.bool, device=_CPU_DEVICE),
-            terminated=Binary(1, shape=(1,), dtype=torch.bool, device=_CPU_DEVICE),
-            truncated=Binary(1, shape=(1,), dtype=torch.bool, device=_CPU_DEVICE),
+            done=Binary(1, shape=torch.Size((1,)), dtype=torch.bool, device=_CPU_DEVICE),
+            terminated=Binary(1, shape=torch.Size((1,)), dtype=torch.bool, device=_CPU_DEVICE),
+            truncated=Binary(1, shape=torch.Size((1,)), dtype=torch.bool, device=_CPU_DEVICE),
             shape=(),
             device=_CPU_DEVICE,
         )
@@ -85,7 +91,10 @@ class TorchRLMetaDriveEnv(EnvBase):
         return _observation_tensordict(observation.observation)
 
     def _step(self, tensordict: TensorDictBase) -> TensorDictBase:
-        trajectory = tensordict["action"].detach().numpy()
+        action = tensordict.get("action")
+        if not isinstance(action, torch.Tensor):
+            raise TypeError("TorchRL action must be a tensor")
+        trajectory = action.detach().numpy()
         environment_started = perf_counter()
         result = self._slot.step(trajectory)
         self._last_environment_s = perf_counter() - environment_started
@@ -151,7 +160,7 @@ class TorchRLMetaDriveEnv(EnvBase):
         return self._last_warmup_executions
 
     @property
-    def last_traffic_audit(self) -> object:
+    def last_traffic_audit(self) -> TrafficObservationAudit | None:
         """Return the traffic selection audit captured with the latest observation."""
 
         return self._last_traffic_audit
@@ -183,45 +192,47 @@ class TorchRLMetaDriveEnv(EnvBase):
 
 def _observation_spec(spec: PlannerObservationSpec) -> Composite:
     return Composite(
-        ego_current_state=Unbounded(shape=(10,), dtype=torch.float32, device=_CPU_DEVICE),
+        ego_current_state=Unbounded(
+            shape=torch.Size((10,)), dtype=torch.float32, device=_CPU_DEVICE
+        ),
         neighbor_agents_past=Unbounded(
-            shape=(spec.agent_num, spec.time_len, spec.agent_state_dim),
+            shape=torch.Size((spec.agent_num, spec.time_len, spec.agent_state_dim)),
             dtype=torch.float32,
             device=_CPU_DEVICE,
         ),
         static_objects=Unbounded(
-            shape=(spec.static_objects_num, spec.static_objects_state_dim),
+            shape=torch.Size((spec.static_objects_num, spec.static_objects_state_dim)),
             dtype=torch.float32,
             device=_CPU_DEVICE,
         ),
         lanes=Unbounded(
-            shape=(spec.lane_num, spec.lane_len, spec.lane_state_dim),
+            shape=torch.Size((spec.lane_num, spec.lane_len, spec.lane_state_dim)),
             dtype=torch.float32,
             device=_CPU_DEVICE,
         ),
         lanes_speed_limit=Unbounded(
-            shape=(spec.lane_num, 1), dtype=torch.float32, device=_CPU_DEVICE
+            shape=torch.Size((spec.lane_num, 1)), dtype=torch.float32, device=_CPU_DEVICE
         ),
         lanes_has_speed_limit=Binary(
-            1, shape=(spec.lane_num, 1), dtype=torch.bool, device=_CPU_DEVICE
+            1, shape=torch.Size((spec.lane_num, 1)), dtype=torch.bool, device=_CPU_DEVICE
         ),
         route_lanes=Unbounded(
-            shape=(spec.route_num, spec.route_len, spec.route_state_dim),
+            shape=torch.Size((spec.route_num, spec.route_len, spec.route_state_dim)),
             dtype=torch.float32,
             device=_CPU_DEVICE,
         ),
         route_lanes_speed_limit=Unbounded(
-            shape=(spec.route_num, 1), dtype=torch.float32, device=_CPU_DEVICE
+            shape=torch.Size((spec.route_num, 1)), dtype=torch.float32, device=_CPU_DEVICE
         ),
         route_lanes_has_speed_limit=Binary(
-            1, shape=(spec.route_num, 1), dtype=torch.bool, device=_CPU_DEVICE
+            1, shape=torch.Size((spec.route_num, 1)), dtype=torch.bool, device=_CPU_DEVICE
         ),
         shape=(),
         device=_CPU_DEVICE,
     )
 
 
-def _observation_tensordict(observation: dict[str, torch.Tensor]) -> TensorDictBase:
+def _observation_tensordict(observation: SingleObservation) -> TensorDictBase:
     return TensorDict(
         {
             **observation,

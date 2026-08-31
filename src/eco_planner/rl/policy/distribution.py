@@ -50,8 +50,12 @@ class ExplicitGeneratorBetaSampler:
             generator_device.index is not None and generator_device.index != expected_device.index
         ):
             raise ValueError("policy generator must use the policy distribution device")
-        alpha_draw = torch._standard_gamma(parameters.alpha, generator=generator)
-        beta_draw = torch._standard_gamma(parameters.beta, generator=generator)
+        alpha_draw = torch._standard_gamma(  # pyright: ignore[reportPrivateImportUsage]
+            parameters.alpha, generator=generator
+        )
+        beta_draw = torch._standard_gamma(  # pyright: ignore[reportPrivateImportUsage]
+            parameters.beta, generator=generator
+        )
         base_action = alpha_draw / (alpha_draw + beta_draw)
         if validate_args:
             _validate_base_action(base_action, parameters.alpha)
@@ -62,7 +66,7 @@ class AffineBeta(TransformedDistribution):
     """Two independent Betas transformed from ``u`` to guidance ``2u - 1``."""
 
     arg_constraints: dict[str, object] = {}
-    has_rsample = True
+    has_rsample: bool = True
 
     def __init__(
         self, alpha: torch.Tensor, beta: torch.Tensor, validate_args: bool | None = None

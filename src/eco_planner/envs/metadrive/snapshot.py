@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol, cast
+from typing import Protocol, cast, runtime_checkable
 
 import numpy as np
 from metadrive.component.static_object.traffic_object import (
@@ -37,14 +37,17 @@ class _TrafficEgo(Protocol):
     heading_theta: float
 
 
+@runtime_checkable
 class _TrafficEnvironment(Protocol):
     agent: _TrafficEgo
     engine: _TrafficEngine
 
 
-def capture_traffic_frame(env: _TrafficEnvironment) -> TrafficFrame:
+def capture_traffic_frame(env: object) -> TrafficFrame:
     """Capture and validate one immutable domain frame from reset MetaDrive state."""
 
+    if not isinstance(env, _TrafficEnvironment):
+        raise TypeError("traffic snapshot requires a reset MetaDrive environment")
     ego = env.agent
     engine = env.engine
     rear_wheelbase = _positive_scalar(ego.REAR_WHEELBASE, "rear wheelbase", "ego")
@@ -56,29 +59,31 @@ def capture_traffic_frame(env: _TrafficEnvironment) -> TrafficFrame:
         participant_kind = _participant_kind(obj)
         if participant_kind is not None:
             value = cast(BaseTrafficParticipant, obj)
+            object_id = _object_id(value.id)
             participants.append(
                 TrafficParticipantState(
-                    object_id=value.id,
+                    object_id=object_id,
                     kind=participant_kind,
-                    position_xy_m=_finite_vector(value.position, "position", value.id),
-                    heading_rad=_finite_scalar(value.heading_theta, "heading", value.id),
-                    velocity_xy_mps=_finite_vector(value.velocity, "velocity", value.id),
-                    width_m=_positive_scalar(value.WIDTH, "width", value.id),
-                    length_m=_positive_scalar(value.LENGTH, "length", value.id),
+                    position_xy_m=_finite_vector(value.position, "position", object_id),
+                    heading_rad=_finite_scalar(value.heading_theta, "heading", object_id),
+                    velocity_xy_mps=_finite_vector(value.velocity, "velocity", object_id),
+                    width_m=_positive_scalar(value.WIDTH, "width", object_id),
+                    length_m=_positive_scalar(value.LENGTH, "length", object_id),
                 )
             )
             continue
         static_kind = _static_object_kind(obj)
         if static_kind is not None:
             value = cast(TrafficObject, obj)
+            object_id = _object_id(value.id)
             static_objects.append(
                 StaticTrafficObjectState(
-                    object_id=value.id,
+                    object_id=object_id,
                     kind=static_kind,
-                    position_xy_m=_finite_vector(value.position, "position", value.id),
-                    heading_rad=_finite_scalar(value.heading_theta, "heading", value.id),
-                    width_m=_positive_scalar(value.WIDTH, "width", value.id),
-                    length_m=_positive_scalar(value.LENGTH, "length", value.id),
+                    position_xy_m=_finite_vector(value.position, "position", object_id),
+                    heading_rad=_finite_scalar(value.heading_theta, "heading", object_id),
+                    width_m=_positive_scalar(value.WIDTH, "width", object_id),
+                    length_m=_positive_scalar(value.LENGTH, "length", object_id),
                 )
             )
     if type(engine.episode_step) is not int or engine.episode_step < 0:
@@ -124,8 +129,17 @@ def _finite_vector(value: object, field: str, object_id: str) -> tuple[float, fl
     return float(array[0]), float(array[1])
 
 
+def _object_id(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        raise TypeError("MetaDrive traffic object id must be a non-empty string")
+    return value
+
+
 def _finite_scalar(value: object, field: str, object_id: str) -> float:
-    result = float(cast(float, value))
+    array = np.asarray(value, dtype=np.float64)
+    if array.shape != ():
+        raise ValueError(f"traffic object {object_id!r} {field} must be a scalar")
+    result = float(array.item())
     if not np.isfinite(result):
         raise ValueError(f"traffic object {object_id!r} {field} must be finite")
     return result

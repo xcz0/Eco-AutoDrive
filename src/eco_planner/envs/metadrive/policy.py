@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Protocol, runtime_checkable
 
 import gymnasium as gym
 import numpy as np
@@ -13,12 +14,23 @@ from eco_planner.envs.contracts import PLANNER_HORIZON, ExecutionMode
 from eco_planner.envs.domain.trajectory import WorldTrajectory
 
 
+@runtime_checkable
+class _StringConfig(Protocol):
+    def __getitem__(self, key: str) -> object: ...
+
+
 class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
     """Apply a fixed world trajectory inside MetaDrive's callback lifecycle."""
 
     def __init__(self, obj: Any, seed: int) -> None:
         BasePolicy.__init__(self, control_object=obj, random_seed=seed)
-        self._execution_steps = ExecutionMode(self.engine.global_config["execution_mode"]).steps
+        engine = self.engine
+        if engine is None:
+            raise RuntimeError("MetaDrive policy engine is unavailable during initialization")
+        config: object = engine.global_config
+        if not isinstance(config, _StringConfig):
+            raise TypeError("MetaDrive global configuration must support string keys")
+        self._execution_steps = ExecutionMode(config["execution_mode"]).steps
         self._trajectory: WorldTrajectory | None = None
         self._cache_last_update: int | None = None
 
@@ -32,36 +44,46 @@ class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
         super().reset()
 
     def act(self, agent_id: str) -> None:
-        actions = self.engine.external_actions
+        engine = self.engine
+        if engine is None:
+            raise RuntimeError("MetaDrive policy engine is unavailable")
+        actions: object = engine.external_actions
         if actions is None:
             if self._trajectory is None:
                 return None
             raise RuntimeError(
                 "trajectory cache survived MetaDrive reset without an external action"
             )
+        if not isinstance(actions, Mapping):
+            raise TypeError("MetaDrive external actions must be a mapping")
         if agent_id not in actions:
             raise RuntimeError(f"MetaDrive did not provide an external action for {agent_id!r}")
-        action = actions[agent_id]
+        action = next(value for key, value in actions.items() if key == agent_id)
         if action is not None:
+            if not isinstance(action, WorldTrajectory):
+                raise TypeError("MetaDrive external action must be a world trajectory")
             if self._trajectory is not None:
                 raise RuntimeError(
                     "a new trajectory was supplied before the cached prefix finished"
                 )
             self._trajectory = action
-            self._cache_last_update = self.engine.episode_step
+            self._cache_last_update = engine.episode_step
         elif self._trajectory is None or self._cache_last_update is None:
-            if self.engine.episode_step == 0:
+            if engine.episode_step == 0:
                 return None
             raise RuntimeError("trajectory continuation requested without a cached trajectory")
         assert self._trajectory is not None and self._cache_last_update is not None
-        index = self.engine.episode_step - self._cache_last_update
+        index = engine.episode_step - self._cache_last_update
         if not 0 <= index < self._execution_steps:
             raise RuntimeError("trajectory cache index is outside the execution prefix")
         trajectory = self._trajectory
-        self.control_object.set_position(trajectory.centers[index + 1])
-        self.control_object.set_heading_theta(float(trajectory.headings[index + 1]))
-        self.control_object.set_velocity(trajectory.velocities[index])
-        self.control_object.set_angular_velocity(float(trajectory.angular_velocities[index]))
+        control_object = self.control_object
+        if control_object is None:
+            raise RuntimeError("MetaDrive policy control object is unavailable")
+        control_object.set_position(trajectory.centers[index + 1])
+        control_object.set_heading_theta(float(trajectory.headings[index + 1]))
+        control_object.set_velocity(trajectory.velocities[index])
+        control_object.set_angular_velocity(float(trajectory.angular_velocities[index]))
         self.action_info["trajectory_index"] = index
         self.action_info["trajectory_target_position"] = trajectory.centers[index + 1].copy()
         self.action_info["trajectory_target_heading"] = float(trajectory.headings[index + 1])

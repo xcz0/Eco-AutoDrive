@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
+
+from eco_planner.configuration import resolve_config_mapping
 
 
 class ExplorationPolicyConfig(BaseModel):
@@ -34,6 +36,4 @@ class ExplorationPolicyConfig(BaseModel):
 def parse_exploration_policy_config(config: DictConfig) -> ExplorationPolicyConfig:
     """Parse one resolved Hydra policy component at the configuration boundary."""
 
-    return ExplorationPolicyConfig.model_validate(
-        dict(OmegaConf.to_container(config, resolve=True, throw_on_missing=True))
-    )
+    return ExplorationPolicyConfig.model_validate(resolve_config_mapping(config))

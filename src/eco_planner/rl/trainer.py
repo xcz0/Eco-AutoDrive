@@ -29,6 +29,7 @@ from eco_planner.rl.optimization import (
 from eco_planner.rl.policy import ExplorationPolicyContext, policy_context_tensordict
 from eco_planner.rl.policy.distribution import AffineBeta
 from eco_planner.rl.rollout import (
+    FabricRolloutRuntime,
     RolloutEpisode,
     VectorRolloutCollector,
     create_fabric_rollout_runtime,
@@ -200,7 +201,7 @@ def train(config: TrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
 
 
 def _resume_state(
-    config: TrainingJobConfig, runtime: object, updater: PPOUpdater
+    config: TrainingJobConfig, runtime: FabricRolloutRuntime, updater: PPOUpdater
 ) -> tuple[
     int,
     int,
@@ -218,12 +219,17 @@ def _resume_state(
     )
     if report.completed_updates > config.training.update_count:
         raise ValueError("resume checkpoint has more updates than the configured training job")
-    summaries = [TrainingUpdateSummary.model_validate(item) for item in loop["update_summaries"]]
+    summaries_payload = loop["update_summaries"]
+    if not isinstance(summaries_payload, (list, tuple)):
+        raise TypeError("resume checkpoint has invalid update summaries")
+    summaries = [TrainingUpdateSummary.model_validate(item) for item in summaries_payload]
     if len(summaries) != report.completed_updates:
         raise ValueError("resume checkpoint update summaries disagree with its update count")
     probe_payload = loop["probe_before"]
     contexts_payload = loop["probe_contexts"]
     probe = PolicyProbeSummary.model_validate(probe_payload) if probe_payload is not None else None
+    if contexts_payload is not None and not isinstance(contexts_payload, (list, tuple)):
+        raise TypeError("resume checkpoint has invalid policy probe contexts")
     contexts = (
         tuple(_deserialize_context(item) for item in contexts_payload)
         if contexts_payload is not None
@@ -278,7 +284,7 @@ def _derive_rollout_seeds(
 
 
 def _probe_policy(
-    runtime: object,
+    runtime: FabricRolloutRuntime,
     contexts: tuple[ExplorationPolicyContext, ...],
     sample_count: int,
     boundary_distance: float,
@@ -299,10 +305,10 @@ def _probe_policy(
         generator = runtime.new_policy_generator(diagnostic_seed + index)
         samples = expanded.sample(generator).base_action
         boundary = (samples <= boundary_distance) | (samples >= 1.0 - boundary_distance)
-        alpha_values.append(tuple(float(value) for value in alpha[0].cpu()))
-        beta_values.append(tuple(float(value) for value in beta[0].cpu()))
-        means.append(tuple(float(value) for value in expanded.mean[0].cpu()))
-        masses.append(tuple(float(value) for value in boundary.float().mean(dim=0).cpu()))
+        alpha_values.append(_tensor_pair(alpha[0]))
+        beta_values.append(_tensor_pair(beta[0]))
+        means.append(_tensor_pair(expanded.mean[0]))
+        masses.append(_tensor_pair(boundary.float().mean(dim=0)))
     return PolicyProbeSummary(
         alpha=tuple(alpha_values),
         beta=tuple(beta_values),
@@ -339,3 +345,10 @@ def _context_to_device(
         navigation_padding_mask=context.navigation_padding_mask.to(device),
         reference_trajectory=context.reference_trajectory.to(device),
     )
+
+
+def _tensor_pair(value: torch.Tensor) -> tuple[float, float]:
+    if tuple(value.shape) != (2,):
+        raise ValueError("policy probe statistic must have shape [2]")
+    host = value.detach().cpu()
+    return float(host[0]), float(host[1])

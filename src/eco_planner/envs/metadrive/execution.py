@@ -13,14 +13,13 @@ from eco_planner.envs.array_types import (
     ExecutionScalarArray,
     ExecutionStateArray,
     TrajectoryArray,
-    WorldAngularVelocityArray,
     WorldHeadingArray,
     WorldPointArray,
     WorldVectorArray,
-    WorldVelocityArray,
 )
 from eco_planner.envs.contracts import ExecutionMode
 from eco_planner.envs.domain.traffic import TrafficFrame
+from eco_planner.envs.domain.trajectory import WorldTrajectory
 from eco_planner.envs.geometry import (
     local_points_to_world,
     rear_axle_position,
@@ -78,14 +77,6 @@ class TrajectoryExecutionRecord:
         default_factory=lambda: np.empty(0, dtype=np.float64)
     )
     substep_reward_audits: tuple[RewardAudit, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class WorldTrajectory:
-    centers: WorldPointArray
-    headings: WorldHeadingArray
-    velocities: WorldVelocityArray
-    angular_velocities: WorldAngularVelocityArray
 
 
 @dataclass(slots=True)

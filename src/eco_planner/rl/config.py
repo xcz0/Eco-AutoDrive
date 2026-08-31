@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -15,6 +15,7 @@ from pydantic import (
     model_validator,
 )
 
+from eco_planner.configuration import resolve_config_mapping
 from eco_planner.envs.metadrive.reward import (
     MetaDriveBuiltinRewardConfig,
     RewardProfileConfig,
@@ -158,7 +159,7 @@ class TrainingJobConfig(_StrictModel):
 
 
 def parse_rollout_config(config: DictConfig) -> RolloutJobConfig:
-    raw = dict(OmegaConf.to_container(config, resolve=True, throw_on_missing=True))
+    raw = resolve_config_mapping(config)
     guidance = parse_guidance_config(config["guidance"])
     if not isinstance(guidance, OrthogonalPolicyGuidanceConfig):
         raise ValueError("rollout requires guidance=orthogonal_policy")
@@ -169,7 +170,7 @@ def parse_rollout_config(config: DictConfig) -> RolloutJobConfig:
 
 
 def parse_training_config(config: DictConfig) -> TrainingJobConfig:
-    raw = dict(OmegaConf.to_container(config, resolve=True, throw_on_missing=True))
+    raw = resolve_config_mapping(config)
     guidance = parse_guidance_config(config["guidance"])
     if not isinstance(guidance, OrthogonalPolicyGuidanceConfig):
         raise ValueError("training requires guidance=orthogonal_policy")

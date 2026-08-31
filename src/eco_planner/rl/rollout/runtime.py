@@ -7,17 +7,19 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import Literal, TypeVar
+from typing import Literal, TypeVar, cast
 
 import numpy as np
 import torch
 from lightning.fabric import Fabric
 from tensordict import TensorDict, TensorDictBase
 
+from eco_planner.envs.array_types import BatchObservation
 from eco_planner.models import (
     CheckpointLoadReport,
     OfficialDiffusionPlannerConfig,
     OrthogonalPolicyGuidanceConfig,
+    PretrainedDiffusionPlanner,
     SamplerConfig,
     SamplerReport,
     load_official_diffusion_planner,
@@ -198,10 +200,12 @@ class BatchRolloutDecision:
         if decision is None:
             decision = RolloutDecision(
                 HostExecutionResult(self.ego_trajectories[index : index + 1]),
-                lambda: self._resolve_audit()[index : index + 1],
+                lambda: _slice_tensordict(self._resolve_audit(), slice(index, index + 1)),
                 diffusion_rng_state=self._diffusion_rng_states[index],
                 policy_rng_state=self._policy_rng_states[index],
-                training_decision=self._training_decision[index : index + 1],
+                training_decision=_slice_tensordict(
+                    self._training_decision, slice(index, index + 1)
+                ),
             )
             self._slots[index] = decision
         return decision
@@ -230,7 +234,7 @@ class FabricRolloutRuntime:
     def __init__(
         self,
         fabric: Fabric,
-        planner: torch.nn.Module,
+        planner: PretrainedDiffusionPlanner,
         policy: ExplorationPolicy,
         report: InferenceRuntimeReport,
         noise_seed: int,
@@ -296,7 +300,7 @@ class FabricRolloutRuntime:
 
     def decide(
         self,
-        observation: Mapping[str, torch.Tensor],
+        observation: BatchObservation | Mapping[str, torch.Tensor],
         diffusion_generator: torch.Generator,
         policy_generator: torch.Generator,
     ) -> RolloutDecision:
@@ -310,7 +314,7 @@ class FabricRolloutRuntime:
 
     def decide_batch(
         self,
-        observation: Mapping[str, torch.Tensor],
+        observation: BatchObservation | Mapping[str, torch.Tensor],
         diffusion_generators: Sequence[torch.Generator],
         policy_generators: Sequence[torch.Generator],
         *,
@@ -318,7 +322,7 @@ class FabricRolloutRuntime:
     ) -> BatchRolloutDecision:
         """Sample batched guidance actions with one independent RNG stream per slot."""
 
-        raw_observation = dict(observation)
+        raw_observation = cast(dict[str, torch.Tensor], dict(observation))
         batch = _observation_batch_size(raw_observation)
         _validate_slot_generators(diffusion_generators, batch, "diffusion_generators")
         _validate_slot_generators(policy_generators, batch, "policy_generators")
@@ -425,7 +429,7 @@ class FabricRolloutRuntime:
 
     def bootstrap_value(
         self,
-        observation: Mapping[str, torch.Tensor],
+        observation: BatchObservation | Mapping[str, torch.Tensor],
         diffusion_generator: torch.Generator,
     ) -> torch.Tensor:
         """Evaluate one old critic value through the shared batched runtime path."""
@@ -434,14 +438,14 @@ class FabricRolloutRuntime:
 
     def bootstrap_value_batch(
         self,
-        observation: Mapping[str, torch.Tensor],
+        observation: BatchObservation | Mapping[str, torch.Tensor],
         diffusion_generators: Sequence[torch.Generator],
         *,
         timings: list[RolloutPlannerTiming] | None = None,
     ) -> torch.Tensor:
         """Evaluate old critic values for a batch without sampling or executing actions."""
 
-        raw_observation = dict(observation)
+        raw_observation = cast(dict[str, torch.Tensor], dict(observation))
         batch = _observation_batch_size(raw_observation)
         _validate_slot_generators(diffusion_generators, batch, "diffusion_generators")
         profile = timings is not None
@@ -529,13 +533,14 @@ def create_fabric_rollout_runtime(
         )
     policy = ExplorationPolicy(policy_config)
     wrapped_planner = fabric.setup_module(planner)
+    planner = _unwrap_diffusion_planner(wrapped_planner)
     wrapped_policy = fabric.setup_module(policy)
     policy = _unwrap_exploration_policy(wrapped_policy)
     if report.world_size != 1:
         raise RuntimeError("rollout runtime requires Fabric world_size=1")
     return FabricRolloutRuntime(
         fabric,
-        wrapped_planner,
+        planner,
         policy,
         report,
         noise_seed=report.seed,
@@ -556,10 +561,26 @@ def _unwrap_exploration_policy(module: torch.nn.Module) -> ExplorationPolicy:
     return unwrapped
 
 
+def _unwrap_diffusion_planner(module: torch.nn.Module) -> PretrainedDiffusionPlanner:
+    if isinstance(module, PretrainedDiffusionPlanner):
+        return module
+    unwrapped = getattr(module, "module", None)
+    if not isinstance(unwrapped, PretrainedDiffusionPlanner):
+        raise TypeError("Fabric did not preserve the PretrainedDiffusionPlanner module")
+    return unwrapped
+
+
 def _validate_finite(tensors: Mapping[str, torch.Tensor]) -> None:
     for name, value in tensors.items():
         if value.dtype.is_floating_point and not torch.isfinite(value).all():
             raise RuntimeError(f"rollout host tensor {name!r} contains non-finite values")
+
+
+def _slice_tensordict(value: TensorDictBase, index: slice) -> TensorDictBase:
+    result = value[index]
+    if not isinstance(result, TensorDictBase):
+        raise TypeError("TensorDict slice must return a TensorDict")
+    return result
 
 
 def _validate_rollout_context(

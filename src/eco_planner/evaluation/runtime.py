@@ -15,6 +15,7 @@ from lightning.fabric import Fabric
 from tensordict import TensorDict, TensorDictBase
 from torch import nn
 
+from eco_planner.envs.array_types import BatchObservation
 from eco_planner.evaluation.config import EvaluationJobConfig
 from eco_planner.models import (
     CheckpointLoadReport,
@@ -138,7 +139,7 @@ class FabricInferenceRuntime:
 
     def infer(
         self,
-        observation: Mapping[str, torch.Tensor],
+        observation: BatchObservation | Mapping[str, torch.Tensor],
         generator: torch.Generator,
     ) -> InferenceDecision:
         """Run one planner pass through the shared batched inference path."""
@@ -147,7 +148,7 @@ class FabricInferenceRuntime:
 
     def infer_batch(
         self,
-        observation: Mapping[str, torch.Tensor],
+        observation: BatchObservation | Mapping[str, torch.Tensor],
         standard_normal_noise: torch.Tensor,
         transition_generators: Sequence[torch.Generator | None],
         *,
@@ -155,7 +156,7 @@ class FabricInferenceRuntime:
     ) -> InferenceDecision:
         """Run a batch with independently owned per-slot diffusion RNG streams."""
 
-        raw_observation = dict(observation)
+        raw_observation = cast(dict[str, torch.Tensor], dict(observation))
         batch = _validate_artifact_observation_fields(raw_observation, self.planner_config)
         config = self.planner_config
         expected_shape = (batch, 1 + config.predicted_neighbor_num, config.future_len, 4)
@@ -415,7 +416,13 @@ def configure_job_execution(config: EvaluationJobConfig) -> ExecutionReport:
     execution = config.evaluation.execution
     mode = execution.mode
     launcher = "basic" if mode == "serial" else "joblib"
-    workers = 1 if mode == "serial" else config.resources.evaluation_job_worker_count
+    if mode == "serial":
+        workers = 1
+    else:
+        resources = config.resources
+        if resources is None:
+            raise ValueError("parallel evaluation requires a resource profile")
+        workers = resources.evaluation_job_worker_count
     threads = execution.torch_threads_per_worker
 
     settings = resolve_runtime_settings(config.runtime)

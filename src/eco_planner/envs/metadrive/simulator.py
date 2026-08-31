@@ -172,7 +172,10 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         checkpoints = list(self.agent.navigation.checkpoints)
         if len(checkpoints) < 2:
             raise RuntimeError("MetaDrive navigation did not expose a complete route")
-        graph = self.current_map.road_network.graph
+        current_map = self.current_map
+        if current_map is None:
+            raise RuntimeError("MetaDrive current map is unavailable")
+        graph = current_map.road_network.graph
         lengths: list[float] = []
         for start, end in zip(checkpoints[:-1], checkpoints[1:], strict=True):
             lanes = graph.get(start, {}).get(end, [])
@@ -354,14 +357,16 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         if not has_speed_limit:
             raise RuntimeError("current route lane does not expose a configured speed limit")
         return RewardStepInput(
-            previous_position_xy_m=tuple(float(value) for value in self._previous_reward_position),
-            position_xy_m=tuple(float(value) for value in vehicle.position),
-            previous_velocity_xy_mps=tuple(
-                float(value) for value in self._previous_reward_velocity
+            previous_position_xy_m=_finite_pair(
+                self._previous_reward_position, "previous reward position"
             ),
-            velocity_xy_mps=tuple(float(value) for value in vehicle.velocity),
-            previous_acceleration_xy_mps2=tuple(
-                float(value) for value in self._previous_reward_acceleration
+            position_xy_m=_finite_pair(vehicle.position, "vehicle position"),
+            previous_velocity_xy_mps=_finite_pair(
+                self._previous_reward_velocity, "previous reward velocity"
+            ),
+            velocity_xy_mps=_finite_pair(vehicle.velocity, "vehicle velocity"),
+            previous_acceleration_xy_mps2=_finite_pair(
+                self._previous_reward_acceleration, "previous reward acceleration"
             ),
             heading_rad=float(vehicle.heading_theta),
             yaw_rate_radps=yaw_rate_radps,
@@ -402,10 +407,20 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
                     if name != "record_manager":
                         manager.step()
             physics_step = float(self.config["physics_world_step_size"])
-            self.engine.physics_world.dynamic_world.doPhysics(
+            dynamic_world = self.engine.physics_world.dynamic_world
+            if dynamic_world is None:
+                raise RuntimeError("MetaDrive dynamic physics world is unavailable")
+            dynamic_world.doPhysics(
                 physics_step * repeats,
                 repeats,
                 physics_step,
             )
         after_info = self.engine.after_step()
         return merge_dicts(after_info, before_info, allow_new_keys=True, without_copy=True)
+
+
+def _finite_pair(value: object, name: str) -> tuple[float, float]:
+    array = np.asarray(value, dtype=np.float64)
+    if array.shape != (2,) or not np.isfinite(array).all():
+        raise ValueError(f"{name} must be a finite 2D vector")
+    return float(array[0]), float(array[1])

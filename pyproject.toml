@@ -72,12 +72,10 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pyright]
 include = [
-    "src/eco_planner/envs/contracts.py",
-    "src/eco_planner/envs/domain",
-    "src/eco_planner/envs/observation",
-    "src/eco_planner/envs/runtime/slot.py",
+    "src/eco_planner/",
 ]
 exclude = ["third_party", "ref"]
+extraPaths = ["third_party/metadrive"]
 pythonVersion = "3.10"
 venvPath = "."
 venv = ".venv"

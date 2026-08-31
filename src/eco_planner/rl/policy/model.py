@@ -9,7 +9,7 @@ from typing import Literal
 import torch
 from tensordict import TensorDict, TensorDictBase
 from tensordict.nn import TensorDictModule
-from timm.layers import Mlp
+from timm.layers import Mlp  # pyright: ignore[reportPrivateImportUsage]
 from torch import nn
 from torch.nn import functional as F
 

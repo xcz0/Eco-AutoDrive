@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -402,10 +403,10 @@ def finalize_rollout_episode(
     bootstrap = tail_bootstrap_value.detach().to(device)
     set_training_transition_next_state_value(final_transition, bootstrap)
     final_transition["next", "done"] = _bool(True, device)
-    training = torch.cat(training_transitions, dim=0)
+    training = concatenate_tensordicts(training_transitions)
     return RolloutEpisode(
         training,
-        torch.cat(audit_transitions, dim=0),
+        concatenate_tensordicts(audit_transitions),
         tail_kind,
         bootstrap,
         reward_profile,
@@ -415,20 +416,21 @@ def finalize_rollout_episode(
 def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
     _validate_trajectory(trajectory, _TRAINING_KEYS, "PPO training")
     _validate_policy_context(trajectory, "PPO training")
-    if tuple(trajectory["guidance_action"].shape[1:]) != (2,):
+    guidance_action = _tensor(trajectory, "guidance_action")
+    if tuple(guidance_action.shape[1:]) != (2,):
         raise ValueError("PPO training guidance_action must have shape [T, 2]")
-    if torch.any((trajectory["guidance_action"] <= -1.0) | (trajectory["guidance_action"] >= 1.0)):
+    if torch.any((guidance_action <= -1.0) | (guidance_action >= 1.0)):
         raise ValueError("PPO training guidance_action must be strictly inside (-1, 1)")
     for key in ("old_joint_guidance_log_prob", "state_value", "reward"):
-        value = trajectory["next", key] if key == "reward" else trajectory[key]
+        value = _tensor(trajectory, ("next", key) if key == "reward" else key)
         if tuple(value.shape[1:]) != (1,):
             raise ValueError(f"PPO training {key} must have shape [T, 1]")
-    next_transition = trajectory["next"]
+    next_transition = _tensordict(trajectory, "next")
     missing = _NEXT_TRAINING_KEYS - set(next_transition.keys(include_nested=False))
     if missing:
         raise ValueError(f"PPO training next transition is missing fields: {sorted(missing)}")
     for key in ("done", "terminated", "truncated"):
-        value = next_transition[key]
+        value = _tensor(next_transition, key)
         if value.dtype != torch.bool or tuple(value.shape[1:]) != (1,):
             raise TypeError(f"PPO training next {key} must be bool with shape [T, 1]")
 
@@ -515,7 +517,7 @@ def _validate_trajectory(
 
 
 def _validate_policy_context(trajectory: TensorDictBase, contract: str) -> None:
-    context = ExplorationPolicyContext(**{key: trajectory[key] for key in _CONTEXT_KEYS})
+    context = ExplorationPolicyContext(**{key: _tensor(trajectory, key) for key in _CONTEXT_KEYS})
     if context.scene_tokens.shape[0] != trajectory.batch_size[0]:
         raise ValueError(f"{contract} policy context batch size must match trajectory")
 
@@ -530,11 +532,12 @@ def _validate_tail(trajectory: TensorDictBase, tail_kind: TailKind, value: torch
         or not torch.isfinite(value).all()
     ):
         raise ValueError("tail bootstrap value must be detached float32 with shape [1]")
-    next_transition = trajectory["next"]
-    if not bool(next_transition["done"][-1].item()) or torch.any(next_transition["done"][:-1]):
+    next_transition = _tensordict(trajectory, "next")
+    done = _tensor(next_transition, "done")
+    if not bool(done[-1].item()) or torch.any(done[:-1]):
         raise ValueError("PPO training next done must mark only the final GAE boundary")
-    terminated = bool(next_transition["terminated"][-1].item())
-    truncated = bool(next_transition["truncated"][-1].item())
+    terminated = bool(_tensor(next_transition, "terminated")[-1].item())
+    truncated = bool(_tensor(next_transition, "truncated")[-1].item())
     if tail_kind == "terminated":
         if not terminated or not torch.equal(value, torch.zeros_like(value)):
             raise ValueError("terminated tail must have a zero bootstrap value")
@@ -562,3 +565,27 @@ def _tensordict_device(trajectory: TensorDictBase) -> torch.device:
         if isinstance(value, torch.Tensor):
             return value.device
     raise ValueError("TensorDict must contain at least one tensor")
+
+
+def concatenate_tensordicts(values: Sequence[TensorDictBase], dim: int = 0) -> TensorDictBase:
+    """Concatenate TensorDicts through their registered torch dispatch."""
+
+    # TensorDict registers torch.cat at runtime, but torch's stubs only admit Tensor here.
+    result = torch.cat(values, dim=dim)  # pyright: ignore[reportCallIssue, reportArgumentType]
+    if not isinstance(result, TensorDictBase):
+        raise TypeError("TensorDict concatenation must return a TensorDict")
+    return result
+
+
+def _tensor(trajectory: TensorDictBase, key: str | tuple[str, ...]) -> torch.Tensor:
+    value = trajectory.get(key)
+    if not isinstance(value, torch.Tensor):
+        raise TypeError(f"TensorDict field {key!r} must be a tensor")
+    return value
+
+
+def _tensordict(trajectory: TensorDictBase, key: str | tuple[str, ...]) -> TensorDictBase:
+    value = trajectory.get(key)
+    if not isinstance(value, TensorDictBase):
+        raise TypeError(f"TensorDict field {key!r} must be a nested TensorDict")
+    return value
