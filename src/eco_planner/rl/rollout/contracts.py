@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
 import torch
@@ -202,8 +202,6 @@ class RolloutEpisodeBuilder:
         return not self._training and not self._audit
 
     def link_next_state_value(self, value: torch.Tensor) -> None:
-        if not self._training:
-            raise RuntimeError("cannot link a next value before collecting a transition")
         set_training_transition_next_state_value(self._training[-1], value)
 
     def append(
@@ -229,14 +227,12 @@ class RolloutEpisodeBuilder:
         self._audit.append(build_rollout_audit(decision_audit, execution, provenance))
 
     def finish(self, tail_kind: TailKind, tail_bootstrap_value: torch.Tensor) -> RolloutEpisode:
-        if self._reward_profile is None:
-            raise ValueError("rollout episode must contain at least one transition")
         return finalize_rollout_episode(
             self._training,
             self._audit,
             tail_kind,
             tail_bootstrap_value,
-            self._reward_profile,
+            cast(RewardProfileName, self._reward_profile),
         )
 
 
@@ -572,20 +568,12 @@ def concatenate_tensordicts(values: Sequence[TensorDictBase], dim: int = 0) -> T
 
     # TensorDict registers torch.cat at runtime, but torch's stubs only admit Tensor here.
     result = torch.cat(values, dim=dim)  # pyright: ignore[reportCallIssue, reportArgumentType]
-    if not isinstance(result, TensorDictBase):
-        raise TypeError("TensorDict concatenation must return a TensorDict")
-    return result
+    return cast(TensorDictBase, result)
 
 
 def _tensor(trajectory: TensorDictBase, key: str | tuple[str, ...]) -> torch.Tensor:
-    value = trajectory.get(key)
-    if not isinstance(value, torch.Tensor):
-        raise TypeError(f"TensorDict field {key!r} must be a tensor")
-    return value
+    return cast(torch.Tensor, trajectory[key])
 
 
 def _tensordict(trajectory: TensorDictBase, key: str | tuple[str, ...]) -> TensorDictBase:
-    value = trajectory.get(key)
-    if not isinstance(value, TensorDictBase):
-        raise TypeError(f"TensorDict field {key!r} must be a nested TensorDict")
-    return value
+    return cast(TensorDictBase, trajectory[key])

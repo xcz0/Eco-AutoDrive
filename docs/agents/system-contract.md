@@ -38,6 +38,8 @@
 
 Hydra/OmegaConf 只存在于 CLI 配置边界。入口必须通过 `parse_evaluation_config` 将完整配置解析为严格且字段冻结的 `EvaluationJobConfig`；runner、episode、runtime 和 execution 组件只接收该类型或其子模型，不读取 `DictConfig`。`env` 子树是传给 MetaDrive 的开放第三方配置，保留为普通映射；本项目消费的 horizon、traffic 和 evaluation 字段仍必须由顶层模型交叉校验。
 
+配置、持久化文件以及 MetaDrive、TorchRL、Diffusers、Fabric 等第三方返回值只在首次进入项目 typed domain 的边界校验和转换一次；下游受控数据流依赖明确类型、生产者测试与本节规定的 shape/单位契约，不为静态类型收窄重复执行 `isinstance` 或 Optional 状态检查。有限性、随机流、冻结参数及其他会改变实验语义的显式校验不受此规则影响。
+
 仿真真实状态、模型观测、模型预测和能耗记录必须分别保存。模型预测不得覆盖仿真状态，不同能耗指标不得静默互换或混合累计。业务代码不得从 `ref/` 导入运行时实现。
 
 推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。evaluation 与 policy rollout 共用 `eco_planner.runtime` 中的 runtime config、Fabric 解析/seed 和 CUDA→host transfer contract；MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。Serial evaluation、single-environment rollout 与 vector execution 共用 `MetaDriveEnvSlot` 的 reset、stationary warmup、observe 和 trajectory step 生命周期；slot 持有一个 `TrajectoryMetaDriveEnv`、严格 traffic/no-traffic adapter、traffic history 和 map cache，evaluation artifact 与 RL transition 语义仍由调用方拥有。`TorchRLMetaDriveEnv` 以 CPU TensorDict 暴露单一 slot 的 raw observation、`float32 [80,4]` action、reward 与 done/terminated/truncated specs，并复用而不重定义 slot 的 warmup、route、audit 与 execution 语义。

@@ -158,15 +158,11 @@ class ExplorationPolicy(nn.Module):
         concentrations = F.softplus(raw_parameters) + self.config.minimum_concentration
         parameters = AffineBetaParameters(alpha=concentrations[..., 0], beta=concentrations[..., 1])
         value = self.value_head(fused).squeeze(-1)
-        if tuple(value.shape) != (context.reference_trajectory.shape[0],):
-            raise RuntimeError("exploration policy value must have shape [B]")
         return parameters.alpha, parameters.beta, value.unsqueeze(-1)
 
     def forward_tensordict(self, tensordict: TensorDictBase) -> TensorDictBase:
         """Write actor concentrations and critic value into a policy TensorDict."""
 
-        if not isinstance(tensordict, TensorDictBase):
-            raise TypeError("policy TensorDict input must be a TensorDictBase")
         alpha, beta, state_value = self.forward_tensors(
             *[tensordict[key] for key in POLICY_CONTEXT_KEYS]
         )
@@ -187,8 +183,6 @@ class ExplorationPolicy(nn.Module):
     def output_from_tensordict(self, tensordict: TensorDictBase) -> ExplorationPolicyOutput:
         """Adapt the common TensorDict outputs for explicit-generator collection sampling."""
 
-        if not isinstance(tensordict, TensorDictBase):
-            raise TypeError("policy TensorDict output must be a TensorDictBase")
         return self.output_from_tensors(
             tensordict["alpha"], tensordict["beta"], tensordict["state_value"]
         )
@@ -198,8 +192,6 @@ class ExplorationPolicy(nn.Module):
     ) -> ExplorationPolicyOutput:
         """Adapt TensorDict actor/value fields to the typed collection output."""
 
-        if tuple(state_value.shape) != (alpha.shape[0], 1):
-            raise RuntimeError("policy TensorDict state_value must have shape [B, 1]")
         return ExplorationPolicyOutput(
             AffineBeta(alpha, beta, validate_args=False), state_value.squeeze(-1)
         )
@@ -288,15 +280,6 @@ def validate_exploration_policy_context(
 def _validate_context_structure(
     context: ExplorationPolicyContext, config: ExplorationPolicyConfig
 ) -> None:
-    if not isinstance(context, ExplorationPolicyContext):
-        raise TypeError("policy context must be an ExplorationPolicyContext")
-    tensors = {
-        "scene_tokens": context.scene_tokens,
-        "navigation_tokens": context.navigation_tokens,
-        "reference_trajectory": context.reference_trajectory,
-    }
-    if any(not isinstance(value, torch.Tensor) for value in tensors.values()):
-        raise TypeError("policy context features must be torch.Tensor values")
     scene = context.scene_tokens
     navigation = context.navigation_tokens
     reference = context.reference_trajectory
@@ -327,8 +310,8 @@ def _validate_context_structure(
         ),
     }
     for name, (mask, shape) in masks.items():
-        if not isinstance(mask, torch.Tensor) or mask.dtype != torch.bool:
-            raise TypeError(f"{name} must be a bool torch.Tensor")
+        if mask.dtype != torch.bool:
+            raise TypeError(f"{name} must be a bool tensor")
         if tuple(mask.shape) != shape:
             raise ValueError(f"{name} has an invalid shape")
         if mask.device != scene.device:

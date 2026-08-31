@@ -98,10 +98,6 @@ class PPOUpdater:
     """Own TorchRL ClipPPOLoss plus Adam/cosine update and resume state."""
 
     def __init__(self, policy: ExplorationPolicy, config: PPOConfig) -> None:
-        if not isinstance(policy, ExplorationPolicy):
-            raise TypeError("PPO updater policy must be ExplorationPolicy")
-        if not isinstance(config, PPOConfig):
-            raise TypeError("PPO updater config must be PPOConfig")
         parameters = tuple(policy.parameters())
         if not parameters or any(not parameter.requires_grad for parameter in parameters):
             raise ValueError("all ExplorationPolicy parameters must be trainable")
@@ -310,8 +306,6 @@ def _build_torchrl_policy_adapters(
 
 
 def _batch_trajectories(episodes: Sequence[RolloutEpisode], config: PPOConfig) -> TensorDictBase:
-    if isinstance(episodes, (str, bytes)) or not isinstance(episodes, Sequence):
-        raise TypeError("PPO update episodes must be a sequence")
     episode_tuple = tuple(episodes)
     if not episode_tuple:
         raise ValueError("PPO update requires at least one rollout episode")
@@ -338,7 +332,7 @@ def _normalize_full_batch_advantage(batch: TensorDictBase) -> None:
 
 
 def _require_finite_scalar(value: torch.Tensor, name: str) -> None:
-    if not isinstance(value, torch.Tensor) or value.numel() != 1:
+    if value.numel() != 1:
         raise ValueError(f"{name} must be a scalar tensor")
     finite = torch.isfinite(value).all()
     if value.device.type == "cpu":

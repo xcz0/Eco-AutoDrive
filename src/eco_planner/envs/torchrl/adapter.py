@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from time import perf_counter
+from typing import cast
 
 import numpy as np
 import torch
@@ -32,8 +33,6 @@ class TorchRLMetaDriveEnv(EnvBase):
         seed: int,
         observation_spec: PlannerObservationSpec,
     ) -> None:
-        if not isinstance(observation_spec, PlannerObservationSpec):
-            raise TypeError("observation_spec must be a PlannerObservationSpec")
         if type(seed) is not int or seed < 0:
             raise ValueError("seed must be a non-negative integer")
         super().__init__(device=_CPU_DEVICE, batch_size=torch.Size())
@@ -125,33 +124,25 @@ class TorchRLMetaDriveEnv(EnvBase):
     def last_reset(self) -> EnvSlotReset:
         """Return metadata emitted by the latest slot reset."""
 
-        if self._last_reset is None:
-            raise RuntimeError("TorchRL MetaDrive environment has not reset")
-        return self._last_reset
+        return cast(EnvSlotReset, self._last_reset)
 
     @property
     def last_initial_state(self) -> np.ndarray:
         """Return the post-warmup state captured by the latest reset."""
 
-        if self._last_initial_state is None:
-            raise RuntimeError("TorchRL MetaDrive environment has not reset")
-        return self._last_initial_state
+        return cast(np.ndarray, self._last_initial_state)
 
     @property
     def last_step(self) -> EnvSlotStep:
         """Return the domain step result produced by the latest transition."""
 
-        if self._last_step is None:
-            raise RuntimeError("TorchRL MetaDrive environment has not stepped")
-        return self._last_step
+        return cast(EnvSlotStep, self._last_step)
 
     @property
     def last_execution(self) -> TrajectoryExecutionRecord:
         """Return the immutable execution record produced by the latest step."""
 
-        if self._last_execution is None:
-            raise RuntimeError("TorchRL MetaDrive environment has not stepped")
-        return self._last_execution
+        return cast(TrajectoryExecutionRecord, self._last_execution)
 
     @property
     def last_warmup_executions(self) -> tuple[TrajectoryExecutionRecord, ...]:

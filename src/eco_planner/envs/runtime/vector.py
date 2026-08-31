@@ -364,8 +364,6 @@ class VectorMetaDriveEnv:
         indices = list(self._active_scenario_indices)
         expected: dict[int, VectorEnvScenario] = {}
         for slot, scenario in zip(slots, scenarios, strict=True):
-            if not isinstance(scenario, VectorEnvScenario):
-                raise TypeError("scenarios must contain only VectorEnvScenario values")
             try:
                 index = self._scenario_indices[scenario]
             except KeyError as error:
@@ -543,8 +541,6 @@ def _validate_configuration(
         raise ValueError("VectorMetaDriveEnv requires at least one environment slot")
     if mode not in {"traffic", "no_traffic"}:
         raise ValueError("mode must be either 'traffic' or 'no_traffic'")
-    if not isinstance(observation_spec, PlannerObservationSpec):
-        raise TypeError("observation_spec must be a PlannerObservationSpec")
     if type(map_query_radius_m) not in {int, float} or map_query_radius_m <= 0.0:
         raise ValueError("map_query_radius_m must be a positive real scalar")
     if type(history_warmup_steps) is not int or history_warmup_steps < 0:

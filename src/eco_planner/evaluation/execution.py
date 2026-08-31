@@ -5,6 +5,7 @@ from __future__ import annotations
 import traceback
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import torch
@@ -40,10 +41,6 @@ class EpisodeFailure(RuntimeError):
     """A classified episode failure that may be persisted before continuing the job."""
 
     def __init__(self, phase: FailurePhase, cause: Exception) -> None:
-        if not isinstance(phase, FailurePhase):
-            raise TypeError("episode failure phase must be a FailurePhase")
-        if not isinstance(cause, Exception):
-            raise TypeError("episode failure cause must be an Exception")
         self.phase = phase
         self.cause = cause
         super().__init__(f"{phase.value}: {cause}")
@@ -428,9 +425,10 @@ def run_vector_scenarios(
                 slot.anchor = _state_from_execution(step.execution)
                 next_active.append(slot_index)
             active = next_active
-    if any(summary is None for summary in summaries):
-        raise RuntimeError("vector evaluation ended with an unfinished scenario")
-    return tuple(summary for summary in summaries if summary is not None)
+    return cast(
+        tuple[CompletedEpisodeSummary | FailedEpisodeSummary, ...],
+        tuple(summaries),
+    )
 
 
 def _initialize_vector_slot(
@@ -481,8 +479,6 @@ def _initialize_vector_slot(
 
 def _state_from_execution(execution: TrajectoryExecutionRecord) -> np.ndarray:
     state = execution.substep_states[-1]
-    if state.shape != (7,):
-        raise RuntimeError("trajectory execution did not return a [7] final state")
     return np.asarray(state, dtype=np.float64).copy()
 
 
@@ -491,13 +487,8 @@ def _has_traffic(audit: TrafficObservationAudit | None) -> bool:
 
 
 def _state_observation(state: _EpisodeState) -> SingleObservation:
-    if state.observation is None:
-        raise RuntimeError("active vector evaluation slot is missing its observation")
-    return state.observation
+    return cast(SingleObservation, state.observation)
 
 
 def _audit_slot(audit: TensorDictBase, index: int) -> TensorDictBase:
-    result = audit[index : index + 1]
-    if not isinstance(result, TensorDictBase):
-        raise TypeError("inference audit slice must remain a TensorDict")
-    return result
+    return cast(TensorDictBase, audit[index : index + 1])

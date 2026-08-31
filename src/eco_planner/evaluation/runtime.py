@@ -194,8 +194,6 @@ class FabricInferenceRuntime:
                 result = self._planner(
                     device_observation, standard_normal_noise, transition_generators
                 )
-        if not isinstance(result, PlannerInferenceResult):
-            raise TypeError("Diffusion Planner forward must return PlannerInferenceResult")
         _synchronize_if_cuda(self.device, profile)
         execution_s = perf_counter() - execution_started if profile else 0.0
         prediction = result.prediction.detach()

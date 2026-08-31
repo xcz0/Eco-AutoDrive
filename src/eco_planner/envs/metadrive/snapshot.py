@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol, cast, runtime_checkable
+from typing import Protocol, cast
 
 import numpy as np
 from metadrive.component.static_object.traffic_object import (
@@ -37,17 +37,17 @@ class _TrafficEgo(Protocol):
     heading_theta: float
 
 
-@runtime_checkable
 class _TrafficEnvironment(Protocol):
-    agent: _TrafficEgo
-    engine: _TrafficEngine
+    @property
+    def agent(self) -> _TrafficEgo: ...
+
+    @property
+    def engine(self) -> _TrafficEngine: ...
 
 
-def capture_traffic_frame(env: object) -> TrafficFrame:
+def capture_traffic_frame(env: _TrafficEnvironment) -> TrafficFrame:
     """Capture and validate one immutable domain frame from reset MetaDrive state."""
 
-    if not isinstance(env, _TrafficEnvironment):
-        raise TypeError("traffic snapshot requires a reset MetaDrive environment")
     ego = env.agent
     engine = env.engine
     rear_wheelbase = _positive_scalar(ego.REAR_WHEELBASE, "rear wheelbase", "ego")

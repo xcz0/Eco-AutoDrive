@@ -146,8 +146,6 @@ class AffineBeta(TransformedDistribution):
 def _validate_parameters(parameters: AffineBetaParameters) -> None:
     alpha = parameters.alpha
     beta = parameters.beta
-    if not isinstance(alpha, torch.Tensor) or not isinstance(beta, torch.Tensor):
-        raise TypeError("Beta parameters must be torch.Tensor values")
     if alpha.ndim != 2 or tuple(alpha.shape[1:]) != (2,) or beta.shape != alpha.shape:
         raise ValueError("Beta alpha and beta must both have shape [B, 2]")
     if alpha.dtype != beta.dtype or alpha.device != beta.device:
@@ -173,8 +171,6 @@ def _validate_guidance_action(action: torch.Tensor, expected: torch.Tensor) -> N
 
 
 def _validate_action_tensor(action: torch.Tensor, expected: torch.Tensor, name: str) -> None:
-    if not isinstance(action, torch.Tensor):
-        raise TypeError(f"{name} must be a torch.Tensor")
     if action.shape != expected.shape:
         raise ValueError(f"{name} must have shape [B, 2]")
     if action.dtype != expected.dtype or action.device != expected.device:

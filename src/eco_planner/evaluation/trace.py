@@ -142,13 +142,6 @@ class EpisodeTraceRecorder:
         target_headings = execution.target_headings
         position_errors_m = execution.position_errors_m
         heading_errors_rad = execution.heading_errors_rad
-        if target_centers.shape != (substep_count, 2):
-            raise RuntimeError("environment returned invalid trajectory target centers")
-        expected_shape = (substep_count,)
-        if target_headings.shape != expected_shape:
-            raise RuntimeError("environment returned invalid trajectory target headings")
-        if position_errors_m.shape != expected_shape or heading_errors_rad.shape != expected_shape:
-            raise RuntimeError("environment returned invalid trajectory execution errors")
 
         if plan_index != self._plan_cycles:
             raise ValueError("planning indices must be contiguous")
@@ -161,7 +154,7 @@ class EpisodeTraceRecorder:
         anchor_array = np.asarray(anchor, dtype=np.float64)
         if anchor_array.shape != (7,) or not np.isfinite(anchor_array).all():
             raise ValueError("planning anchor must be a finite [7] array")
-        if not isinstance(inference, TensorDictBase) or inference.batch_size != torch.Size([1]):
+        if inference.batch_size != torch.Size([1]):
             raise TypeError("inference must be a batch-one TensorDict")
         cycle = self._plan_cycles
         self._arrays["planning_anchors"][cycle] = anchor_array
@@ -276,11 +269,7 @@ def _execution_arrays(execution: TrajectoryExecutionRecord) -> dict[str, np.ndar
     }
 
 
-def _batch_one(value: torch.Tensor, name: str) -> np.ndarray:
-    if not isinstance(value, torch.Tensor) or value.ndim < 1 or value.shape[0] != 1:
-        raise ValueError(f"host inference {name} must be a batch-one tensor")
-    if value.device.type != "cpu":
-        raise ValueError(f"host inference {name} must remain on CPU")
+def _batch_one(value: torch.Tensor, _name: str) -> np.ndarray:
     return value.numpy()[0]
 
 
@@ -311,15 +300,9 @@ def _raw_observation_for_trace(
     observation: SingleObservation,
 ) -> dict[str, np.ndarray]:
     raw: dict[str, np.ndarray] = {}
-    for name, (shape, dtype) in _OBSERVATION_ARRAYS.items():
-        value = observation.get(name)
-        if not isinstance(value, torch.Tensor) or tuple(value.shape) != shape:
-            raise ValueError(f"raw observation {name} has an invalid single-observation shape")
-        if value.device.type != "cpu":
-            raise ValueError(f"raw observation {name} must remain on CPU")
+    for name in _OBSERVATION_ARRAYS:
+        value = observation[name]
         array = value.detach().numpy()
-        if array.dtype != dtype:
-            raise TypeError(f"raw observation {name} has an invalid dtype")
         raw[name] = array
     return raw
 

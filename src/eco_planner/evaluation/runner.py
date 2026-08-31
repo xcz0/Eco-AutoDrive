@@ -27,8 +27,6 @@ def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
     """Run all configured scenarios and write reproducible artifacts."""
 
     started = perf_counter()
-    if not isinstance(config, EvaluationJobConfig):
-        raise TypeError("config must be an EvaluationJobConfig")
     execution = configure_job_execution(config)
     scenarios = config.scenarios
     args_path = Path(to_absolute_path(config.model.args_path))

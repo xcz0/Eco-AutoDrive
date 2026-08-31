@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import gymnasium as gym
 import numpy as np
@@ -152,9 +152,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
     def initial_traffic_frame(self) -> TrafficFrame:
         """Return the traffic snapshot captured immediately after the latest reset."""
 
-        if self._initial_traffic_frame is None:
-            raise RuntimeError("initial traffic frame is unavailable before reset")
-        return self._initial_traffic_frame
+        return cast(TrafficFrame, self._initial_traffic_frame)
 
     @property
     def route_completion(self) -> float:
@@ -172,9 +170,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         checkpoints = list(self.agent.navigation.checkpoints)
         if len(checkpoints) < 2:
             raise RuntimeError("MetaDrive navigation did not expose a complete route")
-        current_map = self.current_map
-        if current_map is None:
-            raise RuntimeError("MetaDrive current map is unavailable")
+        current_map = cast(Any, self.current_map)
         graph = current_map.road_network.graph
         lengths: list[float] = []
         for start, end in zip(checkpoints[:-1], checkpoints[1:], strict=True):
@@ -214,8 +210,6 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
 
     def step(self, trajectory: TrajectoryArray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
         rear_wheelbase = self.agent.REAR_WHEELBASE
-        if rear_wheelbase is None:
-            raise RuntimeError("controlled vehicle does not define REAR_WHEELBASE")
         world_trajectory = to_world_trajectory(
             trajectory,
             center_position=np.asarray(self.agent.position, dtype=np.float64),
@@ -407,9 +401,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
                     if name != "record_manager":
                         manager.step()
             physics_step = float(self.config["physics_world_step_size"])
-            dynamic_world = self.engine.physics_world.dynamic_world
-            if dynamic_world is None:
-                raise RuntimeError("MetaDrive dynamic physics world is unavailable")
+            dynamic_world = cast(Any, self.engine.physics_world.dynamic_world)
             dynamic_world.doPhysics(
                 physics_step * repeats,
                 repeats,

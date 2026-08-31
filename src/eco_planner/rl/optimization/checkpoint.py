@@ -34,7 +34,7 @@ def save_exploration_policy_checkpoint(
 ) -> PolicyCheckpointReport:
     """Save only the trainable Exploration Policy state dict."""
 
-    _validate_checkpoint_target(path, policy)
+    _validate_policy_state(policy)
     state_dict = {name: value.detach().cpu().clone() for name, value in policy.state_dict().items()}
     torch.save({"format_version": _FORMAT_VERSION, "policy_state_dict": state_dict}, path)
     return _report(state_dict)
@@ -45,8 +45,6 @@ def load_exploration_policy_checkpoint(
 ) -> PolicyCheckpointReport:
     """Strictly load a policy-only checkpoint into the supplied architecture."""
 
-    if not isinstance(path, Path):
-        raise TypeError("policy checkpoint path must be pathlib.Path")
     _validate_policy_state(policy)
     checkpoint: Any = torch.load(path, map_location="cpu", weights_only=True)
     if not isinstance(checkpoint, dict) or set(checkpoint) != {
@@ -84,10 +82,6 @@ def save_training_checkpoint(
 ) -> TrainingCheckpointReport:
     """Save Fabric-managed model, optimizer, scheduler, loop, and RNG state."""
 
-    if not isinstance(path, Path):
-        raise TypeError("training checkpoint path must be pathlib.Path")
-    if not isinstance(fabric, Fabric):
-        raise TypeError("training checkpoint requires Fabric")
     completed_updates = loop_state.get("completed_updates")
     if type(completed_updates) is not int or completed_updates < 0:
         raise ValueError("loop_state.completed_updates must be a non-negative integer")
@@ -115,10 +109,8 @@ def load_training_checkpoint(
 ) -> tuple[TrainingCheckpointReport, dict[str, object]]:
     """Restore a state created by :func:`save_training_checkpoint`."""
 
-    if not isinstance(path, Path) or not path.is_file():
+    if not path.is_file():
         raise ValueError("training checkpoint path must name an existing file")
-    if not isinstance(fabric, Fabric):
-        raise TypeError("training checkpoint requires Fabric")
     trainer_state: dict[str, object] = {
         "loop_state": {},
         "ppo": updater.checkpoint_state(),
@@ -161,15 +153,7 @@ def load_training_checkpoint(
     ), loop_state
 
 
-def _validate_checkpoint_target(path: Path, policy: ExplorationPolicy) -> None:
-    if not isinstance(path, Path):
-        raise TypeError("policy checkpoint path must be pathlib.Path")
-    _validate_policy_state(policy)
-
-
 def _validate_policy_state(policy: ExplorationPolicy) -> None:
-    if not isinstance(policy, ExplorationPolicy):
-        raise TypeError("policy checkpoint requires ExplorationPolicy")
     parameters = dict(policy.named_parameters())
     if not parameters or any(not parameter.requires_grad for parameter in parameters.values()):
         raise ValueError("policy checkpoint requires only trainable policy parameters")

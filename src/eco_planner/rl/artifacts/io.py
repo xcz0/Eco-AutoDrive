@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 import torch
@@ -123,8 +123,6 @@ class TrainingRunSummary(_ArtifactModel):
 def policy_state_hash(policy: ExplorationPolicy) -> str:
     """Hash one policy state dict in stable name order."""
 
-    if not isinstance(policy, ExplorationPolicy):
-        raise TypeError("policy hash requires ExplorationPolicy")
     digest = hashlib.sha256()
     for name, value in sorted(policy.state_dict().items()):
         host = value.detach().to(device="cpu").contiguous()
@@ -269,7 +267,4 @@ def _trajectory_arrays(episode: RolloutEpisode) -> dict[str, np.ndarray]:
 
 
 def _tensor(trajectory: TensorDictBase, key: str) -> torch.Tensor:
-    value = trajectory.get(key)
-    if not isinstance(value, torch.Tensor):
-        raise TypeError(f"TensorDict field {key!r} must be a tensor")
-    return value
+    return cast(torch.Tensor, trajectory[key])

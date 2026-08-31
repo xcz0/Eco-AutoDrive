@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -41,10 +41,6 @@ _SEED_NAMESPACE = 6_002_024
 def train(config: TrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
     """Run a configured closed-loop PPO job and persist policies and research artifacts."""
 
-    if not isinstance(config, TrainingJobConfig):
-        raise TypeError("config must be TrainingJobConfig")
-    if not isinstance(output_dir, Path):
-        raise TypeError("output_dir must be pathlib.Path")
     output_dir.mkdir(parents=True, exist_ok=True)
     if (output_dir / "summary.json").exists():
         raise FileExistsError(f"training output already contains a summary: {output_dir}")
@@ -160,8 +156,8 @@ def train(config: TrainingJobConfig, output_dir: Path) -> TrainingRunSummary:
                 ),
             )
 
-    if probe_contexts is None or probe_before is None:
-        raise RuntimeError("training did not capture fixed probe contexts")
+    probe_contexts = cast(tuple[ExplorationPolicyContext, ...], probe_contexts)
+    probe_before = cast(PolicyProbeSummary, probe_before)
     expected_total = config.training.update_count * config.ppo.batch_size
     if total_transitions != expected_total:
         raise RuntimeError(

@@ -331,8 +331,7 @@ class FabricRolloutRuntime:
         moved, h2d_timing = _profile_call(
             self.device, profile, lambda: self._fabric.to_device(raw_observation)
         )
-        if not isinstance(moved, dict):
-            raise TypeError("Fabric must move rollout observations as a dictionary")
+        moved = _fabric_observation(moved)
         diffusion_rng_states = tuple(_rng_state(generator) for generator in diffusion_generators)
         policy_rng_states = tuple(_rng_state(generator) for generator in policy_generators)
         noise, noise_timing = _profile_call(
@@ -370,8 +369,6 @@ class FabricRolloutRuntime:
                 profile,
                 lambda: self._planner.complete_policy_guidance(prepared, action.guidance_action),
             )
-        if result.guidance_action is None:
-            raise RuntimeError("policy-guided planner did not return its guidance action")
         training_decision = build_training_decision(
             policy_context,
             action.guidance_action,
@@ -452,8 +449,7 @@ class FabricRolloutRuntime:
         moved, h2d_timing = _profile_call(
             self.device, profile, lambda: self._fabric.to_device(raw_observation)
         )
-        if not isinstance(moved, dict):
-            raise TypeError("Fabric must move rollout observations as a dictionary")
+        moved = _fabric_observation(moved)
         noise, noise_timing = _profile_call(
             self.device,
             profile,
@@ -576,11 +572,19 @@ def _validate_finite(tensors: Mapping[str, torch.Tensor]) -> None:
             raise RuntimeError(f"rollout host tensor {name!r} contains non-finite values")
 
 
+def _fabric_observation(value: object) -> dict[str, torch.Tensor]:
+    """Validate one Fabric observation transfer at the third-party boundary."""
+
+    if not isinstance(value, dict) or not all(
+        isinstance(name, str) and isinstance(tensor, torch.Tensor)
+        for name, tensor in value.items()
+    ):
+        raise TypeError("Fabric must move rollout observations as a string-to-tensor mapping")
+    return cast(dict[str, torch.Tensor], value)
+
+
 def _slice_tensordict(value: TensorDictBase, index: slice) -> TensorDictBase:
-    result = value[index]
-    if not isinstance(result, TensorDictBase):
-        raise TypeError("TensorDict slice must return a TensorDict")
-    return result
+    return cast(TensorDictBase, value[index])
 
 
 def _validate_rollout_context(
@@ -601,8 +605,6 @@ def _observation_batch_size(observation: Mapping[str, torch.Tensor]) -> int:
 def _validate_slot_generators(generators: Sequence[torch.Generator], batch: int, name: str) -> None:
     if len(generators) != batch:
         raise ValueError(f"{name} must contain one generator per batch item")
-    if any(not isinstance(generator, torch.Generator) for generator in generators):
-        raise TypeError(f"{name} must contain only torch.Generator values")
 
 
 def _slot_noise(

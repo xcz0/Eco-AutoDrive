@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -150,9 +150,7 @@ class ProgrammaticLaneSpeedAdapter:
             get_all_lanes = getattr(block_network, "get_all_lanes", None)
             if not callable(get_all_lanes):
                 raise RuntimeError("programmatic map block does not expose its lane network")
-            block_lanes = get_all_lanes()
-            if not isinstance(block_lanes, Iterable):
-                raise RuntimeError("programmatic map block lanes must be iterable")
+            block_lanes = cast(Iterable[object], get_all_lanes())
             for lane in block_lanes:
                 lane_id = lane_ids.get(id(lane))
                 if lane_id is None:

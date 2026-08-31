@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, cast
 
 import gymnasium as gym
 import numpy as np
@@ -14,22 +14,13 @@ from eco_planner.envs.contracts import PLANNER_HORIZON, ExecutionMode
 from eco_planner.envs.domain.trajectory import WorldTrajectory
 
 
-@runtime_checkable
-class _StringConfig(Protocol):
-    def __getitem__(self, key: str) -> object: ...
-
-
 class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
     """Apply a fixed world trajectory inside MetaDrive's callback lifecycle."""
 
     def __init__(self, obj: Any, seed: int) -> None:
         BasePolicy.__init__(self, control_object=obj, random_seed=seed)
-        engine = self.engine
-        if engine is None:
-            raise RuntimeError("MetaDrive policy engine is unavailable during initialization")
-        config: object = engine.global_config
-        if not isinstance(config, _StringConfig):
-            raise TypeError("MetaDrive global configuration must support string keys")
+        engine = cast(Any, self.engine)
+        config = cast(Mapping[str, object], engine.global_config)
         self._execution_steps = ExecutionMode(config["execution_mode"]).steps
         self._trajectory: WorldTrajectory | None = None
         self._cache_last_update: int | None = None
@@ -44,24 +35,18 @@ class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
         super().reset()
 
     def act(self, agent_id: str) -> None:
-        engine = self.engine
-        if engine is None:
-            raise RuntimeError("MetaDrive policy engine is unavailable")
-        actions: object = engine.external_actions
+        engine = cast(Any, self.engine)
+        actions = cast(Mapping[str, WorldTrajectory | None] | None, engine.external_actions)
         if actions is None:
             if self._trajectory is None:
                 return None
             raise RuntimeError(
                 "trajectory cache survived MetaDrive reset without an external action"
             )
-        if not isinstance(actions, Mapping):
-            raise TypeError("MetaDrive external actions must be a mapping")
         if agent_id not in actions:
             raise RuntimeError(f"MetaDrive did not provide an external action for {agent_id!r}")
-        action = next(value for key, value in actions.items() if key == agent_id)
+        action = actions[agent_id]
         if action is not None:
-            if not isinstance(action, WorldTrajectory):
-                raise TypeError("MetaDrive external action must be a world trajectory")
             if self._trajectory is not None:
                 raise RuntimeError(
                     "a new trajectory was supplied before the cached prefix finished"
@@ -77,9 +62,7 @@ class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
         if not 0 <= index < self._execution_steps:
             raise RuntimeError("trajectory cache index is outside the execution prefix")
         trajectory = self._trajectory
-        control_object = self.control_object
-        if control_object is None:
-            raise RuntimeError("MetaDrive policy control object is unavailable")
+        control_object = cast(Any, self.control_object)
         control_object.set_position(trajectory.centers[index + 1])
         control_object.set_heading_theta(float(trajectory.headings[index + 1]))
         control_object.set_velocity(trajectory.velocities[index])

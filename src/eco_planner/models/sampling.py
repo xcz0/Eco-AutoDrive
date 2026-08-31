@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from copy import copy
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import torch
@@ -210,9 +211,8 @@ class _DdimSampler:
         if variance_noise is not None:
             random_noise = variance_noise
         elif stochasticity > 0.0:
-            if scheduler.num_inference_steps is None:
-                raise RuntimeError("DDIM scheduler timesteps were not initialized")
-            if index >= scheduler.num_inference_steps - 1:
+            num_inference_steps = cast(int, scheduler.num_inference_steps)
+            if index >= num_inference_steps - 1:
                 random_noise = None
             else:
                 random_noise = torch.randn(
@@ -422,8 +422,7 @@ class DiffusionSampler:
         """Run this profile's unguided sampling pass."""
 
         if isinstance(self.config, Ddim5SamplerConfig):
-            sampler = self._sampler
-            assert isinstance(sampler, _DdimSampler)
+            sampler = cast(_DdimSampler, self._sampler)
             return sampler.sample(
                 initial_sample,
                 model,
@@ -436,8 +435,7 @@ class DiffusionSampler:
                     None if guidance_randomness is None else guidance_randomness.variance_noises
                 ),
             )
-        sampler = self._sampler
-        assert isinstance(sampler, _DpmSampler)
+        sampler = cast(_DpmSampler, self._sampler)
         return sampler.sample(initial_sample, model, current_state_constraint)
 
     def sample_guided(
@@ -454,8 +452,7 @@ class DiffusionSampler:
         """Run the configured DDIM profile with the project's guidance policy."""
 
         config = self._ddim_config()
-        sampler = self._sampler
-        assert isinstance(sampler, _DdimSampler)
+        sampler = cast(_DdimSampler, self._sampler)
         return sampler.sample_guided(
             initial_sample,
             model,
@@ -478,9 +475,7 @@ class DiffusionSampler:
         return _DpmSampler()
 
     def _ddim_config(self) -> Ddim5SamplerConfig:
-        if not isinstance(self.config, Ddim5SamplerConfig):
-            raise ValueError("guided sampling requires the DDIM-5 profile")
-        return self.config
+        return cast(Ddim5SamplerConfig, self.config)
 
     def _ddim_timesteps(self, sample: torch.Tensor) -> torch.Tensor:
         key = (sample.device, sample.dtype)

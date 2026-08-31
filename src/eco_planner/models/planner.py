@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import torch
 from torch import nn
@@ -123,15 +124,16 @@ class PretrainedDiffusionPlanner(nn.Module):
             constrained[:, :, 0] = current_states
             return constrained.reshape(batch, participants, -1)
 
-        guidance_randomness = (
-            self._sampler.prepare_guidance_randomness(initial, transition_generator)
-            if isinstance(
-                self.guidance_config,
-                (OrthogonalReferenceGuidanceConfig, OrthogonalPolicyGuidanceConfig),
+        if isinstance(self.guidance_config, NoGuidanceConfig):
+            guidance_randomness = (
+                self._sampler.prepare_guidance_randomness(initial, transition_generator)
+                if isinstance(transition_generator, Sequence)
+                else None
             )
-            or isinstance(transition_generator, Sequence)
-            else None
-        )
+        else:
+            guidance_randomness = self._sampler.prepare_guidance_randomness(
+                initial, transition_generator
+            )
         normalized_sample = self._sampler.sample(
             initial,
             denoiser,
@@ -142,14 +144,12 @@ class PretrainedDiffusionPlanner(nn.Module):
         prediction = self._prediction(normalized_sample, batch, participants)
         if isinstance(self.guidance_config, NoGuidanceConfig):
             return PlannerInferenceResult(prediction=prediction)
-        if guidance_randomness is None:
-            raise RuntimeError("guided sampling randomness was not prepared")
         return self._run_guided(
             initial,
             denoiser,
             constrain,
             transition_generator,
-            guidance_randomness,
+            cast(GuidanceSamplingRandomness, guidance_randomness),
             prediction,
             current_states,
             guidance_action,
@@ -259,9 +259,10 @@ class PretrainedDiffusionPlanner(nn.Module):
         current_states: torch.Tensor,
         guidance_action: torch.Tensor | None,
     ) -> PlannerInferenceResult:
-        config = self.guidance_config
-        if isinstance(config, NoGuidanceConfig):
-            raise RuntimeError("guided sampling requires an orthogonal guidance configuration")
+        config = cast(
+            OrthogonalReferenceGuidanceConfig | OrthogonalPolicyGuidanceConfig,
+            self.guidance_config,
+        )
         batch, participants, _ = initial.shape
         device = initial.device
         if guidance_action is None:
