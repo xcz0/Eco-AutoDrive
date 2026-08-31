@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 import torch
 
+from eco_planner.benchmarking.config import RolloutBenchmarkConfig
+from eco_planner.benchmarking.rollout import _effective_ppo_config, _rollout_result
 from eco_planner.rl.optimization import PPOConfig
 from eco_planner.rl.rollout.collector import VectorRolloutRoundTiming
 from eco_planner.rl.rollout.runtime import (
@@ -11,8 +13,6 @@ from eco_planner.rl.rollout.runtime import (
     _finish_profile,
     _profile_call,
 )
-from scripts.benchmarking.common import RolloutBenchmarkConfig
-from scripts.benchmarking.rollout import _effective_ppo_config, _rollout_result
 
 
 def _base_ppo_config() -> PPOConfig:

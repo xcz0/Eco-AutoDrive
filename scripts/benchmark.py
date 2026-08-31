@@ -11,9 +11,9 @@ from eco_planner.configuration import load_local_environment
 from scripts._paths import LOCAL_ENVIRONMENT_PATH
 
 _BENCHMARK_MODULES = {
-    "environment": "scripts.benchmarking.environment",
-    "throughput": "scripts.benchmarking.throughput",
-    "rollout": "scripts.benchmarking.rollout",
+    "environment": "eco_planner.benchmarking.environment",
+    "throughput": "eco_planner.benchmarking.throughput",
+    "rollout": "eco_planner.benchmarking.rollout",
 }
 
 load_local_environment(LOCAL_ENVIRONMENT_PATH)

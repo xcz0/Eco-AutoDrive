@@ -5,19 +5,19 @@ from collections.abc import Callable
 import pytest
 from omegaconf import DictConfig
 
+from eco_planner.benchmarking.config import (
+    EnvironmentBenchmarkJobConfig,
+    RolloutBenchmarkConfig,
+    ScalingBenchmarkConfig,
+    parse_environment_job,
+    split_benchmark_config,
+)
 from eco_planner.evaluation.config import EvaluationJobConfig, parse_evaluation_config
 from eco_planner.rl.config import (
     RolloutJobConfig,
     TrainingJobConfig,
     parse_rollout_config,
     parse_training_config,
-)
-from scripts.benchmarking.common import (
-    EnvironmentBenchmarkJobConfig,
-    RolloutBenchmarkConfig,
-    ScalingBenchmarkConfig,
-    parse_environment_job,
-    split_benchmark_config,
 )
 
 ComposeConfig = Callable[[str, list[str] | None], DictConfig]
