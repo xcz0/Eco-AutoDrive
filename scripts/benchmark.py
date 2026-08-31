@@ -7,17 +7,14 @@ from importlib import import_module
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
+from eco_planner._repository import LOCAL_ENVIRONMENT_PATH
 from eco_planner.configuration import load_local_environment
-from scripts._paths import LOCAL_ENVIRONMENT_PATH
 
 _BENCHMARK_MODULES = {
     "environment": "eco_planner.benchmarking.environment",
     "throughput": "eco_planner.benchmarking.throughput",
     "rollout": "eco_planner.benchmarking.rollout",
 }
-
-load_local_environment(LOCAL_ENVIRONMENT_PATH)
-
 
 def _benchmark_module(kind: object) -> str:
     if not isinstance(kind, str) or kind not in _BENCHMARK_MODULES:
@@ -30,9 +27,14 @@ def _benchmark_module(kind: object) -> str:
     config_path="../configs",
     config_name="jobs/benchmark/throughput",
 )
-def main(config: DictConfig) -> None:
+def _hydra_main(config: DictConfig) -> None:
     module = import_module(_benchmark_module(OmegaConf.select(config, "benchmark.kind")))
     module.run(config)
+
+
+def main() -> None:
+    load_local_environment(LOCAL_ENVIRONMENT_PATH)
+    _hydra_main()
 
 
 if __name__ == "__main__":

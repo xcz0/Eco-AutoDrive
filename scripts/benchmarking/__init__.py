@@ -1,1 +1,1 @@
-"""Thin benchmark CLI adapters."""
+"""Repository benchmark command adapters."""
