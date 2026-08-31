@@ -27,6 +27,7 @@ from eco_planner.evaluation.runtime import (
     create_fabric_inference_runtime,
 )
 from eco_planner.models import OfficialDiffusionPlannerConfig
+from eco_planner.runtime_resources import require_resource_profile
 
 from .config import (
     ScalingBenchmarkConfig,
@@ -41,6 +42,7 @@ from .config import (
 def run(config: DictConfig) -> None:
     evaluation_config, benchmark = split_benchmark_config(config, ScalingBenchmarkConfig)
     parsed = parse_evaluation_config(evaluation_config)
+    require_resource_profile(parsed.resources)
     output_dir = Path(HydraConfig.get().runtime.output_dir)
     env_config = {**parsed.env, "map": parsed.scenarios[0].map}
     runtime = create_fabric_inference_runtime(

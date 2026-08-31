@@ -35,6 +35,7 @@ from eco_planner.rl.rollout import (
     VectorRolloutCollector,
     create_fabric_rollout_runtime,
 )
+from eco_planner.runtime_resources import ResourceProfileConfig
 
 _SEED_NAMESPACE = 6_002_024
 TrainingUpdateObserver = Callable[[TrainingUpdateSummary], None]
@@ -54,6 +55,7 @@ def train(
     if config.training.deterministic:
         torch.use_deterministic_algorithms(True)
     torch.set_float32_matmul_precision("high")
+    resources = cast(ResourceProfileConfig, config.resources)
     scenario_count = len(config.scenarios)
     noise_seeds, policy_seeds = _derive_rollout_seeds(config.runtime.seed, scenario_count)
     runtime = create_fabric_rollout_runtime(
@@ -89,8 +91,8 @@ def train(
         mode=config.training.mode,
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.training.history_warmup_steps,
-        physical_slot_count=config.resources.rollout_worker_count,
-        torch_threads_per_worker=config.resources.torch_threads_per_worker,
+        physical_slot_count=resources.rollout_worker_count,
+        torch_threads_per_worker=resources.torch_threads_per_worker,
         reward_profile=config.reward,
     ) as rollout_collector:
         for update_index in range(start_update, config.training.update_count):
@@ -200,7 +202,7 @@ def train(
         reward_profile=config.reward.name,
     )
     write_json(output_dir / "summary.json", summary)
-    write_training_runtime_metadata(output_dir / "runtime_metadata.json", runtime, config.resources)
+    write_training_runtime_metadata(output_dir / "runtime_metadata.json", runtime, resources)
     return summary
 
 

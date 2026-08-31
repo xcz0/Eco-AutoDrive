@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import sys
 from importlib import import_module
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from eco_planner._repository import LOCAL_ENVIRONMENT_PATH
-from eco_planner.configuration import load_local_environment
+from eco_planner.configuration import load_local_environment, with_machine_resource_override
 
 _BENCHMARK_MODULES = {
     "environment": "eco_planner.benchmarking.environment",
     "throughput": "eco_planner.benchmarking.throughput",
     "rollout": "eco_planner.benchmarking.rollout",
 }
+
 
 def _benchmark_module(kind: object) -> str:
     if not isinstance(kind, str) or kind not in _BENCHMARK_MODULES:
@@ -34,6 +36,7 @@ def _hydra_main(config: DictConfig) -> None:
 
 def main() -> None:
     load_local_environment(LOCAL_ENVIRONMENT_PATH)
+    sys.argv[:] = with_machine_resource_override(sys.argv)
     _hydra_main()
 
 

@@ -22,6 +22,7 @@ from eco_planner.rl.rollout import (
     create_fabric_rollout_runtime,
 )
 from eco_planner.rl.rollout.contracts import concatenate_tensordicts
+from eco_planner.runtime_resources import require_resource_profile
 
 _EVALUATION_SEED_NAMESPACE = 7_602_024
 
@@ -84,6 +85,7 @@ def evaluate_policy_checkpoint(
         raise ValueError("transitions_per_scenario must be a positive integer")
     if type(evaluation_seed) is not int or evaluation_seed < 0:
         raise ValueError("evaluation_seed must be a non-negative integer")
+    resources = require_resource_profile(config.resources)
     output_dir.mkdir(parents=True, exist_ok=False)
     noise_seeds, policy_seeds = _derive_evaluation_seeds(evaluation_seed, len(scenarios))
     runtime = create_fabric_rollout_runtime(
@@ -106,8 +108,8 @@ def evaluate_policy_checkpoint(
         mode=config.training.mode,
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.training.history_warmup_steps,
-        physical_slot_count=config.resources.rollout_worker_count,
-        torch_threads_per_worker=config.resources.torch_threads_per_worker,
+        physical_slot_count=resources.rollout_worker_count,
+        torch_threads_per_worker=resources.torch_threads_per_worker,
         reward_profile=config.reward,
     ) as collector:
         by_slot = collector.collect(

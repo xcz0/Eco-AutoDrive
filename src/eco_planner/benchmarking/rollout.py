@@ -25,6 +25,7 @@ from eco_planner.rl.rollout import (
     collect_rollout_episode,
     create_fabric_rollout_runtime,
 )
+from eco_planner.runtime_resources import require_resource_profile
 
 from .config import (
     RolloutBenchmarkConfig,
@@ -78,6 +79,7 @@ def _measure_batch_size(
     batch_size: int,
     benchmark: RolloutBenchmarkConfig,
 ) -> dict[str, object]:
+    resources = require_resource_profile(config.resources)
     sample_count = batch_size * benchmark.transitions_per_slot
     update_count = benchmark.warmup_updates + benchmark.measured_updates
     collection_samples: list[float] = []
@@ -133,7 +135,7 @@ def _measure_batch_size(
                         mode=benchmark.mode,
                         map_query_radius_m=config.map_query_radius_m,
                         history_warmup_steps=benchmark.history_warmup_steps,
-                        torch_threads_per_worker=config.resources.torch_threads_per_worker,
+                        torch_threads_per_worker=resources.torch_threads_per_worker,
                     )
                     worker_pool_startup_samples.append(perf_counter() - startup_started)
                 slots = vector_collector.collect(

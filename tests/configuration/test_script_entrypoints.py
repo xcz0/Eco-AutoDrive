@@ -45,6 +45,7 @@ def test_main_bootstraps_environment_before_hydra(
     def record_environment_load(path: object) -> None:
         if module_name == "scripts.train":
             assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
+        monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
         calls.append(("load", path))
 
     monkeypatch.setattr(
@@ -54,10 +55,17 @@ def test_main_bootstraps_environment_before_hydra(
     )
     monkeypatch.setattr(module, "_hydra_main", lambda: calls.append(("hydra", None)))
     monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)
+    monkeypatch.delenv("MACHINE_NAME", raising=False)
+    monkeypatch.setattr(module.sys, "argv", [module_name, "runtime.seed=17"])
 
     module.main()
 
     assert calls == [("load", LOCAL_ENVIRONMENT_PATH), ("hydra", None)]
+    assert module.sys.argv == [
+        module_name,
+        "runtime.seed=17",
+        "components/resources=rtx3050_laptop",
+    ]
     if module_name == "scripts.train":
         assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
     else:

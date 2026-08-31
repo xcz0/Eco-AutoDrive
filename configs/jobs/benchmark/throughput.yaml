@@ -4,7 +4,7 @@ defaults:
   - /components/env
   - /components/model
   - /components/runtime
-  - /components/resources: ${oc.env:MACHINE_NAME}
+  - /components/resources: null
   - /components/video
   - /components/sampler: dpm10
   - /components/guidance: none
@@ -21,8 +21,8 @@ evaluation:
   evaluated_horizon_steps: 100
   execution:
     mode: serial
-    vector_env_slots: ${resources.evaluation_vector_env_slots}
-    torch_threads_per_worker: ${resources.torch_threads_per_worker}
+    vector_env_slots: ${oc.select:resources.evaluation_vector_env_slots,null}
+    torch_threads_per_worker: ${oc.select:resources.torch_threads_per_worker,null}
     deterministic: false
 
 env:

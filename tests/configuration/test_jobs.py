@@ -21,6 +21,7 @@ from eco_planner.rl.config import (
 )
 
 ComposeConfig = Callable[[str, list[str] | None], DictConfig]
+RESOURCE_OVERRIDE = "components/resources=rtx3050_laptop"
 
 
 @pytest.mark.parametrize(
@@ -32,27 +33,21 @@ ComposeConfig = Callable[[str, list[str] | None], DictConfig]
     ],
 )
 def test_evaluation_jobs_compose_into_typed_boundary(
-    monkeypatch: pytest.MonkeyPatch,
     compose_config: ComposeConfig,
     config_name: str,
 ) -> None:
-    monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
-
-    parsed = parse_evaluation_config(compose_config(config_name, None))
+    parsed = parse_evaluation_config(compose_config(config_name, [RESOURCE_OVERRIDE]))
 
     assert isinstance(parsed, EvaluationJobConfig)
 
 
 @pytest.mark.smoke
 def test_training_jobs_compose_into_typed_boundaries(
-    monkeypatch: pytest.MonkeyPatch,
     compose_config: ComposeConfig,
 ) -> None:
-    monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
-
     training = compose_config(
         "jobs/training/ppo/smoke",
-        ["runtime.seed=0", "training.replay_id=0"],
+        [RESOURCE_OVERRIDE, "runtime.seed=0", "training.replay_id=0"],
     )
     rollout = compose_config("jobs/training/rollout/smoke", None)
 
@@ -63,6 +58,7 @@ def test_training_jobs_compose_into_typed_boundaries(
         compose_config(
             "jobs/training/ppo/smoke",
             [
+                RESOURCE_OVERRIDE,
                 "runtime.seed=0",
                 "training.replay_id=0",
                 "training.planner_compile_mode=dit_reduce_overhead",
@@ -75,6 +71,7 @@ def test_training_jobs_compose_into_typed_boundaries(
             compose_config(
                 "jobs/training/ppo/smoke",
                 [
+                    RESOURCE_OVERRIDE,
                     "runtime.seed=0",
                     "training.replay_id=0",
                     "training.planner_compile_mode=automatic",
@@ -85,14 +82,11 @@ def test_training_jobs_compose_into_typed_boundaries(
 
 
 def test_conservative_training_job_composes_into_typed_boundaries(
-    monkeypatch: pytest.MonkeyPatch,
     compose_config: ComposeConfig,
 ) -> None:
-    monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
-
     training = compose_config(
         "jobs/training/ppo/conservative",
-        ["runtime.seed=0", "training.replay_id=0"],
+        [RESOURCE_OVERRIDE, "runtime.seed=0", "training.replay_id=0"],
     )
     parsed = parse_training_config(training)
 
@@ -109,17 +103,16 @@ def test_conservative_training_job_composes_into_typed_boundaries(
 
 
 def test_benchmark_jobs_compose_into_typed_boundaries(
-    monkeypatch: pytest.MonkeyPatch,
     compose_config: ComposeConfig,
 ) -> None:
-    monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
-
     environment = parse_environment_job(compose_config("jobs/benchmark/environment", None))
     throughput_job, throughput = split_benchmark_config(
-        compose_config("jobs/benchmark/throughput", None), ScalingBenchmarkConfig
+        compose_config("jobs/benchmark/throughput", [RESOURCE_OVERRIDE]),
+        ScalingBenchmarkConfig,
     )
     rollout_job, rollout = split_benchmark_config(
-        compose_config("jobs/benchmark/rollout", None), RolloutBenchmarkConfig
+        compose_config("jobs/benchmark/rollout", [RESOURCE_OVERRIDE]),
+        RolloutBenchmarkConfig,
     )
 
     assert isinstance(environment, EnvironmentBenchmarkJobConfig)
@@ -130,3 +123,35 @@ def test_benchmark_jobs_compose_into_typed_boundaries(
     assert rollout.ppo_minibatch_size == 16
     assert rollout.transitions_per_slot == 16
     assert isinstance(parse_training_config(rollout_job), TrainingJobConfig)
+
+
+def test_semantic_jobs_compose_without_a_machine_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    compose_config: ComposeConfig,
+) -> None:
+    monkeypatch.delenv("MACHINE_NAME", raising=False)
+
+    evaluation = parse_evaluation_config(compose_config("jobs/evaluation/no_traffic/smoke", None))
+    parallel_evaluation = parse_evaluation_config(
+        compose_config("jobs/evaluation/traffic/matrix", None)
+    )
+    training = parse_training_config(
+        compose_config(
+            "jobs/training/ppo/smoke",
+            ["runtime.seed=0", "training.replay_id=0"],
+        )
+    )
+    throughput_job, _ = split_benchmark_config(
+        compose_config("jobs/benchmark/throughput", None), ScalingBenchmarkConfig
+    )
+    environment = parse_environment_job(compose_config("jobs/benchmark/environment", None))
+
+    assert evaluation.resources is None
+    assert evaluation.evaluation.execution.vector_env_slots is None
+    assert evaluation.evaluation.execution.torch_threads_per_worker is None
+    assert parallel_evaluation.resources is None
+    assert parallel_evaluation.evaluation.execution.mode == "parallel"
+    assert parallel_evaluation.evaluation.execution.torch_threads_per_worker is None
+    assert training.resources is None
+    assert parse_evaluation_config(throughput_job).resources is None
+    assert environment.resources is None

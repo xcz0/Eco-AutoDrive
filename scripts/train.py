@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import hydra
@@ -10,7 +11,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 
 from eco_planner._repository import LOCAL_ENVIRONMENT_PATH
-from eco_planner.configuration import load_local_environment
+from eco_planner.configuration import load_local_environment, with_machine_resource_override
 from eco_planner.workflows import run_training_job
 
 
@@ -28,6 +29,7 @@ def _hydra_main(config: DictConfig) -> None:
 def main() -> None:
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     load_local_environment(LOCAL_ENVIRONMENT_PATH)
+    sys.argv[:] = with_machine_resource_override(sys.argv)
     _hydra_main()
 
 
