@@ -49,6 +49,10 @@ def test_runner_writes_readable_finite_short_episode(
     assert episode.simulator_steps == 5
     assert episode.energy is not None
     assert episode.energy.total_ml == pytest.approx(0.5)
+    assert episode.stopped_fraction == 0.0
+    assert episode.metrics.aggregation_unit == "evaluation_episode"
+    assert episode.metrics.distance_m == pytest.approx(5.0)
+    assert episode.metrics.energy.ml_per_km == pytest.approx(100.0)
     assert trace.trace_status == "complete"
     assert np.isfinite(trace.arrays["initial_noise"]).all()
     assert np.isfinite(trace.arrays["predictions_local"]).all()

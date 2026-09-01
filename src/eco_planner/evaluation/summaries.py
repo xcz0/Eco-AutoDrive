@@ -7,7 +7,8 @@ from typing import Any
 import numpy as np
 
 from eco_planner.envs import TrajectoryExecutionRecord
-from eco_planner.evaluation.artifacts import (
+from eco_planner.evaluation.metrics import compute_episode_metrics, compute_trace_energy
+from eco_planner.evaluation.models import (
     CompletedEpisodeSummary,
     FailedEpisodeSummary,
     FailurePhase,
@@ -41,7 +42,7 @@ def build_failed_episode_summary(
             "sampler": sampler,
             "guidance": guidance,
             "trace_status": trace_status,
-            "energy": _energy_summary(trace_arrays),
+            "energy": compute_trace_energy(trace_arrays),
             "termination": {"type": "runtime_error", "detail": phase.value},
             "failure": {
                 "phase": phase,
@@ -70,11 +71,7 @@ def build_episode_summary(
 ) -> CompletedEpisodeSummary:
     """Build the stable per-episode summary JSON payload."""
 
-    positions = np.vstack(
-        (trace_arrays["initial_state"][None, :2], trace_arrays["executed_states"][:, :2])
-    )
-    distance_m = float(np.linalg.norm(np.diff(positions, axis=0), axis=1).sum())
-    speeds = trace_arrays["executed_states"][:, 5]
+    metrics = compute_episode_metrics(trace_arrays, final_execution, total_reward=total_reward)
     warmup_states = trace_arrays["warmup_states"]
     warmup_displacement = (
         np.linalg.norm(
@@ -100,25 +97,23 @@ def build_episode_summary(
             "guidance": guidance,
             "plan_cycles": int(trace_arrays["initial_noise"].shape[0]),
             "simulator_steps": int(trace_arrays["executed_states"].shape[0]),
-            "simulated_seconds": float(trace_arrays["executed_states"].shape[0] * SIMULATOR_STEP_S),
+            "simulated_seconds": metrics.simulated_seconds,
             "environment_steps_including_warmup": int(
                 warmup_states.shape[0] + trace_arrays["executed_states"].shape[0]
             ),
-            "total_reward": total_reward,
-            "distance_m": distance_m,
-            "energy": _energy_summary(trace_arrays),
-            "speed_mps": {
-                "minimum": float(speeds.min()),
-                "mean": float(speeds.mean()),
-                "maximum": float(speeds.max()),
-            },
-            "route_completion": final_execution.route_completion,
-            "arrive_dest": final_execution.arrive_dest,
-            "out_of_road": final_execution.out_of_road,
+            "total_reward": metrics.total_reward,
+            "distance_m": metrics.distance_m,
+            "energy": metrics.energy,
+            "speed_mps": metrics.speed_mps,
+            "stopped_fraction": metrics.stopped_fraction,
+            "route_completion": metrics.route_completion,
+            "arrive_dest": metrics.arrive_dest,
+            "out_of_road": metrics.out_of_road,
             "crash_vehicle": final_execution.crash_vehicle,
             "crash_object": final_execution.crash_object,
             "crash_building": final_execution.crash_building,
             "crash_human": final_execution.crash_human,
+            "crash_sidewalk": final_execution.crash_sidewalk,
             "terminated": terminated,
             "truncated": truncated,
             "terminal_reason": _terminal_reason(final_execution, terminated, truncated),
@@ -233,31 +228,4 @@ def _error_summary(errors: np.ndarray) -> dict[str, float]:
         "maximum": float(errors.max()),
         "mean": float(errors.mean()),
         "final": float(errors[-1]),
-    }
-
-
-def _energy_summary(trace_arrays: dict[str, np.ndarray]) -> dict[str, float | str | None] | None:
-    states = trace_arrays["executed_states"]
-    if not states.size:
-        return None
-    native_step_energy_ml = trace_arrays["executed_native_step_energy_ml"]
-    native_episode_energy_ml = trace_arrays["executed_native_episode_energy_ml"]
-    step_energy_ml = trace_arrays["executed_fuel_proxy_step_energy_ml"]
-    step_distance_m = trace_arrays["executed_step_distance_m"]
-    expected_shape = (states.shape[0],)
-    for name, values in (
-        ("executed_native_step_energy_ml", native_step_energy_ml),
-        ("executed_native_episode_energy_ml", native_episode_energy_ml),
-        ("executed_fuel_proxy_step_energy_ml", step_energy_ml),
-        ("executed_step_distance_m", step_distance_m),
-    ):
-        if values.shape != expected_shape or not np.isfinite(values).all() or np.any(values < 0.0):
-            raise RuntimeError(f"trace {name} must be finite, non-negative, and state-aligned")
-    total_ml = float(step_energy_ml.sum(dtype=np.float64))
-    distance_m = float(step_distance_m.sum(dtype=np.float64))
-    return {
-        "metric": "metadrive_fuel_proxy",
-        "total_ml": total_ml,
-        "distance_m": distance_m,
-        "ml_per_km": None if distance_m == 0.0 else total_ml * 1000.0 / distance_m,
     }

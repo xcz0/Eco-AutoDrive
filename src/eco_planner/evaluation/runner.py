@@ -12,9 +12,10 @@ from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import collect_repository_metadata, write_tracked_diff
-from eco_planner.evaluation.artifacts import JobSummary, RuntimeMetadata, write_json
+from eco_planner.evaluation.artifacts import write_json
 from eco_planner.evaluation.config import EvaluationJobConfig
 from eco_planner.evaluation.execution import run_scenario, run_vector_scenarios
+from eco_planner.evaluation.models import JobSummary, RuntimeMetadata
 from eco_planner.evaluation.runtime import create_fabric_inference_runtime
 from eco_planner.models import GuidanceConfig, SamplerReport
 from eco_planner.runtime.fabric import InferenceRuntimeReport, resolve_runtime_settings

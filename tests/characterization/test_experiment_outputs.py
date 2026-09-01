@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from eco_planner.evaluation import analysis as evaluation_analysis
-from eco_planner.evaluation.artifacts import (
+from eco_planner.evaluation.models import (
     CompletedEpisodeSummary,
     EnergySummary,
     ErrorValues,
@@ -61,6 +62,7 @@ def _episode(*, seed: int, distance_m: float, energy_ml: float) -> CompletedEpis
             ml_per_km=energy_ml * 1_000.0 / distance_m,
         ),
         speed_mps=SpeedSummary(minimum=5.0, mean=6.0 + seed, maximum=7.0),
+        stopped_fraction=0.0,
         route_completion=0.4 + 0.1 * seed,
         arrive_dest=seed == 1,
         out_of_road=False,
@@ -68,6 +70,7 @@ def _episode(*, seed: int, distance_m: float, energy_ml: float) -> CompletedEpis
         crash_object=False,
         crash_building=False,
         crash_human=False,
+        crash_sidewalk=False,
         terminated=True,
         truncated=False,
         terminal_reason="arrive_dest",
@@ -185,6 +188,7 @@ def test_evaluation_matrix_summary_schema_and_statistics_are_stable(
 
 
 def test_energy_study_run_record_schema_preserves_episode_and_traffic_context(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     run_dir = tmp_path / "traffic" / "baseline"
@@ -207,6 +211,23 @@ def test_energy_study_run_record_schema_preserves_episode_and_traffic_context(
     job = energy_study.EvaluationJobSpec(id="traffic", config_name="fixture")
     guidance = energy_study.GuidanceProfileSpec(
         id="baseline", config="none", longitudinal_scale=None
+    )
+    episodes = tuple(
+        SimpleNamespace(
+            scenario=SimpleNamespace(
+                model_dump=lambda name=name, **_kwargs: {"name": name, "seed": 0}
+            ),
+            model_dump=lambda payload={
+                "scenario": {"name": name, "seed": 0},
+                "distance_m": distance,
+            }, **_kwargs: payload,
+        )
+        for name, distance in (("s0", 123.0), ("s1", 456.0))
+    )
+    monkeypatch.setattr(
+        energy_study,
+        "load_job_summary",
+        lambda _path: SimpleNamespace(status="completed", episodes=episodes),
     )
 
     record = energy_study._collect_run(job, guidance, run_dir, returncode=0)
@@ -238,16 +259,32 @@ def test_energy_study_run_record_schema_preserves_episode_and_traffic_context(
     }
 
 
-def _update(index: int, reward: float) -> TrainingUpdateSummary:
+def _update(
+    index: int,
+    reward: float,
+    *,
+    action: float = 0.0,
+    fuel: float = 2.0,
+    distance: float = 20.0,
+    progress: float = 2.0,
+    speed: float = 10.0,
+    collision: int = 0,
+    out_of_road: int = 0,
+) -> TrainingUpdateSummary:
     return TrainingUpdateSummary.model_construct(
         update_index=index,
         sample_count=2,
         mean_episode_length=2.0,
         total_reward=reward,
-        route_completion_delta=1.0,
+        route_completion_delta=progress,
+        mean_speed_mps=speed,
         stopped_fraction=0.0,
-        collision_count=0,
-        out_of_road_count=0,
+        collision_count=collision,
+        out_of_road_count=out_of_road,
+        action_mean=(0.0, action),
+        action_std=(0.0, 0.0),
+        executed_fuel_proxy_total_ml=fuel,
+        executed_fuel_proxy_distance_m=distance,
         maximum_pre_clip_gradient_norm=1.0,
         mean_policy_loss=-0.1,
         mean_value_loss=0.2,
@@ -256,7 +293,12 @@ def _update(index: int, reward: float) -> TrainingUpdateSummary:
     )
 
 
-def _training_summary(seed: int, replay: int) -> TrainingRunSummary:
+def _training_summary(
+    seed: int,
+    replay: int,
+    *,
+    post_update: TrainingUpdateSummary | None = None,
+) -> TrainingRunSummary:
     probe_before = PolicyProbeSummary.model_construct(
         alpha=((1.0, 1.0), (1.0, 1.0)),
         beta=((1.0, 1.0), (1.0, 1.0)),
@@ -282,7 +324,7 @@ def _training_summary(seed: int, replay: int) -> TrainingRunSummary:
         frozen_planner_hash_after="c" * 64,
         probe_before=probe_before,
         probe_after=probe_after,
-        updates=(_update(0, 1.0), _update(1, 2.0)),
+        updates=(_update(0, 1.0), post_update or _update(1, 2.0)),
         reward_profile="metadrive_builtin_v1",
     )
 
@@ -350,16 +392,33 @@ def test_ppo_reward_ab_report_schema_and_effect_window_metrics_are_stable(
         "ppo": {"scheduler_total_optimizer_steps": 2},
     }
     builtin = {
-        "summary": _training_summary(1, 2),
+        "summary": _training_summary(
+            1,
+            2,
+            post_update=_update(1, 2.0, action=0.1, fuel=4.0, progress=4.0, speed=10.0),
+        ),
         "resolved": resolved,
-        "updates": (common_initial, _rollout(0.1, 2.0, 2.0, 10.0, False, False)),
+        "initial_update": common_initial,
     }
     energy = {
-        "summary": _training_summary(1, 2).model_copy(
+        "summary": _training_summary(
+            1,
+            2,
+            post_update=_update(
+                1,
+                2.0,
+                action=0.3,
+                fuel=3.0,
+                progress=2.0,
+                speed=9.0,
+                collision=1,
+                out_of_road=1,
+            ),
+        ).model_copy(
             update={"reward_profile": "plannerrft_energy_v1"}
         ),
         "resolved": resolved,
-        "updates": (common_initial, _rollout(0.3, 1.5, 1.0, 9.0, True, True)),
+        "initial_update": common_initial,
     }
     monkeypatch.setattr(reward_ab_analysis, "load_ab_config", lambda _path: config)
     monkeypatch.setattr(

@@ -246,6 +246,15 @@ PPO stability checkpoint evaluation 复用 policy-guided rollout 和 builtin 环
 
 每个回合至少保存 `summary.json` 和 `trace.npz`；开启视频时保存闭环 GIF。trace 必须包含 raw observation、初始噪声、完整联合预测、规划锚点、目标与实际状态、逐点误差、奖励、逐子步 native MetaDrive energy、execution-recomputed fuel proxy、实际 distance 和终止标志；交通回合还保存预热、对象 ID、交通数量、最近交通距离和历史有效性。
 
+`evaluation.metrics.compute_episode_metrics` 是通用 closed-loop metric 的唯一计算路径：它从
+完整 execution trace 与最终 typed execution record 生成一个 `evaluation_episode` 聚合单位的
+`EpisodeMetrics`。其中 distance 是 initial state 到每个实际 executed state 的几何路径长度；
+mean speed 与 stopped fraction 分别是 simulator steps 上的算术平均和速度小于 `0.1 m/s` 的比例；
+route completion 是最终 execution record 的值；arrival、collision 与 out-of-road 是最终 terminal
+outcome；total energy、energy distance 与 energy intensity 只从 execution-recomputed fuel-proxy
+trace 流聚合。summary、matrix 与实验报告消费这些 typed episode/training summaries，不得另从
+trace array 或 resolved config 重算同名通用指标。
+
 trace recorder 必须在回合开始时按最大 planning/warmup 容量，根据当前 trace field contract 预分配数组并直接写入槽位；`finalize()` 只暴露已记录切片。`trace.npz` 使用标准未压缩 NPZ，以降低长程写盘墙钟。
 
 当前 evaluation 产物采用无版本的数据契约：

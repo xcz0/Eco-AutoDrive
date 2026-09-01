@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Literal
 
@@ -12,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictFloat, field_validator
 from eco_planner._repository import CONFIG_ROOT
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
+from eco_planner.evaluation.artifacts import load_job_summary
 from eco_planner.workflows import compose_job_config, run_evaluation_job
 
 DEFAULT_STUDY = CONFIG_ROOT / "studies" / "energy" / "matrix.yaml"
@@ -91,24 +91,24 @@ def _collect_run(
             "output_dir": str(run_dir),
             "episodes": [],
         }
-    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary = load_job_summary(summary_path)
     resolved = load_resolved_yaml_mapping(resolved_path)
     episodes = []
-    for episode in summary["episodes"]:
+    for episode in summary.episodes:
         episodes.append(
             {
                 "scenario_metadata": {
-                    **episode["scenario"],
+                    **episode.scenario.model_dump(mode="json"),
                     "traffic_condition": _traffic_condition(resolved),
                 },
-                "evaluation": episode,
+                "evaluation": episode.model_dump(mode="json"),
             }
         )
     return {
         "job": job.id,
         "guidance": guidance.id,
         "returncode": returncode,
-        "status": summary["status"],
+        "status": summary.status,
         "output_dir": str(run_dir),
         "episodes": episodes,
     }

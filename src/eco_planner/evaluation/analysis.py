@@ -12,16 +12,14 @@ import numpy as np
 from omegaconf import OmegaConf
 
 from eco_planner.evaluation.artifacts import (
-    CompletedEpisodeSummary,
-    EpisodeSummary,
-    JobSummary,
     load_episode_summary,
     load_job_summary,
     load_runtime_metadata,
     load_trace_artifact,
-    validate_trace_arrays,
     write_json,
 )
+from eco_planner.evaluation.models import CompletedEpisodeSummary, EpisodeSummary, JobSummary
+from eco_planner.evaluation.trace import validate_trace_arrays
 
 POSITION_ERROR_LIMIT_M = 1e-3
 HEADING_ERROR_LIMIT_RAD = 1e-4
@@ -49,31 +47,30 @@ def build_matrix_report(matrix_root: Path, *, partial: bool = False) -> dict[str
 
 def _build_report(validated: ValidatedMatrix) -> dict[str, Any]:
     episodes = validated.episodes
-    episode_rows = [
-        {
-            "scenario": episode.scenario.name,
-            "seed": episode.noise_seed,
-            "traffic_density": episode.traffic_density,
-            "terminal_reason": (episode.terminal_reason if episode.status == "completed" else None),
-            "status": episode.status,
-            "termination": episode.termination.model_dump(mode="json"),
-            "simulated_seconds": (
-                episode.simulated_seconds if episode.status == "completed" else None
-            ),
-            "distance_m": episode.distance_m if episode.status == "completed" else None,
-            "energy_total_ml": episode.energy.total_ml if episode.status == "completed" else None,
-            "energy_ml_per_km": episode.energy.ml_per_km if episode.status == "completed" else None,
-            "route_completion": (
-                episode.route_completion if episode.status == "completed" else None
-            ),
-            "mean_speed_mps": episode.speed_mps.mean if episode.status == "completed" else None,
-            "total_reward": episode.total_reward if episode.status == "completed" else None,
-        }
-        for episode in sorted(
-            episodes,
-            key=lambda item: (item.scenario.name, item.traffic_density, item.noise_seed),
+    episode_rows = []
+    for episode in sorted(
+        episodes,
+        key=lambda item: (item.scenario.name, item.traffic_density, item.noise_seed),
+    ):
+        completed = isinstance(episode, CompletedEpisodeSummary)
+        metrics = episode.metrics if completed else None
+        episode_rows.append(
+            {
+                "scenario": episode.scenario.name,
+                "seed": episode.noise_seed,
+                "traffic_density": episode.traffic_density,
+                "terminal_reason": episode.terminal_reason if completed else None,
+                "status": episode.status,
+                "termination": episode.termination.model_dump(mode="json"),
+                "simulated_seconds": None if metrics is None else metrics.simulated_seconds,
+                "distance_m": None if metrics is None else metrics.distance_m,
+                "energy_total_ml": None if metrics is None else metrics.energy.total_ml,
+                "energy_ml_per_km": None if metrics is None else metrics.energy.ml_per_km,
+                "route_completion": None if metrics is None else metrics.route_completion,
+                "mean_speed_mps": None if metrics is None else metrics.speed_mps.mean,
+                "total_reward": None if metrics is None else metrics.total_reward,
+            }
         )
-    ]
     return {
         "matrix_root": str(validated.matrix_root),
         "matrix_complete": not validated.partial,
@@ -281,50 +278,42 @@ def build_matrix_statistics(episodes: Sequence[EpisodeSummary]) -> dict[str, Any
             grouped[(episode.scenario.name, episode.traffic_density)].append(episode)
     statistics: dict[str, Any] = {}
     for (scenario, density), group in sorted(grouped.items()):
+        metrics = [episode.metrics for episode in group]
         ml_per_km: list[float] = []
-        for episode in group:
-            value = episode.energy.ml_per_km
+        for item in metrics:
+            value = item.energy.ml_per_km
             if value is None:
                 raise ValueError(
                     "matrix cannot bootstrap energy_ml_per_km for a completed zero-distance episode"
                 )
             ml_per_km.append(value)
         statistics[f"{scenario}/density_{density:.2f}"] = {
+            "aggregation_unit": "evaluation_episode",
             "episode_count": len(group),
             "metrics": {
                 "simulated_seconds": bootstrap(
-                    np.asarray([episode.simulated_seconds for episode in group], dtype=np.float64)
+                    np.asarray([item.simulated_seconds for item in metrics], dtype=np.float64)
                 ),
                 "distance_m": bootstrap(
-                    np.asarray([episode.distance_m for episode in group], dtype=np.float64)
+                    np.asarray([item.distance_m for item in metrics], dtype=np.float64)
                 ),
                 "energy_total_ml": bootstrap(
-                    np.asarray([episode.energy.total_ml for episode in group], dtype=np.float64)
+                    np.asarray([item.energy.total_ml for item in metrics], dtype=np.float64)
                 ),
                 "energy_ml_per_km": bootstrap(np.asarray(ml_per_km, dtype=np.float64)),
                 "route_completion": bootstrap(
-                    np.asarray([episode.route_completion for episode in group], dtype=np.float64)
+                    np.asarray([item.route_completion for item in metrics], dtype=np.float64)
                 ),
                 "mean_speed_mps": bootstrap(
-                    np.asarray([episode.speed_mps.mean for episode in group], dtype=np.float64)
+                    np.asarray([item.speed_mps.mean for item in metrics], dtype=np.float64)
                 ),
                 "total_reward": bootstrap(
-                    np.asarray([episode.total_reward for episode in group], dtype=np.float64)
+                    np.asarray([item.total_reward for item in metrics], dtype=np.float64)
                 ),
             },
-            "arrive_rate": float(np.mean([episode.arrive_dest for episode in group])),
-            "collision_rate": float(
-                np.mean(
-                    [
-                        episode.crash_vehicle
-                        or episode.crash_object
-                        or episode.crash_building
-                        or episode.crash_human
-                        for episode in group
-                    ]
-                )
-            ),
-            "out_of_road_rate": float(np.mean([episode.out_of_road for episode in group])),
+            "arrive_rate": float(np.mean([item.arrive_dest for item in metrics])),
+            "collision_rate": float(np.mean([item.collision for item in metrics])),
+            "out_of_road_rate": float(np.mean([item.out_of_road for item in metrics])),
         }
     return statistics
 

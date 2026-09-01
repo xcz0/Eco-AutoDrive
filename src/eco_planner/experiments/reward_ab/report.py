@@ -13,6 +13,7 @@ from eco_planner.rl.artifacts import (
     BUILTIN_ROLLOUT_ARTIFACT_FIELDS,
     ENERGY_ROLLOUT_ARTIFACT_FIELDS,
     TrainingRunSummary,
+    TrainingUpdateSummary,
 )
 
 from .runner import PPORewardABConfig, load_ab_config
@@ -75,10 +76,12 @@ def _load_run(path: Path, expected_profile: str) -> dict[str, object]:
     if summary.reward_profile != expected_profile:
         raise ValueError(f"{path} uses reward profile {summary.reward_profile!r}")
     resolved = load_resolved_yaml_mapping(path / "resolved_config.yaml")
-    updates = tuple(
-        _load_update(path, index, expected_profile) for index in range(len(summary.updates))
-    )
-    return {"path": path, "summary": summary, "resolved": resolved, "updates": updates}
+    return {
+        "path": path,
+        "summary": summary,
+        "resolved": resolved,
+        "initial_update": _load_update(path, 0, expected_profile),
+    }
 
 
 def _load_update(path: Path, update_index: int, expected_profile: str) -> dict[str, np.ndarray]:
@@ -241,56 +244,52 @@ def _metric_changes(
 
 
 def _effect_metrics(run: dict[str, object]) -> dict[str, float | int]:
-    updates = _updates(run)[1:]
+    updates = _summary(run).updates[1:]
     if not updates:
         raise ValueError("PPO reward A/B effect window requires at least one post-update rollout")
     return _effect_metrics_for_updates(updates)
 
 
 def _effect_metrics_for_updates(
-    updates: tuple[dict[str, np.ndarray], ...],
+    updates: tuple[TrainingUpdateSummary, ...],
 ) -> dict[str, float | int]:
-    actions = np.concatenate([item["guidance_action"] for item in updates], axis=0)
-    distance = float(sum(item["step_distance_m"].sum() for item in updates))
-    fuel = float(sum(item["executed_fuel_proxy_step_energy_ml"].sum() for item in updates))
+    sample_count = sum(item.sample_count for item in updates)
+    if not sample_count:
+        raise ValueError("PPO reward A/B effect window requires training samples")
+    action_mean = sum(item.action_mean[1] * item.sample_count for item in updates) / sample_count
+    action_variance = sum(
+        item.sample_count
+        * (item.action_std[1] ** 2 + (item.action_mean[1] - action_mean) ** 2)
+        for item in updates
+    ) / sample_count
+    distance = float(sum(item.executed_fuel_proxy_distance_m for item in updates))
+    fuel = float(sum(item.executed_fuel_proxy_total_ml for item in updates))
     if distance <= 0.0:
         raise ValueError("PPO reward A/B effect window has zero execution distance")
-    speed = np.concatenate([item["speed_mps"] for item in updates], axis=0)
-    progress = float(sum(item["route_completion_delta"].sum() for item in updates))
-    collision = sum(
-        int(
-            (
-                item["crash_vehicle"]
-                | item["crash_object"]
-                | item["crash_building"]
-                | item["crash_human"]
-                | item["crash_sidewalk"]
-            ).sum()
-        )
-        for item in updates
-    )
     return {
-        "sample_count": int(actions.shape[0]),
-        "longitudinal_action_mean": float(actions[:, 1].mean()),
-        "longitudinal_action_variance": float(actions[:, 1].var()),
+        "sample_count": sample_count,
+        "longitudinal_action_mean": float(action_mean),
+        "longitudinal_action_variance": float(action_variance),
         "fuel_proxy_total_ml": fuel,
         "distance_m": distance,
         "fuel_proxy_ml_per_km": fuel * 1000.0 / distance,
-        "mean_speed_mps": float(speed.mean()),
-        "route_progress_delta": progress,
-        "stopped_fraction": float(
-            np.concatenate([item["stopped"] for item in updates], axis=0).mean()
+        "mean_speed_mps": float(
+            sum(item.mean_speed_mps * item.sample_count for item in updates) / sample_count
         ),
-        "collision_count": collision,
-        "out_of_road_count": int(sum(item["out_of_road"].sum() for item in updates)),
+        "route_progress_delta": float(sum(item.route_completion_delta for item in updates)),
+        "stopped_fraction": float(
+            sum(item.stopped_fraction * item.sample_count for item in updates) / sample_count
+        ),
+        "collision_count": sum(item.collision_count for item in updates),
+        "out_of_road_count": sum(item.out_of_road_count for item in updates),
     }
 
 
 def _effect_update_series(
     builtin: dict[str, object], energy: dict[str, object]
 ) -> list[dict[str, object]]:
-    builtin_updates = _updates(builtin)[1:]
-    energy_updates = _updates(energy)[1:]
+    builtin_updates = _summary(builtin).updates[1:]
+    energy_updates = _summary(energy).updates[1:]
     if len(builtin_updates) != len(energy_updates):
         raise ValueError("matched PPO reward runs have different effect-window lengths")
     series: list[dict[str, object]] = []
@@ -390,8 +389,8 @@ def _resolved_matches_matrix(config: PPORewardABConfig, run: dict[str, object]) 
 
 
 def _initial_collection_equal(left: dict[str, object], right: dict[str, object]) -> bool:
-    first = _updates(left)[0]
-    second = _updates(right)[0]
+    first = _initial_update(left)
+    second = _initial_update(right)
     return all(np.array_equal(first[name], second[name]) for name in _COMMON_PAIR_FIELDS)
 
 
@@ -416,10 +415,10 @@ def _resolved(run: dict[str, object]) -> dict[str, object]:
     return value
 
 
-def _updates(run: dict[str, object]) -> tuple[dict[str, np.ndarray], ...]:
-    value = run["updates"]
-    if not isinstance(value, tuple):
-        raise TypeError("A/B update artifacts have an invalid internal type")
+def _initial_update(run: dict[str, object]) -> dict[str, np.ndarray]:
+    value = run["initial_update"]
+    if not isinstance(value, dict):
+        raise TypeError("A/B initial rollout artifact has an invalid internal type")
     return value
 
 
