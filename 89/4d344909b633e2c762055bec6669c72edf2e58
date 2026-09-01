@@ -1,0 +1,45 @@
+docs/experiments/records/e-028-issue76-ppo-stability-search.md
+  s_02bd4dce94e9a1::t_864582bf6cd639 1-122
+tests/configuration/test_studies.py
+  s_02bd4dce94e9a1::t_6e1ef8db367de6 233-250
+  s_a1a96669afd746::t_7c1a0de6e0a7c7 197-203
+docs/experiments/records/e-027-issue76-stage1-p0-failure-and-p1-conservative-baseline.md
+  s_02bd4dce94e9a1::t_7d4cd5366170c7 145-155
+docs/experiments/README.md
+  s_02bd4dce94e9a1::t_2ec90fd1058ceb 65-66
+  s_02bd4dce94e9a1::t_949d67389c38cc 68
+scripts/studies/ppo_stability.py
+  s_a1a96669afd746::t_a47b8e7ca3696a 165-167
+  s_a1a96669afd746::t_ab08a8fe4f4ab9 63
+  s_a1a96669afd746::t_922d2a6b94c031 256-258
+  s_a1a96669afd746::t_7dec58c0f07aad 275
+  s_02bd4dce94e9a1::t_dd8168df55479d 487-497
+configs/studies/ppo/stability.yaml
+  s_a1a96669afd746::t_76b57c3b4cc16a 26-30
+docs/experiments/records/e-026-issue59-stage-b-ppo-reward-ab-short-trend.md
+  s_02bd4dce94e9a1::t_22340ab336e5e7 114-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "894d344909b633e2c762055bec6669c72edf2e58",
+  "prompts": {},
+  "sessions": {
+    "s_02bd4dce94e9a1": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa54ca902ffe5CGUFJcFMt9z47",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    },
+    "s_a1a96669afd746": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa80d4b1dffeD7wrq2eaEBQ5JI",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
