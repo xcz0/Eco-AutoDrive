@@ -60,7 +60,7 @@ class PruningConfig(_StrictModel):
     consecutive_update_count: StrictInt = Field(gt=0)
     minimum_episode_length_retention: StrictFloat = Field(gt=0.0, le=1.0)
     out_of_road_fraction: StrictFloat = Field(gt=0.0, le=1.0)
-    clip_fraction: StrictFloat = Field(gt=0.0, le=1.0)
+    clip_fraction: StrictFloat | None = Field(default=None, gt=0.0, le=1.0)
     median_startup_trials: StrictInt = Field(ge=0)
     median_warmup_updates: StrictInt = Field(ge=0)
 
@@ -162,7 +162,9 @@ class StabilityMonitor:
             return "sustained_out_of_road"
         if all(item.kl_early_stopped for item in window):
             return "sustained_target_kl_early_stop"
-        if all(item.mean_clip_fraction >= self.config.clip_fraction for item in window):
+        if self.config.clip_fraction is not None and all(
+            item.mean_clip_fraction >= self.config.clip_fraction for item in window
+        ):
             return "sustained_clip_fraction"
         return None
 
@@ -251,6 +253,9 @@ def run_stage_a(study_path: Path, output_root: Path) -> dict[str, object]:
         study.optimize(
             _objective(config, output_root),
             n_trials=remaining,
+            # Single-trial failures are recorded as FAIL trials with their
+            # failure reason; they must not abort the whole search.
+            catch=(Exception,),
         )
     summary = summarize_stage_a(study, config)
     write_json(output_root / "stage-a-summary.json", summary)
@@ -267,7 +272,7 @@ def summarize_stage_a(study: optuna.Study, config: PPOStabilityStudyConfig) -> d
     if len(completed) >= 2:
         try:
             importances = get_param_importances(study)
-        except ValueError as error:
+        except (ValueError, ImportError) as error:
             importance_error = str(error)
     counts = {
         state.name.lower(): sum(trial.state == state for trial in study.trials)
@@ -475,6 +480,17 @@ def _run_validation(
             "training_seed": training_seed,
             "state": "unstable",
             "reason": str(error),
+            "minimum_episode_length_retention": monitor.minimum_episode_retention,
+            "evaluation": None,
+            "output_dir": str(output_dir),
+        }
+    except Exception as error:
+        return {
+            "stage": stage,
+            "config_id": config_id,
+            "training_seed": training_seed,
+            "state": "failed",
+            "reason": f"{type(error).__name__}: {error}",
             "minimum_episode_length_retention": monitor.minimum_episode_retention,
             "evaluation": None,
             "output_dir": str(output_dir),

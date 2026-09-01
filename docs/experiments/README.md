@@ -62,9 +62,10 @@
 | [E-024](records/e-024-plannerrft-energy-reward-smoke.md) | 2026-08-26 | 本机实现验收 | `plannerrft_energy_v1` 的 32-transition 单次真实 PPO update | 链路、审计与有限值通过；不构成 A/B、parity 或节能结论 |
 | [E-025](records/e-025-issue59-stage-a-ppo-reward-ab-mechanical-gate.md) | 2026-08-27 | 本机机械门控 | Issue #59 阶段 A builtin/energy 匹配 PPO A/B（4 updates × 2 profiles） | 9 项机械检查全部通过，无 reward hacking；阶段 A 验收完成 |
 | [E-026](records/e-026-issue74-corrected-rollout-profiler.md) | 2026-08-28 | 本机正式基准 | Issue #74 的 PPO scheduler 与 CUDA 异步计时口径修复 | B=2/B=4 真实 4-epoch profiler 完成；旧 planner/bootstrap 分项失效，执行路径优化未完成 |
-| [E-026](records/e-026-issue59-stage-b-ppo-reward-ab-short-trend.md) | 2026-08-28 | 本机短趋势验证 | Issue #59 阶段 B builtin/energy 匹配 PPO A/B（20 updates × 3 seeds × 2 profiles） | 27 项机械检查全部通过，无 reward hacking；两 profile 间无显著差异；阶段 B 验收完成 |
-| [E-027](records/e-027-issue76-stage1-p0-failure-and-p1-conservative-baseline.md) | 2026-08-28 | 本机基线 | Issue #76 阶段 1 P0 失败基线保留与 P1 人工保守基线 | P0 复现退化（E-026）；P1（lr=2.5e-5、batch=256、epochs=1）20 updates 全程稳定，确认原问题为 update 强度过大 |
+| [E-026](records/e-026-issue59-stage-b-ppo-reward-ab-short-trend.md) | 2026-08-28 | 本机短趋势验证 | Issue #59 阶段 B builtin/energy 匹配 PPO A/B（20 updates × 3 seeds × 2 profiles） | 27 项机械检查全部通过，无 reward hacking；两 profile 间无显著差异；阶段 B 验收完成；退化归因 reset bug（见 E-028 修正） |
+| [E-027](records/e-027-issue76-stage1-p0-failure-and-p1-conservative-baseline.md) | 2026-08-28 | 本机基线 | Issue #76 阶段 1 P0 失败基线保留与 P1 人工保守基线 | P1 20 updates 全程稳定；"update 强度过大"归因已被 reset bug 修正推翻（见 E-028 修正） |
 | [E-027](records/e-027-issue74-rollout-hotpath-optimization.md) | 2026-08-28 | 本机优化验证 | Issue #74 的局部 DiT 编译、同步与 DDIM allocation 优化 | 编译因 Windows 无可用 Triton 未过门槛，保持 eager 默认；两项等价微优化落地，不主张全局吞吐改善 |
+| [E-028](records/e-028-issue76-ppo-stability-search.md) | 2026-09-01 | 远程训练机正式搜索 | Issue #76 reset 修复后的 P0/P1 复验与 Optuna Stage A/B/C 分层稳定超参数搜索 | P0/P1 修复后均稳定（E-026 式退化归因 reset bug）；config-0001（batch=128、epochs=1、lr=1.63e-5）为唯一 3 seeds × 100 updates 稳定候选；主要失败模式为 epochs=3 × 高 lr 的 Beta 边界塌缩 |
 
 ## 服务器训练与正式实验登记模板
 

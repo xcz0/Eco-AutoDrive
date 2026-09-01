@@ -194,6 +194,13 @@ def test_stability_monitor_reports_registered_domain_prune_reasons(config_root: 
 
     monitor = StabilityMonitor(study.pruning)
     reasons = [monitor.add(update(index, clip_fraction=0.5)) for index in range(3)]
+    assert all(reason is None for reason in reasons)
+    assert study.pruning.clip_fraction is None
+
+    enabled = StabilityMonitor(
+        study.pruning.model_copy(update={"clip_fraction": 0.5})
+    )
+    reasons = [enabled.add(update(index, clip_fraction=0.5)) for index in range(3)]
     assert reasons[-1] == "sustained_clip_fraction"
 
 
@@ -223,3 +230,21 @@ def test_stability_study_sqlite_continuation_and_validation_ranking(
     ]
 
     assert _rank_validation_configs(records, required_seed_count=2) == [7, 3]
+
+    records_with_failed_run = [
+        {
+            "config_id": 3,
+            "state": "failed",
+            "reason": "ValueError: guidance action must be strictly inside (-1, 1)",
+            "minimum_episode_length_retention": 1.0,
+            "evaluation": None,
+        },
+        {
+            "config_id": 3,
+            "state": "complete",
+            "minimum_episode_length_retention": 0.95,
+            "evaluation": {"passed": True, "route_progress_retention": 1.0},
+        },
+    ]
+
+    assert _rank_validation_configs(records_with_failed_run, required_seed_count=2) == []

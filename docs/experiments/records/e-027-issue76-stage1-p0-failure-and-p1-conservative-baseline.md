@@ -142,3 +142,14 @@ P0 的失败趋势已由 E-026 在 20 updates × 3 seeds × 2 reward profiles �
 - per-update NPZ: `updates/update-NNN/`
 
 Issue #76 阶段 1 验收完成。
+
+## 结论边界修正（2026-09-01）
+
+Issue #76 的后续诊断定位了 MetaDrive reset 语义 bug（reset 内部 `taskMgr.step()` 重放未清除的 `engine.external_actions`，详见 E-026 修正一节与 E-028）。该 bug 同时污染了本记录的 P0/P1 对照解释：
+
+- P0 的退化由同地图 reset 漂移跨 update 累积导致（每个物理 worker 固定一种地图）；
+- P1 的"稳定"是场景顺序掩盖了 bug：S 与 SC 分波次排列，换图重建环境使漂移无法跨 update 累积到出界（部分 episode 仍可能从旧终点附近开始，artifact 的 `route_completion_delta` 是 episode 内增量，不能证明绝对 route completion 回到出生点）。
+
+reset 修复（commit `bbf1365`）后重跑 20 updates × seed 0：P0（`outputs/training/ppo/2026-08-31/21-56-45-seed-0-replay-0/`）与 P1（`outputs/training/ppo/2026-08-31/21-59-48-seed-0-replay-0/`）均完全稳定。
+
+因此本记录"小 batch + 多 epoch + 较高 lr 导致单轮 update 强度过大是主要问题"的结论不成立；P1 与 P0 在修复后无行为差异，其对照不再支持 update 强度归因。本记录的 P1 诊断数值仍为当时真实运行结果，但"P1 稳定 / P0 崩溃"的对照解释力失效。更新后的稳定性证据见 E-028（Issue #76 Optuna 分层搜索）。

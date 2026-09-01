@@ -23,7 +23,11 @@ pruning:
   consecutive_update_count: 3
   minimum_episode_length_retention: 0.30
   out_of_road_fraction: 0.10
-  clip_fraction: 0.50
+  # Disabled: the stable conservative baseline (P1 rerun after the reset fix)
+  # sustains clip_fraction 0.67-0.74 for all updates while approx_kl stays
+  # ~1e-5, so a 0.50 hard-prune threshold flags every stable configuration.
+  # Clip fraction stays monitored and reported, but is not a hard prune.
+  clip_fraction: null
   median_startup_trials: 5
   median_warmup_updates: 5
 
