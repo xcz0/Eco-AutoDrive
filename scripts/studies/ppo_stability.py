@@ -7,7 +7,7 @@ from pathlib import Path
 
 from eco_planner._repository import LOCAL_ENVIRONMENT_PATH
 from eco_planner.configuration import load_local_environment
-from eco_planner.studies.ppo_stability import DEFAULT_STUDY, run_command
+from eco_planner.experiments.ppo_stability.runner import DEFAULT_STUDY, run_command
 
 
 def main() -> None:

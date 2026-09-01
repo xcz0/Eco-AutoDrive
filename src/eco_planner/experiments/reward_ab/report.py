@@ -14,7 +14,8 @@ from eco_planner.rl.artifacts import (
     ENERGY_ROLLOUT_ARTIFACT_FIELDS,
     TrainingRunSummary,
 )
-from eco_planner.studies.reward_ab import PPORewardABConfig, load_ab_config
+
+from .runner import PPORewardABConfig, load_ab_config
 
 _COMMON_PAIR_FIELDS = (
     "guidance_action",

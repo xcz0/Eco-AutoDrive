@@ -12,10 +12,9 @@ from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import collect_repository_metadata
+from eco_planner.benchmarking.config import measurement, write_benchmark_artifacts
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation.artifacts import load_runtime_metadata
-
-from .config import measurement, write_benchmark_artifacts
 
 
 def write_report(

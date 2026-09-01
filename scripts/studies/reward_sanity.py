@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from eco_planner.studies.reward_sanity import DEFAULT_CONFIG, run_sanity
+from eco_planner.experiments.reward_sanity import DEFAULT_CONFIG, run_sanity
 
 
 def main() -> None:

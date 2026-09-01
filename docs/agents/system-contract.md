@@ -42,7 +42,10 @@ Hydra/OmegaConf 只存在于配置 composition 边界。CLI 与内部 study work
 
 semantic job 的 resources config group 使用 null 占位，因此不依赖 `.env` 或 `MACHINE_NAME` 即可 compose 和 typed validate。CLI 与 study bootstrap 可选读取仓库根目录 `.env`；共享 composition helper 在调用方没有显式 `components/resources=...` override 时，以现有环境或 `.env` 的 `MACHINE_NAME` 注入同名版本化 profile。已有进程环境不被 `.env` 覆盖，显式 Hydra override 优先于自动选择。需要 worker、slot 或线程预算的 execution boundary 必须取得 profile，否则直接失败，不合成默认预算。
 
-`jobs` 是完整 semantic job 的唯一声明位置；`studies` 只选择 job，并声明 study-specific pairing、搜索、ranking 或显式 overrides。study manifest 不得复制 job 的 scenario、runtime、sampler 或 environment 字段后再与 resolved config 对账。
+`jobs` 是完整 semantic job 的唯一声明位置；`experiments` 只选择 job，并声明
+experiment-specific pairing、搜索、ranking 或显式 overrides。experiment manifest 目前保留在
+`configs/studies/`，不得复制 job 的 scenario、runtime、sampler 或 environment 字段后再与
+resolved config 对账。
 
 配置、持久化文件以及 MetaDrive、TorchRL、Diffusers、Fabric 等第三方返回值只在首次进入项目 typed domain 的边界校验和转换一次；下游受控数据流依赖明确类型、生产者测试与本节规定的 shape/单位契约，不为静态类型收窄重复执行 `isinstance` 或 Optional 状态检查。有限性、随机流、冻结参数及其他会改变实验语义的显式校验不受此规则影响。
 

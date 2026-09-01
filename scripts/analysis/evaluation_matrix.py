@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from eco_planner.analysis.evaluation_matrix import summarize_evaluation_matrix
+from eco_planner.evaluation.analysis import summarize_matrix
 
 
 def main() -> None:
@@ -12,7 +12,7 @@ def main() -> None:
     parser.add_argument("matrix_root", type=Path)
     parser.add_argument("--partial", action="store_true")
     args = parser.parse_args()
-    report = summarize_evaluation_matrix(args.matrix_root, partial=args.partial)
+    report = summarize_matrix(args.matrix_root, partial=args.partial)
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
 
 

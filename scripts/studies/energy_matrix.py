@@ -5,7 +5,7 @@ from pathlib import Path
 
 from eco_planner._repository import LOCAL_ENVIRONMENT_PATH
 from eco_planner.configuration import load_local_environment
-from eco_planner.studies.energy import DEFAULT_STUDY, run_study
+from eco_planner.experiments.energy_sweep import DEFAULT_STUDY, run_study
 
 
 def main() -> None:

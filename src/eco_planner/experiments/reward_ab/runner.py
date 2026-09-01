@@ -119,7 +119,7 @@ def run_ab(study_path: Path, output_root: Path) -> int:
                 failed = failed or status != "completed"
     if failed:
         return 1
-    from eco_planner.analysis.reward_ab import summarize_ab
+    from .report import summarize_ab
 
     report = summarize_ab(output_root)
     write_json(output_root / "review_report.json", report)

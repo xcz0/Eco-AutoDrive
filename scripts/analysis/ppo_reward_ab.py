@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from eco_planner.analysis.reward_ab import summarize_and_write_ab
+from eco_planner.experiments.reward_ab.report import summarize_and_write_ab
 
 
 def main() -> None:

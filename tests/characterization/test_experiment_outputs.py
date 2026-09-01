@@ -8,7 +8,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from eco_planner.analysis import reward_ab as reward_ab_analysis
 from eco_planner.evaluation import analysis as evaluation_analysis
 from eco_planner.evaluation.artifacts import (
     CompletedEpisodeSummary,
@@ -24,11 +23,12 @@ from eco_planner.evaluation.artifacts import (
     TrafficObservationSummary,
     WarmupSummary,
 )
+from eco_planner.experiments import energy_sweep as energy_study
+from eco_planner.experiments import ppo_reproducibility as training_analysis
+from eco_planner.experiments.reward_ab import report as reward_ab_analysis
+from eco_planner.experiments.reward_ab.runner import PPORewardABConfig
 from eco_planner.rl.artifacts import PolicyProbeSummary, TrainingRunSummary, TrainingUpdateSummary
-from eco_planner.rl.artifacts import analysis as training_analysis
 from eco_planner.rl.evaluation import PolicyEvaluationSummary, compare_policy_evaluations
-from eco_planner.studies import energy as energy_study
-from eco_planner.studies.reward_ab import PPORewardABConfig
 
 
 def _episode(*, seed: int, distance_m: float, energy_ml: float) -> CompletedEpisodeSummary:

@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from eco_planner.benchmarking.evaluation_report import write_report
+from eco_planner.experiments.execution_backend.report import write_report
 
 
 def main() -> None:

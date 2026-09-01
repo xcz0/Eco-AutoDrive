@@ -6,12 +6,9 @@ from pathlib import Path
 import pytest
 from omegaconf import DictConfig
 
-from eco_planner.analysis.reward_ab import aggregate_pair_reports
 from eco_planner.evaluation.config import EvaluationJobConfig, parse_evaluation_config
-from eco_planner.rl.artifacts import TrainingUpdateSummary
-from eco_planner.rl.config import TrainingJobConfig, parse_training_config
-from eco_planner.studies.energy import load_energy_study
-from eco_planner.studies.ppo_stability import (
+from eco_planner.experiments.energy_sweep import load_energy_study
+from eco_planner.experiments.ppo_stability.runner import (
     StabilityMonitor,
     TrialParameters,
     _create_study,
@@ -19,8 +16,11 @@ from eco_planner.studies.ppo_stability import (
     compose_trial_training_config,
     load_stability_config,
 )
-from eco_planner.studies.reward_ab import build_training_overrides, load_ab_config
-from eco_planner.studies.reward_sanity import evaluate_sanity, load_sanity_config
+from eco_planner.experiments.reward_ab.report import aggregate_pair_reports
+from eco_planner.experiments.reward_ab.runner import build_training_overrides, load_ab_config
+from eco_planner.experiments.reward_sanity import evaluate_sanity, load_sanity_config
+from eco_planner.rl.artifacts import TrainingUpdateSummary
+from eco_planner.rl.config import TrainingJobConfig, parse_training_config
 
 ComposeConfig = Callable[[str, list[str] | None], DictConfig]
 

@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from eco_planner.analysis.training import summarize_and_write_training_runs
+from eco_planner.experiments.ppo_reproducibility import summarize_and_write_training_runs
 
 
 def main() -> None:
