@@ -27,7 +27,7 @@ from eco_planner.evaluation.runtime import (
     create_fabric_inference_runtime,
 )
 from eco_planner.models import OfficialDiffusionPlannerConfig
-from eco_planner.runtime_resources import require_resource_profile
+from eco_planner.runtime.resources import require_resource_profile
 
 from .config import (
     ScalingBenchmarkConfig,
@@ -91,7 +91,7 @@ def benchmark_planner_batch_scaling(
         for _ in range(benchmark.warmup_cycles):
             runtime.infer_batch(
                 batched_observation,
-                _standard_normal_noise(runtime, generators),
+                runtime.sample_noise(generators),
                 generators,
             ).audit_result()
 
@@ -112,7 +112,7 @@ def benchmark_planner_batch_scaling(
                 started = perf_counter()
                 decision = runtime.infer_batch(
                     batched_observation,
-                    _standard_normal_noise(runtime, generators),
+                    runtime.sample_noise(generators),
                     generators,
                     profile=True,
                 )
@@ -224,19 +224,6 @@ def benchmark_vector_environment_scaling(
             }
         )
     return results
-
-
-def _standard_normal_noise(
-    runtime: FabricInferenceRuntime, generators: Sequence[torch.Generator]
-) -> torch.Tensor:
-    config = runtime.planner_config
-    shape = (1, 1 + config.predicted_neighbor_num, config.future_len, 4)
-    return torch.cat(
-        [
-            torch.randn(shape, dtype=torch.float32, device=runtime.device, generator=generator)
-            for generator in generators
-        ]
-    )
 
 
 def _stationary_trajectory(future_len: int) -> np.ndarray:

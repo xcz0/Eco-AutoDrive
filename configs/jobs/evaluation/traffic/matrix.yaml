@@ -12,9 +12,7 @@ evaluation:
     seeds: [0, 1, 2]
     traffic_densities: [0.05, 0.10]
   execution:
-    mode: parallel
-    vector_env_slots: null
-    torch_threads_per_worker: ${oc.select:resources.torch_threads_per_worker,null}
+    topology: job_parallel
     deterministic: true
 
 env:

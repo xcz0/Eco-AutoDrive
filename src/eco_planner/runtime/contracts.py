@@ -8,7 +8,7 @@ import numpy as np
 
 
 @dataclass(frozen=True)
-class HostExecutionResult:
+class HostTrajectories:
     """Batched ego trajectories required before advancing simulator workers."""
 
-    ego_trajectory: np.ndarray
+    ego: np.ndarray

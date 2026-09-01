@@ -65,6 +65,7 @@
 | [E-026](records/e-026-issue59-stage-b-ppo-reward-ab-short-trend.md) | 2026-08-28 | 本机短趋势验证 | Issue #59 阶段 B builtin/energy 匹配 PPO A/B（20 updates × 3 seeds × 2 profiles） | 27 项机械检查全部通过，无 reward hacking；两 profile 间无显著差异；阶段 B 验收完成 |
 | [E-027](records/e-027-issue76-stage1-p0-failure-and-p1-conservative-baseline.md) | 2026-08-28 | 本机基线 | Issue #76 阶段 1 P0 失败基线保留与 P1 人工保守基线 | P0 复现退化（E-026）；P1（lr=2.5e-5、batch=256、epochs=1）20 updates 全程稳定，确认原问题为 update 强度过大 |
 | [E-027](records/e-027-issue74-rollout-hotpath-optimization.md) | 2026-08-28 | 本机优化验证 | Issue #74 的局部 DiT 编译、同步与 DDIM allocation 优化 | 编译因 Windows 无可用 Triton 未过门槛，保持 eager 默认；两项等价微优化落地，不主张全局吞吐改善 |
+| [E-028](records/e-028-runtime-ownership-refactor.md) | 2026-09-01 | 本机实现验证与诊断复测 | runtime ownership、evaluation topology、rollout/worker 分层与 CUDA audit stream 候选 | 正确性验证通过；性能受机器状态影响，不作加速结论；最终不复用 audit stream |
 
 ## 服务器训练与正式实验登记模板
 

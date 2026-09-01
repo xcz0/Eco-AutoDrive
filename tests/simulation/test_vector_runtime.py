@@ -10,8 +10,10 @@ from torchrl.data import Binary, Composite, Unbounded
 from eco_planner.envs.runtime.vector import (
     VectorMetaDriveEnv,
     VectorMetaDriveWorkerError,
-    _TorchRLScenarioMetaDriveEnv,
-    _WorkerFailure,
+)
+from eco_planner.envs.torchrl.worker import (
+    TorchRLScenarioMetaDriveEnv,
+    WorkerFailure,
 )
 
 
@@ -33,12 +35,12 @@ def test_step_failure_output_preserves_the_original_worker_traceback() -> None:
     try:
         raise RuntimeError("sentinel worker failure")
     except RuntimeError:
-        output = _TorchRLScenarioMetaDriveEnv._failure_output(worker, "step")
+        output = TorchRLScenarioMetaDriveEnv._failure_output(worker, "step")
 
     assert isinstance(output, TensorDict)
     assert output["reward"].shape == (1,)
     assert output["reward"].dtype is torch.float32
-    assert isinstance(worker._operation_result, _WorkerFailure)
+    assert isinstance(worker._operation_result, WorkerFailure)
     assert worker._operation_result.operation == "step"
     assert "sentinel worker failure" in worker._operation_result.traceback_text
     assert "AttributeError" not in worker._operation_result.traceback_text

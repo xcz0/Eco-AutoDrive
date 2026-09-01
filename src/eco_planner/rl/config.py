@@ -33,7 +33,7 @@ from eco_planner.rl.policy.config import (
     parse_exploration_policy_config,
 )
 from eco_planner.runtime.config import RuntimeConfig
-from eco_planner.runtime_resources import ResourceProfileConfig
+from eco_planner.runtime.resources import ResourceProfileConfig
 
 
 class _StrictModel(BaseModel):

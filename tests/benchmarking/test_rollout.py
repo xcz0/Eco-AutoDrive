@@ -7,11 +7,11 @@ from eco_planner.benchmarking.config import RolloutBenchmarkConfig
 from eco_planner.benchmarking.rollout import _effective_ppo_config, _rollout_result
 from eco_planner.rl.optimization import PPOConfig
 from eco_planner.rl.rollout.collector import VectorRolloutRoundTiming
-from eco_planner.rl.rollout.runtime import (
+from eco_planner.rl.rollout.profiling import (
     RolloutPlannerPhaseTiming,
     RolloutPlannerTiming,
-    _finish_profile,
-    _profile_call,
+    finish_profile,
+    profile_call,
 )
 
 
@@ -71,7 +71,6 @@ def _planner_timing(phase: str) -> RolloutPlannerTiming:
         policy_forward=_phase(0.1, 0.08),
         action_sampling=_phase(0.03, 0.02) if decision else None,
         complete_policy_guidance=_phase(0.4, 0.35) if decision else None,
-        guidance_action_check=_phase(0.01, 0.005) if decision else None,
         execution_to_host=_phase(0.02, 0.01) if decision else None,
         profile_sync_wait_wall_s=0.01,
     )
@@ -152,19 +151,19 @@ def test_disabled_profile_does_not_create_cuda_events_or_synchronize(
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("stream synchronized")),
     )
 
-    result, timing = _profile_call(device, False, lambda: 7)
+    result, timing = profile_call(device, False, lambda: 7)
 
     assert result == 7
     assert timing is None
-    assert _finish_profile(device, False) == 0.0
+    assert finish_profile(device, False) == 0.0
 
 
 @pytest.mark.gpu
 def test_cuda_profile_attributes_async_work_before_return() -> None:
     device = torch.device("cuda")
 
-    _, pending = _profile_call(device, True, lambda: torch.cuda._sleep(20_000_000))
-    sync_wait_s = _finish_profile(device, True)
+    _, pending = profile_call(device, True, lambda: torch.cuda._sleep(20_000_000))
+    sync_wait_s = finish_profile(device, True)
 
     assert pending is not None
     timing = pending.resolve()

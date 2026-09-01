@@ -26,7 +26,7 @@ from eco_planner.evaluation.artifacts import (
 from eco_planner.evaluation.config import parse_evaluation_config
 from eco_planner.evaluation.runtime import InferenceDecision, InferenceRuntimeReport
 from eco_planner.models import CheckpointLoadReport, NoGuidanceConfig, SamplerReport
-from eco_planner.runtime.contracts import HostExecutionResult
+from eco_planner.runtime.contracts import HostTrajectories
 
 
 @pytest.mark.smoke
@@ -53,6 +53,33 @@ def test_runner_writes_readable_finite_short_episode(
     assert np.isfinite(trace.arrays["initial_noise"]).all()
     assert np.isfinite(trace.arrays["predictions_local"]).all()
     assert np.isfinite(trace.arrays["executed_fuel_proxy_step_energy_ml"]).all()
+
+
+def test_vector_topology_derives_capacity_from_resource_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config()
+    config.evaluation.execution.topology = "vector"
+    config.resources = {
+        "name": "test-host",
+        "rollout_worker_count": 2,
+        "evaluation_job_worker_count": 3,
+        "evaluation_vector_env_slots": 4,
+        "torch_threads_per_worker": 5,
+    }
+    configured_threads: list[int] = []
+    monkeypatch.setattr(runner.os, "cpu_count", lambda: 16)
+    monkeypatch.setattr(runner.torch, "set_num_threads", configured_threads.append)
+
+    report = runner.configure_job_execution(parse_evaluation_config(config))
+
+    assert report.mode == "serial"
+    assert report.launcher == "basic"
+    assert report.worker_count == 1
+    assert report.vector_env_slots == 4
+    assert report.torch_threads_per_worker == 5
+    assert report.resource_profile == "test-host"
+    assert configured_threads == [5]
 
 
 class _ShortEpisodeSlot:
@@ -138,7 +165,7 @@ class _ShortEpisodeRuntime:
         prediction = torch.zeros_like(noise)
         prediction[..., 2] = 1.0
         audit = TensorDict({"initial_noise": noise, "prediction": prediction}, batch_size=[1])
-        return InferenceDecision(HostExecutionResult(prediction[:, 0].numpy()), lambda: audit)
+        return InferenceDecision(HostTrajectories(prediction[:, 0].numpy()), lambda: audit)
 
 
 def _config() -> object:
@@ -151,9 +178,7 @@ def _config() -> object:
                 "history_warmup_steps": 0,
                 "evaluated_horizon_steps": 5,
                 "execution": {
-                    "mode": "serial",
-                    "vector_env_slots": None,
-                    "torch_threads_per_worker": None,
+                    "topology": "serial",
                     "deterministic": False,
                 },
             },

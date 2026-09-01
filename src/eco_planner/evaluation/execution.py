@@ -301,6 +301,9 @@ def run_vector_scenarios(
     runtime: FabricInferenceRuntime,
     config: EvaluationJobConfig,
     output_root: Path,
+    *,
+    vector_env_slots: int,
+    torch_threads_per_worker: int | None,
 ) -> tuple[CompletedEpisodeSummary | FailedEpisodeSummary, ...]:
     """Evaluate a scenario queue with persistent fixed slots and batched planning."""
 
@@ -308,8 +311,7 @@ def run_vector_scenarios(
         raise ValueError("vector evaluation requires at least one scenario")
     if config.video.enabled:
         raise ValueError("vector evaluation requires video.enabled=false")
-    configured_slots = config.evaluation.execution.vector_env_slots or len(specs)
-    slot_count = min(configured_slots, len(specs))
+    slot_count = min(vector_env_slots, len(specs))
     initial_specs = specs[:slot_count]
     configured_envs = tuple({**config.env, "map": spec.map} for spec in initial_specs)
     scenarios = tuple(VectorEnvScenario(spec.name, spec.map, spec.seed) for spec in specs)
@@ -320,7 +322,7 @@ def run_vector_scenarios(
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.evaluation.history_warmup_steps,
         scenarios=scenarios,
-        torch_threads_per_worker=config.evaluation.execution.torch_threads_per_worker,
+        torch_threads_per_worker=torch_threads_per_worker,
     ) as envs:
         resets = envs.reset(scenarios[:slot_count])
         slots: dict[int, _EpisodeState] = {}

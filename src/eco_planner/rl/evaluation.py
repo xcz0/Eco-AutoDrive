@@ -22,7 +22,7 @@ from eco_planner.rl.rollout import (
     create_fabric_rollout_runtime,
 )
 from eco_planner.rl.rollout.contracts import concatenate_tensordicts
-from eco_planner.runtime_resources import require_resource_profile
+from eco_planner.runtime.resources import require_resource_profile
 
 _EVALUATION_SEED_NAMESPACE = 7_602_024
 

@@ -17,7 +17,7 @@ from eco_planner.evaluation.runner import run_evaluation
 from eco_planner.rl.artifacts import TrainingRunSummary
 from eco_planner.rl.config import parse_training_config
 from eco_planner.rl.trainer import TrainingUpdateObserver, train
-from eco_planner.runtime_resources import require_resource_profile
+from eco_planner.runtime.resources import require_resource_profile
 
 
 def compose_job_config(config_name: str, overrides: Sequence[str] = ()) -> DictConfig:

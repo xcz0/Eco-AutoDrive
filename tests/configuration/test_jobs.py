@@ -147,11 +147,9 @@ def test_semantic_jobs_compose_without_a_machine_profile(
     environment = parse_environment_job(compose_config("jobs/benchmark/environment", None))
 
     assert evaluation.resources is None
-    assert evaluation.evaluation.execution.vector_env_slots is None
-    assert evaluation.evaluation.execution.torch_threads_per_worker is None
+    assert evaluation.evaluation.execution.topology == "serial"
     assert parallel_evaluation.resources is None
-    assert parallel_evaluation.evaluation.execution.mode == "parallel"
-    assert parallel_evaluation.evaluation.execution.torch_threads_per_worker is None
+    assert parallel_evaluation.evaluation.execution.topology == "job_parallel"
     assert training.resources is None
     assert parse_evaluation_config(throughput_job).resources is None
     assert environment.resources is None

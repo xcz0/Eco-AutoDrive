@@ -25,7 +25,7 @@ from eco_planner.rl.rollout import (
     collect_rollout_episode,
     create_fabric_rollout_runtime,
 )
-from eco_planner.runtime_resources import require_resource_profile
+from eco_planner.runtime.resources import require_resource_profile
 
 from .config import (
     RolloutBenchmarkConfig,
@@ -407,7 +407,6 @@ _PLANNER_PHASE_FIELDS = (
     "policy_forward",
     "action_sampling",
     "complete_policy_guidance",
-    "guidance_action_check",
     "execution_to_host",
 )
 

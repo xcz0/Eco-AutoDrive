@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+import os
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from time import perf_counter
 
@@ -14,13 +15,25 @@ from eco_planner.artifacts import collect_repository_metadata, write_tracked_dif
 from eco_planner.evaluation.artifacts import JobSummary, RuntimeMetadata, write_json
 from eco_planner.evaluation.config import EvaluationJobConfig
 from eco_planner.evaluation.execution import run_scenario, run_vector_scenarios
-from eco_planner.evaluation.runtime import (
-    ExecutionReport,
-    configure_job_execution,
-    create_fabric_inference_runtime,
-)
+from eco_planner.evaluation.runtime import create_fabric_inference_runtime
 from eco_planner.models import GuidanceConfig, SamplerReport
-from eco_planner.runtime.fabric import InferenceRuntimeReport
+from eco_planner.runtime.fabric import InferenceRuntimeReport, resolve_runtime_settings
+
+
+@dataclass(frozen=True)
+class ExecutionReport:
+    """Resolved orchestration and process-resource settings for one Hydra job."""
+
+    mode: str
+    launcher: str
+    worker_count: int
+    vector_env_slots: int | None
+    torch_threads_per_worker: int | None
+    deterministic: bool
+    resolved_accelerator: str
+    process_id: int
+    logical_cpu_count: int
+    resource_profile: str | None
 
 
 def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
@@ -44,11 +57,18 @@ def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
         output_dir / "resolved_config.yaml",
         resolve=True,
     )
-    vector_slots = config.evaluation.execution.vector_env_slots
+    vector_slots = execution.vector_env_slots
     if vector_slots is None:
         summaries = [run_scenario(spec, runtime, config, output_dir) for spec in scenarios]
     else:
-        summaries = run_vector_scenarios(scenarios, runtime, config, output_dir)
+        summaries = run_vector_scenarios(
+            scenarios,
+            runtime,
+            config,
+            output_dir,
+            vector_env_slots=vector_slots,
+            torch_threads_per_worker=execution.torch_threads_per_worker,
+        )
     summary = JobSummary.model_validate(
         {
             "status": (
@@ -73,6 +93,68 @@ def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
         perf_counter() - started,
     )
     return summary
+
+
+def configure_job_execution(config: EvaluationJobConfig) -> ExecutionReport:
+    """Resolve topology against numeric resource capacity and configure this process."""
+
+    execution = config.evaluation.execution
+    topology = execution.topology
+    resources = config.resources
+    if topology != "serial" and resources is None:
+        raise ValueError(f"{topology} evaluation requires a resource profile")
+    mode = "parallel" if topology == "job_parallel" else "serial"
+    launcher = "joblib" if topology == "job_parallel" else "basic"
+    workers = (
+        resources.evaluation_job_worker_count
+        if topology == "job_parallel" and resources is not None
+        else 1
+    )
+    vector_slots = (
+        resources.evaluation_vector_env_slots
+        if topology == "vector" and resources is not None
+        else None
+    )
+    threads = None if resources is None else resources.torch_threads_per_worker
+
+    settings = resolve_runtime_settings(config.runtime)
+    logical_cpus = os.cpu_count()
+    if logical_cpus is None or logical_cpus <= 0:
+        raise RuntimeError("logical CPU count is unavailable")
+    if threads is not None:
+        if topology == "job_parallel" and settings.resolved_accelerator == "cpu":
+            if workers * threads > logical_cpus:
+                raise ValueError(
+                    "parallel CPU thread budget exceeds the available logical CPU count"
+                )
+        torch.set_num_threads(threads)
+
+    if settings.resolved_accelerator == "cuda" and execution.deterministic:
+        workspace = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+        if workspace not in {None, ":4096:8"}:
+            raise ValueError("CUBLAS_WORKSPACE_CONFIG must be ':4096:8'")
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+        torch.backends.cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True)
+
+    if topology == "job_parallel" and settings.resolved_accelerator == "cuda":
+        if torch.cuda.device_count() != 1:
+            raise ValueError("CUDA parallel execution requires exactly one visible CUDA GPU")
+        if not execution.deterministic:
+            raise ValueError("CUDA parallel execution requires deterministic=true")
+
+    return ExecutionReport(
+        mode=mode,
+        launcher=launcher,
+        worker_count=workers,
+        vector_env_slots=vector_slots,
+        torch_threads_per_worker=threads,
+        deterministic=execution.deterministic,
+        resolved_accelerator=settings.resolved_accelerator,
+        process_id=os.getpid(),
+        logical_cpu_count=logical_cpus,
+        resource_profile=None if resources is None else resources.name,
+    )
 
 
 def write_runtime_metadata(

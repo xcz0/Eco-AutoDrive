@@ -35,7 +35,7 @@ from eco_planner.rl.rollout import (
     VectorRolloutCollector,
     create_fabric_rollout_runtime,
 )
-from eco_planner.runtime_resources import ResourceProfileConfig
+from eco_planner.runtime.resources import ResourceProfileConfig
 
 _SEED_NAMESPACE = 6_002_024
 TrainingUpdateObserver = Callable[[TrainingUpdateSummary], None]

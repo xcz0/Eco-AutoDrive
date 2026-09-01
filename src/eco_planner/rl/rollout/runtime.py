@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from time import perf_counter
-from typing import Literal, TypeVar, cast
+from typing import Literal, cast
 
-import numpy as np
 import torch
 from lightning.fabric import Fabric
-from tensordict import TensorDict, TensorDictBase
 
 from eco_planner.envs.array_types import BatchObservation
 from eco_planner.models import (
@@ -31,201 +27,24 @@ from eco_planner.rl.policy import (
     ExplorationPolicyContext,
     ExplorationPolicyOutput,
     policy_context_tensordict,
-    validate_exploration_policy_context,
 )
 from eco_planner.rl.policy.distribution import (
     AffineBetaAction,
     AffineBetaParameters,
     ExplicitGeneratorBetaSampler,
 )
-from eco_planner.rl.rollout.contracts import DecisionAudit, build_training_decision
-from eco_planner.runtime.config import RuntimeConfig
-from eco_planner.runtime.contracts import HostExecutionResult
-from eco_planner.runtime.fabric import InferenceRuntimeReport, create_single_device_fabric
-from eco_planner.runtime.host_transfer import (
-    DeferredHostTensors,
-    DeferredHostTransferTiming,
-    copy_execution_trajectory,
-    defer_host_tensors,
+from eco_planner.rl.rollout.contracts import build_training_decision
+from eco_planner.rl.rollout.decision import BatchRolloutDecision, RolloutDecision
+from eco_planner.rl.rollout.profiling import (
+    RolloutPlannerTiming,
+    finish_profile,
+    profile_call,
+    require_phase,
 )
-
-
-@dataclass(frozen=True)
-class RolloutPlannerPhaseTiming:
-    """Host call wall and accelerator work for one profiled planner phase."""
-
-    host_call_wall_s: float
-    accelerator_s: float
-
-
-@dataclass(frozen=True)
-class RolloutPlannerTiming:
-    """Profile-only timing for one decision or bootstrap planner batch."""
-
-    phase: Literal["decision", "bootstrap"]
-    host_to_device: RolloutPlannerPhaseTiming
-    diffusion_noise: RolloutPlannerPhaseTiming
-    prepare_policy_guidance: RolloutPlannerPhaseTiming
-    policy_forward: RolloutPlannerPhaseTiming
-    action_sampling: RolloutPlannerPhaseTiming | None
-    complete_policy_guidance: RolloutPlannerPhaseTiming | None
-    guidance_action_check: RolloutPlannerPhaseTiming | None
-    execution_to_host: RolloutPlannerPhaseTiming | None
-    profile_sync_wait_wall_s: float
-
-
-@dataclass(frozen=True)
-class _PendingPhaseTiming:
-    host_call_wall_s: float
-    start_event: torch.cuda.Event | None
-    end_event: torch.cuda.Event | None
-
-    def resolve(self) -> RolloutPlannerPhaseTiming:
-        accelerator_s = self.host_call_wall_s
-        if self.start_event is not None and self.end_event is not None:
-            accelerator_s = self.start_event.elapsed_time(self.end_event) / 1000.0
-        return RolloutPlannerPhaseTiming(self.host_call_wall_s, accelerator_s)
-
-
-_T = TypeVar("_T")
-
-
-class RolloutDecision:
-    """Execution trajectory plus deferred CPU rollout storage fields."""
-
-    def __init__(
-        self,
-        execution: HostExecutionResult,
-        resolve_audit: Callable[[], TensorDictBase],
-        diffusion_rng_state: torch.Tensor,
-        policy_rng_state: torch.Tensor,
-        training_decision: TensorDictBase,
-    ) -> None:
-        self._execution = execution
-        self._resolve_audit = resolve_audit
-        self._diffusion_rng_state = diffusion_rng_state
-        self._policy_rng_state = policy_rng_state
-        self._training_decision = training_decision
-        self._audit: DecisionAudit | None = None
-
-    @property
-    def ego_trajectory(self) -> np.ndarray:
-        return self._execution.ego_trajectory[0]
-
-    @property
-    def training_decision(self) -> TensorDictBase:
-        """Return the device-resident PPO inputs without waiting for the audit copy."""
-
-        return self._training_decision
-
-    def audit_result(self) -> DecisionAudit:
-        """Wait for the stored PPO/replay payload after simulator execution."""
-
-        if self._audit is None:
-            host = self._resolve_audit()
-            context = ExplorationPolicyContext(
-                scene_tokens=host["scene_tokens"],
-                scene_padding_mask=host["scene_padding_mask"],
-                navigation_tokens=host["navigation_tokens"],
-                navigation_padding_mask=host["navigation_padding_mask"],
-                reference_trajectory=host["reference_trajectory"],
-            )
-            self._audit = DecisionAudit(
-                prediction=host["prediction"].numpy(),
-                initial_noise=host["initial_noise"],
-                policy_context=context,
-                base_action=host["base_action"],
-                guidance_action=host["guidance_action"],
-                old_joint_guidance_log_prob=host["old_joint_guidance_log_prob"],
-                old_value=host["old_value"],
-                beta_alpha=host["beta_alpha"],
-                beta_beta=host["beta_beta"],
-                diffusion_rng_state=self._diffusion_rng_state,
-                policy_rng_state=self._policy_rng_state,
-            )
-        return self._audit
-
-
-class BatchRolloutDecision:
-    """Batched policy-guided inference results for fixed vector-rollout slots."""
-
-    def __init__(
-        self,
-        execution: HostExecutionResult,
-        deferred: DeferredHostTensors,
-        diffusion_rng_states: tuple[torch.Tensor, ...],
-        policy_rng_states: tuple[torch.Tensor, ...],
-        policy_config: ExplorationPolicyConfig,
-        training_decision: TensorDictBase,
-    ) -> None:
-        self._execution = execution
-        self._deferred = deferred
-        self._diffusion_rng_states = diffusion_rng_states
-        self._policy_rng_states = policy_rng_states
-        self._policy_config = policy_config
-        self._training_decision = training_decision
-        self._audit: TensorDictBase | None = None
-        self._slots: list[RolloutDecision | None] = [None] * execution.ego_trajectory.shape[0]
-
-    @property
-    def ego_trajectories(self) -> np.ndarray:
-        """Return executable trajectories with shape ``[B, T, 4]``."""
-
-        return self._execution.ego_trajectory
-
-    @property
-    def training_decision(self) -> TensorDictBase:
-        """Return batched PPO inputs without waiting for the audit transfer."""
-
-        return self._training_decision
-
-    def audit_result(self) -> TensorDictBase:
-        """Resolve and return the complete batched audit payload."""
-
-        return self._resolve_audit()
-
-    @property
-    def audit_transfer_timing(self) -> DeferredHostTransferTiming | None:
-        """Return profile-only deferred transfer timing after audit resolution."""
-
-        return self._deferred.timing
-
-    def slot(self, index: int) -> RolloutDecision:
-        """Adapt one batch slot to the existing serial collector contract."""
-
-        batch = self.ego_trajectories.shape[0]
-        if not 0 <= index < batch:
-            raise IndexError(f"batch slot {index} is outside [0, {batch})")
-        decision = self._slots[index]
-        if decision is None:
-            decision = RolloutDecision(
-                HostExecutionResult(self.ego_trajectories[index : index + 1]),
-                lambda: _slice_tensordict(self._resolve_audit(), slice(index, index + 1)),
-                diffusion_rng_state=self._diffusion_rng_states[index],
-                policy_rng_state=self._policy_rng_states[index],
-                training_decision=_slice_tensordict(
-                    self._training_decision, slice(index, index + 1)
-                ),
-            )
-            self._slots[index] = decision
-        return decision
-
-    def _resolve_audit(self) -> TensorDictBase:
-        if self._audit is None:
-            host = self._deferred.resolve()
-            _validate_finite(host)
-            _validate_rollout_context(
-                ExplorationPolicyContext(
-                    scene_tokens=host["scene_tokens"],
-                    scene_padding_mask=host["scene_padding_mask"],
-                    navigation_tokens=host["navigation_tokens"],
-                    navigation_padding_mask=host["navigation_padding_mask"],
-                    reference_trajectory=host["reference_trajectory"],
-                ),
-                self._policy_config,
-            )
-            self._audit = TensorDict(host, batch_size=[self.ego_trajectories.shape[0]])
-        return self._audit
+from eco_planner.runtime.config import RuntimeConfig
+from eco_planner.runtime.fabric import InferenceRuntimeReport, create_single_device_fabric
+from eco_planner.runtime.host_transfer import HostTransfer
+from eco_planner.runtime.random import sample_batched_standard_normal
 
 
 class FabricRolloutRuntime:
@@ -255,6 +74,7 @@ class FabricRolloutRuntime:
         self.sampler_report = sampler
         self.guidance_config = guidance_config
         self.planner_compile_mode = planner_compile_mode
+        self._host_transfer = HostTransfer(fabric.device)
 
     @property
     def device(self) -> torch.device:
@@ -359,9 +179,8 @@ class FabricRolloutRuntime:
         _validate_slot_generators(diffusion_generators, batch, "diffusion_generators")
         if policy_generators is not None:
             _validate_slot_generators(policy_generators, batch, "policy_generators")
-        planner_config = self._planner.config
         profile = timings is not None
-        moved, h2d_timing = _profile_call(
+        moved, h2d_timing = profile_call(
             self.device, profile, lambda: self._fabric.to_device(raw_observation)
         )
         moved = _fabric_observation(moved)
@@ -371,13 +190,21 @@ class FabricRolloutRuntime:
             if policy_generators is not None
             else tuple(torch.empty(0, dtype=torch.uint8) for _ in range(batch))
         )
-        noise, noise_timing = _profile_call(
+        noise, noise_timing = profile_call(
             self.device,
             profile,
-            lambda: _slot_noise(planner_config, self.device, diffusion_generators),
+            lambda: sample_batched_standard_normal(
+                diffusion_generators,
+                (
+                    1 + self._planner.config.predicted_neighbor_num,
+                    self._planner.config.future_len,
+                    4,
+                ),
+                device=self.device,
+            ),
         )
         with torch.no_grad():
-            prepared, prepare_timing = _profile_call(
+            prepared, prepare_timing = profile_call(
                 self.device,
                 profile,
                 lambda: self._planner.prepare_policy_guidance(moved, noise, diffusion_generators),
@@ -389,13 +216,13 @@ class FabricRolloutRuntime:
                 navigation_padding_mask=prepared.policy_context.navigation_padding_mask,
                 reference_trajectory=prepared.policy_context.reference_trajectory,
             )
-            policy_outputs, policy_timing = _profile_call(
+            policy_outputs, policy_timing = profile_call(
                 self.device,
                 profile,
                 lambda: self._policy.forward_tensordict(policy_context_tensordict(policy_context)),
             )
             output = self._policy.output_from_tensordict(policy_outputs)
-            action, action_timing = _profile_call(
+            action, action_timing = profile_call(
                 self.device,
                 profile,
                 lambda: (
@@ -405,7 +232,7 @@ class FabricRolloutRuntime:
                 ),
             )
         with torch.enable_grad():
-            result, complete_timing = _profile_call(
+            result, complete_timing = profile_call(
                 self.device,
                 profile,
                 lambda: self._planner.complete_policy_guidance(prepared, action.guidance_action),
@@ -416,7 +243,7 @@ class FabricRolloutRuntime:
             action.joint_guidance_log_prob,
             output.value,
         )
-        deferred = defer_host_tensors(
+        deferred = self._host_transfer.defer(
             {
                 "prediction": (result.prediction, torch.float32),
                 "initial_noise": (noise, torch.float32),
@@ -432,27 +259,25 @@ class FabricRolloutRuntime:
                 "beta_alpha": (output.distribution.parameters.alpha, torch.float32),
                 "beta_beta": (output.distribution.parameters.beta, torch.float32),
             },
-            self.device,
             profile=profile,
         )
-        execution, execution_timing = _profile_call(
+        execution, execution_timing = profile_call(
             self.device,
             profile,
-            lambda: copy_execution_trajectory(result.prediction, self.device),
+            lambda: self._host_transfer.execution_trajectories(result.prediction),
         )
-        sync_wait_s = _finish_profile(self.device, profile)
+        sync_wait_s = finish_profile(self.device, profile)
         if timings is not None:
             timings.append(
                 RolloutPlannerTiming(
                     phase="decision",
-                    host_to_device=_require_phase(h2d_timing),
-                    diffusion_noise=_require_phase(noise_timing),
-                    prepare_policy_guidance=_require_phase(prepare_timing),
-                    policy_forward=_require_phase(policy_timing),
-                    action_sampling=_require_phase(action_timing),
-                    complete_policy_guidance=_require_phase(complete_timing),
-                    guidance_action_check=None,
-                    execution_to_host=_require_phase(execution_timing),
+                    host_to_device=require_phase(h2d_timing),
+                    diffusion_noise=require_phase(noise_timing),
+                    prepare_policy_guidance=require_phase(prepare_timing),
+                    policy_forward=require_phase(policy_timing),
+                    action_sampling=require_phase(action_timing),
+                    complete_policy_guidance=require_phase(complete_timing),
+                    execution_to_host=require_phase(execution_timing),
                     profile_sync_wait_wall_s=sync_wait_s,
                 )
             )
@@ -487,17 +312,25 @@ class FabricRolloutRuntime:
         batch = _observation_batch_size(raw_observation)
         _validate_slot_generators(diffusion_generators, batch, "diffusion_generators")
         profile = timings is not None
-        moved, h2d_timing = _profile_call(
+        moved, h2d_timing = profile_call(
             self.device, profile, lambda: self._fabric.to_device(raw_observation)
         )
         moved = _fabric_observation(moved)
-        noise, noise_timing = _profile_call(
+        noise, noise_timing = profile_call(
             self.device,
             profile,
-            lambda: _slot_noise(self._planner.config, self.device, diffusion_generators),
+            lambda: sample_batched_standard_normal(
+                diffusion_generators,
+                (
+                    1 + self._planner.config.predicted_neighbor_num,
+                    self._planner.config.future_len,
+                    4,
+                ),
+                device=self.device,
+            ),
         )
         with torch.no_grad():
-            prepared, prepare_timing = _profile_call(
+            prepared, prepare_timing = profile_call(
                 self.device,
                 profile,
                 lambda: self._planner.prepare_policy_guidance(moved, noise, diffusion_generators),
@@ -509,7 +342,7 @@ class FabricRolloutRuntime:
                 navigation_padding_mask=prepared.policy_context.navigation_padding_mask,
                 reference_trajectory=prepared.policy_context.reference_trajectory,
             )
-            value, policy_timing = _profile_call(
+            value, policy_timing = profile_call(
                 self.device,
                 profile,
                 lambda: (
@@ -521,18 +354,17 @@ class FabricRolloutRuntime:
                     .clone()
                 ),
             )
-        sync_wait_s = _finish_profile(self.device, profile)
+        sync_wait_s = finish_profile(self.device, profile)
         if timings is not None:
             timings.append(
                 RolloutPlannerTiming(
                     phase="bootstrap",
-                    host_to_device=_require_phase(h2d_timing),
-                    diffusion_noise=_require_phase(noise_timing),
-                    prepare_policy_guidance=_require_phase(prepare_timing),
-                    policy_forward=_require_phase(policy_timing),
+                    host_to_device=require_phase(h2d_timing),
+                    diffusion_noise=require_phase(noise_timing),
+                    prepare_policy_guidance=require_phase(prepare_timing),
+                    policy_forward=require_phase(policy_timing),
                     action_sampling=None,
                     complete_policy_guidance=None,
-                    guidance_action_check=None,
                     execution_to_host=None,
                     profile_sync_wait_wall_s=sync_wait_s,
                 )
@@ -607,12 +439,6 @@ def _unwrap_diffusion_planner(module: torch.nn.Module) -> PretrainedDiffusionPla
     return unwrapped
 
 
-def _validate_finite(tensors: Mapping[str, torch.Tensor]) -> None:
-    for name, value in tensors.items():
-        if value.dtype.is_floating_point and not torch.isfinite(value).all():
-            raise RuntimeError(f"rollout host tensor {name!r} contains non-finite values")
-
-
 def _fabric_observation(value: object) -> dict[str, torch.Tensor]:
     """Validate one Fabric observation transfer at the third-party boundary."""
 
@@ -621,16 +447,6 @@ def _fabric_observation(value: object) -> dict[str, torch.Tensor]:
     ):
         raise TypeError("Fabric must move rollout observations as a string-to-tensor mapping")
     return cast(dict[str, torch.Tensor], value)
-
-
-def _slice_tensordict(value: TensorDictBase, index: slice) -> TensorDictBase:
-    return cast(TensorDictBase, value[index])
-
-
-def _validate_rollout_context(
-    context: ExplorationPolicyContext, config: ExplorationPolicyConfig
-) -> None:
-    validate_exploration_policy_context(context, config)
 
 
 def _observation_batch_size(observation: Mapping[str, torch.Tensor]) -> int:
@@ -645,20 +461,6 @@ def _observation_batch_size(observation: Mapping[str, torch.Tensor]) -> int:
 def _validate_slot_generators(generators: Sequence[torch.Generator], batch: int, name: str) -> None:
     if len(generators) != batch:
         raise ValueError(f"{name} must contain one generator per batch item")
-
-
-def _slot_noise(
-    config: OfficialDiffusionPlannerConfig,
-    device: torch.device,
-    generators: Sequence[torch.Generator],
-) -> torch.Tensor:
-    shape = (1, 1 + config.predicted_neighbor_num, config.future_len, 4)
-    return torch.cat(
-        [
-            torch.randn(shape, dtype=torch.float32, device=device, generator=generator)
-            for generator in generators
-        ]
-    )
 
 
 def _sample_policy_actions(
@@ -689,38 +491,3 @@ def _seed(value: int, name: str) -> int:
     if type(value) is not int or value < 0:
         raise ValueError(f"{name} must be a non-negative integer")
     return value
-
-
-def _profile_call(
-    device: torch.device,
-    enabled: bool,
-    operation: Callable[[], _T],
-) -> tuple[_T, _PendingPhaseTiming | None]:
-    if not enabled:
-        return operation(), None
-    start_event: torch.cuda.Event | None = None
-    end_event: torch.cuda.Event | None = None
-    if device.type == "cuda":
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-        start_event.record(torch.cuda.current_stream(device))
-    started = perf_counter()
-    result = operation()
-    host_call_wall_s = perf_counter() - started
-    if end_event is not None:
-        end_event.record(torch.cuda.current_stream(device))
-    return result, _PendingPhaseTiming(host_call_wall_s, start_event, end_event)
-
-
-def _finish_profile(device: torch.device, enabled: bool) -> float:
-    if not enabled or device.type != "cuda":
-        return 0.0
-    started = perf_counter()
-    torch.cuda.current_stream(device).synchronize()
-    return perf_counter() - started
-
-
-def _require_phase(timing: _PendingPhaseTiming | None) -> RolloutPlannerPhaseTiming:
-    if timing is None:
-        raise RuntimeError("profiled rollout phase did not return timing")
-    return timing.resolve()

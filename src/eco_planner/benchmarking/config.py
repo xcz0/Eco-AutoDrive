@@ -29,7 +29,7 @@ from eco_planner.artifacts import (
     write_tracked_diff,
 )
 from eco_planner.evaluation.config import ModelPathsConfig
-from eco_planner.runtime_resources import ResourceProfileConfig
+from eco_planner.runtime.resources import ResourceProfileConfig
 
 
 class StrictBenchmarkModel(BaseModel):

@@ -27,7 +27,7 @@ from eco_planner.rl.rollout.contracts import (
     concatenate_tensordicts,
     rollout_audit_keys,
 )
-from eco_planner.runtime_resources import ResourceProfileConfig
+from eco_planner.runtime.resources import ResourceProfileConfig
 
 if TYPE_CHECKING:
     from eco_planner.rl.rollout.runtime import FabricRolloutRuntime

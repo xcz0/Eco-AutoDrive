@@ -20,9 +20,7 @@ evaluation:
   history_warmup_steps: 0
   evaluated_horizon_steps: 100
   execution:
-    mode: serial
-    vector_env_slots: ${oc.select:resources.evaluation_vector_env_slots,null}
-    torch_threads_per_worker: ${oc.select:resources.torch_threads_per_worker,null}
+    topology: vector
     deterministic: false
 
 env:

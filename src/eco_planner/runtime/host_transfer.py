@@ -8,7 +8,7 @@ from time import perf_counter
 
 import torch
 
-from eco_planner.runtime.contracts import HostExecutionResult
+from eco_planner.runtime.contracts import HostTrajectories
 
 
 @dataclass(frozen=True)
@@ -66,55 +66,58 @@ class DeferredHostTensors:
         return self._timing
 
 
-def copy_execution_trajectory(
-    prediction: torch.Tensor, device: torch.device
-) -> HostExecutionResult:
-    """Synchronously copy only the batched ego trajectories required by MetaDrive."""
+class HostTransfer:
+    """Own synchronous execution copies and deferred audit transfers for one runtime."""
 
-    host = _copy_tensors_to_host(
-        {"ego_trajectory": (prediction[:, 0].detach(), torch.float32)},
-        device,
-        synchronize=True,
-    )
-    return HostExecutionResult(host["ego_trajectory"].numpy())
+    def __init__(self, device: torch.device) -> None:
+        self._device = device
 
+    def execution_trajectories(self, prediction: torch.Tensor) -> HostTrajectories:
+        """Synchronously copy only ego trajectories required by MetaDrive."""
 
-def defer_host_tensors(
-    tensors: Mapping[str, tuple[torch.Tensor, torch.dtype]],
-    device: torch.device,
-    *,
-    profile: bool = False,
-) -> DeferredHostTensors:
-    """Schedule audit copies on a separate CUDA stream without blocking execution."""
+        host = _copy_tensors_to_host(
+            {"ego": (prediction[:, 0].detach(), torch.float32)},
+            self._device,
+            synchronize=True,
+        )
+        return HostTrajectories(host["ego"].numpy())
 
-    if device.type != "cuda":
-        started = perf_counter() if profile else 0.0
-        copied = {
-            name: value.detach().to(device="cpu", dtype=dtype)
-            for name, (value, dtype) in tensors.items()
-        }
+    def defer(
+        self,
+        tensors: Mapping[str, tuple[torch.Tensor, torch.dtype]],
+        *,
+        profile: bool = False,
+    ) -> DeferredHostTensors:
+        """Schedule audit copies without blocking the execution trajectory copy."""
+
+        if self._device.type != "cuda":
+            started = perf_counter() if profile else 0.0
+            copied = {
+                name: value.detach().to(device="cpu", dtype=dtype)
+                for name, (value, dtype) in tensors.items()
+            }
+            return DeferredHostTensors(
+                copied,
+                None,
+                cpu_copy_s=perf_counter() - started if profile else None,
+            )
+        source_stream = torch.cuda.current_stream(self._device)
+        transfer_stream = torch.cuda.Stream(device=self._device)
+        transfer_stream.wait_stream(source_stream)
+        start_event = torch.cuda.Event(enable_timing=True) if profile else None
+        end_event = torch.cuda.Event(enable_timing=True) if profile else None
+        with torch.cuda.stream(transfer_stream):
+            if start_event is not None:
+                start_event.record()
+            copied = _copy_tensors_to_host(tensors, self._device, synchronize=False)
+            if end_event is not None:
+                end_event.record()
         return DeferredHostTensors(
             copied,
-            None,
-            cpu_copy_s=perf_counter() - started if profile else None,
+            transfer_stream,
+            start_event=start_event,
+            end_event=end_event,
         )
-    source_stream = torch.cuda.current_stream(device)
-    transfer_stream = torch.cuda.Stream(device=device)
-    transfer_stream.wait_stream(source_stream)
-    start_event = torch.cuda.Event(enable_timing=True) if profile else None
-    end_event = torch.cuda.Event(enable_timing=True) if profile else None
-    with torch.cuda.stream(transfer_stream):
-        if start_event is not None:
-            start_event.record()
-        copied = _copy_tensors_to_host(tensors, device, synchronize=False)
-        if end_event is not None:
-            end_event.record()
-    return DeferredHostTensors(
-        copied,
-        transfer_stream,
-        start_event=start_event,
-        end_event=end_event,
-    )
 
 
 def _copy_tensors_to_host(

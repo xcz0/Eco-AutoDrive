@@ -24,7 +24,7 @@ from eco_planner.models import (
     parse_sampler_config,
 )
 from eco_planner.runtime.config import RuntimeConfig
-from eco_planner.runtime_resources import ResourceProfileConfig
+from eco_planner.runtime.resources import ResourceProfileConfig
 
 
 class _StrictModel(BaseModel):
@@ -44,9 +44,7 @@ class ScenarioConfig(_StrictModel):
 
 
 class ExecutionConfig(_StrictModel):
-    mode: Literal["serial", "parallel"]
-    vector_env_slots: StrictInt | None
-    torch_threads_per_worker: StrictInt | None = Field(default=None, gt=0)
+    topology: Literal["serial", "vector", "job_parallel"]
     deterministic: StrictBool
 
 
@@ -133,15 +131,8 @@ class EvaluationJobConfig(_StrictModel):
         else:
             self._validate_traffic_environment()
         execution = evaluation.execution
-        if execution.vector_env_slots is not None:
-            if execution.vector_env_slots <= 0:
-                raise ValueError("vector_env_slots must be positive when configured")
-            if execution.mode != "serial":
-                raise ValueError("vector evaluation requires execution.mode=serial")
-            if self.video.enabled:
-                raise ValueError("vector evaluation requires video.enabled=false")
-        if execution.mode == "parallel" and self.video.enabled:
-            raise ValueError("parallel execution requires video.enabled=false")
+        if execution.topology in {"vector", "job_parallel"} and self.video.enabled:
+            raise ValueError(f"{execution.topology} execution requires video.enabled=false")
         return self
 
     def _validate_traffic_environment(self) -> None:

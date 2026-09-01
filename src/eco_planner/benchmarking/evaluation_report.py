@@ -156,15 +156,25 @@ def _validate_metadata_matches_config(
         raise ValueError("runtime metadata sampler disagrees with resolved config")
     if guidance["name"] != workload_guidance["name"]:
         raise ValueError("runtime metadata guidance disagrees with resolved config")
-    if runtime_execution["mode"] != execution["mode"]:
-        raise ValueError("runtime metadata execution mode disagrees with resolved config")
-    if runtime_execution["vector_env_slots"] != execution.get("vector_env_slots"):
+    topology = execution["topology"]
+    expected_mode = "parallel" if topology == "job_parallel" else "serial"
+    if runtime_execution["mode"] != expected_mode:
+        raise ValueError("runtime metadata execution mode disagrees with resolved topology")
+    if runtime_execution["vector_env_slots"] != execution.get("resolved_vector_env_slots"):
         raise ValueError("runtime metadata vector slots disagree with resolved config")
 
 
 def _execution(config: dict[str, object]) -> dict[str, object]:
     evaluation = _mapping(config.get("evaluation"), "resolved evaluation config")
-    return _mapping(evaluation.get("execution"), "resolved evaluation execution")
+    execution = dict(_mapping(evaluation.get("execution"), "resolved evaluation execution"))
+    resources = config.get("resources")
+    resource_mapping = None if resources is None else _mapping(resources, "resolved resources")
+    execution["resolved_vector_env_slots"] = (
+        None
+        if execution.get("topology") != "vector" or resource_mapping is None
+        else resource_mapping.get("evaluation_vector_env_slots")
+    )
+    return execution
 
 
 def _workload(config: dict[str, object]) -> dict[str, object]:
@@ -195,18 +205,17 @@ def _workload(config: dict[str, object]) -> dict[str, object]:
 
 
 def _validate_execution_modes(groups: dict[str, list[dict[str, object]]]) -> None:
-    expected = {
-        "serial": ("serial", False),
-        "job_level": ("parallel", False),
-        "vector": ("serial", True),
-    }
+    expected = {"serial": "serial", "job_level": "job_parallel", "vector": "vector"}
     for group, jobs in groups.items():
-        expected_mode, expects_vector = expected[group]
+        expected_topology = expected[group]
         for job in jobs:
             execution = _mapping(job.get("execution"), "job execution")
-            if execution["mode"] != expected_mode:
-                raise ValueError(f"{group} input does not use execution.mode={expected_mode!r}")
-            slots = execution.get("vector_env_slots")
+            if execution["topology"] != expected_topology:
+                raise ValueError(
+                    f"{group} input does not use execution.topology={expected_topology!r}"
+                )
+            slots = execution.get("resolved_vector_env_slots")
+            expects_vector = expected_topology == "vector"
             if expects_vector != (type(slots) is int and slots > 0):
                 raise ValueError(f"{group} input has an invalid vector_env_slots value")
 
