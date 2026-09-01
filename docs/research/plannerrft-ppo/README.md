@@ -1,28 +1,26 @@
-# PlannerRFT PPO-only 研究
+# PlannerRFT PPO-only Method Notes
 
-## 研究问题
+## 定位
 
-本专题研究：
+本目录保留 PlannerRFT Exploration Optimization / PPO-only 路线的研究说明。
 
-> PlannerRFT 的 Exploration Optimization 思路是否可以作为 Eco-AutoDrive 中优化长程驾驶表现和能耗的一种有效方法？
+它现在是 Eco-AutoDrive 的**长程闭环优化工具之一**，而不是项目总体研究路线。
 
-这里关注的是研究问题，而不是当前实现说明。
+项目总体研究问题已经重新组织为：
 
-仓库已经具备 PlannerRFT PPO-only 路线所需的主要基础设施，包括 policy-guided planning、closed-loop rollout、GAE/PPO update 和 MetaDrive smoke training。其当前行为和数据契约统一记录在
-[`system-contract.md`](../../agents/system-contract.md)。
+- [Reward and objective study](../reward-objective.md)：如何设计长程 optimization objective；
+- [Information and representation study](../information-representation.md)：策略需要哪些环境信息；
+- [Ablation plan](../ablation-plan.md)：如何分离 objective、information、representation 的主效应与交互效应。
 
-基础设施已经实现并不意味着：
+PlannerRFT PPO-only 在其中主要承担：
 
-- PPO 已被选为最终能耗优化方法；
-- 当前 reward 是最终 energy reward；
-- 当前实现与 PlannerRFT 论文训练环境完全 parity；
-- learned guidance 已被证明优于非 RL 方法。
+> 利用 closed-loop rollout + GAE/PPO，把多个仿真时刻后的反馈传播回当前 guidance decision。
 
-这些仍属于研究问题。
+因此后续研究关注的不是“是否完成 PPO 复现”，而是这个优化工具能否帮助回答 objective 与 information 两个核心问题。
 
-## 研究范围
+## 方法范围
 
-本专题只讨论 PlannerRFT 的 PPO / Exploration Optimization 路线。
+当前 PPO-only 研究只优化 Exploration Policy，不直接使用 PPO 更新 Diffusion Planner 的 DiT。
 
 概念上：
 
@@ -30,6 +28,8 @@
 frozen Diffusion Planner
         |
         +--> reference trajectory
+        |
+        +--> pretrained scene representation
         |
         +--> Exploration Policy
                   |
@@ -41,88 +41,111 @@ frozen Diffusion Planner
                   |
                  reward
                   |
-              PPO update
-````
+              GAE / PPO
+```
 
-研究重点是让 Exploration Policy 学习如何改变冻结规划器的 guidance，而不是直接使用 PPO 更新 Diffusion Planner 的 DiT 参数。
-
-GRPO 不属于本专题。
+GRPO 和直接 DiT fine-tuning 不属于当前 PPO-only baseline。
 
 ## PlannerRFT 与 Eco-AutoDrive 的概念映射
 
-| PlannerRFT 概念             | Eco-AutoDrive 中的对应              |
-| ------------------------- | ------------------------------- |
-| pretrained planner        | 预训练 Diffusion Planner           |
-| reference planning result | 冻结 planner 产生的参考轨迹              |
-| Exploration Policy        | 根据场景和参考轨迹产生 guidance action 的策略 |
-| exploration action        | 横向/纵向 guidance                  |
-| closed-loop simulator     | MetaDrive                       |
-| environment reward        | MetaDrive 中定义的实验 objective      |
-| PPO optimization          | 更新 Exploration Policy           |
-| long-horizon evaluation   | MetaDrive 多规划周期闭环运行             |
+| PlannerRFT 概念 | Eco-AutoDrive 当前对应 |
+| --- | --- |
+| pretrained planner | 预训练 Diffusion Planner |
+| reference planning result | frozen planner reference trajectory |
+| Exploration Policy | 根据场景与 reference 产生 guidance action |
+| exploration action | lateral / longitudinal guidance |
+| closed-loop simulator | MetaDrive |
+| environment reward | 当前实验 objective |
+| PPO optimization | 更新 Exploration Policy |
+| long-horizon feedback | closed-loop return / GAE |
 
-这一映射只说明 PlannerRFT 方法如何被解释到本项目中。
+这只是方法映射，不表示项目与 PlannerRFT 的 simulator、reward、数据规模或训练配置 parity。
 
-PlannerRFT 使用的训练环境、车辆模型、交通来源、奖励组成和实验规模与 Eco-AutoDrive 不相同，因此论文结果不能直接作为本项目的数值验收阈值。
+外部论文和官方代码事实统一见 [`plannerrft-ppo-primary-sources.md`](../plannerrft-ppo-primary-sources.md)。
 
-## 与能耗研究的关系
+## 当前证据
 
-PlannerRFT PPO-only 是候选优化方法之一。
+仓库已经具备：
 
-最终研究问题不是：
+- reference-centered orthogonal guidance；
+- Exploration Policy + value head；
+- closed-loop rollout；
+- GAE / PPO update；
+- reward transport 与 training artifact；
+- PPO 稳定性搜索与多 seed 长程验证工作流。
 
-> “如何继续完成 PPO 实现？”
+E-028 在固定 `metadrive_builtin_v1`、no-traffic S/SC 条件下确认了一个 3 seeds × 100 updates 的稳定候选配置，并观察到较多 epochs 与较高 learning rate 可能推动 Beta guidance distribution 向边界塌缩。
 
-而是：
+这说明当前 PPO-only infrastructure 已经可以作为研究工具，但不支持：
 
-> “在已经具备 PPO 实验基础设施的前提下，PPO 是否比固定 guidance、无 guidance 或非 RL 方法更适合利用长程信息改善能耗？”
+- PPO 能够改善能耗；
+- 当前 `plannerrft_energy_v1` 优于 builtin reward；
+- 当前配置可以直接迁移到有交通、更长训练或新的 observation；
+- learned guidance 一定优于 fixed guidance；
+- PPO 是最终能耗优化算法。
 
-因此后续研究需要首先区分：
+E-026 中曾出现的大量 out-of-road 退化后来被 E-028 定位为 MetaDrive reset 语义 bug，因此不再作为 PPO update 强度过大的证据。
 
-1. PlannerRFT 方法解释或 parity 问题；
-2. Eco-AutoDrive 自身的 energy-oriented extension；
-3. PPO 与其他候选优化方法之间的方法选择。
+## 在新研究路线中的作用
+
+### 对 Reward study
+
+PPO-only baseline 用来研究：
+
+- scalar reward structure 是否产生不同 long-horizon behavior；
+- energy normalization / weight 如何影响 trade-off；
+- 更长 credit assignment 是否比短程反馈提供额外价值。
+
+PPO hyperparameters 在这类实验中原则上应作为控制变量，而不是和 reward 同时搜索。
+
+### 对 Information study
+
+Exploration Policy 当前可以借用预训练 scene representation，研究：
+
+- ego/reference 是否已经足够；
+- local scene 是否有增量价值；
+- long-range road/navigation information 是否有增量价值；
+- dynamic traffic information 是否有增量价值。
+
+只有信息价值被确认后，才需要进一步研究 encoder fine-tuning。
+
+### 对后续 multi-objective extension
+
+如果 scalar reward 出现持续目标冲突，可以在现有 PPO baseline 上扩展 multi-head critic 或 constrained objective。
+
+这属于 [`reward-objective.md`](../reward-objective.md) 的第二阶段，不需要在当前 PPO-only method notes 中预设结构。
+
+## PPO-specific open questions
+
+当前真正与 PPO 工具本身相关、仍可能影响研究解释的问题主要是：
+
+- 稳定候选配置迁移到 energy reward / richer observation 后是否仍稳定；
+- 不同 credit horizon 下，GAE 是否提供可测的 long-horizon benefit；
+- guidance action distribution 的变化是否与闭环行为变化一致；
+- 当前 shared actor/value representation 在 multi-head critic 扩展时是否仍合适；
+- 当 encoder 允许 fine-tune 时，PPO stability 是否发生新的变化。
+
+这些问题只在对应主研究实验需要时再转为 active Issue。
 
 ## 文档导航
 
-* [一手资料核查](../plannerrft-ppo-primary-sources.md)
-  PlannerRFT 论文、补充材料和官方代码能够支持的事实，以及未公开的实现细节。
+- [Primary-source notes](../plannerrft-ppo-primary-sources.md)
+- [PPO-specific design gates](design-gates.md)
+- [PPO support / remaining work](implementation-plan.md)
+- [System contract](../../agents/system-contract.md)
+- [Experiment records](../../experiments/)
 
-* [Design gates](design-gates.md)
-  尚未解决的研究决定，以及已经关闭 gate 的简要索引。
+## 历史实现索引
 
-* [Remaining-work plan](implementation-plan.md)
-  在现有 PPO 基础设施之上的剩余研究和实验工作。
+与 PPO-only infrastructure 直接相关的历史 Issues 包括：
 
-* [System contract](../../agents/system-contract.md)
-  当前已经实现的 planner、guidance、rollout、reward transport、GAE 和 PPO 行为。
+- #4 — 5-step DDIM sampler
+- #6 — reference planner 与 orthogonal guidance
+- #16 — Exploration Policy 与 value head
+- #18 — closed-loop rollout
+- #19 — GAE/PPO updater
+- #20 — closed-loop PPO smoke training
+- #59 — energy-oriented scalar reward 与 matched reward A/B
+- #76 — PPO stability search
 
-* [ADRs](../../adr/)
-  已经接受的项目级技术决定及其理由。
-
-* [Experiment records](../../experiments/)
-  已完成运行的实验配置、结果和 provenance。
-
-## 相关 Issues
-
-当前可执行工作的状态以 GitHub Issues 为准，不在本文复制。
-
-与本专题直接相关的历史实现 Issues 包括：
-
-* #4 — 5-step DDIM sampler
-* #6 — reference planner 与 orthogonal guidance
-* #16 — Exploration Policy 与 value head
-* #18 — 10 Hz closed-loop rollout
-* #19 — TorchRL GAE/PPO updater
-* #20 — closed-loop PPO smoke training
-
-这些工作已经完成，不再作为本专题的待实现阶段。
-
-当前研究文档整理由 #32 跟踪。
-
-与能耗研究基础直接相关的 active work 包括：
-
-* #1 — 建立稳定的短程或中程能耗场景矩阵
-* #3 — 在稳定场景基线上比较现有能耗指标
-
-新的 PPO 消融、energy reward、scale-out training 或 preview-conditioned optimization 工作，应在研究决定明确后建立独立 Issue，而不是直接加入本文件作为承诺任务。
+这些是已完成或已存在的工程/实验基础，不再构成总体研究阶段。
