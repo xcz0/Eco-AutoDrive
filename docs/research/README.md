@@ -11,11 +11,7 @@
 - 外部论文和代码事实 → 对应 primary-source notes
 - 尚未解决的研究问题与实验设计 → 本目录
 
-研究文档不复制当前实现契约，也不把旧的工程阶段当作当前研究主线。
-
 ## 核心研究问题
-
-本项目当前研究：
 
 > **如何利用闭环长程反馈优化自动驾驶规划器的能耗表现，同时避免安全、有效进度、平均速度和旅行效率出现不可接受的退化。**
 
@@ -27,31 +23,27 @@
 2. **Information：策略需要哪些环境信息？**  
    当前暂借用 Diffusion Planner 预训练得到的 scene representation，先判断不同信息是否对长程节能策略具有增量价值；之后再将相关感知/编码模块显式提取出来，并研究在强化学习过程中冻结、部分微调或联合优化的差异。
 
-道路预瞄、交通信息、PPO、PlannerRFT guidance 都属于回答上述问题的候选变量或工具，不再预设为项目最终方法。
-
 ## 研究结构
 
-```text
-                         long-horizon closed-loop feedback
-                                      |
-                     +----------------+----------------+
-                     |                                 |
-                     v                                 v
-           RQ1: optimization objective          RQ2: useful information
-                     |                                 |
-            scalar reward study                 frozen pretrained encoder
-                     |                                 |
-       reward / horizon / trade-off             information ablation
-                     |                                 |
-          multi-head critic later             encoder extraction / tuning later
-                     |                                 |
-                     +----------------+----------------+
-                                      |
-                                      v
-                         matched factorial ablations
-                                      |
-                                      v
-                 reproducible energy gain without major regressions?
+```mermaid
+flowchart TD
+    A["long-horizon closed-loop feedback"]
+
+    A --> B["RQ1: optimization objective"]
+    A --> C["RQ2: useful information"]
+
+    B --> B1["scalar reward study"]
+    B1 --> B2["reward / horizon / trade-off"]
+    B2 --> B3["multi-head critic later"]
+
+    C --> C1["frozen pretrained encoder"]
+    C1 --> C2["information ablation"]
+    C2 --> C3["encoder extraction / tuning later"]
+
+    B3 --> D["matched factorial ablations"]
+    C3 --> D
+
+    D --> E["reproducible energy gain<br/>without major regressions?"]
 ```
 
 详细研究设计：
@@ -60,7 +52,6 @@
 - [Information and representation study](information-representation.md)
 - [Ablation plan](ablation-plan.md)
 - [PlannerRFT PPO-only method notes](plannerrft-ppo/README.md)
-- [PlannerRFT primary-source notes](plannerrft-ppo-primary-sources.md)
 
 ## 当前实验基础
 
@@ -79,19 +70,7 @@
 - [`E-026 PPO reward A/B short trend`](../experiments/records/e-026-issue59-stage-b-ppo-reward-ab-short-trend.md)
 - [`E-028 PPO stability search`](../experiments/records/e-028-issue76-ppo-stability-search.md)
 
-这些证据支持“训练与评价工具已经能够用于研究”，但仍不支持以下结论：
-
-- 当前 scalar energy reward 已经改善 learned-policy 能耗；
-- PPO 是最适合的优化算法；
-- 某一种 road preview 是必要信息；
-- 当前 frozen pretrained representation 已经足够支撑最终节能策略；
-- proxy-energy 改善可以直接解释为真实车辆节能。
-
-E-026 中曾观察到的 out-of-road 退化已在 E-028 中重新定位为 MetaDrive reset 语义 bug；修复后不能再把该现象作为“PPO update 过强”的证据。E-028 仍只证明受限配置下存在可用的 PPO 稳定基线，不自动外推到 energy reward、有交通环境、不同 observation 或更长训练。
-
 ## 当前研究阶段
-
-当前工作不再以“完成 PPO 实现”或“加入 preview encoder”为阶段目标，而按研究问题推进。
 
 ### Phase A — Experimental baseline
 
