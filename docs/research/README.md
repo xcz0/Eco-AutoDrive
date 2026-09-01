@@ -9,43 +9,60 @@
 - 可执行开发工作 → GitHub Issues
 - 实验运行证据 → [`docs/experiments/`](../experiments/)
 - 外部论文和代码事实 → 对应 primary-source notes
-- 尚未解决的研究问题 → 本目录
+- 尚未解决的研究问题与实验设计 → 本目录
 
-研究文档不复制当前实现契约，也不使用路线图阶段描述代码是否已经实现。
+## 核心研究问题
 
-## 核心研究目标
+> **如何利用闭环长程反馈优化自动驾驶规划器的能耗表现，同时避免安全、有效进度、平均速度和旅行效率出现不可接受的退化。**
 
-本项目研究：
+该问题拆成两个相互独立但最终需要联合验证的研究方向：
 
-> 在尽量保留预训练 Diffusion Planner 原有驾驶能力的前提下，引入当前局部 route conditioning 之外的道路预瞄信息，使规划器能够利用更长程的道路、导航和交通结构改善闭环能耗表现，同时维持安全、有效进度和旅行效率。
+1. **Optimization objective：奖励与价值估计应如何设计？**  
+   当前先研究单一标量 reward 的结构、尺度与时间信用分配；在获得稳定且可解释的能耗优化信号后，再考虑多头 critic、约束式目标或其他 multi-objective 方法。
 
-因此，项目最终需要回答的不是“能否把 PPO 跑起来”或“能否定义一个 energy reward”，而是以下三个连续问题：
+2. **Information：策略需要哪些环境信息？**  
+   当前暂借用 Diffusion Planner 预训练得到的 scene representation，先判断不同信息是否对长程节能策略具有增量价值；之后再将相关感知/编码模块显式提取出来，并研究在强化学习过程中冻结、部分微调或联合优化的差异。
 
-1. **现有信息是否不足**：当前 Diffusion Planner 已有的 lane / route conditioning 对更长程道路结构到底利用到什么程度；
-2. **新增预瞄是否有增量价值**：加入明确的 preview information 后，模型是否真的利用了这些信息，并产生可重复的节能行为变化；
-3. **如何优化这种能力**：PPO learned guidance、固定 guidance、监督式条件学习或其他优化方式中，哪种方法最适合把预瞄信息转化为长程能耗收益。
+## 研究结构
 
-当前研究不把某一种强化学习算法预设为最终方案。
+```mermaid
+flowchart TD
+    A["long-horizon closed-loop feedback"]
 
-## 当前研究基线
+    A --> B["RQ1: optimization objective"]
+    A --> C["RQ2: useful information"]
 
-截至 2026-09-01，仓库已经具备开展上述研究所需的主要闭环实验基础，但尚未得到“道路预瞄能够降低能耗”的研究结论。
+    B --> B1["scalar reward study"]
+    B1 --> B2["reward / horizon / trade-off"]
+    B2 --> B3["multi-head critic later"]
 
-已经建立的基础包括：
+    C --> C1["frozen pretrained encoder"]
+    C1 --> C2["information ablation"]
+    C2 --> C3["encoder extraction / tuning later"]
 
-- MetaDrive 闭环执行、固定场景/seed 对照和可追溯 evaluation artifact；
+    B3 --> D["matched factorial ablations"]
+    C3 --> D
+
+    D --> E["reproducible energy gain<br/>without major regressions?"]
+```
+
+详细研究设计：
+
+- [Reward and objective study](reward-objective.md)
+- [Information and representation study](information-representation.md)
+- [Ablation plan](ablation-plan.md)
+- [PlannerRFT PPO-only method notes](plannerrft-ppo/README.md)
+
+## 当前实验基础
+
+截至 2026-09-01，项目已经具备研究上述问题所需的主要实验基础：
+
+- MetaDrive 闭环执行、固定 scenario/seed 对照和可追溯 evaluation artifact；
 - 预训练 Diffusion Planner 的冻结推理、reference trajectory 和 orthogonal guidance；
 - Exploration Policy、closed-loop rollout、GAE/PPO update 和训练产物；
-- 稳定能耗场景矩阵与代理能耗指标的基本比较；
-- `plannerrft_energy_v1` energy-oriented PPO reward 及严格匹配的短程 reward A/B 基础设施；
-- PPO 稳定性搜索工作流及一个在当前受限实验条件下通过多 seed 长程验证的稳定候选配置。
-
-重要实验边界：
-
-- E-026 中观察到的 PPO out-of-road 退化后来被确认主要来自 MetaDrive reset 语义 bug，而不能作为“PPO update 过强”的证据；修复后的结论见 E-028。
-- E-028 仅证明在固定 `metadrive_builtin_v1`、no-traffic S/SC 场景和当前训练规模下存在可用的 PPO 稳定基线；它不证明 energy reward 有效，也不能直接外推到有交通、更长训练或其他 reward profile。
-- Issue #59 的 builtin / energy 短趋势 A/B 没有给出可解释的节能差异，因此当前仍没有 learned-policy energy improvement 的证据。
-- 当前还没有形成经过实验验证的 preview-conditioned planner，因此“预瞄是否有效”仍是项目的核心未决问题。
+- 稳定能耗场景矩阵与 execution-trace proxy energy；
+- `plannerrft_energy_v1` 标量能耗 reward 和严格匹配的 reward A/B 工作流；
+- PPO 稳定性搜索工作流，以及在受限 no-traffic S/SC 条件下通过 3 seeds × 100 updates 验证的稳定候选配置。
 
 相关证据：
 
@@ -53,156 +70,99 @@
 - [`E-026 PPO reward A/B short trend`](../experiments/records/e-026-issue59-stage-b-ppo-reward-ab-short-trend.md)
 - [`E-028 PPO stability search`](../experiments/records/e-028-issue76-ppo-stability-search.md)
 
-## 当前研究主线
+## 当前研究阶段
 
-现阶段研究应围绕一条统一主线组织：
+### Phase A — Experimental baseline
 
-```text
-现有 Diffusion Planner
-        |
-        v
-确认当前 route conditioning 的有效信息范围
-        |
-        v
-定义额外 road preview information
-        |
-        v
-构造 preview-conditioned planning / guidance
-        |
-        v
-在稳定闭环训练与评测基线上优化
-        |
-        v
-比较 no-preview / preview 的能耗、安全、进度与速度
-        |
-        v
-判断 preview 是否带来独立的长程能耗收益
-```
+目标是建立可信的闭环优化与能耗评价基础。
 
-这里的重点是验证 **preview 的增量贡献**，而不是单独证明某个 reward、某个 PPO 超参数或某个模型模块能够运行。
+当前状态：**基本完成。**
 
-## 道路预瞄
+已有 mechanical validity 和受限条件下的 optimization stability，可以开始 reward 与 information 的研究实验。
 
-道路预瞄应定义为：**当前 planner 原始局部 lane / route observation 之外，能够明确描述更远未来道路状态或事件的条件信息**。
+### Phase B — Scalar reward study
 
-候选信息包括：
+目标是回答：
 
-- 前方道路曲率及其变化；
-- 限速及限速变化位置；
-- 变道、合流、分流和道路拓扑；
-- 导航路线中的长程结构；
-- 前方交通状态或交通约束；
-- 数据确实存在时的坡度或高程。
+> 哪种单一标量 reward 能够产生可重复的能耗改善，同时不通过停车、少走、明显降速或增加失败率获得表面收益？
 
-需要严格区分：
+重点比较 reward composition、energy normalization、目标权重和长程 credit assignment。研究对象见 [`reward-objective.md`](reward-objective.md)。
 
-- 当前 Diffusion Planner 已经接收的 `lanes` 与 `route_lanes`；
-- 仅仅扩大现有 route information 的空间范围；
-- 新增的、更长程或语义更明确的 preview representation。
+### Phase C — Information study
 
-因此，在设计新的 preview encoder 之前，需要先回答现有 route conditioning 是否已经包含、以及模型是否已经实际利用足够的长程信息。否则新增特征可能只是重复输入，而不是新的研究变量。
+目标是回答：
 
-主要开放问题包括：
+> 在相同 reward 与优化器下，哪些 observation 信息会给策略带来额外的能耗优化能力？
 
-- 现有 route conditioning 的有效利用距离有多长；
-- preview 应使用距离范围还是时间范围定义；
-- 连续几何与离散道路事件应如何共同表示；
-- 曲率、限速、拓扑和交通信息中哪些对能耗具有真正的增量贡献；
-- preview 应作为独立条件、route representation 扩展，还是 guidance / policy 的输入；
-- 如何证明模型确实利用了 preview，而不是由当前状态或已有 route information 产生相同行为。
+第一阶段固定预训练 scene encoder，只改变可用信息；道路/导航预瞄是其中一类候选，而不是预设结论。研究对象见 [`information-representation.md`](information-representation.md)。
 
-## 策略优化
+### Phase D — Representation and objective extensions
 
-PlannerRFT PPO-only 目前应视为一个**已经具备稳定实验基线的候选优化方法**，而不再只是实现可行性问题。
+只有在前两个阶段已经观察到明确的 behavioral / energy signal 后，再扩展：
 
-其研究入口见：
+- scalar critic → multi-head critic / constrained objective；
+- frozen pretrained encoder → extracted RL encoder → partial/joint fine-tuning。
 
-- [PlannerRFT PPO-only 研究](plannerrft-ppo/README.md)
+这些扩展用于判断 reward decomposition 和 representation adaptation 是否能进一步扩大已经存在的收益，而不是在没有基础信号时同时增加系统复杂度。
 
-当前证据支持：
+### Phase E — Joint ablations
 
-- Exploration Policy + PPO 的完整闭环训练链路能够运行；
-- 在受限 no-traffic 场景中可以找到跨 seed、100 updates 稳定的 PPO 配置；
-- 过多 epochs 与较高 learning rate 可能推动 guidance Beta distribution 向边界塌缩。
+最后使用少量代表配置做 `objective × information × representation` 交叉实验，判断：
 
-当前证据仍不支持：
+- reward 改善是否依赖特定信息；
+- 新信息是否只有在能耗导向长程反馈下才有价值；
+- representation fine-tuning 是否提供独立增益；
+- 能耗收益是否跨 seed、场景和 termination type 保持。
 
-- PPO 能够改善能耗；
-- `plannerrft_energy_v1` 优于 `metadrive_builtin_v1`；
-- PPO 比 fixed guidance、training-free guidance 或非 RL 方法更适合利用 preview；
-- 当前 PPO 配置能够直接迁移到 preview-conditioned training。
+详细矩阵原则见 [`ablation-plan.md`](ablation-plan.md)。
 
-因此后续策略优化研究的重点应从“训练是否能跑通”转向：
+## 统一评价原则
 
-1. 在稳定训练条件下，energy-oriented objective 是否真的改变 learned policy 的闭环行为；
-2. 在同样的优化方法下，加入 preview 是否比 no-preview 带来额外收益；
-3. 若存在收益，再比较 PPO learned guidance 与更简单的 fixed / non-RL baseline，判断强化学习是否是必要因素。
+研究结论优先来自 reward-independent、matched closed-loop evaluation，而不是 training return。
 
-GRPO、直接微调 DiT、PPO-Lagrangian、多 critic 等仍属于可能的扩展方向，但当前没有必要把它们预设为主线。
+至少同时报告：
 
-## 能耗评价
+- energy / energy intensity；
+- route progress / completion；
+- mean speed / travel efficiency；
+- collision / out-of-road / wrong-direction 等安全与合法性指标；
+- 必要时的 comfort 指标。
 
-当前能耗研究的首要目标是得到**可信的相对比较**，而不是把 MetaDrive proxy 解释为真实车辆能耗。
+低 total energy 不能在以下条件下被解释为优化成功：
 
-当前研究结构为：
+- 明显少走；
+- 长时间停车；
+- 平均速度或旅行效率严重下降；
+- collision / out-of-road / failed termination 增加。
 
-```text
-closed-loop driving
-        |
-        +--> proxy energy metric
-        |
-        +--> executed trajectory / speed trace
-                    |
-                    +--> optional high-fidelity energy model
-```
-
-已经明确：
-
-- MetaDrive native `step_energy / episode_energy` 与当前运动学 waypoint execution 的 phase boundary 不匹配，不能直接作为主要 reward / metric；
-- 当前 energy-oriented reward 使用 execution boundary 上重算的 MetaDrive fuel proxy；
-- proxy metric 只用于固定仿真条件下的相对比较，不代表真实燃油或电池能耗；
-- 低能耗不能通过停车、明显降速、减少有效进度或增加失败率来解释为优化成功。
-
-仍待研究：
-
-- 哪个 energy intensity / progress-normalized 指标最适合作为主要比较量；
-- energy、平均速度、有效进度和旅行时间之间的 trade-off 应如何报告；
-- 不同 termination type 下哪些场景可以进行能耗比较；
-- proxy metric 与 FASTSim 等精细模型的排序是否一致；
-- 在加入 preview 后，节能变化是否来自真正的提前速度规划，而不是短期行为偏移。
+MetaDrive native `step_energy / episode_energy` 与当前 kinematic waypoint execution 的 phase boundary 不匹配；当前研究使用 execution boundary 重算的 proxy energy，只用于固定仿真条件下的相对比较。更精细的车辆能耗模型属于后续 robustness validation，不改变当前 reward/information 两条主线。
 
 ## 研究证据层级
 
-为避免把工程可运行性误写成研究结论，本项目区分以下证据层级：
+为避免把工程可运行性误写成算法效果，本项目区分：
 
-1. **mechanical validity**：训练、rollout、artifact、reward 和梯度链路能够正确运行；
-2. **optimization stability**：策略在足够训练长度和多 seed 下不出现明显数值或行为崩溃；
+1. **mechanical validity**：rollout、reward、artifact、GAE、loss 和梯度链路正确运行；
+2. **optimization stability**：多 seed、足够训练长度下策略不出现明显数值或行为崩溃；
 3. **behavioral effect**：learned policy 相比初始策略产生稳定、可解释的闭环行为变化；
-4. **energy effect**：在 reward-independent、matched evaluation 中能耗指标改善，同时安全、进度和速度不出现不可接受退化；
-5. **preview contribution**：preview 与 no-preview 的严格对照表明收益确实来自新增预瞄信息；
-6. **energy-model robustness**：proxy 下的主要结论在更精细能耗模型中仍保持方向一致。
+4. **energy effect**：reward-independent matched evaluation 中能耗改善，且其他关键指标无不可接受退化；
+5. **information contribution**：严格 information ablation 表明某类环境信息提供独立增益；
+6. **representation contribution**：同一信息条件下，representation fine-tuning 比 frozen encoder 提供独立增益；
+7. **energy-model robustness**：proxy 下的主要策略排序在更精细能耗模型下方向一致。
 
-当前项目已经较好覆盖第 1 层，并在受限 PPO 配置上获得第 2 层证据；第 3–6 层仍是后续研究对象。
-
-## 低层动力学
-
-当前主要研究仍基于运动学轨迹执行。
-
-后续若研究 steering / throttle / brake、车辆动力学或轨迹可跟踪性，应作为独立研究问题处理。运动学闭环中的能耗或安全结论不能自动外推为低层动力学结论。
+当前项目已较好覆盖第 1 层，并在受限 PPO 配置上获得第 2 层证据；第 3 层以后是当前研究重点。
 
 ## 当前开放问题
 
-当前主要开放问题收敛为：
+当前开放问题收敛为：
 
-- 当前 Diffusion Planner 实际利用现有 `route_lanes` 的距离和语义范围有多大？
-- 哪些 road preview 信息对长程能耗最有可能提供现有输入之外的增量信息？
-- preview 应如何表示，才能与现有 lane / route conditioning 明确区分？
-- 在已经稳定的 PPO 基线上，energy-oriented reward 是否能够产生可重复的 learned-policy 行为变化？
-- 在相同 reward 与优化配置下，preview 是否优于 no-preview？
-- 若 preview 有效，PPO learned guidance 是否优于 fixed guidance 或更简单的非 RL 方法？
-- 如何在降低能耗时同时保持安全、有效进度、平均速度和旅行效率？
-- 如何证明节能来自提前利用道路信息，而不是停车、降速或其他 reward shortcut？
-- MetaDrive proxy energy 与更精细车辆能耗模型之间是否保持一致的策略排序？
-- 运动学研究结果在多交通场景和后续车辆动力学条件下能保留多少？
+- scalar reward 中 energy、安全、进度、速度与舒适性应如何组合；
+- energy signal 应使用 total、distance-normalized、progress-normalized 或 reference-relative 形式中的哪一种；
+- 长程 GAE/return 相比短程反馈是否真正提供额外能耗优化能力；
+- 在其他指标允许的退化范围内，energy objective 的可达 trade-off 是什么；
+- 仅依赖 ego state + reference trajectory 时，Exploration Policy 能学到多少节能行为；
+- local lanes、route、road preview、speed-limit changes、traffic information 等分别提供多少增量价值；
+- 预训练 scene encoder 对 energy-oriented RL 是否足够，还是需要在 RL 过程中适配 representation；
+- multi-head critic 是否能比单一 scalar critic 更稳定地处理 energy 与其他目标的冲突；
+- proxy-energy 下的主要结论能否在更精细能耗模型中保持。
 
-可执行工作一旦被接受，不继续在本文件中维护任务状态，而转入 GitHub Issue。
+可执行工作一旦被接受，应转入 GitHub Issue；本目录只维护研究问题、实验逻辑和结论边界。

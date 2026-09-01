@@ -1,251 +1,204 @@
-# PlannerRFT PPO-only Remaining-Work Plan
+# PlannerRFT PPO-only Support Plan
 
 ## 目的
 
 PlannerRFT PPO-only 的基础实现阶段已经完成。
 
-本文件不再描述 Stage 0–6 的实现步骤，而只记录：
+本文件不再维护总体研究路线，也不重复 DDIM、reference guidance、Exploration Policy、rollout、GAE/PPO 等已完成实现。
 
-- 已完成工作的历史索引；
-- 在现有基础设施之上仍可能需要完成的研究工作；
-- 哪些候选工作只有在研究决定成立后才值得转成 GitHub Issue。
+总体研究计划见：
 
-当前实现契约见
-[`system-contract.md`](../../agents/system-contract.md)。
+- [`../README.md`](../README.md)
+- [`../reward-objective.md`](../reward-objective.md)
+- [`../information-representation.md`](../information-representation.md)
+- [`../ablation-plan.md`](../ablation-plan.md)
 
-实际开发状态以 GitHub Issues 为准。
+本文件只说明：当这些研究需要 PPO-only 工具继续演化时，哪些支持工作可能值得转化为 GitHub Issue。
 
 ## 已完成的基础工作
 
-此前的阶段路线可以压缩为以下历史索引：
-
-| 历史阶段 | 结果 | 主要 Issue |
+| 能力 | 状态 | 主要来源 |
 | --- | --- | --- |
-| baseline / prerequisite validation | 已完成作为后续工作的基础 | experiment records |
-| DDIM-5 | 已实现并验证 | #4 |
+| 5-step DDIM baseline | 已实现并验证 | #4 / experiments |
 | reference planner + orthogonal guidance | 已实现并验证 | #6 |
 | Exploration Policy + value head | 已实现 | #16 |
-| 10 Hz closed-loop PPO rollout | 已实现 | #18 |
+| closed-loop rollout | 已实现 | #18 |
 | GAE + PPO updater | 已实现 | #19 |
-| closed-loop PPO smoke training | 已实现并验收 | #20 |
+| PPO smoke training | 已实现 | #20 |
+| energy-oriented scalar reward transport | 已实现并完成 matched short A/B | #59 / E-024~E-026 |
+| PPO stability search workflow | 已实现并形成受限稳定候选 | #76 / E-028 |
 
-这些阶段不再是 remaining work。
+这些能力是后续研究的实验工具，不再构成 remaining implementation stages。
 
-其详细实现行为不在本文件重述。
-
-长期技术决定见 [`docs/adr/`](../../adr/)，运行证据见
-[`docs/experiments/`](../../experiments/)。
-
-## 当前状态
-
-目前已经可以进行：
+## 当前 PPO baseline 的角色
 
 ```text
-frozen planner
-    ↓
-Exploration Policy
-    ↓
-guided planning
-    ↓
-MetaDrive closed-loop rollout
-    ↓
-reward
-    ↓
-GAE / PPO update
-````
-
-因此下一阶段研究的重点不再是“把 PPO 跑起来”，而是判断：
-
-> PPO 是否值得作为 Eco-AutoDrive 的能耗优化方法继续投入。
-
-这仍是开放研究问题。
-
-## Remaining Work 1：建立可比较的能耗评价基础
-
-在比较 learned guidance 之前，需要有稳定且可解释的能耗研究基线。
-
-当前相关 active Issues：
-
-* #1 — 建立稳定的短程或中程能耗场景矩阵
-* #3 — 在稳定场景基线上比较现有能耗指标
-
-这里需要解决的是评价问题，而不是 PPO infrastructure 问题：
-
-* 什么场景具有代表性；
-* 什么能耗指标具有可比性；
-* termination type 如何分层；
-* 实际执行距离、速度和能耗如何共同解释；
-* proxy energy 是否足以支撑方法筛选。
-
-这些工作完成前，可以继续进行 PPO 工具链测试，但不应把 smoke objective 的变化解释为最终 energy improvement。
-
-## Remaining Work 2：决定 PPO 的研究 objective
-
-对应 [G-07](design-gates.md)。
-
-需要明确区分：
-
-```text
-smoke-training objective
-        ≠
-PlannerRFT parity reward
-        ≠
-Eco-AutoDrive energy objective
+frozen planner + pretrained scene representation
+                    ↓
+             Exploration Policy
+                    ↓
+             guidance action
+                    ↓
+          closed-loop MetaDrive
+                    ↓
+            scalar reward
+                    ↓
+               GAE / PPO
 ```
 
-后续研究需要决定：
+当前默认研究策略是：
 
-* 是否需要 PlannerRFT reward parity；
-* 是否直接研究 energy-oriented reward；
-* energy signal 是 reward 的组成部分、主要目标还是独立 evaluation metric；
-* 如何防止停车、低速或任务失败造成错误优化方向；
-* 如何报告安全、有效进度、旅行时间、舒适性和能耗之间的 trade-off。
+1. 尽量固定 PPO optimizer；
+2. 先研究 reward；
+3. 再研究 information；
+4. 最后才考虑 critic / encoder 的结构扩展。
 
-只有在研究定义明确后，具体 reward implementation 才应成为新的 GitHub Issue。
+因此 PPO 代码只有在成为研究瓶颈时才继续扩展。
 
-## Remaining Work 3：验证 learned guidance 是否提供实际价值
+## Support Work A — Reward study support
 
-如果继续研究 PPO，应使用配对实验回答 learned Exploration Policy 是否优于更简单的方法。
+对应 [`../reward-objective.md`](../reward-objective.md)。
 
-基本比较对象可包括：
+可能需要的支持工作包括：
+
+- 将不同 scalar reward formulation 保持为明确、可审计的 profile；
+- 统一记录 objective components、raw metrics 和 final scalar reward；
+- 支持 credit-horizon / return ablation 所需的配置；
+- 保证 training reward 与 reward-independent evaluation metric 可区分；
+- 保持 matched seed / initial-policy / rollout pairing。
+
+只有当具体 reward hypothesis 确定后，才建立实现 Issue；本文件不提前固定 reward 公式或权重。
+
+## Support Work B — Information ablation support
+
+对应 [`../information-representation.md`](../information-representation.md)。
+
+第一阶段目标是允许 policy 使用不同层级的 observation，同时保持 pretrained encoder frozen。
+
+可能需要的支持工作包括：
+
+- 对 information group 做显式 mask / include-exclude 控制；
+- 保持 observation shape / artifact 可审计；
+- 能够区分 ego/reference、local scene、long-range road/navigation、traffic information；
+- 支持 matched perturbation / range ablation；
+- 记录 policy action 对信息变化的响应。
+
+这里优先支持实验控制，而不是提前设计复杂的新 encoder。
+
+## Support Work C — Encoder extraction and fine-tuning
+
+只有在 information ablation 已经确认某类信息有稳定增量价值后才进入。
+
+可能的演化路径：
 
 ```text
-unguided planner
-fixed guidance
-random / observation-independent guidance
-learned Exploration Policy
+borrowed pretrained encoder, frozen
+          ↓
+explicit RL perception module
+          ↓
+partial fine-tuning
+          ↓
+optional joint optimization
 ```
 
-研究重点不是单独观察 PPO loss，而是判断：
+此阶段可能需要：
 
-* learned action 是否真正随 observation 改变；
-* learned guidance 是否在相同场景和随机条件下改善目标指标；
-* 改善是否来自有效驾驶行为，而不是停车或失败；
-* 结果是否跨 seed 保持；
-* 不同 termination type 下结论是否一致；
-* PPO 是否比固定或非 RL 方法提供足够增益。
+- 清晰区分 frozen reference planner 与 trainable RL representation；
+- 参数组和 checkpoint contract；
+- encoder-specific optimizer / learning-rate control；
+- representation drift / gradient diagnostics；
+- frozen-vs-tuned matched evaluation。
 
-具体实验矩阵、指标和统计方法应在建立对应 GitHub Issue 时确定。
+是否需要这些能力由 Stage 2/3 实验结果决定。
 
-如果 learned guidance 不能稳定优于简单对照，则没有必要因为 PPO infrastructure 已经存在而继续扩大训练规模。
+## Support Work D — Multi-head critic
 
-## Remaining Work 4：决定是否需要规模化训练
+只有 scalar reward study 显示明显 objective conflict 或高度 weight sensitivity 后再进入。
 
-对应 [G-09](design-gates.md)。
+可能需要支持：
 
-规模化不是当前默认下一步。
+- objective-specific return / value target；
+- multiple value heads；
+- per-head diagnostics；
+- policy advantage aggregation；
+- 必要时的 constraint / Lagrangian bookkeeping。
 
-只有当小规模实验表明：
+在真正进入实现前，需要先通过 [`design-gates.md`](design-gates.md) 的 G-P4 明确 actor/value sharing 与优化语义。
 
-1. learned guidance 存在值得继续研究的信号；
-2. 当前结果主要受 rollout 数量或训练规模限制；
-3. 更大的样本量能够回答明确的研究问题；
+## Support Work E — Stability re-validation
 
-才需要研究：
+任何改变以下条件的实验，都不能无条件继承 E-028 的稳定性结论：
 
-* vectorized environment；
-* multi-process rollout；
-* larger PPO batches；
-* 更长训练；
-* 独立 training orchestration。
+- reward scale / reward structure；
+- observation richness；
+- encoder trainability；
+- critic structure；
+- traffic complexity；
+- training horizon。
 
-如果当前小规模运行足以回答方法选择问题，则不需要为了接近论文资源规模而进行 scale-out。
+因此新研究实验启动前，应有最小规模的 mechanical/stability gate。
 
-## Remaining Work 5：道路预瞄与 PPO 的关系
+该 gate 的目的不是重复完整 Optuna search，而是确认：
 
-PlannerRFT PPO-only infrastructure 本身不等于道路预瞄方法。
+- diagnostics finite；
+- guidance distribution 不发生快速边界塌缩；
+- closed-loop behavior 无明显 catastrophic failure；
+- final checkpoint 在固定 evaluation 上没有基础能力崩溃。
 
-如果项目后续加入新的 preview information，需要单独回答：
+只有稳定性确实重新成为主要问题时，才需要新的 hyperparameter search。
 
-```text
-preview information
-       ↓
-representation / encoder
-       ↓
-planner or policy conditioning
-       ↓
-behavior change
-       ↓
-energy effect
-```
+## Support Work F — Scale-out runtime
 
-需要区分至少两种问题：
+scale-out 不是默认目标。
 
-1. planner 能否利用新的 preview information；
-2. PPO 是否有助于学习如何利用这些信息。
+只有在研究实验已经出现可靠 signal，且样本量或 simulator throughput 明确限制结论时，再考虑：
 
-因此不应默认把“加入 preview”与“使用 PPO”绑定成同一个实现步骤。
+- larger rollout batch；
+- vectorized / multi-process collection；
+- longer training；
+- distributed orchestration。
 
-可能先通过监督式、固定 guidance 或推理期方法验证 preview signal 是否有价值，再决定是否使用现有 PPO infrastructure。
+运行时优化应服务于明确实验问题，不作为独立研究贡献。
 
-具体 preview 表示和注入方式属于独立研究问题，不在本文提前固定。
-
-## Remaining Work 6：决定 PlannerRFT parity 是否仍有研究价值
-
-对应 [G-10](design-gates.md)。
-
-如果研究目标主要转向 Eco-AutoDrive 的能耗与道路预瞄，完整复现 PlannerRFT 的训练规模或 reward 未必是必要条件。
-
-需要明确：
-
-* 哪些 PlannerRFT 事实只用于方法理解；
-* 哪些部分需要 parity experiment；
-* 哪些部分只是项目复现决定；
-* 哪些实验已经属于 Eco-AutoDrive extension。
-
-如果未来仍进行 parity experiment，应与 energy-oriented experiment 使用不同名称、配置和结论范围。
-
-## 建立新工作的规则
-
-本文件中的 remaining work 都是候选研究工作，不等于 active implementation task。
-
-工作流为：
+## 新工作的建立规则
 
 ```text
-open research question
-        ↓
-design gate / research decision
-        ↓
-ADR（需要长期保留的技术决定）
-        ↓
+research hypothesis
+      ↓
+minimal ablation design
+      ↓
+PPO support gap identified
+      ↓
+design gate / ADR if needed
+      ↓
 GitHub Issue
-        ↓
+      ↓
 implementation
-        ↓
+      ↓
 experiment record
 ```
 
-GitHub Issue 应负责保存：
+GitHub Issue 应负责具体：
 
-* 明确目标；
-* 非目标；
-* 受影响代码；
-* 配置；
-* 测试；
-* 实验矩阵；
-* acceptance criteria。
+- 目标与非目标；
+- 受影响代码；
+- 配置；
+- 测试；
+- 实验矩阵；
+- acceptance criteria。
 
-本文件不重复这些实施细节，也不维护 Issue 的完成进度。
+本文件只维护“哪些 PPO 支持能力可能需要”，不维护 active task 进度。
 
-## 当前最重要的研究判断
+## 当前优先级
 
-PlannerRFT PPO-only 路线当前需要回答的核心问题可以缩写为：
+在新的总体研究路线下，PPO-only 支持工作的优先级为：
 
 ```text
-PPO infrastructure exists
-          ↓
-energy evaluation becomes reliable
-          ↓
-define a meaningful optimization objective
-          ↓
-paired learned-vs-simple-guidance experiment
-          ↓
-Does PPO add value?
-       /        \
-     yes         no
-      |           |
-consider scale   keep simpler
-or preview RL    optimization route
+1. support scalar reward experiments
+2. support controlled information ablations
+3. re-validate stability under changed conditions
+4. only then consider encoder fine-tuning or multi-head critic
+5. scale out only when experiments require it
 ```
 
-因此，后续是否继续扩展 PPO 应由实验结果驱动，而不是由旧 Stage 路线图驱动。
+因此近期工作重点是让 PPO 成为稳定、可控、可消融的研究工具，而不是继续追求 PlannerRFT implementation parity。
