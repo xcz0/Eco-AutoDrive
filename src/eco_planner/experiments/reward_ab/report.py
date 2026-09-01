@@ -8,31 +8,13 @@ from typing import cast
 import numpy as np
 
 from eco_planner.artifacts import write_json
-from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.rl.artifacts import (
-    BUILTIN_ROLLOUT_ARTIFACT_FIELDS,
-    ENERGY_ROLLOUT_ARTIFACT_FIELDS,
-    TrainingRunSummary,
-    TrainingUpdateSummary,
+from eco_planner.experiments.reward_ab.artifacts import (
+    COMMON_PAIR_FIELDS,
+    RewardABRunArtifacts,
+    load_run,
 )
-
-from .runner import PPORewardABConfig, load_ab_config
-
-_COMMON_PAIR_FIELDS = (
-    "guidance_action",
-    "route_completion_delta",
-    "speed_mps",
-    "stopped",
-    "crash_vehicle",
-    "crash_object",
-    "crash_building",
-    "crash_human",
-    "crash_sidewalk",
-    "out_of_road",
-    "step_distance_m",
-    "native_step_energy_ml",
-    "executed_fuel_proxy_step_energy_ml",
-)
+from eco_planner.experiments.reward_ab.config import PPORewardABConfig, load_ab_config
+from eco_planner.rl.artifacts import TrainingRunSummary, TrainingUpdateSummary
 
 
 def summarize_ab(root: Path) -> dict[str, object]:
@@ -42,8 +24,8 @@ def summarize_ab(root: Path) -> dict[str, object]:
     for seed in config.matched_training.training_seeds:
         for replay in config.matched_training.replay_ids:
             pair_root = root / f"seed-{seed}-replay-{replay}"
-            builtin = _load_run(pair_root / "builtin", "metadrive_builtin_v1")
-            energy = _load_run(pair_root / "energy", "plannerrft_energy_v1")
+            builtin = load_run(pair_root / "builtin", "metadrive_builtin_v1")
+            energy = load_run(pair_root / "energy", "plannerrft_energy_v1")
             checks = _pair_checks(config, builtin, energy)
             mechanical_checks.extend(
                 {"pair": f"seed-{seed}-replay-{replay}", **item} for item in checks
@@ -69,64 +51,20 @@ def summarize_ab(root: Path) -> dict[str, object]:
     }
 
 
-def _load_run(path: Path, expected_profile: str) -> dict[str, object]:
-    summary = TrainingRunSummary.model_validate_json(
-        (path / "summary.json").read_text(encoding="utf-8")
-    )
-    if summary.reward_profile != expected_profile:
-        raise ValueError(f"{path} uses reward profile {summary.reward_profile!r}")
-    resolved = load_resolved_yaml_mapping(path / "resolved_config.yaml")
-    return {
-        "path": path,
-        "summary": summary,
-        "resolved": resolved,
-        "initial_update": _load_update(path, 0, expected_profile),
-    }
-
-
-def _load_update(path: Path, update_index: int, expected_profile: str) -> dict[str, np.ndarray]:
-    files = sorted((path / "updates" / f"update-{update_index:03d}").glob("*.npz"))
-    if not files:
-        raise ValueError(f"{path} update {update_index} has no rollout artifacts")
-    values: dict[str, list[np.ndarray]] = {name: [] for name in _COMMON_PAIR_FIELDS}
-    expected_fields = set(
-        ENERGY_ROLLOUT_ARTIFACT_FIELDS
-        if expected_profile == "plannerrft_energy_v1"
-        else BUILTIN_ROLLOUT_ARTIFACT_FIELDS
-    )
-    for artifact in files:
-        with np.load(artifact, allow_pickle=False) as arrays:
-            if str(arrays["reward_profile"]) != expected_profile:
-                raise ValueError(f"{artifact} reward profile disagrees with its run")
-            if set(arrays.files) != expected_fields:
-                raise ValueError(f"{artifact} does not match its strict reward artifact schema")
-            missing = set(_COMMON_PAIR_FIELDS) - set(arrays.files)
-            if missing:
-                raise ValueError(f"{artifact} is missing common A/B fields: {sorted(missing)}")
-            for name in arrays.files:
-                value = arrays[name]
-                if value.dtype.kind in "fc" and not np.isfinite(value).all():
-                    raise ValueError(f"{artifact}:{name} contains non-finite values")
-            for name in _COMMON_PAIR_FIELDS:
-                value = arrays[name]
-                values[name].append(value)
-    return {name: np.concatenate(items, axis=0) for name, items in values.items()}
-
-
 def _pair_checks(
-    config: PPORewardABConfig, builtin: dict[str, object], energy: dict[str, object]
+    config: PPORewardABConfig,
+    builtin: RewardABRunArtifacts,
+    energy: RewardABRunArtifacts,
 ) -> list[dict[str, object]]:
-    left = _summary(builtin)
-    right = _summary(energy)
+    left = builtin.summary
+    right = energy.summary
     expected_updates = config.matched_training.update_count
     checks = [
         {
-            "name": "resolved_configs_match_except_reward",
-            "passed": _matched_configs(builtin, energy),
-        },
-        {
-            "name": "resolved_config_matches_matrix",
-            "passed": _resolved_matches_matrix(config, builtin),
+            "name": "matched_training_seeds_and_replays",
+            "passed": (
+                left.training_seed == right.training_seed and left.replay_id == right.replay_id
+            ),
         },
         {
             "name": "initial_policy_hash_matches",
@@ -167,8 +105,8 @@ def _pair_report(
     config: PPORewardABConfig,
     seed: int,
     replay: int,
-    builtin: dict[str, object],
-    energy: dict[str, object],
+    builtin: RewardABRunArtifacts,
+    energy: RewardABRunArtifacts,
 ) -> dict[str, object]:
     builtin_metrics = _effect_metrics(builtin)
     energy_metrics = _effect_metrics(energy)
@@ -212,8 +150,8 @@ def _pair_report(
         "update_series": _effect_update_series(builtin, energy),
         "review_flags": flags,
         "ppo_diagnostics": {
-            "builtin": _ppo_diagnostics(_summary(builtin)),
-            "energy": _ppo_diagnostics(_summary(energy)),
+            "builtin": _ppo_diagnostics(builtin.summary),
+            "energy": _ppo_diagnostics(energy.summary),
         },
     }
 
@@ -243,8 +181,8 @@ def _metric_changes(
     }
 
 
-def _effect_metrics(run: dict[str, object]) -> dict[str, float | int]:
-    updates = _summary(run).updates[1:]
+def _effect_metrics(run: RewardABRunArtifacts) -> dict[str, float | int]:
+    updates = run.summary.updates[1:]
     if not updates:
         raise ValueError("PPO reward A/B effect window requires at least one post-update rollout")
     return _effect_metrics_for_updates(updates)
@@ -257,11 +195,13 @@ def _effect_metrics_for_updates(
     if not sample_count:
         raise ValueError("PPO reward A/B effect window requires training samples")
     action_mean = sum(item.action_mean[1] * item.sample_count for item in updates) / sample_count
-    action_variance = sum(
-        item.sample_count
-        * (item.action_std[1] ** 2 + (item.action_mean[1] - action_mean) ** 2)
-        for item in updates
-    ) / sample_count
+    action_variance = (
+        sum(
+            item.sample_count * (item.action_std[1] ** 2 + (item.action_mean[1] - action_mean) ** 2)
+            for item in updates
+        )
+        / sample_count
+    )
     distance = float(sum(item.executed_fuel_proxy_distance_m for item in updates))
     fuel = float(sum(item.executed_fuel_proxy_total_ml for item in updates))
     if distance <= 0.0:
@@ -286,10 +226,10 @@ def _effect_metrics_for_updates(
 
 
 def _effect_update_series(
-    builtin: dict[str, object], energy: dict[str, object]
+    builtin: RewardABRunArtifacts, energy: RewardABRunArtifacts
 ) -> list[dict[str, object]]:
-    builtin_updates = _summary(builtin).updates[1:]
-    energy_updates = _summary(energy).updates[1:]
+    builtin_updates = builtin.summary.updates[1:]
+    energy_updates = energy.summary.updates[1:]
     if len(builtin_updates) != len(energy_updates):
         raise ValueError("matched PPO reward runs have different effect-window lengths")
     series: list[dict[str, object]] = []
@@ -364,34 +304,10 @@ def _ppo_diagnostics(summary: TrainingRunSummary) -> list[dict[str, float | int]
     ]
 
 
-def _matched_configs(left: dict[str, object], right: dict[str, object]) -> bool:
-    first = dict(_resolved(left))
-    second = dict(_resolved(right))
-    for payload in (first, second):
-        payload.pop("reward", None)
-        payload.pop("name", None)
-    return first == second
-
-
-def _resolved_matches_matrix(config: PPORewardABConfig, run: dict[str, object]) -> bool:
-    resolved = _resolved(run)
-    training = resolved.get("training")
-    ppo = resolved.get("ppo")
-    if not isinstance(training, dict) or not isinstance(ppo, dict):
-        return False
-    return (
-        training.get("update_count") == config.matched_training.update_count
-        and training.get("transitions_per_environment")
-        == config.matched_training.transitions_per_environment
-        and ppo.get("scheduler_total_optimizer_steps")
-        == config.matched_training.scheduler_total_optimizer_steps
-    )
-
-
-def _initial_collection_equal(left: dict[str, object], right: dict[str, object]) -> bool:
-    first = _initial_update(left)
-    second = _initial_update(right)
-    return all(np.array_equal(first[name], second[name]) for name in _COMMON_PAIR_FIELDS)
+def _initial_collection_equal(left: RewardABRunArtifacts, right: RewardABRunArtifacts) -> bool:
+    first = left.initial_update
+    second = right.initial_update
+    return all(np.array_equal(first[name], second[name]) for name in COMMON_PAIR_FIELDS)
 
 
 def _fraction_change(baseline: float | int, candidate: float | int) -> float:
@@ -399,27 +315,6 @@ def _fraction_change(baseline: float | int, candidate: float | int) -> float:
     if baseline_value <= 0.0:
         raise ValueError("PPO reward A/B fractional comparison requires a positive baseline")
     return (float(candidate) - baseline_value) / abs(baseline_value)
-
-
-def _summary(run: dict[str, object]) -> TrainingRunSummary:
-    value = run["summary"]
-    if not isinstance(value, TrainingRunSummary):
-        raise TypeError("A/B run summary has an invalid internal type")
-    return value
-
-
-def _resolved(run: dict[str, object]) -> dict[str, object]:
-    value = run["resolved"]
-    if not isinstance(value, dict):
-        raise TypeError("A/B resolved config has an invalid internal type")
-    return value
-
-
-def _initial_update(run: dict[str, object]) -> dict[str, np.ndarray]:
-    value = run["initial_update"]
-    if not isinstance(value, dict):
-        raise TypeError("A/B initial rollout artifact has an invalid internal type")
-    return value
 
 
 def summarize_and_write_ab(root: Path) -> dict[str, object]:

@@ -8,16 +8,13 @@ from omegaconf import DictConfig
 
 from eco_planner.evaluation.config import EvaluationJobConfig, parse_evaluation_config
 from eco_planner.experiments.energy_sweep import load_energy_study
-from eco_planner.experiments.ppo_stability.runner import (
-    StabilityMonitor,
-    TrialParameters,
-    _create_study,
-    _rank_validation_configs,
-    compose_trial_training_config,
-    load_stability_config,
-)
+from eco_planner.experiments.ppo_stability.config import TrialParameters, load_stability_config
+from eco_planner.experiments.ppo_stability.monitor import StabilityMonitor
+from eco_planner.experiments.ppo_stability.report import rank_validation_configs
+from eco_planner.experiments.ppo_stability.search import compose_trial_training_config, create_study
+from eco_planner.experiments.reward_ab.config import load_ab_config
 from eco_planner.experiments.reward_ab.report import aggregate_pair_reports
-from eco_planner.experiments.reward_ab.runner import build_training_overrides, load_ab_config
+from eco_planner.experiments.reward_ab.runner import build_training_overrides
 from eco_planner.experiments.reward_sanity import evaluate_sanity, load_sanity_config
 from eco_planner.rl.artifacts import TrainingUpdateSummary
 from eco_planner.rl.config import TrainingJobConfig, parse_training_config
@@ -201,9 +198,7 @@ def test_stability_monitor_reports_registered_domain_prune_reasons(config_root: 
     assert all(reason is None for reason in reasons)
     assert study.pruning.clip_fraction is None
 
-    enabled = StabilityMonitor(
-        study.pruning.model_copy(update={"clip_fraction": 0.5})
-    )
+    enabled = StabilityMonitor(study.pruning.model_copy(update={"clip_fraction": 0.5}))
     reasons = [enabled.add(update(index, clip_fraction=0.5)) for index in range(3)]
     assert reasons[-1] == "sustained_clip_fraction"
 
@@ -214,8 +209,8 @@ def test_stability_study_sqlite_continuation_and_validation_ranking(
 ) -> None:
     config = load_stability_config(config_root / "studies" / "ppo" / "stability.yaml")
 
-    first = _create_study(config, tmp_path)
-    second = _create_study(config, tmp_path)
+    first = create_study(config, tmp_path)
+    second = create_study(config, tmp_path)
 
     assert first.study_name == second.study_name
     records = [
@@ -233,7 +228,7 @@ def test_stability_study_sqlite_continuation_and_validation_ranking(
         )
     ]
 
-    assert _rank_validation_configs(records, required_seed_count=2) == [7, 3]
+    assert rank_validation_configs(records, required_seed_count=2) == [7, 3]
 
     records_with_failed_run = [
         {
@@ -251,4 +246,4 @@ def test_stability_study_sqlite_continuation_and_validation_ranking(
         },
     ]
 
-    assert _rank_validation_configs(records_with_failed_run, required_seed_count=2) == []
+    assert rank_validation_configs(records_with_failed_run, required_seed_count=2) == []

@@ -30,8 +30,9 @@ from eco_planner.experiments.ppo_stability.validation import (
     PolicyEvaluationSummary,
     compare_policy_evaluations,
 )
+from eco_planner.experiments.reward_ab import artifacts as reward_ab_artifacts
 from eco_planner.experiments.reward_ab import report as reward_ab_analysis
-from eco_planner.experiments.reward_ab.runner import PPORewardABConfig
+from eco_planner.experiments.reward_ab.config import PPORewardABConfig
 from eco_planner.rl.artifacts import PolicyProbeSummary, TrainingRunSummary, TrainingUpdateSummary
 
 
@@ -215,6 +216,10 @@ def test_energy_study_run_record_schema_preserves_episode_and_traffic_context(
     guidance = energy_study.GuidanceProfileSpec(
         id="baseline", config="none", longitudinal_scale=None
     )
+
+    def episode_payload(name: str, distance: float) -> dict[str, object]:
+        return {"scenario": {"name": name, "seed": 0}, "distance_m": distance}
+
     episodes = tuple(
         SimpleNamespace(
             evaluation_mode="traffic",
@@ -222,10 +227,9 @@ def test_energy_study_run_record_schema_preserves_episode_and_traffic_context(
             scenario=SimpleNamespace(
                 model_dump=lambda name=name, **_kwargs: {"name": name, "seed": 0}
             ),
-            model_dump=lambda payload={
-                "scenario": {"name": name, "seed": 0},
-                "distance_m": distance,
-            }, **_kwargs: payload,
+            model_dump=lambda name=name, distance=distance, **_kwargs: episode_payload(
+                name, distance
+            ),
         )
         for name, distance in (("s0", 123.0), ("s1", 456.0))
     )
@@ -392,21 +396,18 @@ def test_ppo_reward_ab_report_schema_and_effect_window_metrics_are_stable(
 ) -> None:
     config = _ab_config()
     common_initial = _rollout(0.0, 1.0, 1.0, 5.0, False, False)
-    resolved = {
-        "training": {"update_count": 2, "transitions_per_environment": 2},
-        "ppo": {"scheduler_total_optimizer_steps": 2},
-    }
-    builtin = {
-        "summary": _training_summary(
+    builtin = reward_ab_artifacts.RewardABRunArtifacts(
+        tmp_path / "builtin",
+        _training_summary(
             1,
             2,
             post_update=_update(1, 2.0, action=0.1, fuel=4.0, progress=4.0, speed=10.0),
         ),
-        "resolved": resolved,
-        "initial_update": common_initial,
-    }
-    energy = {
-        "summary": _training_summary(
+        common_initial,
+    )
+    energy = reward_ab_artifacts.RewardABRunArtifacts(
+        tmp_path / "energy",
+        _training_summary(
             1,
             2,
             post_update=_update(
@@ -419,16 +420,13 @@ def test_ppo_reward_ab_report_schema_and_effect_window_metrics_are_stable(
                 collision=1,
                 out_of_road=1,
             ),
-        ).model_copy(
-            update={"reward_profile": "plannerrft_energy_v1"}
-        ),
-        "resolved": resolved,
-        "initial_update": common_initial,
-    }
+        ).model_copy(update={"reward_profile": "plannerrft_energy_v1"}),
+        common_initial,
+    )
     monkeypatch.setattr(reward_ab_analysis, "load_ab_config", lambda _path: config)
     monkeypatch.setattr(
         reward_ab_analysis,
-        "_load_run",
+        "load_run",
         lambda path, _profile: builtin if path.name == "builtin" else energy,
     )
 
@@ -522,9 +520,7 @@ def test_training_reproducibility_acceptance_report_schema_is_stable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     summaries = {
-        (seed, replay): _training_summary(seed, replay)
-        for seed in (0, 1)
-        for replay in (0, 1)
+        (seed, replay): _training_summary(seed, replay) for seed in (0, 1) for replay in (0, 1)
     }
     for seed, replay in summaries:
         run = tmp_path / f"seed-{seed}-replay-{replay}"

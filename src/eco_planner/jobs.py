@@ -1,4 +1,4 @@
-"""Internal composition and execution boundary for configured jobs."""
+"""Internal Hydra composition and execution boundary for configured jobs."""
 
 from __future__ import annotations
 

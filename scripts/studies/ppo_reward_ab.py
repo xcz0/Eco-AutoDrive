@@ -5,7 +5,8 @@ from pathlib import Path
 
 from eco_planner._repository import LOCAL_ENVIRONMENT_PATH
 from eco_planner.configuration import load_local_environment
-from eco_planner.experiments.reward_ab.runner import DEFAULT_STUDY, run_ab
+from eco_planner.experiments.reward_ab.config import DEFAULT_STUDY
+from eco_planner.experiments.reward_ab.runner import run_ab
 
 
 def main() -> None:

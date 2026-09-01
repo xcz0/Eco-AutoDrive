@@ -12,7 +12,7 @@ from omegaconf import DictConfig
 
 from eco_planner._repository import LOCAL_ENVIRONMENT_PATH
 from eco_planner.configuration import load_local_environment, with_machine_resource_override
-from eco_planner.workflows import run_training_job
+from eco_planner.jobs import run_training_job
 
 
 @hydra.main(

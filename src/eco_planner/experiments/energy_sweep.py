@@ -12,7 +12,7 @@ from eco_planner._repository import CONFIG_ROOT
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation.artifacts import load_job_summary
-from eco_planner.workflows import compose_job_config, run_evaluation_job
+from eco_planner.jobs import compose_job_config, run_evaluation_job
 
 DEFAULT_STUDY = CONFIG_ROOT / "studies" / "energy" / "matrix.yaml"
 

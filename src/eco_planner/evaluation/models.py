@@ -390,4 +390,3 @@ class RuntimeMetadata(ArtifactModel):
     elapsed_seconds: StrictFloat = Field(ge=0.0)
     cuda_memory: CudaMemorySummary | None
 
-

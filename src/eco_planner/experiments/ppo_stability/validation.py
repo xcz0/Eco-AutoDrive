@@ -9,11 +9,20 @@ from typing import Literal
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
 
+from eco_planner.artifacts import write_json
 from eco_planner.evaluation.agent import PPOCheckpointEvaluationAgent
 from eco_planner.evaluation.config import EvaluationJobConfig, ScenarioConfig
 from eco_planner.evaluation.models import CompletedEpisodeSummary, JobSummary
 from eco_planner.evaluation.runner import run_evaluation_agent
-from eco_planner.rl.artifacts import policy_state_hash
+from eco_planner.experiments.ppo_stability.config import (
+    PPOStabilityStudyConfig,
+    TrialParameters,
+    scenarios,
+)
+from eco_planner.experiments.ppo_stability.monitor import StabilityMonitor, StabilityViolation
+from eco_planner.experiments.ppo_stability.search import compose_trial_training_config
+from eco_planner.jobs import run_training_job
+from eco_planner.rl.artifacts import TrainingUpdateSummary, policy_state_hash
 from eco_planner.rl.config import TrainingJobConfig
 from eco_planner.rl.optimization import load_exploration_policy_checkpoint
 from eco_planner.rl.rollout import create_fabric_rollout_runtime
@@ -223,3 +232,106 @@ def _derive_evaluation_seeds(
         for child in sequence.spawn(2 * scenario_count)
     )
     return values[:scenario_count], values[scenario_count:]
+
+
+def run_validation(
+    config: PPOStabilityStudyConfig,
+    parameters: TrialParameters,
+    *,
+    config_id: int,
+    stage: Literal["b", "c"],
+    training_seed: int,
+    update_count: int,
+    output_dir: Path,
+) -> dict[str, object]:
+    """Train a candidate and apply the registered stability acceptance gates."""
+
+    output_dir.mkdir(parents=True, exist_ok=False)
+    raw, parsed = compose_trial_training_config(
+        config, parameters, training_seed=training_seed, update_count=update_count
+    )
+    monitor = StabilityMonitor(config.pruning)
+
+    def observe(update: TrainingUpdateSummary) -> None:
+        reason = monitor.add(update)
+        if reason is not None:
+            raise StabilityViolation(reason)
+
+    try:
+        run_training_job(raw, output_dir, update_observer=observe)
+    except StabilityViolation as error:
+        return _validation_record(
+            stage, config_id, training_seed, "unstable", str(error), monitor, output_dir
+        )
+    except Exception as error:
+        return _validation_record(
+            stage,
+            config_id,
+            training_seed,
+            "failed",
+            f"{type(error).__name__}: {error}",
+            monitor,
+            output_dir,
+        )
+    comparison = evaluate_validation_policy(config, parsed, output_dir)
+    return {
+        **_validation_record(
+            stage, config_id, training_seed, "complete", None, monitor, output_dir
+        ),
+        "evaluation": comparison.model_dump(mode="json"),
+    }
+
+
+def evaluate_validation_policy(
+    study: PPOStabilityStudyConfig,
+    training: TrainingJobConfig,
+    run_dir: Path,
+) -> PolicyEvaluationComparison:
+    """Evaluate initial/final policy artifacts through the shared engine."""
+
+    held_out_scenarios = scenarios(study.evaluation.maps, study.evaluation.map_seeds, limit=None)
+    evaluation_root = run_dir / "evaluation"
+    initial = evaluate_policy_checkpoint(
+        training,
+        run_dir / "policy-initial.pt",
+        label="initial",
+        scenarios=held_out_scenarios,
+        transitions_per_scenario=study.evaluation.transitions_per_scenario,
+        evaluation_seed=study.evaluation.seed,
+        output_dir=evaluation_root / "initial",
+    )
+    final = evaluate_policy_checkpoint(
+        training,
+        run_dir / "policy-final.pt",
+        label="final",
+        scenarios=held_out_scenarios,
+        transitions_per_scenario=study.evaluation.transitions_per_scenario,
+        evaluation_seed=study.evaluation.seed,
+        output_dir=evaluation_root / "final",
+    )
+    comparison = compare_policy_evaluations(
+        initial, final, minimum_retention=study.evaluation.minimum_retention
+    )
+    write_json(evaluation_root / "comparison.json", comparison)
+    return comparison
+
+
+def _validation_record(
+    stage: Literal["b", "c"],
+    config_id: int,
+    training_seed: int,
+    state: str,
+    reason: str | None,
+    monitor: StabilityMonitor,
+    output_dir: Path,
+) -> dict[str, object]:
+    return {
+        "stage": stage,
+        "config_id": config_id,
+        "training_seed": training_seed,
+        "state": state,
+        "reason": reason,
+        "minimum_episode_length_retention": monitor.minimum_episode_retention,
+        "evaluation": None,
+        "output_dir": str(output_dir),
+    }
