@@ -111,3 +111,11 @@ energy profile 的 value loss 和 gradient norm 比 builtin 大约 1–3 个数�
 - learned policy 的闭环效果——如需声称，须使用相同固定 evaluation scenarios/seeds 对最终 checkpoints 做 reward-independent 闭环评测（可另立实验记录或后续 Issue）。
 
 Issue #59 阶段 B 验收完成。
+
+## 结论边界修正（2026-09-01）
+
+Issue #76 的 Stage A 诊断定位了一个 MetaDrive reset 语义 bug：执行过 step 后对同一 map/seed reset 时，未清除的 `engine.external_actions` 会在 reset 内部 `taskMgr.step()` 中重放上一回合的世界轨迹，使车辆从旧轨迹位置而非出生点开始。P0/E-026 训练中每个物理 worker 固定一种地图，该漂移跨 update 累积——与本记录 update ~5 后 out-of-road 阶跃上升、episode_count 增加的退化模式同源。
+
+reset 修复（`TrajectoryMetaDriveEnv.reset` 前清除 `engine.external_actions`，commit `bbf1365`）后，P0 smoke 配置（本记录的退化配置）在 20 updates × seed 0 下重跑完全稳定：out_of_road=0、episode_count=2、mean_episode_length=16.0 全程不变、entropy 不塌缩（产物：`outputs/training/ppo/2026-08-31/21-56-45-seed-0-replay-0/`，见 E-028）。
+
+因此本记录中"策略退化是 smoke PPO 配置（update 强度）的限制"的归因不再成立：退化由 reset bug 导致，而非 PPO 超参数。本记录的机械检查、A/B 匹配、无 reward hacking 和有限值结论不受影响（它们不依赖退化机制）。
