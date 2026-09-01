@@ -15,3 +15,16 @@ class ResourceProfileConfig(BaseModel):
     evaluation_job_worker_count: StrictInt = Field(gt=0)
     evaluation_vector_env_slots: StrictInt = Field(gt=0)
     torch_threads_per_worker: StrictInt = Field(gt=0)
+
+
+def require_resource_profile(
+    resources: ResourceProfileConfig | None,
+) -> ResourceProfileConfig:
+    """Require host scheduling budgets at an execution boundary."""
+
+    if resources is None:
+        raise ValueError(
+            "execution requires a resource profile; set MACHINE_NAME or override "
+            "components/resources=<profile>"
+        )
+    return resources

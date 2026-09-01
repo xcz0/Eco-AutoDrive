@@ -29,6 +29,7 @@ from eco_planner.artifacts import (
     write_tracked_diff,
 )
 from eco_planner.evaluation.config import ModelPathsConfig
+from eco_planner.runtime_resources import ResourceProfileConfig
 
 
 class StrictBenchmarkModel(BaseModel):
@@ -116,6 +117,7 @@ class EnvironmentBenchmarkJobConfig(StrictBenchmarkModel):
     env: dict[str, Any]
     model: ModelPathsConfig
     benchmark: EnvironmentBenchmarkConfig
+    resources: ResourceProfileConfig | None = None
 
 
 class Measurement(TypedDict):

@@ -17,7 +17,7 @@ from eco_planner.envs import (
 )
 from eco_planner.models import OfficialDiffusionPlannerConfig
 
-from .common import (
+from .config import (
     EnvironmentBenchmarkConfig,
     EnvironmentBenchmarkJobConfig,
     Measurement,

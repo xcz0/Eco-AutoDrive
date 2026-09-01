@@ -1,1 +1,1 @@
-"""Repository-only offline analysis entrypoints."""
+"""Thin analysis CLI adapters."""

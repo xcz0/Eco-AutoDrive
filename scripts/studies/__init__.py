@@ -1,1 +1,1 @@
-"""Repository-only research study launchers."""
+"""Thin study CLI adapters."""

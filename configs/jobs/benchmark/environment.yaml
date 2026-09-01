@@ -3,6 +3,7 @@
 defaults:
   - /components/env
   - /components/model
+  - /components/resources: null
   - /components/benchmark: environment
   - _self_
 

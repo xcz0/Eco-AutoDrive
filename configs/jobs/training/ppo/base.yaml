@@ -4,7 +4,7 @@ defaults:
   - /components/env
   - /components/model
   - /components/runtime
-  - /components/resources: ${oc.env:MACHINE_NAME}
+  - /components/resources: null
   - /components/sampler: ddim5
   - /components/guidance: orthogonal_policy
   - /components/policy

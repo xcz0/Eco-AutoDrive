@@ -4,19 +4,21 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TypeGuard
 
 from omegaconf import DictConfig, OmegaConf
 
 _ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+_RESOURCE_CONFIG_GROUP = "components/resources"
 
 
 def load_local_environment(env_path: Path) -> None:
-    """Load a strict environment file without replacing existing variables."""
+    """Load an optional strict environment file without replacing existing variables."""
 
     if not env_path.is_file():
-        raise FileNotFoundError(f"missing local environment file: {env_path}")
+        return
 
     for line_number, raw_line in enumerate(
         env_path.read_text(encoding="utf-8").splitlines(), start=1
@@ -29,6 +31,18 @@ def load_local_environment(env_path: Path) -> None:
             raise ValueError(f"invalid .env assignment at {env_path}:{line_number}")
         name, value = match.groups()
         os.environ.setdefault(name, value)
+
+
+def with_machine_resource_override(overrides: Sequence[str]) -> list[str]:
+    """Select the local resource profile unless the caller already chose one."""
+
+    resolved = list(overrides)
+    if any(_is_resource_override(item) for item in resolved):
+        return resolved
+    machine_name = os.environ.get("MACHINE_NAME", "").strip()
+    if machine_name:
+        resolved.append(f"{_RESOURCE_CONFIG_GROUP}={machine_name}")
+    return resolved
 
 
 def load_resolved_yaml_mapping(path: Path) -> dict[str, Any]:
@@ -51,3 +65,8 @@ def resolve_config_mapping(config: DictConfig) -> dict[str, Any]:
 
 def _is_string_mapping(value: object) -> TypeGuard[dict[str, Any]]:
     return isinstance(value, dict) and all(isinstance(key, str) for key in value)
+
+
+def _is_resource_override(value: str) -> bool:
+    candidate = value.lstrip("+~")
+    return candidate == _RESOURCE_CONFIG_GROUP or candidate.startswith(f"{_RESOURCE_CONFIG_GROUP}=")

@@ -42,6 +42,8 @@ Eco-AutoDrive 是个人科研代码库。优先保证**逻辑正确、实验语�
 
 ## 项目约定与 gotchas
 
+- `scripts/` 只保留 CLI 参数解析、bootstrap、展示和退出码映射；稳定的 repository application logic 位于 `src/eco_planner/`，但不因此成为第三方 public API。
+- `justfile` 是 Windows PowerShell 下的无语义 task alias；工作流参数和默认值由对应 CLI/Hydra 配置拥有。
 - `configs/` 保存环境、模型、训练和实验配置；具有实验意义的参数不要硬编码进 Python。
 - `third_party/metadrive/` 是运行时本地 editable 源码；`ref/` 是只读上游快照，业务代码不得从 `ref/` 导入。
 - `checkpoints/`、`outputs/`、`.venv/`、`.env`、`ref/` 及被忽略的上游源码不得提交。
