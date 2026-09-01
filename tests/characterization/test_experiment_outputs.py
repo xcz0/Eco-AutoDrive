@@ -26,10 +26,13 @@ from eco_planner.evaluation.models import (
 )
 from eco_planner.experiments import energy_sweep as energy_study
 from eco_planner.experiments import ppo_reproducibility as training_analysis
+from eco_planner.experiments.ppo_stability.validation import (
+    PolicyEvaluationSummary,
+    compare_policy_evaluations,
+)
 from eco_planner.experiments.reward_ab import report as reward_ab_analysis
 from eco_planner.experiments.reward_ab.runner import PPORewardABConfig
 from eco_planner.rl.artifacts import PolicyProbeSummary, TrainingRunSummary, TrainingUpdateSummary
-from eco_planner.rl.evaluation import PolicyEvaluationSummary, compare_policy_evaluations
 
 
 def _episode(*, seed: int, distance_m: float, energy_ml: float) -> CompletedEpisodeSummary:
@@ -485,12 +488,6 @@ def _policy_summary(
             "distance_m": 100.0,
             "mean_speed_mps": 5.0,
             "stopped_fraction": 0.0,
-            "action_mean": (0.0, 0.0),
-            "action_std": (0.1, 0.1),
-            "action_min": (-0.2, -0.2),
-            "action_max": (0.2, 0.2),
-            "beta_alpha_mean": (2.0, 2.0),
-            "beta_beta_mean": (2.0, 2.0),
         }
     )
 

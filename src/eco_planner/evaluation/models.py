@@ -103,8 +103,23 @@ class OrthogonalGuidanceSummary(ArtifactModel):
     zero_speed_tolerance_mps: StrictFloat = Field(gt=0.0)
 
 
+class OrthogonalPolicyGuidanceSummary(ArtifactModel):
+    name: Literal["orthogonal_policy"]
+    formula_label: Literal["centered_energy_gradient_delta_v1"]
+    lateral_max_offset_m: StrictFloat = Field(gt=0.0)
+    longitudinal_max_speed_fraction: StrictFloat = Field(gt=0.0)
+    trajectory_dt_s: StrictFloat = Field(gt=0.0)
+    gradient_step_coefficient: StrictFloat = Field(ge=1.0, le=1.0)
+    reference_refresh_cycles: Literal[1]
+    share_scene_encoding: Literal[True]
+    share_initial_noise: Literal[True]
+    share_transition_noise: Literal[True]
+    heading_norm_epsilon: StrictFloat = Field(gt=0.0)
+    zero_speed_tolerance_mps: StrictFloat = Field(gt=0.0)
+
+
 GuidanceSummary = Annotated[
-    NoGuidanceSummary | OrthogonalGuidanceSummary,
+    NoGuidanceSummary | OrthogonalGuidanceSummary | OrthogonalPolicyGuidanceSummary,
     Field(discriminator="name"),
 ]
 

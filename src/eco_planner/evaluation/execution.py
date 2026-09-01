@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import cast
 
 import numpy as np
-import torch
 from tensordict import TensorDictBase
 
 from eco_planner.envs import (
@@ -22,6 +21,7 @@ from eco_planner.envs import (
     collate_observations,
 )
 from eco_planner.envs.array_types import SingleObservation
+from eco_planner.evaluation.agent import EvaluationAgent
 from eco_planner.evaluation.artifacts import write_episode_artifacts
 from eco_planner.evaluation.config import EvaluationJobConfig, ScenarioConfig
 from eco_planner.evaluation.models import (
@@ -30,11 +30,9 @@ from eco_planner.evaluation.models import (
     FailurePhase,
 )
 from eco_planner.evaluation.rendering import render_cycle_frame
-from eco_planner.evaluation.runtime import FabricInferenceRuntime
 from eco_planner.evaluation.summaries import build_episode_summary, build_failed_episode_summary
 from eco_planner.evaluation.trace import EpisodeTraceRecorder
 from eco_planner.execution_contracts import evaluation_plan_cycles
-from eco_planner.models import NoGuidanceConfig
 
 
 class EpisodeFailure(RuntimeError):
@@ -51,7 +49,7 @@ class _EpisodeState:
     spec: ScenarioConfig
     observation: SingleObservation | None
     traffic_audit: TrafficObservationAudit | None
-    generator: torch.Generator
+    agent_episode: object
     trace: EpisodeTraceRecorder
     anchor: np.ndarray
     route_length_m: float
@@ -85,9 +83,11 @@ class _EpisodeState:
 
 def run_scenario(
     spec: ScenarioConfig,
-    runtime: FabricInferenceRuntime,
+    agent: EvaluationAgent,
     config: EvaluationJobConfig,
     output_root: Path,
+    *,
+    scenario_index: int = 0,
 ) -> CompletedEpisodeSummary | FailedEpisodeSummary:
     """Evaluate one scenario in one MetaDrive environment."""
 
@@ -103,7 +103,7 @@ def run_scenario(
         env_slot = MetaDriveEnvSlot(
             env_config,
             mode=mode,
-            observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
+            observation_spec=PlannerObservationSpec.from_planner_config(agent.planner_config),
             map_query_radius_m=config.map_query_radius_m,
             history_warmup_steps=config.evaluation.history_warmup_steps,
         )
@@ -121,13 +121,13 @@ def run_scenario(
             reset.warmup_initial_state,
             max_plan_cycles=evaluation_plan_cycles(config.evaluation.evaluated_horizon_steps),
             max_warmup_steps=config.evaluation.history_warmup_steps,
-            guided=not isinstance(runtime.guidance_config, NoGuidanceConfig),
+            guided=agent.guided,
         )
         state = _EpisodeState(
             spec=spec,
             observation=None,
             traffic_audit=None,
-            generator=runtime.new_noise_generator(),
+            agent_episode=agent.new_episode(scenario_index),
             trace=trace,
             anchor=reset.warmup_initial_state.copy(),
             route_length_m=episode_route_length_m,
@@ -157,15 +157,17 @@ def run_scenario(
             slot_observation = env_slot.observe()
             raw_observation = slot_observation.observation
             traffic_audit = slot_observation.traffic_audit
-            inference = runtime.infer(collate_observations([raw_observation]), state.generator)
+            inference = agent.decide_batch(
+                collate_observations([raw_observation]), (state.agent_episode,)
+            )
             state.anchor = env_slot.vehicle_state
-            step = env_slot.step(inference.ego_trajectory)
+            step = env_slot.step(np.asarray(inference.ego_trajectories)[0])
             terminated = step.terminated
             truncated = step.truncated
             execution = step.execution
             cycle = state.record_cycle(
                 raw_observation,
-                inference.audit_result(),
+                _audit_slot(inference.audit_result(), 0),
                 execution,
                 step.reward,
                 traffic_audit,
@@ -194,21 +196,23 @@ def run_scenario(
             state.environment_map_audit,
             state.route_length_m,
             state.saw_traffic,
-            runtime,
+            agent,
             config,
             output_root,
             frames,
+            scenario_index=scenario_index,
         )
     except EpisodeFailure as failure:
         return persist_failed_episode(
             spec,
             trace,
             failure,
-            runtime,
+            agent,
             config,
             output_root,
             frames,
             finalized_trace_arrays,
+            scenario_index=scenario_index,
         )
     finally:
         if env_slot is not None:
@@ -225,10 +229,12 @@ def finalize_completed_episode(
     environment_map_audit: dict[str, object],
     route_length_m: float,
     saw_traffic: bool,
-    runtime: FabricInferenceRuntime,
+    agent: EvaluationAgent,
     config: EvaluationJobConfig,
     output_root: Path,
     frames: list[np.ndarray],
+    *,
+    scenario_index: int,
 ) -> CompletedEpisodeSummary:
     """Build and persist a completed episode from its execution trace."""
 
@@ -244,13 +250,13 @@ def finalize_completed_episode(
         terminated,
         truncated,
         total_reward,
-        runtime.report.seed,
+        agent.noise_seed(scenario_index),
         environment_map_audit,
         config.evaluation.mode,
         float(config.env["traffic_density"]),
         route_length_m,
-        asdict(runtime.sampler_report),
-        asdict(runtime.guidance_config),
+        asdict(agent.sampler_report),
+        asdict(agent.guidance_config),
     )
     write_episode_artifacts(output_root / spec.name, trace_arrays, frames, summary, config.video)
     return summary
@@ -260,11 +266,13 @@ def persist_failed_episode(
     spec: ScenarioConfig,
     trace: EpisodeTraceRecorder | None,
     failure: EpisodeFailure,
-    runtime: FabricInferenceRuntime,
+    agent: EvaluationAgent,
     config: EvaluationJobConfig,
     output_root: Path,
     frames: list[np.ndarray],
     finalized_trace_arrays: dict[str, np.ndarray] | None = None,
+    *,
+    scenario_index: int,
 ) -> FailedEpisodeSummary:
     """Persist the available trace and failure metadata through one common path."""
 
@@ -277,11 +285,11 @@ def persist_failed_episode(
         trace_arrays["trace_status"] = np.asarray(trace_status)
     summary = build_failed_episode_summary(
         _scenario_payload(spec),
-        noise_seed=runtime.report.seed,
+        noise_seed=agent.noise_seed(scenario_index),
         evaluation_mode=config.evaluation.mode,
         traffic_density=float(config.env["traffic_density"]),
-        sampler=asdict(runtime.sampler_report),
-        guidance=asdict(runtime.guidance_config),
+        sampler=asdict(agent.sampler_report),
+        guidance=asdict(agent.guidance_config),
         trace_status=trace_status,
         phase=failure.phase,
         cause=failure.cause,
@@ -298,7 +306,7 @@ def _scenario_payload(spec: ScenarioConfig) -> dict[str, object]:
 
 def run_vector_scenarios(
     specs: tuple[ScenarioConfig, ...],
-    runtime: FabricInferenceRuntime,
+    agent: EvaluationAgent,
     config: EvaluationJobConfig,
     output_root: Path,
     *,
@@ -318,7 +326,7 @@ def run_vector_scenarios(
     with VectorMetaDriveEnv(
         configured_envs,
         mode=config.evaluation.mode,
-        observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
+        observation_spec=PlannerObservationSpec.from_planner_config(agent.planner_config),
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.evaluation.history_warmup_steps,
         scenarios=scenarios,
@@ -338,16 +346,19 @@ def run_vector_scenarios(
                 next_scenario_index += 1
                 reset = envs.reset_at(slot_index, VectorEnvScenario(spec.name, spec.map, spec.seed))
                 try:
-                    slots[slot_index] = _initialize_vector_slot(reset, runtime, config)
+                    slots[slot_index] = _initialize_vector_slot(
+                        reset, agent, config, scenario_index
+                    )
                 except EpisodeFailure as failure:
                     summaries[scenario_index] = persist_failed_episode(
                         spec,
                         None,
                         failure,
-                        runtime,
+                        agent,
                         config,
                         output_root,
                         [],
+                        scenario_index=scenario_index,
                     )
                     continue
                 slot_scenario_indices[slot_index] = scenario_index
@@ -356,16 +367,17 @@ def run_vector_scenarios(
 
         for slot_index, reset in enumerate(resets):
             try:
-                slots[slot_index] = _initialize_vector_slot(reset, runtime, config)
+                slots[slot_index] = _initialize_vector_slot(reset, agent, config, slot_index)
             except EpisodeFailure as failure:
                 summaries[slot_index] = persist_failed_episode(
                     initial_specs[slot_index],
                     None,
                     failure,
-                    runtime,
+                    agent,
                     config,
                     output_root,
                     [],
+                    scenario_index=slot_index,
                 )
                 assign_next(slot_index)
             else:
@@ -373,9 +385,10 @@ def run_vector_scenarios(
         active = list(slots)
         while active:
             observations = [_state_observation(slots[index]) for index in active]
-            generators = tuple(slots[index].generator for index in active)
-            noise = runtime.sample_noise(generators)
-            decision = runtime.infer_batch(collate_observations(observations), noise, generators)
+            decision = agent.decide_batch(
+                collate_observations(observations),
+                tuple(slots[index].agent_episode for index in active),
+            )
             steps = envs.step_slots(active, decision.ego_trajectories)
             audit = decision.audit_result()
             next_active: list[int] = []
@@ -403,21 +416,23 @@ def run_vector_scenarios(
                             slot.environment_map_audit,
                             slot.route_length_m,
                             slot.saw_traffic,
-                            runtime,
+                            agent,
                             config,
                             output_root,
                             [],
+                            scenario_index=scenario_index,
                         )
                     except EpisodeFailure as failure:
                         summaries[scenario_index] = persist_failed_episode(
                             slot.spec,
                             slot.trace,
                             failure,
-                            runtime,
+                            agent,
                             config,
                             output_root,
                             [],
                             trace_arrays,
+                            scenario_index=scenario_index,
                         )
                     if assign_next(slot_index):
                         next_active.append(slot_index)
@@ -435,8 +450,9 @@ def run_vector_scenarios(
 
 def _initialize_vector_slot(
     reset: VectorEnvReset,
-    runtime: FabricInferenceRuntime,
+    agent: EvaluationAgent,
     config: EvaluationJobConfig,
+    scenario_index: int,
 ) -> _EpisodeState:
     if config.evaluation.mode == "traffic" and not 2_000.0 <= reset.route_length_m <= 5_000.0:
         raise EpisodeFailure(
@@ -449,7 +465,7 @@ def _initialize_vector_slot(
         reset.warmup_initial_state,
         max_plan_cycles=evaluation_plan_cycles(config.evaluation.evaluated_horizon_steps),
         max_warmup_steps=config.evaluation.history_warmup_steps,
-        guided=not isinstance(runtime.guidance_config, NoGuidanceConfig),
+        guided=agent.guided,
     )
     for execution in reset.warmup_executions:
         trace.append_warmup(
@@ -470,7 +486,7 @@ def _initialize_vector_slot(
         ),
         observation=reset.observation,
         traffic_audit=reset.traffic_audit,
-        generator=runtime.new_noise_generator(),
+        agent_episode=agent.new_episode(scenario_index),
         trace=trace,
         anchor=reset.initial_state,
         route_length_m=reset.route_length_m,

@@ -25,13 +25,13 @@ from eco_planner._repository import CONFIG_ROOT
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation.config import ScenarioConfig
-from eco_planner.rl.artifacts import TrainingUpdateSummary
-from eco_planner.rl.config import TrainingJobConfig, parse_training_config
-from eco_planner.rl.evaluation import (
+from eco_planner.experiments.ppo_stability.validation import (
     PolicyEvaluationComparison,
     compare_policy_evaluations,
     evaluate_policy_checkpoint,
 )
+from eco_planner.rl.artifacts import TrainingUpdateSummary
+from eco_planner.rl.config import TrainingJobConfig, parse_training_config
 from eco_planner.workflows import compose_job_config, run_training_job
 
 DEFAULT_STUDY = CONFIG_ROOT / "studies" / "ppo" / "stability.yaml"

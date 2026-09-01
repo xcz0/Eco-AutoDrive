@@ -12,6 +12,7 @@ from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import collect_repository_metadata, write_tracked_diff
+from eco_planner.evaluation.agent import DiffusionEvaluationAgent, EvaluationAgent
 from eco_planner.evaluation.artifacts import write_json
 from eco_planner.evaluation.config import EvaluationJobConfig
 from eco_planner.evaluation.execution import run_scenario, run_vector_scenarios
@@ -40,9 +41,6 @@ class ExecutionReport:
 def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
     """Run all configured scenarios and write reproducible artifacts."""
 
-    started = perf_counter()
-    execution = configure_job_execution(config)
-    scenarios = config.scenarios
     args_path = Path(to_absolute_path(config.model.args_path))
     checkpoint_path = Path(to_absolute_path(config.model.checkpoint_path))
     runtime = create_fabric_inference_runtime(
@@ -52,6 +50,17 @@ def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
         args_path,
         checkpoint_path,
     )
+    return run_evaluation_agent(config, output_dir, DiffusionEvaluationAgent(runtime))
+
+
+def run_evaluation_agent(
+    config: EvaluationJobConfig, output_dir: Path, agent: EvaluationAgent
+) -> JobSummary:
+    """Execute any planner adapter through the shared evaluation artifact path."""
+
+    started = perf_counter()
+    execution = configure_job_execution(config)
+    scenarios = config.scenarios
     output_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(
         OmegaConf.create(config.model_dump(mode="python")),
@@ -60,11 +69,14 @@ def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
     )
     vector_slots = execution.vector_env_slots
     if vector_slots is None:
-        summaries = [run_scenario(spec, runtime, config, output_dir) for spec in scenarios]
+        summaries = [
+            run_scenario(spec, agent, config, output_dir, scenario_index=index)
+            for index, spec in enumerate(scenarios)
+        ]
     else:
         summaries = run_vector_scenarios(
             scenarios,
-            runtime,
+            agent,
             config,
             output_dir,
             vector_env_slots=vector_slots,
@@ -77,19 +89,19 @@ def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
                 if any(episode.status == "failed" for episode in summaries)
                 else "completed"
             ),
-            "runtime": asdict(runtime.report),
-            "checkpoint": asdict(runtime.checkpoint_report),
-            "sampler": asdict(runtime.sampler_report),
-            "guidance": asdict(runtime.guidance_config),
+            "runtime": asdict(agent.report),
+            "checkpoint": asdict(agent.checkpoint_report),
+            "sampler": asdict(agent.sampler_report),
+            "guidance": asdict(agent.guidance_config),
             "episodes": tuple(summaries),
         }
     )
     write_json(output_dir / "summary.json", summary)
     write_runtime_metadata(
         output_dir,
-        runtime.report,
-        runtime.sampler_report,
-        runtime.guidance_config,
+        agent.report,
+        agent.sampler_report,
+        agent.guidance_config,
         execution,
         perf_counter() - started,
     )

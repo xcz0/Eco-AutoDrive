@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from eco_planner.rl.evaluation import (
+from eco_planner.experiments.ppo_stability.validation import (
     PolicyEvaluationSummary,
     compare_policy_evaluations,
 )
@@ -31,12 +31,6 @@ def _summary(
             "distance_m": 100.0,
             "mean_speed_mps": 5.0,
             "stopped_fraction": 0.0,
-            "action_mean": (0.0, 0.0),
-            "action_std": (0.1, 0.1),
-            "action_min": (-0.2, -0.2),
-            "action_max": (0.2, 0.2),
-            "beta_alpha_mean": (2.0, 2.0),
-            "beta_beta_mean": (2.0, 2.0),
         }
     )
 
