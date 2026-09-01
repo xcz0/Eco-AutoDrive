@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 import numpy as np
-from pydantic import BaseModel, TypeAdapter
+from pydantic import TypeAdapter
 
-from eco_planner.artifacts import write_npz
+from eco_planner.artifacts import write_json, write_npz
 from eco_planner.evaluation.models import (
+    ARTIFACT_SCHEMA_VERSION,
     CompletedEpisodeSummary,
     EpisodeSummary,
     FailedEpisodeSummary,
@@ -56,11 +56,26 @@ def load_trace_artifact(path: Path) -> LoadedTraceArtifact:
 
 
 def _load_json(path: Path, model: type[_Artifact]) -> _Artifact:
-    return model.model_validate_json(path.read_text(encoding="utf-8"))
+    return model.model_validate_json(_versioned_json_text(path))
 
 
 def _load_episode_json(path: Path) -> EpisodeSummary:
-    return _EPISODE_ADAPTER.validate_json(path.read_text(encoding="utf-8"))
+    return _EPISODE_ADAPTER.validate_json(_versioned_json_text(path))
+
+
+def _versioned_json_text(path: Path) -> str:
+    import json
+
+    text = path.read_text(encoding="utf-8")
+    payload = json.loads(text)
+    if (
+        not isinstance(payload, dict)
+        or payload.get("artifact_schema_version") != ARTIFACT_SCHEMA_VERSION
+    ):
+        raise ValueError(
+            f"evaluation artifact {path} does not use schema v{ARTIFACT_SCHEMA_VERSION}"
+        )
+    return text
 
 
 def write_episode_artifacts(
@@ -82,13 +97,3 @@ def write_episode_artifacts(
             from eco_planner.evaluation.rendering import write_gif
 
             write_gif(frames, output_dir / "closed_loop.gif", video_config.fps)
-
-
-def write_json(path: Path, payload: Any) -> None:
-    """Persist a Pydantic JSON artifact with stable formatting."""
-
-    if isinstance(payload, BaseModel):
-        payload = payload.model_dump(mode="json")
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
-    )

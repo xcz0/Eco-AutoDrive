@@ -81,8 +81,7 @@ def _collect_run(
     returncode: int,
 ) -> dict[str, object]:
     summary_path = run_dir / "summary.json"
-    resolved_path = run_dir / "resolved_config.yaml"
-    if not summary_path.is_file() or not resolved_path.is_file():
+    if not summary_path.is_file():
         return {
             "job": job.id,
             "guidance": guidance.id,
@@ -92,14 +91,15 @@ def _collect_run(
             "episodes": [],
         }
     summary = load_job_summary(summary_path)
-    resolved = load_resolved_yaml_mapping(resolved_path)
     episodes = []
     for episode in summary.episodes:
         episodes.append(
             {
                 "scenario_metadata": {
                     **episode.scenario.model_dump(mode="json"),
-                    "traffic_condition": _traffic_condition(resolved),
+                    "traffic_condition": _traffic_condition(
+                        episode.evaluation_mode, episode.traffic_density
+                    ),
                 },
                 "evaluation": episode.model_dump(mode="json"),
             }
@@ -114,17 +114,12 @@ def _collect_run(
     }
 
 
-def _traffic_condition(resolved: dict[str, object]) -> str:
-    evaluation = resolved.get("evaluation")
-    environment = resolved.get("env")
-    if not isinstance(evaluation, dict) or not isinstance(environment, dict):
-        raise TypeError("resolved energy job is missing evaluation or env mapping")
-    if evaluation.get("mode") == "no_traffic":
+def _traffic_condition(mode: str, traffic_density: float) -> str:
+    if mode == "no_traffic":
         return "no_traffic"
-    density = environment.get("traffic_density")
-    if isinstance(density, bool) or not isinstance(density, (int, float)):
-        raise TypeError("traffic energy job requires numeric env.traffic_density")
-    return f"low_density_trigger_{density:g}"
+    if mode != "traffic":
+        raise ValueError(f"unsupported evaluation mode {mode!r}")
+    return f"low_density_trigger_{traffic_density:g}"
 
 
 def run_study(study_path: Path, output_root: Path) -> int:

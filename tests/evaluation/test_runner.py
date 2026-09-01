@@ -44,6 +44,7 @@ def test_runner_writes_readable_finite_short_episode(
     episode = load_episode_summary(tmp_path / "short" / "summary.json")
     trace = load_trace_artifact(tmp_path / "short" / "trace.npz")
     assert summary == job
+    assert job.artifact_schema_version == 2
     assert job.status == episode.status == "completed"
     assert episode.plan_cycles == 1
     assert episode.simulator_steps == 5
@@ -54,6 +55,7 @@ def test_runner_writes_readable_finite_short_episode(
     assert episode.metrics.distance_m == pytest.approx(5.0)
     assert episode.metrics.energy.ml_per_km == pytest.approx(100.0)
     assert trace.trace_status == "complete"
+    assert int(trace.arrays["artifact_schema_version"].item()) == 2
     assert np.isfinite(trace.arrays["initial_noise"]).all()
     assert np.isfinite(trace.arrays["predictions_local"]).all()
     assert np.isfinite(trace.arrays["executed_fuel_proxy_step_energy_ml"]).all()

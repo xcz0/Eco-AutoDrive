@@ -217,6 +217,8 @@ def test_energy_study_run_record_schema_preserves_episode_and_traffic_context(
     )
     episodes = tuple(
         SimpleNamespace(
+            evaluation_mode="traffic",
+            traffic_density=0.125,
             scenario=SimpleNamespace(
                 model_dump=lambda name=name, **_kwargs: {"name": name, "seed": 0}
             ),

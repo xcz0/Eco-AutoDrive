@@ -15,6 +15,8 @@ from pydantic import (
     model_validator,
 )
 
+ARTIFACT_SCHEMA_VERSION = 2
+
 
 class ArtifactModel(BaseModel):
     model_config = ConfigDict(
@@ -29,6 +31,47 @@ class ScenarioSummary(ArtifactModel):
     name: str = Field(min_length=1)
     map_sequence: str = Field(min_length=1)
     seed: StrictInt = Field(ge=0)
+
+
+class WorkloadScenario(ArtifactModel):
+    """Configured map/seed pair retained with the evaluation job workload."""
+
+    name: str = Field(min_length=1)
+    map: str = Field(min_length=1)
+    seed: StrictInt = Field(ge=0)
+
+
+class MatrixWorkload(ArtifactModel):
+    """The declared evaluation matrix grid retained with every job result."""
+
+    seeds: tuple[StrictInt, ...]
+    traffic_densities: tuple[StrictFloat, ...]
+
+    @model_validator(mode="after")
+    def validate_grid(self) -> MatrixWorkload:
+        if not self.seeds or any(seed < 0 for seed in self.seeds):
+            raise ValueError("matrix seeds must be non-empty non-negative integers")
+        if len(set(self.seeds)) != len(self.seeds):
+            raise ValueError("matrix seeds must be unique")
+        if not self.traffic_densities or any(
+            density <= 0.0 or density > 1.0 for density in self.traffic_densities
+        ):
+            raise ValueError("matrix traffic densities must be in (0, 1]")
+        if len(set(self.traffic_densities)) != len(self.traffic_densities):
+            raise ValueError("matrix traffic densities must be unique")
+        return self
+
+
+class EvaluationWorkload(ArtifactModel):
+    """Typed workload provenance required to interpret one evaluation result."""
+
+    mode: Literal["no_traffic", "traffic"]
+    profile: str = Field(min_length=1)
+    history_warmup_steps: StrictInt = Field(ge=0)
+    evaluated_horizon_steps: StrictInt = Field(gt=0)
+    scenarios: tuple[WorkloadScenario, ...] = Field(min_length=1)
+    matrix: MatrixWorkload | None = None
+    video_enabled: StrictBool
 
 
 class TerminationSummary(ArtifactModel):
@@ -216,6 +259,7 @@ class EpisodeMetrics(ArtifactModel):
 
 
 class CompletedEpisodeSummary(ArtifactModel):
+    artifact_schema_version: Literal[2] = ARTIFACT_SCHEMA_VERSION
     status: Literal["completed"] = "completed"
     trace_status: Literal["complete"] = "complete"
     scenario: ScenarioSummary
@@ -276,6 +320,7 @@ class CompletedEpisodeSummary(ArtifactModel):
 
 
 class FailedEpisodeSummary(ArtifactModel):
+    artifact_schema_version: Literal[2] = ARTIFACT_SCHEMA_VERSION
     status: Literal["failed"] = "failed"
     scenario: ScenarioSummary
     evaluation_mode: Literal["no_traffic", "traffic"]
@@ -296,11 +341,13 @@ EpisodeSummary = Annotated[
 
 
 class JobSummary(ArtifactModel):
+    artifact_schema_version: Literal[2] = ARTIFACT_SCHEMA_VERSION
     status: Literal["completed", "failed"]
     runtime: InferenceRuntimeSummary
     checkpoint: CheckpointSummary
     sampler: SamplerSummary
     guidance: GuidanceSummary
+    workload: EvaluationWorkload
     episodes: tuple[EpisodeSummary, ...]
 
     @model_validator(mode="after")
@@ -312,10 +359,22 @@ class JobSummary(ArtifactModel):
             raise ValueError("job status must agree with episode statuses")
         if not self.episodes:
             raise ValueError("job summary must contain at least one episode")
+        workload_scenarios = tuple(
+            (item.name, item.map, item.seed) for item in self.workload.scenarios
+        )
+        result_scenarios = tuple(
+            (item.scenario.name, item.scenario.map_sequence, item.scenario.seed)
+            for item in self.episodes
+        )
+        if result_scenarios != workload_scenarios:
+            raise ValueError("job summary episodes must match the declared workload scenarios")
+        if any(item.evaluation_mode != self.workload.mode for item in self.episodes):
+            raise ValueError("job summary episode modes must match the declared workload")
         return self
 
 
 class RuntimeMetadata(ArtifactModel):
+    artifact_schema_version: Literal[2] = ARTIFACT_SCHEMA_VERSION
     git_head: str = Field(min_length=1)
     git_status_short: tuple[str, ...]
     platform: str = Field(min_length=1)

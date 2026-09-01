@@ -257,15 +257,15 @@ trace array 或 resolved config 重算同名通用指标。
 
 trace recorder 必须在回合开始时按最大 planning/warmup 容量，根据当前 trace field contract 预分配数组并直接写入槽位；`finalize()` 只暴露已记录切片。`trace.npz` 使用标准未压缩 NPZ，以降低长程写盘墙钟。
 
-当前 evaluation 产物采用无版本的数据契约：
+当前 evaluation 产物采用 **schema v2** 数据契约：
 
-* job summary、episode summary 和 runtime metadata 使用严格且冻结的 Pydantic 模型，并设置 `extra="forbid"` 与 `allow_inf_nan=False`；读取时验证必需字段、字段类型及模型中实现的跨字段不变量。Completed episode summary 必须携带结构化 `energy`；partial failed episode 可携带对应能耗，empty failed episode 为 null。
-* `trace.npz` 的字段集合、shape、dtype 和有限性由 `TRACE_FIELDS` / `validate_trace_arrays` 明确定义。
+* job summary、episode summary 和 runtime metadata 显式保存 `artifact_schema_version: 2`，使用严格且冻结的 Pydantic 模型，并设置 `extra="forbid"` 与 `allow_inf_nan=False`；读取时拒绝缺失或非 v2 的版本，不为旧产物合成字段或提供兼容转换。Completed episode summary 必须携带结构化 `energy`；partial failed episode 可携带对应能耗，empty failed episode 为 null。
+* `trace.npz` 也显式保存 int64 scalar `artifact_schema_version: 2`；其字段集合、shape、dtype 和有限性由 `TRACE_FIELDS` / `validate_trace_arrays` 明确定义。
 * trace 字段必须是预期的 NumPy array；缺失或未声明的数组都会导致验证失败。
 * guided trace 的 guidance 数组必须完整出现或完整缺失，不能只保存其中一部分。
 * 动态数组必须在 planning、simulator 和 warmup 轴上保持一致；实现还校验 trace status、planning-cycle 数、simulator-step 数、warmup 数、plan index 顺序、五步 execution prefix、terminal flag 位置、非负计数以及其他已实现的跨数组不变量。
 * trace 显式保存 `complete`、`partial` 或 `empty` 状态、initial-state validity、普通及 route lane 的限速与有效性。
-* JSON 和 NPZ 的当前契约均不依赖 `schema_version` 选择解析路径。读取器直接按照当前 Pydantic 模型或 trace array contract 验证输入，不合成缺失字段。
+* trace schema/allocation/structural validation 保留在 `evaluation.trace`；trace 与 typed episode result 的执行边界、route/traffic 和接口误差语义验证保留在 `evaluation.validation`；实验的 retention、safety 或统计接受规则保留在各自 `experiments` 模块。后两者不得把 Hydra resolved config 当作第二个 metric/result source；resolved config 仅保留为运行 provenance。
 * 离线 artifact reader 只依赖 pathlib、NumPy 和 Pydantic；读取 summary 或 trace 不得加载 Torch、MetaDrive/Panda3D 或 GIF rendering。写入和视频 rendering 保持独立边界。
 
 runner 只捕获显式 `EpisodeFailure`：保存阶段、异常类型、消息和 traceback 后继续同一作业的后续场景，作业最终标记失败且 CLI 返回非零。配置、checkpoint、Fabric 初始化、artifact IO 和未分类程序错误立即传播。

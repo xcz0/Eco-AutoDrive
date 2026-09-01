@@ -11,9 +11,8 @@ import torch
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
-from eco_planner.artifacts import collect_repository_metadata, write_tracked_diff
+from eco_planner.artifacts import collect_repository_metadata, write_json, write_tracked_diff
 from eco_planner.evaluation.agent import DiffusionEvaluationAgent, EvaluationAgent
-from eco_planner.evaluation.artifacts import write_json
 from eco_planner.evaluation.config import EvaluationJobConfig
 from eco_planner.evaluation.execution import run_scenario, run_vector_scenarios
 from eco_planner.evaluation.models import JobSummary, RuntimeMetadata
@@ -93,6 +92,19 @@ def run_evaluation_agent(
             "checkpoint": asdict(agent.checkpoint_report),
             "sampler": asdict(agent.sampler_report),
             "guidance": asdict(agent.guidance_config),
+            "workload": {
+                "mode": config.evaluation.mode,
+                "profile": config.evaluation.profile,
+                "history_warmup_steps": config.evaluation.history_warmup_steps,
+                "evaluated_horizon_steps": config.evaluation.evaluated_horizon_steps,
+                "scenarios": tuple(item.model_dump(mode="python") for item in config.scenarios),
+                "matrix": (
+                    None
+                    if config.evaluation.matrix is None
+                    else config.evaluation.matrix.model_dump(mode="python")
+                ),
+                "video_enabled": config.video.enabled,
+            },
             "episodes": tuple(summaries),
         }
     )

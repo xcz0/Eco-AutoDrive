@@ -13,8 +13,8 @@ from omegaconf import OmegaConf
 
 from eco_planner.artifacts import collect_repository_metadata
 from eco_planner.benchmarking.config import measurement, write_benchmark_artifacts
-from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.evaluation.artifacts import load_runtime_metadata
+from eco_planner.evaluation.artifacts import load_job_summary, load_runtime_metadata
+from eco_planner.evaluation.models import JobSummary
 
 
 def write_report(
@@ -115,14 +115,11 @@ def _jobs(root: Path) -> list[dict[str, object]]:
     jobs: list[dict[str, object]] = []
     workloads: set[str] = set()
     for path in paths:
-        config_path = path.parent / "resolved_config.yaml"
-        if not config_path.is_file():
-            raise ValueError(f"{path.parent} contains no resolved_config.yaml")
-        payload = load_resolved_yaml_mapping(config_path)
         metadata = cast(dict[str, object], load_runtime_metadata(path).model_dump(mode="json"))
-        execution = _execution(payload)
-        workload = _workload(payload)
-        _validate_metadata_matches_config(metadata, execution, workload)
+        summary = load_job_summary(path.parent / "summary.json")
+        execution = _execution(metadata)
+        workload = _workload(summary)
+        _validate_metadata_matches_summary(metadata, execution, workload)
         signature = _stable_json(workload)
         if signature in workloads:
             raise ValueError(f"{root} contains duplicate evaluation workloads")
@@ -138,7 +135,7 @@ def _jobs(root: Path) -> list[dict[str, object]]:
     return jobs
 
 
-def _validate_metadata_matches_config(
+def _validate_metadata_matches_summary(
     metadata: dict[str, object],
     execution: dict[str, object],
     workload: dict[str, object],
@@ -150,56 +147,41 @@ def _validate_metadata_matches_config(
     workload_sampler = _mapping(workload.get("sampler"), "workload sampler")
     workload_guidance = _mapping(workload.get("guidance"), "workload guidance")
     if runtime["seed"] != workload["runtime_seed"]:
-        raise ValueError("runtime metadata seed disagrees with resolved config")
+        raise ValueError("runtime metadata seed disagrees with job summary")
     if sampler["name"] != workload_sampler["name"]:
-        raise ValueError("runtime metadata sampler disagrees with resolved config")
+        raise ValueError("runtime metadata sampler disagrees with job summary")
     if guidance["name"] != workload_guidance["name"]:
-        raise ValueError("runtime metadata guidance disagrees with resolved config")
-    topology = execution["topology"]
-    expected_mode = "parallel" if topology == "job_parallel" else "serial"
+        raise ValueError("runtime metadata guidance disagrees with job summary")
+    expected_mode = "parallel" if execution["topology"] == "job_parallel" else "serial"
     if runtime_execution["mode"] != expected_mode:
-        raise ValueError("runtime metadata execution mode disagrees with resolved topology")
+        raise ValueError("runtime metadata execution mode disagrees with execution topology")
     if runtime_execution["vector_env_slots"] != execution.get("resolved_vector_env_slots"):
-        raise ValueError("runtime metadata vector slots disagree with resolved config")
+        raise ValueError("runtime metadata vector slots disagree with execution topology")
 
 
-def _execution(config: dict[str, object]) -> dict[str, object]:
-    evaluation = _mapping(config.get("evaluation"), "resolved evaluation config")
-    execution = dict(_mapping(evaluation.get("execution"), "resolved evaluation execution"))
-    resources = config.get("resources")
-    resource_mapping = None if resources is None else _mapping(resources, "resolved resources")
-    execution["resolved_vector_env_slots"] = (
-        None
-        if execution.get("topology") != "vector" or resource_mapping is None
-        else resource_mapping.get("evaluation_vector_env_slots")
-    )
-    return execution
+def _execution(metadata: dict[str, object]) -> dict[str, object]:
+    execution = _mapping(metadata.get("execution"), "execution metadata")
+    vector_slots = execution.get("vector_env_slots")
+    launcher = execution.get("launcher")
+    if type(vector_slots) is int and vector_slots > 0:
+        topology = "vector"
+    elif launcher == "joblib":
+        topology = "job_parallel"
+    elif launcher == "basic":
+        topology = "serial"
+    else:
+        raise ValueError("execution metadata does not identify an evaluation topology")
+    return {"topology": topology, "resolved_vector_env_slots": vector_slots}
 
 
-def _workload(config: dict[str, object]) -> dict[str, object]:
-    evaluation = dict(_mapping(config.get("evaluation"), "resolved evaluation config"))
-    evaluation.pop("execution", None)
-    evaluation.pop("matrix", None)
-    env = _mapping(config.get("env"), "resolved environment config")
-    runtime = _mapping(config.get("runtime"), "resolved runtime config")
-    video = _mapping(config.get("video"), "resolved video config")
+def _workload(summary: JobSummary) -> dict[str, object]:
     return {
-        "evaluation": evaluation,
-        "env": {
-            name: env.get(name)
-            for name in (
-                "traffic_density",
-                "traffic_mode",
-                "horizon",
-                "trajectory_execution_steps",
-            )
-        },
-        "model": config.get("model"),
-        "sampler": config.get("sampler"),
-        "guidance": config.get("guidance"),
-        "runtime_seed": runtime["seed"],
-        "scenarios": config.get("scenarios"),
-        "video_enabled": video["enabled"],
+        "evaluation": summary.workload.model_dump(mode="json"),
+        "checkpoint": summary.checkpoint.model_dump(mode="json"),
+        "sampler": summary.sampler.model_dump(mode="json"),
+        "guidance": summary.guidance.model_dump(mode="json"),
+        "runtime_seed": summary.runtime.seed,
+        "scenarios": [item.scenario.model_dump(mode="json") for item in summary.episodes],
     }
 
 

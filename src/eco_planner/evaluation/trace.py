@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 PLANNER_ACTOR_COUNT = 11
 PLANNER_STATE_DIM = 4
 EXECUTION_PREFIX_STEPS = EVALUATION_EXECUTION_STEPS
+TRACE_ARTIFACT_SCHEMA_VERSION = 2
 
 _PLAN = "plan"
 _SIMULATOR = "simulator"
@@ -49,6 +50,7 @@ OBSERVATION_FIELDS: dict[str, tuple[tuple[int, ...], np.dtype]] = {
 }
 
 _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
+    "artifact_schema_version": TraceFieldSpec((), np.dtype(np.int64), finite=False),
     "trace_status": TraceFieldSpec((), None, finite=False),
     "warmup_initial_state": TraceFieldSpec((7,), np.dtype(np.float64)),
     "warmup_initial_state_valid": TraceFieldSpec((), np.dtype(np.bool_), finite=False),
@@ -141,6 +143,7 @@ TRACE_FIELDS = {
 GUIDED_TRACE_FIELDS = frozenset(name for name, spec in TRACE_FIELDS.items() if spec.guided_only)
 STATIC_TRACE_FIELDS = frozenset(
     {
+        "artifact_schema_version",
         "trace_status",
         "warmup_initial_state",
         "warmup_initial_state_valid",
@@ -195,6 +198,14 @@ def validate_trace_arrays(
     """Validate field declarations and cross-array trace invariants."""
 
     mapping = arrays
+    schema_version = mapping.get("artifact_schema_version")
+    if (
+        not isinstance(schema_version, np.ndarray)
+        or schema_version.shape != ()
+        or schema_version.dtype != np.dtype(np.int64)
+        or int(schema_version.item()) != TRACE_ARTIFACT_SCHEMA_VERSION
+    ):
+        raise ValueError(f"trace artifact schema version must be {TRACE_ARTIFACT_SCHEMA_VERSION}")
     present_guidance = GUIDED_TRACE_FIELDS & set(mapping)
     if present_guidance and present_guidance != GUIDED_TRACE_FIELDS:
         missing = sorted(GUIDED_TRACE_FIELDS - present_guidance)
@@ -488,6 +499,9 @@ class EpisodeTraceRecorder:
 
     def _final_arrays(self, trace_status: str) -> dict[str, np.ndarray]:
         arrays: dict[str, np.ndarray] = {
+            "artifact_schema_version": np.asarray(
+                TRACE_ARTIFACT_SCHEMA_VERSION, dtype=np.int64
+            ),
             "trace_status": np.asarray(trace_status),
             "warmup_initial_state": self.warmup_initial_state,
             "warmup_initial_state_valid": np.asarray(
