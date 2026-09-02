@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import eco_planner.evaluation.report as evaluation_report
+import eco_planner.evaluation.artifacts.report as evaluation_report
 from eco_planner.evaluation import (
     CompletedEpisodeSummary,
     EnergySummary,

@@ -11,20 +11,18 @@ from typing import Any
 import numpy as np
 
 from .io import (
+    HEADING_ERROR_LIMIT_RAD,
+    POSITION_ERROR_LIMIT_M,
     load_episode_summary,
     load_job_summary,
     load_runtime_metadata,
+    validate_episode_artifact,
+    validate_matrix_episode,
 )
 from .models import (
     CompletedEpisodeSummary,
     EpisodeSummary,
     EvaluationWorkload,
-)
-from .validation import (
-    HEADING_ERROR_LIMIT_RAD,
-    POSITION_ERROR_LIMIT_M,
-    validate_episode_artifact,
-    validate_matrix_episode,
 )
 
 BOOTSTRAP_SAMPLES = 10_000

@@ -20,6 +20,24 @@ assert "panda3d" not in sys.modules
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_artifact_facade_does_not_load_online_dependencies() -> None:
+    script = """
+import sys
+from eco_planner.evaluation.artifacts import (
+    build_matrix_report,
+    load_job_summary,
+    load_trace_artifact,
+)
+assert callable(build_matrix_report)
+assert callable(load_job_summary)
+assert callable(load_trace_artifact)
+assert "torch" not in sys.modules
+assert "metadrive" not in sys.modules
+assert "panda3d" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_public_api_declares_primary_interfaces() -> None:
     import eco_planner.evaluation as evaluation
 
@@ -31,3 +49,15 @@ def test_public_api_declares_primary_interfaces() -> None:
         "parse_evaluation_config",
         "run_evaluation",
     } <= set(evaluation.__all__)
+
+
+def test_subpackages_declare_cross_domain_interfaces() -> None:
+    from eco_planner.evaluation import artifacts, episodes, inference
+
+    assert {"build_matrix_report", "load_job_summary", "validate_episode_artifact"} <= set(
+        artifacts.__all__
+    )
+    assert {"run_scenario", "run_vector_scenarios", "EpisodeTraceRecorder"} <= set(episodes.__all__)
+    assert {"EvaluationAgent", "InferenceDecision", "FabricInferenceRuntime"} <= set(
+        inference.__all__
+    )

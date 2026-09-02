@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from eco_planner.evaluation import load_trace_artifact
-from eco_planner.evaluation.recorder import EpisodeTraceRecorder
+from eco_planner.evaluation.episodes import EpisodeTraceRecorder
 
 
 def _write_trace(path: Path, arrays: dict[str, np.ndarray]) -> None:

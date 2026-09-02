@@ -12,7 +12,7 @@ from omegaconf import OmegaConf
 from tensordict import TensorDict
 
 import eco_planner.evaluation.engine as engine
-import eco_planner.evaluation.episode as episode_engine
+import eco_planner.evaluation.episodes.serial as episode_engine
 from eco_planner.envs import (
     EnvSlotObservation,
     EnvSlotReset,
@@ -26,7 +26,10 @@ from eco_planner.evaluation import (
     load_trace_artifact,
     parse_evaluation_config,
 )
-from eco_planner.evaluation.validation import validate_episode_artifact, validate_matrix_episode
+from eco_planner.evaluation.artifacts import (
+    validate_episode_artifact,
+    validate_matrix_episode,
+)
 from eco_planner.models import CheckpointLoadReport, NoGuidanceConfig, SamplerReport
 from eco_planner.runtime.contracts import HostTrajectories
 from eco_planner.runtime.fabric import InferenceRuntimeReport

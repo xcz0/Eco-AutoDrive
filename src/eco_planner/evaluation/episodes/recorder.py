@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from tensordict import TensorDictBase
 
-from .trace import EXECUTION_PREFIX_STEPS, OBSERVATION_FIELDS, allocate_trace_arrays
+from ..artifacts.trace import EXECUTION_PREFIX_STEPS, OBSERVATION_FIELDS, allocate_trace_arrays
 
 if TYPE_CHECKING:
     from eco_planner.envs import TrafficObservationAudit, TrajectoryExecutionRecord

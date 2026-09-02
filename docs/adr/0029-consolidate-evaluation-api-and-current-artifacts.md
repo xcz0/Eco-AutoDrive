@@ -1,6 +1,6 @@
 # Consolidate the evaluation API and current artifact contract
 
-**Status:** Accepted and implemented
+**Status:** Accepted and implemented; physical layout superseded by ADR 0031
 **Date:** 2026-09-02
 
 ADR 0021 将 evaluation 压平为职责模块，但仓库消费者仍直接依赖多个子模块，在线 trace

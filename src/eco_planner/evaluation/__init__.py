@@ -6,21 +6,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .agent import DiffusionEvaluationAgent, EvaluationAgent, EvaluationDecision
-    from .config import (
-        EvaluationJobConfig,
-        ModelPathsConfig,
-        ScenarioConfig,
-        parse_evaluation_config,
-    )
-    from .engine import run_evaluation, run_evaluation_agent
-    from .io import (
-        load_episode_summary,
-        load_job_summary,
-        load_runtime_metadata,
-        load_trace_artifact,
-    )
-    from .models import (
+    from .artifacts import (
         CompletedEpisodeSummary,
         EnergySummary,
         EpisodeMetrics,
@@ -38,50 +24,65 @@ if TYPE_CHECKING:
         TerminationSummary,
         TrafficObservationSummary,
         WarmupSummary,
+        build_matrix_report,
+        load_episode_summary,
+        load_job_summary,
+        load_runtime_metadata,
+        load_trace_artifact,
+        summarize_matrix,
     )
-    from .report import build_matrix_report, summarize_matrix
-    from .runtime import (
+    from .config import (
+        EvaluationJobConfig,
+        ModelPathsConfig,
+        ScenarioConfig,
+        parse_evaluation_config,
+    )
+    from .engine import run_evaluation, run_evaluation_agent
+    from .inference import (
+        DiffusionEvaluationAgent,
+        EvaluationAgent,
+        EvaluationDecision,
         FabricInferenceRuntime,
         InferenceDecision,
         create_fabric_inference_runtime,
     )
 
 _EXPORTS = {
-    "DiffusionEvaluationAgent": (".agent", "DiffusionEvaluationAgent"),
-    "EvaluationAgent": (".agent", "EvaluationAgent"),
-    "EvaluationDecision": (".agent", "EvaluationDecision"),
+    "DiffusionEvaluationAgent": (".inference", "DiffusionEvaluationAgent"),
+    "EvaluationAgent": (".inference", "EvaluationAgent"),
+    "EvaluationDecision": (".inference", "EvaluationDecision"),
     "EvaluationJobConfig": (".config", "EvaluationJobConfig"),
     "ModelPathsConfig": (".config", "ModelPathsConfig"),
     "ScenarioConfig": (".config", "ScenarioConfig"),
     "parse_evaluation_config": (".config", "parse_evaluation_config"),
     "run_evaluation": (".engine", "run_evaluation"),
     "run_evaluation_agent": (".engine", "run_evaluation_agent"),
-    "load_episode_summary": (".io", "load_episode_summary"),
-    "load_job_summary": (".io", "load_job_summary"),
-    "load_runtime_metadata": (".io", "load_runtime_metadata"),
-    "load_trace_artifact": (".io", "load_trace_artifact"),
-    "CompletedEpisodeSummary": (".models", "CompletedEpisodeSummary"),
-    "EnergySummary": (".models", "EnergySummary"),
-    "EpisodeMetrics": (".models", "EpisodeMetrics"),
-    "EpisodeSummary": (".models", "EpisodeSummary"),
-    "ErrorValues": (".models", "ErrorValues"),
-    "ExecutionErrorSummary": (".models", "ExecutionErrorSummary"),
-    "FailedEpisodeSummary": (".models", "FailedEpisodeSummary"),
-    "JobSummary": (".models", "JobSummary"),
-    "MapInputAudit": (".models", "MapInputAudit"),
-    "NoGuidanceSummary": (".models", "NoGuidanceSummary"),
-    "RuntimeMetadata": (".models", "RuntimeMetadata"),
-    "SamplerSummary": (".models", "SamplerSummary"),
-    "ScenarioSummary": (".models", "ScenarioSummary"),
-    "SpeedSummary": (".models", "SpeedSummary"),
-    "TerminationSummary": (".models", "TerminationSummary"),
-    "TrafficObservationSummary": (".models", "TrafficObservationSummary"),
-    "WarmupSummary": (".models", "WarmupSummary"),
-    "build_matrix_report": (".report", "build_matrix_report"),
-    "summarize_matrix": (".report", "summarize_matrix"),
-    "FabricInferenceRuntime": (".runtime", "FabricInferenceRuntime"),
-    "InferenceDecision": (".runtime", "InferenceDecision"),
-    "create_fabric_inference_runtime": (".runtime", "create_fabric_inference_runtime"),
+    "load_episode_summary": (".artifacts", "load_episode_summary"),
+    "load_job_summary": (".artifacts", "load_job_summary"),
+    "load_runtime_metadata": (".artifacts", "load_runtime_metadata"),
+    "load_trace_artifact": (".artifacts", "load_trace_artifact"),
+    "CompletedEpisodeSummary": (".artifacts", "CompletedEpisodeSummary"),
+    "EnergySummary": (".artifacts", "EnergySummary"),
+    "EpisodeMetrics": (".artifacts", "EpisodeMetrics"),
+    "EpisodeSummary": (".artifacts", "EpisodeSummary"),
+    "ErrorValues": (".artifacts", "ErrorValues"),
+    "ExecutionErrorSummary": (".artifacts", "ExecutionErrorSummary"),
+    "FailedEpisodeSummary": (".artifacts", "FailedEpisodeSummary"),
+    "JobSummary": (".artifacts", "JobSummary"),
+    "MapInputAudit": (".artifacts", "MapInputAudit"),
+    "NoGuidanceSummary": (".artifacts", "NoGuidanceSummary"),
+    "RuntimeMetadata": (".artifacts", "RuntimeMetadata"),
+    "SamplerSummary": (".artifacts", "SamplerSummary"),
+    "ScenarioSummary": (".artifacts", "ScenarioSummary"),
+    "SpeedSummary": (".artifacts", "SpeedSummary"),
+    "TerminationSummary": (".artifacts", "TerminationSummary"),
+    "TrafficObservationSummary": (".artifacts", "TrafficObservationSummary"),
+    "WarmupSummary": (".artifacts", "WarmupSummary"),
+    "build_matrix_report": (".artifacts", "build_matrix_report"),
+    "summarize_matrix": (".artifacts", "summarize_matrix"),
+    "FabricInferenceRuntime": (".inference", "FabricInferenceRuntime"),
+    "InferenceDecision": (".inference", "InferenceDecision"),
+    "create_fabric_inference_runtime": (".inference", "create_fabric_inference_runtime"),
 }
 
 __all__ = [

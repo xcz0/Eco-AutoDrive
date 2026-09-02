@@ -19,7 +19,8 @@ from eco_planner.models import (
 )
 from eco_planner.runtime.fabric import InferenceRuntimeReport
 
-from .runtime import FabricInferenceRuntime, InferenceDecision
+from .decision import InferenceDecision
+from .runtime import FabricInferenceRuntime
 
 
 class EvaluationDecision(Protocol):
