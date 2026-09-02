@@ -12,6 +12,7 @@ import torch
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
 
 from eco_planner.artifacts import write_json
+from eco_planner.contracts import EVALUATION_EXECUTION_STEPS
 from eco_planner.envs.array_types import BatchObservation
 from eco_planner.evaluation import (
     CompletedEpisodeSummary,
@@ -212,7 +213,7 @@ def _evaluation_job_config(
     environment.update(
         {
             "execution_mode": "evaluation",
-            "trajectory_execution_steps": 5,
+            "trajectory_execution_steps": EVALUATION_EXECUTION_STEPS,
             "horizon": training.training.history_warmup_steps + transitions_per_scenario,
         }
     )

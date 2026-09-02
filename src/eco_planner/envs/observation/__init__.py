@@ -6,8 +6,7 @@ from collections.abc import Sequence
 
 import torch
 
-from eco_planner.envs.array_types import BatchObservation, SingleObservation
-from eco_planner.envs.contracts import (
+from eco_planner.contracts import (
     AGENT_COUNT,
     AGENT_HISTORY_DIM,
     LANE_COUNT,
@@ -18,6 +17,7 @@ from eco_planner.envs.contracts import (
     STATIC_OBJECT_DIM,
     TRAFFIC_HISTORY_FRAMES,
 )
+from eco_planner.envs.array_types import BatchObservation, SingleObservation
 from eco_planner.envs.observation.builder import ObservationBuilder
 from eco_planner.envs.observation.history import TrafficHistory
 from eco_planner.envs.observation.map import MapSnapshot

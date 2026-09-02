@@ -16,7 +16,7 @@ from pydantic import (
 )
 
 from eco_planner.configuration import resolve_config_mapping
-from eco_planner.execution_contracts import EVALUATION_EXECUTION_STEPS, TRAFFIC_HISTORY_STEPS
+from eco_planner.contracts import EVALUATION_EXECUTION_STEPS, TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.models import (
     GuidanceConfig,
     SamplerConfig,
@@ -136,9 +136,10 @@ class EvaluationJobConfig(_StrictModel):
         return self
 
     def _validate_traffic_environment(self) -> None:
-        if self.evaluation.history_warmup_steps != TRAFFIC_HISTORY_STEPS:
+        if self.evaluation.history_warmup_steps != TRAFFIC_HISTORY_WARMUP_STEPS:
             raise ValueError(
-                f"traffic evaluation requires exactly {TRAFFIC_HISTORY_STEPS} history warmup steps"
+                "traffic evaluation requires exactly "
+                f"{TRAFFIC_HISTORY_WARMUP_STEPS} history warmup steps"
             )
         required = {
             "traffic_mode": "trigger",

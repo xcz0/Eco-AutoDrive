@@ -6,13 +6,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from eco_planner.envs.array_types import NeighborAgentsArray, StaticObjectsArray
-from eco_planner.envs.contracts import (
+from eco_planner.contracts import (
     AGENT_COUNT,
     AGENT_HISTORY_DIM,
     STATIC_OBJECT_COUNT,
     STATIC_OBJECT_DIM,
 )
+from eco_planner.envs.array_types import NeighborAgentsArray, StaticObjectsArray
 from eco_planner.envs.domain.traffic import TrafficFrame
 from eco_planner.envs.geometry import rear_axle_position, world_vectors_to_local
 

@@ -10,7 +10,7 @@ import numpy as np
 from metadrive.policy.base_policy import BasePolicy
 from metadrive.policy.replay_policy import ReplayTrafficParticipantPolicy
 
-from eco_planner.envs.contracts import PLANNER_HORIZON, ExecutionMode
+from eco_planner.contracts import PLANNER_HORIZON, ExecutionMode
 from eco_planner.envs.domain.trajectory import WorldTrajectory
 
 

@@ -8,6 +8,7 @@ from typing import Any, Literal, cast
 
 import numpy as np
 
+from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.envs.array_types import SingleObservation, TrajectoryArray
 from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
 from eco_planner.envs.metadrive.observation import (
@@ -18,7 +19,6 @@ from eco_planner.envs.metadrive.observation import (
 from eco_planner.envs.metadrive.reward import RewardProfileConfig
 from eco_planner.envs.metadrive.simulator import TrajectoryMetaDriveEnv
 from eco_planner.envs.observation import PlannerObservationSpec
-from eco_planner.execution_contracts import PLANNER_FUTURE_STEPS
 
 ObservationMode = Literal["traffic", "no_traffic"]
 
@@ -68,7 +68,7 @@ class MetaDriveEnvSlot:
             raise ValueError("mode must be either 'traffic' or 'no_traffic'")
         if type(map_query_radius_m) not in {int, float} or map_query_radius_m <= 0.0:
             raise ValueError("map_query_radius_m must be a positive real scalar")
-        expected_warmup = observation_spec.time_len - 1 if mode == "traffic" else 0
+        expected_warmup = TRAFFIC_HISTORY_WARMUP_STEPS if mode == "traffic" else 0
         if history_warmup_steps != expected_warmup:
             raise ValueError(f"{mode} environments require history_warmup_steps={expected_warmup}")
 
@@ -209,6 +209,6 @@ class MetaDriveEnvSlot:
 
 
 def _stationary_trajectory() -> TrajectoryArray:
-    trajectory = np.zeros((PLANNER_FUTURE_STEPS, 4), dtype=np.float32)
+    trajectory = np.zeros((PLANNER_HORIZON, 4), dtype=np.float32)
     trajectory[:, 2] = 1.0
     return trajectory

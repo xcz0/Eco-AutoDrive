@@ -7,8 +7,8 @@ from typing import Any
 
 import numpy as np
 
+from eco_planner.contracts import SIMULATOR_STEP_S
 from eco_planner.envs import TrajectoryExecutionRecord
-from eco_planner.execution_contracts import SIMULATOR_STEP_S
 
 from .models import (
     CompletedEpisodeSummary,

@@ -13,10 +13,10 @@ from timm.layers import Mlp  # pyright: ignore[reportPrivateImportUsage]
 from torch import nn
 from torch.nn import functional as F
 
+from eco_planner.contracts import PLANNER_HORIZON
 from eco_planner.rl.policy.config import ExplorationPolicyConfig
 from eco_planner.rl.policy.distribution import AffineBeta, AffineBetaAction, AffineBetaParameters
 
-_REFERENCE_HORIZON = 80
 _REFERENCE_STATE_DIM = 4
 POLICY_CONTEXT_KEYS = (
     "scene_tokens",
@@ -79,7 +79,7 @@ class ExplorationPolicy(nn.Module):
         self.reference_mixers = nn.ModuleList(
             [
                 _ReferenceMixerBlock(
-                    _REFERENCE_HORIZON,
+                    PLANNER_HORIZON,
                     config.hidden_dim,
                     config.reference_token_mlp_hidden_dim,
                     config.reference_channel_mlp_hidden_dim,
@@ -290,10 +290,10 @@ def _validate_context_structure(
     batch = scene.shape[0]
     if tuple(reference.shape) != (
         batch,
-        _REFERENCE_HORIZON,
+        PLANNER_HORIZON,
         _REFERENCE_STATE_DIM,
     ):
-        raise ValueError("reference trajectory must have shape [B, 80, 4]")
+        raise ValueError(f"reference trajectory must have shape [B, {PLANNER_HORIZON}, 4]")
     if navigation.shape[0] != batch:
         raise ValueError("policy context tensors must share the batch dimension")
     if scene.dtype != navigation.dtype or scene.dtype != reference.dtype:

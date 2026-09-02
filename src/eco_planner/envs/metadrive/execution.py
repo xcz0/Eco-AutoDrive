@@ -7,40 +7,27 @@ from typing import Any
 
 import numpy as np
 
+from eco_planner.contracts import (
+    PLANNER_HORIZON,
+    ExecutionMode,
+    validate_metadrive_timestep,
+)
 from eco_planner.envs.array_types import (
     ExecutionBooleanArray,
     ExecutionPointArray,
     ExecutionScalarArray,
     ExecutionStateArray,
-    TrajectoryArray,
     WorldHeadingArray,
     WorldPointArray,
     WorldVectorArray,
 )
-from eco_planner.envs.contracts import ExecutionMode
 from eco_planner.envs.domain.traffic import TrafficFrame
 from eco_planner.envs.domain.trajectory import WorldTrajectory
-from eco_planner.envs.geometry import (
-    local_points_to_world,
-    rear_axle_position,
-    shortest_angle_delta,
-)
+from eco_planner.envs.geometry import shortest_angle_delta
 from eco_planner.envs.metadrive.reward import (
     RewardAudit,
     executed_fuel_proxy_step_energy_ml,
 )
-from eco_planner.execution_contracts import (
-    EVALUATION_EXECUTION_STEPS,
-    PLANNER_FUTURE_STEPS,
-    ROLLOUT_EXECUTION_STEPS,
-    SIMULATOR_STEP_S,
-)
-
-TRAJECTORY_HORIZON = PLANNER_FUTURE_STEPS
-TRAJECTORY_EXECUTION_STEPS = EVALUATION_EXECUTION_STEPS
-TRAJECTORY_TIMESTEP_S = SIMULATOR_STEP_S
-
-_ALLOWED_EXECUTION_STEPS = frozenset({ROLLOUT_EXECUTION_STEPS, TRAJECTORY_EXECUTION_STEPS})
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,34 +180,6 @@ class TrajectoryExecutionRecorder:
         return result
 
 
-def to_world_trajectory(
-    trajectory: TrajectoryArray,
-    *,
-    center_position: WorldVectorArray,
-    center_heading: float,
-    rear_wheelbase: float,
-    timestep_s: float,
-) -> WorldTrajectory:
-    anchor_rear_axle = rear_axle_position(
-        center_position.astype(np.float64), center_heading, rear_wheelbase
-    )
-    future_rear_axles = local_points_to_world(
-        trajectory[:, :2].astype(np.float64), anchor_rear_axle, center_heading
-    )
-
-    relative_headings = np.arctan2(trajectory[:, 3], trajectory[:, 2]).astype(np.float64)
-    future_headings = center_heading + relative_headings
-    future_directions = np.column_stack((np.cos(future_headings), np.sin(future_headings)))
-    future_centers = future_rear_axles + rear_wheelbase * future_directions
-
-    centers = np.vstack((center_position.astype(np.float64), future_centers))
-    headings = np.concatenate(([center_heading], future_headings))
-    velocities = np.diff(centers, axis=0) / timestep_s
-    heading_deltas = shortest_angle_delta(np.diff(headings))
-    angular_velocities = heading_deltas / timestep_s
-    return WorldTrajectory(centers, headings, velocities, angular_velocities)
-
-
 def metadrive_fuel_proxy_step_energy_ml(
     start_position: WorldVectorArray,
     end_position: WorldVectorArray,
@@ -244,7 +203,9 @@ def execution_steps_from_config(config: Any) -> int:
     # boundary only; all downstream code receives the fixed mode-derived step count.
     horizon = _require_positive_int(config, "trajectory_horizon")
     execution_steps = _require_positive_int(config, "trajectory_execution_steps")
-    if horizon != TRAJECTORY_HORIZON or execution_steps not in _ALLOWED_EXECUTION_STEPS:
+    if horizon != PLANNER_HORIZON or execution_steps not in {
+        mode.steps for mode in ExecutionMode
+    }:
         raise ValueError("legacy trajectory configuration does not match the fixed project ABI")
     _validated_timestep(config)
     return execution_steps
@@ -258,18 +219,9 @@ def _require_positive_int(config: Any, name: str) -> int:
 
 
 def _validated_timestep(config: Any) -> float:
-    physics_step = config["physics_world_step_size"]
-    decision_repeat = config["decision_repeat"]
-    if type(physics_step) not in {int, float} or physics_step <= 0.0:
-        raise ValueError("physics_world_step_size must be positive")
-    if type(decision_repeat) is not int or decision_repeat <= 0:
-        raise ValueError("decision_repeat must be a positive integer")
-    timestep = float(physics_step) * decision_repeat
-    if not np.isclose(timestep, TRAJECTORY_TIMESTEP_S, rtol=0.0, atol=1e-12):
-        raise ValueError(
-            f"physics_world_step_size * decision_repeat must equal {TRAJECTORY_TIMESTEP_S} seconds"
-        )
-    return timestep
+    return validate_metadrive_timestep(
+        config["physics_world_step_size"], config["decision_repeat"]
+    )
 
 
 def finite_info_scalar(info: dict[str, Any], name: str) -> float:

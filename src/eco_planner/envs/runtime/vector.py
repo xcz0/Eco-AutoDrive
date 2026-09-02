@@ -13,6 +13,7 @@ import torch
 from tensordict import TensorDict, TensorDictBase
 from torchrl.envs import ParallelEnv
 
+from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.envs.array_types import SingleObservation
 from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
 from eco_planner.envs.metadrive.observation import TrafficObservationAudit
@@ -27,7 +28,6 @@ from eco_planner.envs.torchrl.worker import (
     WorkerStepResult,
     make_torchrl_scenario_env,
 )
-from eco_planner.execution_contracts import PLANNER_FUTURE_STEPS
 
 _OBSERVATION_KEYS = (
     "ego_current_state",
@@ -183,10 +183,10 @@ class VectorMetaDriveEnv:
             raise ValueError("step_slots must not repeat a slot")
         for slot in slots_tuple:
             self._validate_slot(slot)
-        actions = torch.zeros((self.num_envs, PLANNER_FUTURE_STEPS, 4), dtype=torch.float32)
+        actions = torch.zeros((self.num_envs, PLANNER_HORIZON, 4), dtype=torch.float32)
         for slot, trajectory in zip(slots_tuple, trajectories, strict=True):
             array = np.asarray(trajectory)
-            if array.shape != (PLANNER_FUTURE_STEPS, 4) or array.dtype != np.float32:
+            if array.shape != (PLANNER_HORIZON, 4) or array.dtype != np.float32:
                 raise ValueError("trajectory must have shape [80, 4] and dtype float32")
             actions[slot].copy_(torch.from_numpy(array))
         mask = _slot_mask(self.num_envs, slots_tuple)
@@ -371,7 +371,7 @@ def _validate_configuration(
         raise ValueError("map_query_radius_m must be a positive real scalar")
     if type(history_warmup_steps) is not int or history_warmup_steps < 0:
         raise ValueError("history_warmup_steps must be a non-negative integer")
-    expected_warmup = observation_spec.time_len - 1 if mode == "traffic" else 0
+    expected_warmup = TRAFFIC_HISTORY_WARMUP_STEPS if mode == "traffic" else 0
     if history_warmup_steps != expected_warmup:
         raise ValueError(
             f"{mode} vector environments require history_warmup_steps={expected_warmup}"

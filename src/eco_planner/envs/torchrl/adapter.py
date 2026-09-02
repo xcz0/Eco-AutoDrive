@@ -12,12 +12,12 @@ from tensordict import TensorDict, TensorDictBase
 from torchrl.data import Binary, Composite, Unbounded
 from torchrl.envs import EnvBase
 
+from eco_planner.contracts import PLANNER_HORIZON
 from eco_planner.envs.array_types import SingleObservation
 from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
 from eco_planner.envs.metadrive.observation import TrafficObservationAudit
 from eco_planner.envs.metadrive.slot import EnvSlotReset, EnvSlotStep, MetaDriveEnvSlot
 from eco_planner.envs.observation import PlannerObservationSpec
-from eco_planner.execution_contracts import PLANNER_FUTURE_STEPS
 
 _CPU_DEVICE = torch.device("cpu")
 
@@ -50,7 +50,7 @@ class TorchRLMetaDriveEnv(EnvBase):
         self._last_observation_s = 0.0
         self.observation_spec = _observation_spec(observation_spec)
         self.action_spec = Unbounded(
-            shape=torch.Size((PLANNER_FUTURE_STEPS, 4)),
+            shape=torch.Size((PLANNER_HORIZON, 4)),
             dtype=torch.float32,
             device=_CPU_DEVICE,
         )

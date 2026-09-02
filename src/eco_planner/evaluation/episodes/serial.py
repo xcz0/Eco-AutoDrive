@@ -6,13 +6,13 @@ from pathlib import Path
 
 import numpy as np
 
+from eco_planner.contracts import evaluation_plan_cycles
 from eco_planner.envs import (
     MetaDriveEnvSlot,
     PlannerObservationSpec,
     TrajectoryExecutionRecord,
     collate_observations,
 )
-from eco_planner.execution_contracts import evaluation_plan_cycles
 
 from ..artifacts import CompletedEpisodeSummary, FailedEpisodeSummary, FailurePhase
 from ..config import EvaluationJobConfig, ScenarioConfig

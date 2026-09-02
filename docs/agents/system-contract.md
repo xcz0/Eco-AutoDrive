@@ -109,6 +109,7 @@ Benchmark 是 `eco_planner.benchmarking` 下的 repository-internal application 
 * heading 使用 `[cos(h), sin(h)]`，角差使用最短有向角。
 * 模型轨迹为 10 Hz 的 80 个未来点，共 8 s；MetaDrive 物理步长为 0.02 s，`decision_repeat=5`，对外子步为 0.1 s。
 * evaluation 每个规划周期只执行前 5 点，即 0.5 s，规划频率为 2 Hz；policy-guided rollout 只执行第 1 点，即 0.1 s，规划频率为 10 Hz。两条入口不得混用 transition、reward、done 或 bootstrap 语义。
+* 这些共享 ABI 值仅定义于 `eco_planner.contracts`。其中 `TRAFFIC_HISTORY_FRAMES=21` 包含当前帧，`TRAFFIC_HISTORY_WARMUP_STEPS=20` 是形成该完整历史所需的过去子步数；MetaDrive physics step 与 decision repeat 必须显式验证其乘积等于 0.1 s。
 * 程序化地图限速配置使用 km/h，模型限速使用 m/s；单位转换只在地图适配边界执行一次。
 * 能耗、距离、速度、加速度和角速度字段名必须显式标出单位。
 * 场景全局平移或旋转后，等价状态应产生等价的局部模型输入。

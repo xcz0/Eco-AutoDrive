@@ -11,12 +11,14 @@ import numpy as np
 import torch
 from jaxtyping import Bool, Float32, Float64
 
-TrajectoryArray: TypeAlias = Float32[np.ndarray, "80 4"]
+from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_FRAMES
+
+TrajectoryArray: TypeAlias = Float32[np.ndarray, f"{PLANNER_HORIZON} 4"]
 WorldVectorArray: TypeAlias = Float64[np.ndarray, "2"]
 WorldPointArray: TypeAlias = Float64[np.ndarray, "points 2"]
 WorldHeadingArray: TypeAlias = Float64[np.ndarray, "points"]
-WorldVelocityArray: TypeAlias = Float64[np.ndarray, "80 2"]
-WorldAngularVelocityArray: TypeAlias = Float64[np.ndarray, "80"]
+WorldVelocityArray: TypeAlias = Float64[np.ndarray, f"{PLANNER_HORIZON} 2"]
+WorldAngularVelocityArray: TypeAlias = Float64[np.ndarray, f"{PLANNER_HORIZON}"]
 ExecutionStateArray: TypeAlias = Float64[np.ndarray, "execution_steps 7"]
 ExecutionPointArray: TypeAlias = Float64[np.ndarray, "execution_steps 2"]
 ExecutionScalarArray: TypeAlias = Float64[np.ndarray, "execution_steps"]
@@ -25,9 +27,11 @@ Float64Array: TypeAlias = Float64[np.ndarray, "*shape"]
 LaneGeometryArray: TypeAlias = Float64[np.ndarray, "20 2"]
 EncodedLaneArray: TypeAlias = Float32[np.ndarray, "20 12"]
 ParticipantRowsArray: TypeAlias = Float64[np.ndarray, "participants 8"]
-ParticipantHistoryArray: TypeAlias = Float64[np.ndarray, "selected 21 8"]
-EncodedParticipantHistoryArray: TypeAlias = Float32[np.ndarray, "selected 21 11"]
-NeighborAgentsArray: TypeAlias = Float32[np.ndarray, "32 21 11"]
+ParticipantHistoryArray: TypeAlias = Float64[np.ndarray, f"selected {TRAFFIC_HISTORY_FRAMES} 8"]
+EncodedParticipantHistoryArray: TypeAlias = Float32[
+    np.ndarray, f"selected {TRAFFIC_HISTORY_FRAMES} 11"
+]
+NeighborAgentsArray: TypeAlias = Float32[np.ndarray, f"32 {TRAFFIC_HISTORY_FRAMES} 11"]
 StaticObjectsArray: TypeAlias = Float32[np.ndarray, "5 10"]
 StaticObjectArray: TypeAlias = Float32[np.ndarray, "10"]
 EgoStateArray: TypeAlias = Float32[np.ndarray, "10"]
@@ -49,7 +53,7 @@ class NumpyObservation(NumpyMapObservation):
     """One unbatched official observation represented as NumPy arrays."""
 
     ego_current_state: Float32[np.ndarray, "10"]
-    neighbor_agents_past: Float32[np.ndarray, "32 21 11"]
+    neighbor_agents_past: Float32[np.ndarray, f"32 {TRAFFIC_HISTORY_FRAMES} 11"]
     static_objects: Float32[np.ndarray, "5 10"]
 
 
@@ -57,7 +61,7 @@ class SingleObservation(TypedDict):
     """One unbatched official observation represented as CPU tensors."""
 
     ego_current_state: Float32[torch.Tensor, "10"]
-    neighbor_agents_past: Float32[torch.Tensor, "32 21 11"]
+    neighbor_agents_past: Float32[torch.Tensor, f"32 {TRAFFIC_HISTORY_FRAMES} 11"]
     static_objects: Float32[torch.Tensor, "5 10"]
     lanes: Float32[torch.Tensor, "70 20 12"]
     lanes_speed_limit: Float32[torch.Tensor, "70 1"]
@@ -71,7 +75,7 @@ class BatchObservation(TypedDict):
     """A planner batch formed only by stacking single observations."""
 
     ego_current_state: Float32[torch.Tensor, "batch 10"]
-    neighbor_agents_past: Float32[torch.Tensor, "batch 32 21 11"]
+    neighbor_agents_past: Float32[torch.Tensor, f"batch 32 {TRAFFIC_HISTORY_FRAMES} 11"]
     static_objects: Float32[torch.Tensor, "batch 5 10"]
     lanes: Float32[torch.Tensor, "batch 70 20 12"]
     lanes_speed_limit: Float32[torch.Tensor, "batch 70 1"]

@@ -16,6 +16,7 @@ from pydantic import (
 )
 
 from eco_planner.configuration import resolve_config_mapping
+from eco_planner.contracts import ROLLOUT_EXECUTION_STEPS, TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.envs.metadrive.reward import (
     MetaDriveBuiltinRewardConfig,
     RewardProfileConfig,
@@ -59,8 +60,11 @@ class RolloutConfig(_StrictModel):
     def validate_rollout_contract(self) -> RolloutConfig:
         if self.mode == "no_traffic" and self.history_warmup_steps != 0:
             raise ValueError("no-traffic rollout requires zero history warmup steps")
-        if self.mode == "traffic" and self.history_warmup_steps != 20:
-            raise ValueError("traffic rollout requires exactly 20 history warmup steps")
+        if self.mode == "traffic" and self.history_warmup_steps != TRAFFIC_HISTORY_WARMUP_STEPS:
+            raise ValueError(
+                "traffic rollout requires exactly "
+                f"{TRAFFIC_HISTORY_WARMUP_STEPS} history warmup steps"
+            )
         return self
 
 
@@ -104,8 +108,11 @@ class TrainingLoopConfig(_StrictModel):
     def validate_training_mode(self) -> TrainingLoopConfig:
         if self.mode == "no_traffic" and self.history_warmup_steps != 0:
             raise ValueError("no-traffic training requires zero history warmup steps")
-        if self.mode == "traffic" and self.history_warmup_steps != 20:
-            raise ValueError("traffic training requires exactly 20 history warmup steps")
+        if self.mode == "traffic" and self.history_warmup_steps != TRAFFIC_HISTORY_WARMUP_STEPS:
+            raise ValueError(
+                "traffic training requires exactly "
+                f"{TRAFFIC_HISTORY_WARMUP_STEPS} history warmup steps"
+            )
         return self
 
 
@@ -189,7 +196,7 @@ def _validate_rollout_environment(
     mode = env.get("execution_mode")
     if mode is not None and mode != "rollout":
         raise ValueError("rollout requires env.execution_mode=rollout")
-    if mode is None and env.get("trajectory_execution_steps") != 1:
+    if mode is None and env.get("trajectory_execution_steps") != ROLLOUT_EXECUTION_STEPS:
         raise ValueError("rollout requires env.execution_mode=rollout")
     horizon = env.get("horizon")
     required_horizon = history_warmup_steps + transition_count

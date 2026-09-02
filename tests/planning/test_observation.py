@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 import torch
 
+from eco_planner.contracts import TRAFFIC_HISTORY_FRAMES
 from eco_planner.envs import collate_observations
-from eco_planner.envs.contracts import TRAFFIC_HISTORY_FRAMES
 from eco_planner.envs.domain.traffic import TrafficFrame
 from eco_planner.envs.observation import PlannerObservationSpec
 from eco_planner.envs.observation.history import TrafficHistory

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 
-from eco_planner.envs.contracts import TRAFFIC_HISTORY_FRAMES
+from eco_planner.contracts import TRAFFIC_HISTORY_FRAMES
 from eco_planner.envs.domain.traffic import TrafficFrame
 
 

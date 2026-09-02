@@ -11,20 +11,21 @@ from metadrive.envs.metadrive_env import MetaDriveEnv
 from metadrive.obs.observation_base import BaseObservation
 from metadrive.utils import Config, concat_step_infos, merge_dicts
 
+from eco_planner.contracts import (
+    METADRIVE_DECISION_REPEAT,
+    METADRIVE_PHYSICS_STEP_S,
+    SIMULATOR_STEP_S,
+    ExecutionMode,
+    validate_metadrive_timestep,
+)
 from eco_planner.envs.array_types import (
     PlannerOnlyObservationArray,
     TrajectoryArray,
     WorldVectorArray,
 )
-from eco_planner.envs.contracts import (
-    METADRIVE_DECISION_REPEAT,
-    METADRIVE_PHYSICS_STEP_S,
-    ExecutionMode,
-)
 from eco_planner.envs.domain.traffic import TrafficFrame
 from eco_planner.envs.domain.trajectory import WorldTrajectory, to_world_trajectory
 from eco_planner.envs.metadrive.execution import (
-    TRAJECTORY_TIMESTEP_S,
     TrajectoryExecutionRecorder,
     execution_steps_from_config,
     finite_info_scalar,
@@ -108,6 +109,9 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             configured.update(reward_profile.model_dump(exclude={"name"}))
         configured["physics_world_step_size"] = METADRIVE_PHYSICS_STEP_S
         configured["decision_repeat"] = METADRIVE_DECISION_REPEAT
+        validate_metadrive_timestep(
+            configured["physics_world_step_size"], configured["decision_repeat"]
+        )
         configured["execution_mode"] = (
             ExecutionMode.ROLLOUT.value
             if execution_steps == ExecutionMode.ROLLOUT.steps
@@ -218,7 +222,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             center_position=np.asarray(self.agent.position, dtype=np.float64),
             center_heading=float(self.agent.heading_theta),
             rear_wheelbase=float(rear_wheelbase),
-            timestep_s=TRAJECTORY_TIMESTEP_S,
+            timestep_s=SIMULATOR_STEP_S,
         )
         total_reward = 0.0
         step_record = TrajectoryExecutionRecorder.empty(self._execution_steps)
@@ -381,7 +385,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             out_of_road=bool(info["out_of_road"]),
             native_step_energy_ml=finite_info_scalar(info, "step_energy"),
             native_episode_energy_ml=finite_info_scalar(info, "episode_energy"),
-            timestep_s=TRAJECTORY_TIMESTEP_S,
+            timestep_s=SIMULATOR_STEP_S,
         )
 
     def _advance_reward_state(self, reward_input: RewardStepInput) -> None:
