@@ -15,8 +15,9 @@ from torchrl.envs import ParallelEnv
 
 from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.envs.array_types import SingleObservation
+from eco_planner.envs.domain.metrics import TransitionMetrics
+from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
 from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
-from eco_planner.envs.metadrive.reward import RewardProfileConfig
 from eco_planner.envs.metadrive.slot import ObservationMode
 from eco_planner.envs.observation import (
     OBSERVATION_KEYS,
@@ -81,7 +82,8 @@ class VectorMetaDriveEnv:
         history_warmup_steps: int,
         scenarios: Sequence[VectorEnvScenario],
         torch_threads_per_worker: int | None = None,
-        reward_profile: RewardProfileConfig | None = None,
+        builtin_reward_config: MetaDriveBuiltinRewardConfig | None = None,
+        reward_objective: Callable[[TransitionMetrics], tuple[float, float]] | None = None,
     ) -> None:
         _validate_configuration(
             env_configs,
@@ -117,7 +119,8 @@ class VectorMetaDriveEnv:
             float(map_query_radius_m),
             history_warmup_steps,
             self._scenarios,
-            reward_profile,
+            builtin_reward_config,
+            reward_objective,
         )
         self._env = ParallelEnv(
             self._num_envs,

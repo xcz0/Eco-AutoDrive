@@ -235,7 +235,7 @@ PPO stability checkpoint evaluation 通过 `evaluation.inference.agent.Evaluatio
 
 该接口不生成 steering、throttle 或 brake，也不证明低层车辆动力学可执行性。原始轨迹必须原样执行和保存；不得平滑、裁剪、限幅、旋转、投影到中心线、选择最佳噪声 seed、切换回退控制器，或在异常时返回零轨迹。
 
-`TrajectoryMetaDriveEnv.step` 在环境边界直接用本次执行缓冲、交通快照、typed per-substep reward audit 和 MetaDrive 终止字段构造不可变的 `TrajectoryExecutionRecord`，并通过 `info["trajectory_execution"]` 返回；不再先展开为逐字段 `info` 数组后由调用方二次解析。record 中 `substep_native_energy_ml` / `substep_native_episode_energy_ml` 与 `substep_executed_fuel_proxy_energy_ml` / `substep_distance_m` 是不同数据流。数组的 shape/dtype 由固定容量执行缓冲、jaxtyping 接口契约和 producer 测试保证；evaluation、RL、trace、rendering 和 summary 组件只消费该 record，不读取原始轨迹字段，也不二次实现 reward 或 fuel 公式。
+`TrajectoryMetaDriveEnv.step` 在环境边界直接用本次执行缓冲、交通快照、objective-neutral `TransitionMetrics` 和 MetaDrive 终止字段构造不可变的 `TrajectoryExecutionRecord`，并通过 `info["trajectory_execution"]` 返回；不再先展开为逐字段 `info` 数组后由调用方二次解析。record 不保存 profile-specific reward audit；RL 在消费 metrics 时计算其 reward audit。record 中 `substep_native_energy_ml` / `substep_native_episode_energy_ml` 与 `substep_executed_fuel_proxy_energy_ml` / `substep_distance_m` 是不同数据流。数组的 shape/dtype 由固定容量执行缓冲、jaxtyping 接口契约和 producer 测试保证；evaluation、RL、trace、rendering 和 summary 组件只消费该 record，不读取原始轨迹字段，也不二次实现 fuel 公式。
 
 ## 能耗记录
 

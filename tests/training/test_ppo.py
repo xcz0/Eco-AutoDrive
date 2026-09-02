@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 import torch
 
-from eco_planner.envs.metadrive.reward import MetaDriveBuiltinRewardAudit
 from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater, compute_episode_gae
 from eco_planner.rl.policy import (
@@ -14,6 +13,7 @@ from eco_planner.rl.policy import (
     ExplorationPolicyConfig,
     ExplorationPolicyContext,
 )
+from eco_planner.rl.reward import MetaDriveBuiltinRewardAudit
 from eco_planner.rl.rollout import (
     DecisionAudit,
     ExecutionTransitionAudit,

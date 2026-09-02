@@ -14,16 +14,13 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat
 from eco_planner._repository import CONFIG_ROOT, REPOSITORY_ROOT
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
+from eco_planner.envs.domain.metrics import TransitionMetricInput
 from eco_planner.envs.domain.traffic import (
     StaticTrafficObjectState,
     TrafficFrame,
     TrafficParticipantState,
 )
-from eco_planner.envs.metadrive.reward import (
-    PlannerRFTEnergyRewardConfig,
-    RewardStepInput,
-    score_plannerrft_energy_step,
-)
+from eco_planner.rl.reward import PlannerRFTEnergyRewardConfig, score_plannerrft_energy_step
 
 DEFAULT_CONFIG = CONFIG_ROOT / "experiments" / "reward" / "sanity.yaml"
 _SCORE_FIELDS = (
@@ -234,7 +231,7 @@ def run_sanity(config_path: Path, output_root: Path) -> int:
     return 0 if report["status"] == "passed" else 1
 
 
-def _reward_input(values: dict[str, object]) -> RewardStepInput:
+def _reward_input(values: dict[str, object]) -> TransitionMetricInput:
     parsed = _RewardInputConfig.model_validate(values)
     participants = tuple(
         TrafficParticipantState(
@@ -259,7 +256,7 @@ def _reward_input(values: dict[str, object]) -> RewardStepInput:
         )
         for item in parsed.static_objects
     )
-    return RewardStepInput(
+    return TransitionMetricInput(
         previous_position_xy_m=_point(parsed.previous_position_xy_m),
         position_xy_m=_point(parsed.position_xy_m),
         previous_velocity_xy_mps=_point(parsed.previous_velocity_xy_mps),

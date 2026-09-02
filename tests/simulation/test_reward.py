@@ -5,16 +5,13 @@ import math
 import numpy as np
 import pytest
 
+from eco_planner.envs.domain.metrics import TransitionMetricInput
 from eco_planner.envs.domain.traffic import (
     StaticTrafficObjectState,
     TrafficFrame,
     TrafficParticipantState,
 )
-from eco_planner.envs.metadrive.reward import (
-    PlannerRFTEnergyRewardConfig,
-    RewardStepInput,
-    score_plannerrft_energy_step,
-)
+from eco_planner.rl.reward import PlannerRFTEnergyRewardConfig, score_plannerrft_energy_step
 
 
 def _config() -> PlannerRFTEnergyRewardConfig:
@@ -72,7 +69,7 @@ def _frame(
     )
 
 
-def _input(**updates: object) -> RewardStepInput:
+def _input(**updates: object) -> TransitionMetricInput:
     values: dict[str, object] = {
         "previous_position_xy_m": (0.0, 0.0),
         "position_xy_m": (1.0, 0.0),
@@ -98,7 +95,7 @@ def _input(**updates: object) -> RewardStepInput:
         "timestep_s": 0.1,
     }
     values.update(updates)
-    return RewardStepInput(**values)  # type: ignore[arg-type]
+    return TransitionMetricInput(**values)  # type: ignore[arg-type]
 
 
 @pytest.mark.smoke

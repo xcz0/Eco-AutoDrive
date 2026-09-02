@@ -22,12 +22,15 @@ from eco_planner.envs import (
     collate_observations,
 )
 from eco_planner.envs.array_types import SingleObservation
-from eco_planner.envs.metadrive.reward import (
+from eco_planner.evaluation import ScenarioConfig
+from eco_planner.rl.reward import (
     MetaDriveBuiltinRewardAudit,
+    MetaDriveBuiltinRewardConfig,
     PlannerRFTEnergyRewardAudit,
     RewardProfileConfig,
+    build_reward_audit,
+    create_reward_objective,
 )
-from eco_planner.evaluation import ScenarioConfig
 from eco_planner.rl.rollout.contracts import (
     ExecutionTransitionAudit,
     RolloutEpisode,
@@ -97,7 +100,8 @@ def collect_rollout_episode(
         observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
         map_query_radius_m=map_query_radius_m,
         history_warmup_steps=history_warmup_steps,
-        reward_profile=reward_profile,
+        builtin_reward_config=_builtin_reward_config(reward_profile),
+        reward_objective=_reward_objective(reward_profile),
     )
     resolved_noise_seed = runtime.noise_seed if noise_seed is None else _seed(noise_seed, "noise")
     resolved_policy_seed = (
@@ -131,6 +135,7 @@ def collect_rollout_episode(
                     execution,
                     previous_route_completion,
                     stopped_speed_threshold_mps,
+                    reward_profile=reward_profile,
                     terminated=terminated,
                     truncated=truncated,
                 ),
@@ -206,6 +211,7 @@ class VectorRolloutCollector:
             raise ValueError("physical_slot_count must be a positive integer")
         self._specs = specs
         self._runtime = runtime
+        self._reward_profile = reward_profile
         self._physical_slot_count = min(physical_slot_count, len(specs))
         self._scenarios = tuple(VectorEnvScenario(spec.name, spec.map, spec.seed) for spec in specs)
         configured_envs = tuple(
@@ -219,7 +225,8 @@ class VectorRolloutCollector:
             history_warmup_steps=history_warmup_steps,
             scenarios=self._scenarios,
             torch_threads_per_worker=torch_threads_per_worker,
-            reward_profile=reward_profile,
+            builtin_reward_config=_builtin_reward_config(reward_profile),
+            reward_objective=_reward_objective(reward_profile),
         )
         self._close_finalizer = finalize(self, self._envs.close)
 
@@ -401,6 +408,7 @@ class VectorRolloutCollector:
                     step,
                     transitions_per_slot=transitions_per_slot,
                     stopped_speed_threshold_mps=stopped_speed_threshold_mps,
+                    reward_profile=self._reward_profile,
                 )
                 if tail is not None:
                     tails.append((slot, tail))
@@ -460,6 +468,7 @@ def _append_slot_transition(
     *,
     transitions_per_slot: int,
     stopped_speed_threshold_mps: float,
+    reward_profile: RewardProfileConfig | None,
 ) -> TailKind | None:
     execution = step.execution
     state.episode.append(
@@ -469,6 +478,7 @@ def _append_slot_transition(
             execution,
             state.previous_route_completion,
             stopped_speed_threshold_mps,
+            reward_profile=reward_profile,
             terminated=step.terminated,
             truncated=step.truncated,
         ),
@@ -631,11 +641,14 @@ def _execution_transition_audit(
     *,
     terminated: bool,
     truncated: bool,
+    reward_profile: RewardProfileConfig | None,
 ) -> ExecutionTransitionAudit:
     if execution.substep_states.shape[0] != 1:
         raise RuntimeError("rollout transition must execute exactly one substep")
     reward = float(execution.substep_rewards.sum())
-    dense_reward, terminal_override, reward_audit = _reward_audit_values(execution, reward)
+    dense_reward, terminal_override, reward_audit = _reward_audit_values(
+        execution, reward, reward_profile
+    )
     state = execution.substep_states[0]
     distance_m = float(np.linalg.norm(state[:2] - execution.start_center))
     speed_mps = float(state[5])
@@ -663,18 +676,33 @@ def _execution_transition_audit(
 
 
 def _reward_audit_values(
-    execution: TrajectoryExecutionRecord, reward: float
+    execution: TrajectoryExecutionRecord,
+    reward: float,
+    reward_profile: RewardProfileConfig | None,
 ) -> tuple[float, float, MetaDriveBuiltinRewardAudit | PlannerRFTEnergyRewardAudit]:
-    if len(execution.substep_reward_audits) != 1:
-        raise RuntimeError("rollout transition must expose exactly one reward audit")
-    audit = execution.substep_reward_audits[0]
-    if not np.isclose(reward, audit.reward_total, rtol=0.0, atol=1e-12):
-        raise RuntimeError("environment reward disagrees with its typed reward audit")
+    if len(execution.substep_metrics) != 1:
+        raise RuntimeError("rollout transition must expose exactly one transition metric")
+    audit = build_reward_audit(
+        reward_profile,
+        execution.substep_metrics[0],
+        reward_total=reward,
+        dense_reward=float(execution.substep_dense_rewards[0]),
+    )
     if isinstance(audit, PlannerRFTEnergyRewardAudit):
         return audit.reward_ungated, audit.reward_total - audit.reward_ungated, audit
     if isinstance(audit, MetaDriveBuiltinRewardAudit):
         return audit.dense_reward, audit.terminal_override, audit
     raise TypeError("rollout transition returned an unsupported reward audit type")
+
+
+def _builtin_reward_config(
+    reward_profile: RewardProfileConfig | None,
+) -> MetaDriveBuiltinRewardConfig | None:
+    return reward_profile if isinstance(reward_profile, MetaDriveBuiltinRewardConfig) else None
+
+
+def _reward_objective(reward_profile: RewardProfileConfig | None):
+    return create_reward_objective(reward_profile) if reward_profile is not None else None
 
 
 def _seed(value: int, name: str) -> int:

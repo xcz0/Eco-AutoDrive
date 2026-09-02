@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, cast
 
 import gymnasium as gym
@@ -23,8 +24,14 @@ from eco_planner.envs.array_types import (
     TrajectoryArray,
     WorldVectorArray,
 )
+from eco_planner.envs.domain.metrics import (
+    TransitionMetricInput,
+    TransitionMetrics,
+    derive_transition_metrics,
+)
 from eco_planner.envs.domain.traffic import TrafficFrame
 from eco_planner.envs.domain.trajectory import WorldTrajectory, to_world_trajectory
+from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
 from eco_planner.envs.metadrive.execution import (
     TrajectoryExecutionRecorder,
     execution_steps_from_config,
@@ -36,15 +43,6 @@ from eco_planner.envs.metadrive.lane_speed import (
 )
 from eco_planner.envs.metadrive.map import navigation_route_roads
 from eco_planner.envs.metadrive.policy import KinematicTrajectoryPolicy
-from eco_planner.envs.metadrive.reward import (
-    MetaDriveBuiltinRewardAudit,
-    MetaDriveBuiltinRewardConfig,
-    PlannerRFTEnergyRewardConfig,
-    RewardProfileConfig,
-    RewardStepInput,
-    executed_fuel_proxy_step_energy_ml,
-    score_plannerrft_energy_step,
-)
 from eco_planner.envs.metadrive.snapshot import capture_traffic_frame
 
 _PLANNER_ONLY_OBSERVATION: PlannerOnlyObservationArray = np.zeros(1, dtype=np.float32)
@@ -86,7 +84,8 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         self,
         config: dict[str, Any] | None = None,
         *,
-        reward_profile: RewardProfileConfig | None = None,
+        builtin_reward_config: MetaDriveBuiltinRewardConfig | None = None,
+        reward_objective: Callable[[TransitionMetrics], tuple[float, float]] | None = None,
     ) -> None:
         if config is None:
             raise ValueError("TrajectoryMetaDriveEnv requires an explicit configuration")
@@ -105,8 +104,8 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             raise ValueError("agent_policy must be KinematicTrajectoryPolicy")
         execution_steps = execution_steps_from_config(config)
         configured = dict(config)
-        if isinstance(reward_profile, MetaDriveBuiltinRewardConfig):
-            configured.update(reward_profile.model_dump(exclude={"name"}))
+        if builtin_reward_config is not None:
+            configured.update(builtin_reward_config.model_dump(exclude={"name"}))
         configured["physics_world_step_size"] = METADRIVE_PHYSICS_STEP_S
         configured["decision_repeat"] = METADRIVE_DECISION_REPEAT
         validate_metadrive_timestep(
@@ -119,10 +118,10 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         )
         configured["agent_policy"] = KinematicTrajectoryPolicy
         configured["agent_observation"] = _PlannerOnlyObservation
-        self._reward_profile = reward_profile
-        self._previous_reward_position: np.ndarray | None = None
-        self._previous_reward_velocity: np.ndarray | None = None
-        self._previous_reward_acceleration: np.ndarray | None = None
+        self._reward_objective = reward_objective
+        self._previous_metric_position: np.ndarray | None = None
+        self._previous_metric_velocity: np.ndarray | None = None
+        self._previous_metric_acceleration: np.ndarray | None = None
         self._terminal_out_of_road = False
         super().__init__(configured)
         if self.config["is_multi_agent"]:
@@ -210,9 +209,9 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             raise RuntimeError("MetaDrive did not create a current map during reset")
         self._programmatic_lane_speed_adapter.apply(current_map)
         self._initial_traffic_frame = capture_traffic_frame(self)
-        self._previous_reward_position = np.asarray(self.agent.position, dtype=np.float64).copy()
-        self._previous_reward_velocity = np.asarray(self.agent.velocity, dtype=np.float64).copy()
-        self._previous_reward_acceleration = np.zeros(2, dtype=np.float64)
+        self._previous_metric_position = np.asarray(self.agent.position, dtype=np.float64).copy()
+        self._previous_metric_velocity = np.asarray(self.agent.velocity, dtype=np.float64).copy()
+        self._previous_metric_acceleration = np.zeros(2, dtype=np.float64)
         return result
 
     def step(self, trajectory: TrajectoryArray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
@@ -247,7 +246,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
                 truncated,
                 float(world_trajectory.angular_velocities[index]),
                 info.pop("_project_traffic_frame"),
-                info.pop("_project_reward_audit"),
+                info.pop("_project_transition_metrics"),
             )
             if terminated or truncated:
                 break
@@ -271,42 +270,16 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         agent_info = info.pop(agent_id)
         info.update(agent_info)
         traffic_frame = capture_traffic_frame(self)
-        reward_input = self._reward_step_input(info, traffic_frame, yaw_rate_radps)
-        if isinstance(self._reward_profile, PlannerRFTEnergyRewardConfig):
-            reward_audit = score_plannerrft_energy_step(self._reward_profile, reward_input)
-            reward = reward_audit.reward_total
-            info["step_reward"] = reward_audit.reward_ungated
+        metrics = derive_transition_metrics(self._metric_input(info, traffic_frame, yaw_rate_radps))
+        if self._reward_objective is not None:
+            reward, dense_reward = self._reward_objective(metrics)
+            info["step_reward"] = dense_reward
             info["route_completion"] = self.route_completion
         else:
             reward = float(builtin_reward)
-            distance_m = float(
-                np.linalg.norm(
-                    np.asarray(reward_input.position_xy_m)
-                    - np.asarray(reward_input.previous_position_xy_m)
-                )
-            )
-            proxy_ml = executed_fuel_proxy_step_energy_ml(
-                reward_input.previous_position_xy_m,
-                reward_input.position_xy_m,
-                float(np.linalg.norm(reward_input.velocity_xy_mps)),
-            )
-            distance_valid = distance_m > 0.0
-            reward_audit = MetaDriveBuiltinRewardAudit(
-                profile_name="metadrive_builtin_v1",
-                reward_total=reward,
-                dense_reward=finite_info_scalar(info, "step_reward"),
-                terminal_override=reward - finite_info_scalar(info, "step_reward"),
-                step_distance_m=distance_m,
-                native_step_energy_ml=reward_input.native_step_energy_ml,
-                native_episode_energy_ml=reward_input.native_episode_energy_ml,
-                executed_fuel_proxy_step_energy_ml=proxy_ml,
-                executed_fuel_proxy_ml_per_km=(
-                    proxy_ml * 1000.0 / distance_m if distance_valid else 0.0
-                ),
-                energy_distance_valid=distance_valid,
-            )
+            dense_reward = finite_info_scalar(info, "step_reward")
         self.episode_rewards[agent_id] += reward
-        self._advance_reward_state(reward_input)
+        self._advance_metric_state(metrics.input)
         truncated = bool(info.get(TerminationState.MAX_STEP, False))
         terminated = bool(self.dones[agent_id])
         self._terminal_out_of_road = terminated and bool(info[TerminationState.OUT_OF_ROAD])
@@ -319,7 +292,7 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         if agent is not self.agent:
             raise RuntimeError("single-agent environment changed its active agent")
         info["_project_traffic_frame"] = traffic_frame
-        info["_project_reward_audit"] = reward_audit
+        info["_project_transition_metrics"] = metrics
         return _PLANNER_ONLY_OBSERVATION.copy(), float(reward), terminated, truncated, info
 
     def _is_out_of_road(self, vehicle: Any) -> bool:
@@ -334,21 +307,21 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         lane_road = (lane_index[0], lane_index[1])
         return lane_road not in navigation_route_roads(vehicle.navigation)
 
-    def _reward_step_input(
+    def _metric_input(
         self, info: dict[str, Any], traffic_frame: TrafficFrame, yaw_rate_radps: float
-    ) -> RewardStepInput:
+    ) -> TransitionMetricInput:
         if (
-            self._previous_reward_position is None
-            or self._previous_reward_velocity is None
-            or self._previous_reward_acceleration is None
+            self._previous_metric_position is None
+            or self._previous_metric_velocity is None
+            or self._previous_metric_acceleration is None
         ):
-            raise RuntimeError("reward state is unavailable before environment reset")
+            raise RuntimeError("transition metric state is unavailable before environment reset")
         vehicle = self.agent
         reference_lanes = vehicle.navigation.current_ref_lanes
         if not reference_lanes:
             raise RuntimeError("navigation did not expose current reference lanes")
         lane = vehicle.lane if vehicle.lane in reference_lanes else reference_lanes[0]
-        previous_longitudinal, _ = lane.local_coordinates(self._previous_reward_position)
+        previous_longitudinal, _ = lane.local_coordinates(self._previous_metric_position)
         current_longitudinal, _ = lane.local_coordinates(vehicle.position)
         lane_length = float(lane.length)
         route_heading = float(
@@ -357,17 +330,17 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
         speed_limit_mps, has_speed_limit = model_lane_speed_limit_mps(lane)
         if not has_speed_limit:
             raise RuntimeError("current route lane does not expose a configured speed limit")
-        return RewardStepInput(
+        return TransitionMetricInput(
             previous_position_xy_m=_finite_pair(
-                self._previous_reward_position, "previous reward position"
+                self._previous_metric_position, "previous metric position"
             ),
             position_xy_m=_finite_pair(vehicle.position, "vehicle position"),
             previous_velocity_xy_mps=_finite_pair(
-                self._previous_reward_velocity, "previous reward velocity"
+                self._previous_metric_velocity, "previous metric velocity"
             ),
             velocity_xy_mps=_finite_pair(vehicle.velocity, "vehicle velocity"),
             previous_acceleration_xy_mps2=_finite_pair(
-                self._previous_reward_acceleration, "previous reward acceleration"
+                self._previous_metric_acceleration, "previous metric acceleration"
             ),
             heading_rad=float(vehicle.heading_theta),
             yaw_rate_radps=yaw_rate_radps,
@@ -388,14 +361,14 @@ class TrajectoryMetaDriveEnv(MetaDriveEnv):
             timestep_s=SIMULATOR_STEP_S,
         )
 
-    def _advance_reward_state(self, reward_input: RewardStepInput) -> None:
-        previous_velocity = np.asarray(reward_input.previous_velocity_xy_mps, dtype=np.float64)
-        velocity = np.asarray(reward_input.velocity_xy_mps, dtype=np.float64)
-        self._previous_reward_position = np.asarray(reward_input.position_xy_m, dtype=np.float64)
-        self._previous_reward_velocity = velocity
-        self._previous_reward_acceleration = (
+    def _advance_metric_state(self, metric_input: TransitionMetricInput) -> None:
+        previous_velocity = np.asarray(metric_input.previous_velocity_xy_mps, dtype=np.float64)
+        velocity = np.asarray(metric_input.velocity_xy_mps, dtype=np.float64)
+        self._previous_metric_position = np.asarray(metric_input.position_xy_m, dtype=np.float64)
+        self._previous_metric_velocity = velocity
+        self._previous_metric_acceleration = (
             velocity - previous_velocity
-        ) / reward_input.timestep_s
+        ) / metric_input.timestep_s
 
     def _step_planner_simulator(self, actions: dict[str, WorldTrajectory | None]) -> dict:
         before_info = self.engine.before_step(actions)

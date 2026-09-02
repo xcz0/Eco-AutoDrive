@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
@@ -10,12 +10,13 @@ import numpy as np
 
 from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.envs.array_types import SingleObservation, TrajectoryArray
+from eco_planner.envs.domain.metrics import TransitionMetrics
+from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
 from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
 from eco_planner.envs.metadrive.observation import (
     MetaDriveObservationSource,
     NoTrafficMetaDriveObservationSource,
 )
-from eco_planner.envs.metadrive.reward import RewardProfileConfig
 from eco_planner.envs.metadrive.simulator import TrajectoryMetaDriveEnv
 from eco_planner.envs.observation import (
     ObservationBuilder,
@@ -66,7 +67,8 @@ class MetaDriveEnvSlot:
         observation_spec: PlannerObservationSpec,
         map_query_radius_m: float,
         history_warmup_steps: int,
-        reward_profile: RewardProfileConfig | None = None,
+        builtin_reward_config: MetaDriveBuiltinRewardConfig | None = None,
+        reward_objective: Callable[[TransitionMetrics], tuple[float, float]] | None = None,
     ) -> None:
         if mode not in {"traffic", "no_traffic"}:
             raise ValueError("mode must be either 'traffic' or 'no_traffic'")
@@ -81,7 +83,8 @@ class MetaDriveEnvSlot:
         self._observation_spec = observation_spec
         self._map_query_radius_m = float(map_query_radius_m)
         self._history_warmup_steps = history_warmup_steps
-        self._reward_profile = reward_profile
+        self._builtin_reward_config = builtin_reward_config
+        self._reward_objective = reward_objective
         self._observation_source = self._create_observation_source()
         self._observation_builder = ObservationBuilder(
             TrafficSceneEncoder(self._map_query_radius_m)
@@ -203,9 +206,11 @@ class MetaDriveEnvSlot:
         )
 
     def _create_environment(self) -> TrajectoryMetaDriveEnv:
-        if self._reward_profile is None:
-            return TrajectoryMetaDriveEnv(self._env_config)
-        return TrajectoryMetaDriveEnv(self._env_config, reward_profile=self._reward_profile)
+        return TrajectoryMetaDriveEnv(
+            self._env_config,
+            builtin_reward_config=self._builtin_reward_config,
+            reward_objective=self._reward_objective,
+        )
 
     def recreate_environment(self) -> None:
         """Close and recreate the MetaDrive environment with the current map.

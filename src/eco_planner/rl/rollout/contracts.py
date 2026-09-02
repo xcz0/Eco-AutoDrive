@@ -10,11 +10,11 @@ import numpy as np
 import torch
 from tensordict import TensorDict, TensorDictBase
 
-from eco_planner.envs.metadrive.reward import (
+from eco_planner.rl.policy import ExplorationPolicyContext
+from eco_planner.rl.reward import (
     PlannerRFTEnergyRewardAudit,
     RewardAudit,
 )
-from eco_planner.rl.policy import ExplorationPolicyContext
 
 TailKind = Literal["terminated", "truncated", "rollout_limit"]
 RewardProfileName = Literal["metadrive_builtin_v1", "plannerrft_energy_v1"]

@@ -17,10 +17,6 @@ from pydantic import (
 
 from eco_planner.configuration import resolve_config_mapping
 from eco_planner.contracts import ROLLOUT_EXECUTION_STEPS, TRAFFIC_HISTORY_WARMUP_STEPS
-from eco_planner.envs.metadrive.reward import (
-    MetaDriveBuiltinRewardConfig,
-    RewardProfileConfig,
-)
 from eco_planner.evaluation import ModelPathsConfig, ScenarioConfig
 from eco_planner.models import (
     OrthogonalPolicyGuidanceConfig,
@@ -32,6 +28,10 @@ from eco_planner.rl.optimization.config import PPOConfig, parse_ppo_config
 from eco_planner.rl.policy.config import (
     ExplorationPolicyConfig,
     parse_exploration_policy_config,
+)
+from eco_planner.rl.reward import (
+    MetaDriveBuiltinRewardConfig,
+    RewardProfileConfig,
 )
 from eco_planner.runtime.config import RuntimeConfig
 from eco_planner.runtime.resources import ResourceProfileConfig

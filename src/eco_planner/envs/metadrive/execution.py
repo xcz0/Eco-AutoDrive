@@ -21,13 +21,13 @@ from eco_planner.envs.array_types import (
     WorldPointArray,
     WorldVectorArray,
 )
+from eco_planner.envs.domain.metrics import (
+    TransitionMetrics,
+    executed_fuel_proxy_step_energy_ml,
+)
 from eco_planner.envs.domain.traffic import TrafficFrame
 from eco_planner.envs.domain.trajectory import WorldTrajectory
 from eco_planner.envs.geometry import shortest_angle_delta
-from eco_planner.envs.metadrive.reward import (
-    RewardAudit,
-    executed_fuel_proxy_step_energy_ml,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +63,7 @@ class TrajectoryExecutionRecord:
     substep_distance_m: ExecutionScalarArray = field(
         default_factory=lambda: np.empty(0, dtype=np.float64)
     )
-    substep_reward_audits: tuple[RewardAudit, ...] = ()
+    substep_metrics: tuple[TransitionMetrics, ...] = ()
 
 
 @dataclass(slots=True)
@@ -75,7 +75,7 @@ class TrajectoryExecutionRecorder:
     native_episode_energy_ml: ExecutionScalarArray
     executed_fuel_proxy_energy_ml: ExecutionScalarArray
     distance_m: ExecutionScalarArray
-    reward_audits: list[RewardAudit]
+    metrics: list[TransitionMetrics]
     terminated: ExecutionBooleanArray
     truncated: ExecutionBooleanArray
     traffic_frames: list[TrafficFrame]
@@ -91,7 +91,7 @@ class TrajectoryExecutionRecorder:
             native_episode_energy_ml=np.empty(execution_steps, dtype=np.float64),
             executed_fuel_proxy_energy_ml=np.empty(execution_steps, dtype=np.float64),
             distance_m=np.empty(execution_steps, dtype=np.float64),
-            reward_audits=[],
+            metrics=[],
             terminated=np.empty(execution_steps, dtype=np.bool_),
             truncated=np.empty(execution_steps, dtype=np.bool_),
             traffic_frames=[],
@@ -109,7 +109,7 @@ class TrajectoryExecutionRecorder:
         truncated: bool,
         angular_velocity: float,
         traffic_frame: TrafficFrame,
-        reward_audit: RewardAudit,
+        metrics: TransitionMetrics,
     ) -> None:
         index = self.count
         self.states[index, :2] = np.asarray(agent.position, dtype=np.float64)
@@ -121,9 +121,9 @@ class TrajectoryExecutionRecorder:
         self.dense_rewards[index] = dense_reward
         self.native_energy_ml[index] = native_energy_ml
         self.native_episode_energy_ml[index] = native_episode_energy_ml
-        self.executed_fuel_proxy_energy_ml[index] = reward_audit.executed_fuel_proxy_step_energy_ml
-        self.distance_m[index] = reward_audit.step_distance_m
-        self.reward_audits.append(reward_audit)
+        self.executed_fuel_proxy_energy_ml[index] = metrics.executed_fuel_proxy_step_energy_ml
+        self.distance_m[index] = metrics.step_distance_m
+        self.metrics.append(metrics)
         self.terminated[index] = terminated
         self.truncated[index] = truncated
         self.traffic_frames.append(traffic_frame)
@@ -159,7 +159,7 @@ class TrajectoryExecutionRecorder:
                 self.executed_fuel_proxy_energy_ml[:executed_steps].copy()
             ),
             substep_distance_m=self.distance_m[:executed_steps].copy(),
-            substep_reward_audits=tuple(self.reward_audits),
+            substep_metrics=tuple(self.metrics),
             substep_terminated=self.terminated[:executed_steps].copy(),
             substep_truncated=self.truncated[:executed_steps].copy(),
             traffic_frames=tuple(self.traffic_frames),

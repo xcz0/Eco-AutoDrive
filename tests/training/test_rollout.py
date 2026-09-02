@@ -5,12 +5,12 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from eco_planner.envs.metadrive.reward import MetaDriveBuiltinRewardAudit
 from eco_planner.rl.artifacts import (
     BUILTIN_ROLLOUT_ARTIFACT_FIELDS,
     write_rollout_episode,
 )
 from eco_planner.rl.policy import ExplorationPolicyContext
+from eco_planner.rl.reward import MetaDriveBuiltinRewardAudit
 from eco_planner.rl.rollout import (
     DecisionAudit,
     ExecutionTransitionAudit,

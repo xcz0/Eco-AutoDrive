@@ -20,15 +20,17 @@ from eco_planner.envs import (
 )
 from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
 from eco_planner.envs.metadrive.observation import MetaDriveObservationSource
-from eco_planner.envs.metadrive.reward import (
-    MetaDriveBuiltinRewardConfig,
-    PlannerRFTEnergyRewardConfig,
-    RewardProfileConfig,
-)
 from eco_planner.envs.observation import ObservationBuilder, TrafficSceneEncoder
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 from eco_planner.rl.config import parse_rollout_config
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater
+from eco_planner.rl.reward import (
+    MetaDriveBuiltinRewardConfig,
+    PlannerRFTEnergyRewardConfig,
+    RewardProfileConfig,
+    create_reward_objective,
+    score_plannerrft_energy_step,
+)
 from eco_planner.rl.rollout import collect_rollout_episode, create_fabric_rollout_runtime
 
 
@@ -288,7 +290,10 @@ def test_off_route_lane_is_terminal_with_padded_route_observation(
         map_query_radius_m=query_radius_m,
         history_warmup_steps=0,
         scenarios=(scenario,),
-        reward_profile=reward_profile,
+        builtin_reward_config=(
+            reward_profile if isinstance(reward_profile, MetaDriveBuiltinRewardConfig) else None
+        ),
+        reward_objective=create_reward_objective(reward_profile),
     ) as envs:
         envs.reset((scenario,))
         step = envs.step((trajectory,))[0]
@@ -307,9 +312,11 @@ def test_off_route_lane_is_terminal_with_padded_route_observation(
     assert torch.count_nonzero(step.observation["route_lanes"]).item() == 0
     assert torch.count_nonzero(step.observation["route_lanes_speed_limit"]).item() == 0
     assert not torch.any(step.observation["route_lanes_has_speed_limit"])
-    reward_audit = step.execution.substep_reward_audits[-1]
+    assert len(step.execution.substep_metrics) == 1
     if isinstance(reward_profile, PlannerRFTEnergyRewardConfig):
-        assert reward_audit.reward_gate == 0.0
+        assert score_plannerrft_energy_step(
+            reward_profile, step.execution.substep_metrics[-1]
+        ).reward_gate == 0.0
 
 
 @pytest.mark.simulator
