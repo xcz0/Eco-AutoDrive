@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Final, cast
 
 import torch
+from tensordict import TensorDict, TensorDictBase
 
 from eco_planner.contracts import (
     AGENT_COUNT,
@@ -22,6 +24,18 @@ from eco_planner.envs.observation.builder import ObservationBuilder
 from eco_planner.envs.observation.history import TrafficHistory
 from eco_planner.envs.observation.map import MapSnapshot
 from eco_planner.envs.observation.scene import TrafficObservationAudit, TrafficSceneEncoder
+
+OBSERVATION_KEYS: Final = (
+    "ego_current_state",
+    "neighbor_agents_past",
+    "static_objects",
+    "lanes",
+    "lanes_speed_limit",
+    "lanes_has_speed_limit",
+    "route_lanes",
+    "route_lanes_speed_limit",
+    "route_lanes_has_speed_limit",
+)
 
 
 class PlannerObservationSpec:
@@ -114,38 +128,37 @@ class PlannerObservationSpec:
         return cls(*values)
 
 
-def collate_observations(observations: Sequence[SingleObservation]) -> BatchObservation:
-    """Stack same-schema single-environment observations into a planner batch."""
+def observation_tensordict(
+    observation: SingleObservation | Mapping[str, torch.Tensor],
+) -> SingleObservation:
+    """Return the canonical unbatched TensorDict observation container."""
+
+    if isinstance(observation, TensorDictBase):
+        return observation
+    return TensorDict(dict(observation), batch_size=[])
+
+
+def collate_observations(
+    observations: Sequence[SingleObservation | Mapping[str, torch.Tensor]],
+) -> BatchObservation:
+    """Stack canonical single-environment TensorDicts into a planner batch."""
 
     if not observations:
         raise ValueError("cannot collate an empty observation sequence")
-    return {
-        "ego_current_state": torch.stack([item["ego_current_state"] for item in observations]),
-        "neighbor_agents_past": torch.stack(
-            [item["neighbor_agents_past"] for item in observations]
-        ),
-        "static_objects": torch.stack([item["static_objects"] for item in observations]),
-        "lanes": torch.stack([item["lanes"] for item in observations]),
-        "lanes_speed_limit": torch.stack([item["lanes_speed_limit"] for item in observations]),
-        "lanes_has_speed_limit": torch.stack(
-            [item["lanes_has_speed_limit"] for item in observations]
-        ),
-        "route_lanes": torch.stack([item["route_lanes"] for item in observations]),
-        "route_lanes_speed_limit": torch.stack(
-            [item["route_lanes_speed_limit"] for item in observations]
-        ),
-        "route_lanes_has_speed_limit": torch.stack(
-            [item["route_lanes_has_speed_limit"] for item in observations]
-        ),
-    }
+    return cast(
+        BatchObservation,
+        torch.stack([observation_tensordict(item) for item in observations]),
+    )
 
 
 __all__ = [
     "ObservationBuilder",
+    "OBSERVATION_KEYS",
     "MapSnapshot",
     "PlannerObservationSpec",
     "TrafficHistory",
     "TrafficObservationAudit",
     "TrafficSceneEncoder",
     "collate_observations",
+    "observation_tensordict",
 ]

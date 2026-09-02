@@ -4,8 +4,11 @@
 
 # Torch must load before MetaDrive/Panda3D on Windows to avoid DLL initialization failures.
 from eco_planner.envs.domain import ExecutionResult, ExecutionTrace, EpisodeStatus, WorldTrajectory
-from eco_planner.envs.observation import PlannerObservationSpec, collate_observations
-from eco_planner.envs.metadrive.observation import TrafficObservationAudit
+from eco_planner.envs.observation import (
+    PlannerObservationSpec,
+    TrafficObservationAudit,
+    collate_observations,
+)
 from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
 from eco_planner.envs.metadrive.simulator import TrajectoryMetaDriveEnv
 from eco_planner.envs.metadrive.slot import (

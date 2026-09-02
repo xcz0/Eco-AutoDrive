@@ -19,12 +19,13 @@ from eco_planner.envs import (
     VectorMetaDriveEnv,
 )
 from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
-from eco_planner.envs.metadrive.observation import MetaDriveObservationAdapter
+from eco_planner.envs.metadrive.observation import MetaDriveObservationSource
 from eco_planner.envs.metadrive.reward import (
     MetaDriveBuiltinRewardConfig,
     PlannerRFTEnergyRewardConfig,
     RewardProfileConfig,
 )
+from eco_planner.envs.observation import ObservationBuilder, TrafficSceneEncoder
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 from eco_planner.rl.config import parse_rollout_config
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater
@@ -207,19 +208,23 @@ def test_traffic_history_enters_planner_observation(
     config = _environment_config("SC", traffic_density=0.1)
     config["horizon"] = 30
     env = TrajectoryMetaDriveEnv(config)
-    adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
+    source = MetaDriveObservationSource(
+        PlannerObservationSpec.from_planner_config(official_model_config), 100.0
+    )
+    builder = ObservationBuilder(TrafficSceneEncoder(100.0))
     try:
         env.reset(seed=0)
-        adapter.reset(env, env.initial_traffic_frame)
+        source.reset(env, env.initial_traffic_frame)
         for _ in range(4):
             _, _, terminated, truncated, info = env.step(_stationary_trajectory())
             assert not terminated and not truncated
-            adapter.append_frames(info["trajectory_execution"].traffic_frames)
-        observation, audit = adapter.build(env)
+            source.append_frames(info["trajectory_execution"].traffic_frames)
+        observation, audit = builder.build(source.history, source.map_snapshot(env))
     finally:
         env.close()
 
     assert observation["neighbor_agents_past"].shape == (32, 21, 11)
+    assert observation.batch_size == torch.Size([])
     assert observation["static_objects"].shape == (5, 10)
     assert observation["lanes"].shape == (70, 20, 12)
     assert observation["route_lanes"].shape == (25, 20, 12)
@@ -252,6 +257,8 @@ def test_two_slot_vector_rollout_executes_current_training_path(
     assert [item.slot for item in resets] == [0, 1]
     assert [item.slot for item in steps] == [0, 1]
     for reset, step in zip(resets, steps, strict=True):
+        assert reset.observation.batch_size == torch.Size([])
+        assert step.observation.batch_size == torch.Size([])
         assert reset.observation["ego_current_state"].shape == (10,)
         assert step.execution.substep_states.shape == (1, 7)
         assert isinstance(step.terminated, bool)

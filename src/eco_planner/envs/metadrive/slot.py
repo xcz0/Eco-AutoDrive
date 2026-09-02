@@ -12,13 +12,17 @@ from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.envs.array_types import SingleObservation, TrajectoryArray
 from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
 from eco_planner.envs.metadrive.observation import (
-    MetaDriveObservationAdapter,
-    NoTrafficMetaDriveObservationAdapter,
-    TrafficObservationAudit,
+    MetaDriveObservationSource,
+    NoTrafficMetaDriveObservationSource,
 )
 from eco_planner.envs.metadrive.reward import RewardProfileConfig
 from eco_planner.envs.metadrive.simulator import TrajectoryMetaDriveEnv
-from eco_planner.envs.observation import PlannerObservationSpec
+from eco_planner.envs.observation import (
+    ObservationBuilder,
+    PlannerObservationSpec,
+    TrafficObservationAudit,
+    TrafficSceneEncoder,
+)
 
 ObservationMode = Literal["traffic", "no_traffic"]
 
@@ -78,7 +82,10 @@ class MetaDriveEnvSlot:
         self._map_query_radius_m = float(map_query_radius_m)
         self._history_warmup_steps = history_warmup_steps
         self._reward_profile = reward_profile
-        self._adapter = self._create_adapter()
+        self._observation_source = self._create_observation_source()
+        self._observation_builder = ObservationBuilder(
+            TrafficSceneEncoder(self._map_query_radius_m)
+        )
         self._env = self._create_environment()
 
     @property
@@ -109,10 +116,10 @@ class MetaDriveEnvSlot:
         if map_name != self._env.config["map"]:
             self._replace_environment(map_name)
         self._env.reset(seed=seed)
-        if isinstance(self._adapter, MetaDriveObservationAdapter):
-            self._adapter.reset(self._env, self._env.initial_traffic_frame)
+        if isinstance(self._observation_source, MetaDriveObservationSource):
+            self._observation_source.reset(self._env, self._env.initial_traffic_frame)
         else:
-            self._adapter.reset(self._env)
+            self._observation_source.reset(self._env)
         return EnvSlotReset(
             route_completion=self._env.route_completion,
             route_length_m=self._env.route_length_m,
@@ -150,18 +157,26 @@ class MetaDriveEnvSlot:
     def observe(self) -> EnvSlotObservation:
         """Build the current raw CPU planner observation."""
 
-        if isinstance(self._adapter, MetaDriveObservationAdapter):
-            observation, audit = self._adapter.build(self._env)
+        if isinstance(self._observation_source, MetaDriveObservationSource):
+            observation, audit = self._observation_builder.build(
+                self._observation_source.history,
+                self._observation_source.map_snapshot(self._env),
+            )
             return EnvSlotObservation(observation, audit)
-        return EnvSlotObservation(self._adapter.build(self._env), None)
+        return EnvSlotObservation(
+            self._observation_builder.build_empty_scene(
+                self._observation_source.map_snapshot(self._env)
+            ),
+            None,
+        )
 
     def step(self, trajectory: TrajectoryArray) -> EnvSlotStep:
         """Execute one trajectory prefix and commit its traffic frames."""
 
         _, reward, terminated, truncated, info = self._env.step(trajectory)
         execution = cast(TrajectoryExecutionRecord, info["trajectory_execution"])
-        if isinstance(self._adapter, MetaDriveObservationAdapter):
-            self._adapter.append_frames(execution.traffic_frames)
+        if isinstance(self._observation_source, MetaDriveObservationSource):
+            self._observation_source.append_frames(execution.traffic_frames)
         return EnvSlotStep(
             reward=float(reward),
             terminated=bool(terminated),
@@ -178,12 +193,12 @@ class MetaDriveEnvSlot:
     def __exit__(self, *args: object) -> None:
         self.close()
 
-    def _create_adapter(
+    def _create_observation_source(
         self,
-    ) -> MetaDriveObservationAdapter | NoTrafficMetaDriveObservationAdapter:
+    ) -> MetaDriveObservationSource | NoTrafficMetaDriveObservationSource:
         if self._mode == "traffic":
-            return MetaDriveObservationAdapter(self._observation_spec, self._map_query_radius_m)
-        return NoTrafficMetaDriveObservationAdapter(
+            return MetaDriveObservationSource(self._observation_spec, self._map_query_radius_m)
+        return NoTrafficMetaDriveObservationSource(
             self._observation_spec, self._map_query_radius_m
         )
 
@@ -204,7 +219,7 @@ class MetaDriveEnvSlot:
     def _replace_environment(self, map_name: str) -> None:
         self._env.close()
         self._env_config["map"] = map_name
-        self._adapter = self._create_adapter()
+        self._observation_source = self._create_observation_source()
         self._env = self._create_environment()
 
 

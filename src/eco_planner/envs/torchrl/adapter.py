@@ -8,16 +8,15 @@ from typing import cast
 
 import numpy as np
 import torch
-from tensordict import TensorDict, TensorDictBase
+from tensordict import TensorDictBase
 from torchrl.data import Binary, Composite, Unbounded
 from torchrl.envs import EnvBase
 
 from eco_planner.contracts import PLANNER_HORIZON
 from eco_planner.envs.array_types import SingleObservation
 from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
-from eco_planner.envs.metadrive.observation import TrafficObservationAudit
 from eco_planner.envs.metadrive.slot import EnvSlotReset, EnvSlotStep, MetaDriveEnvSlot
-from eco_planner.envs.observation import PlannerObservationSpec
+from eco_planner.envs.observation import PlannerObservationSpec, TrafficObservationAudit
 
 _CPU_DEVICE = torch.device("cpu")
 
@@ -103,15 +102,13 @@ class TorchRLMetaDriveEnv(EnvBase):
         observation = self._slot.observe()
         self._last_observation_s = perf_counter() - observation_started
         self._last_traffic_audit = observation.traffic_audit
-        return TensorDict(
+        return observation.observation.clone().update(
             {
-                **observation.observation,
                 "reward": torch.tensor([result.reward], dtype=torch.float32),
                 "done": torch.tensor([result.terminated or result.truncated], dtype=torch.bool),
                 "terminated": torch.tensor([result.terminated], dtype=torch.bool),
                 "truncated": torch.tensor([result.truncated], dtype=torch.bool),
-            },
-            batch_size=[],
+            }
         )
 
     def _set_seed(self, seed: int | None) -> None:
@@ -224,12 +221,10 @@ def _observation_spec(spec: PlannerObservationSpec) -> Composite:
 
 
 def _observation_tensordict(observation: SingleObservation) -> TensorDictBase:
-    return TensorDict(
+    return observation.clone().update(
         {
-            **observation,
             "done": torch.zeros(1, dtype=torch.bool),
             "terminated": torch.zeros(1, dtype=torch.bool),
             "truncated": torch.zeros(1, dtype=torch.bool),
-        },
-        batch_size=[],
+        }
     )

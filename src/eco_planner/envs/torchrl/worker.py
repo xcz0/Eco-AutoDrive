@@ -13,10 +13,9 @@ from tensordict import TensorDictBase
 from torchrl.data import Composite, Unbounded
 
 from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
-from eco_planner.envs.metadrive.observation import TrafficObservationAudit
 from eco_planner.envs.metadrive.reward import RewardProfileConfig
 from eco_planner.envs.metadrive.slot import MetaDriveEnvSlot, ObservationMode
-from eco_planner.envs.observation import PlannerObservationSpec
+from eco_planner.envs.observation import PlannerObservationSpec, TrafficObservationAudit
 from eco_planner.envs.torchrl.adapter import TorchRLMetaDriveEnv
 
 

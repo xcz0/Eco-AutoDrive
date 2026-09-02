@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from threading import RLock
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import torch
@@ -16,10 +16,13 @@ from torchrl.envs import ParallelEnv
 from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.envs.array_types import SingleObservation
 from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
-from eco_planner.envs.metadrive.observation import TrafficObservationAudit
 from eco_planner.envs.metadrive.reward import RewardProfileConfig
 from eco_planner.envs.metadrive.slot import ObservationMode
-from eco_planner.envs.observation import PlannerObservationSpec
+from eco_planner.envs.observation import (
+    OBSERVATION_KEYS,
+    PlannerObservationSpec,
+    TrafficObservationAudit,
+)
 from eco_planner.envs.torchrl.worker import (
     VectorEnvScenario,
     VectorEnvTiming,
@@ -27,18 +30,6 @@ from eco_planner.envs.torchrl.worker import (
     WorkerResetResult,
     WorkerStepResult,
     make_torchrl_scenario_env,
-)
-
-_OBSERVATION_KEYS = (
-    "ego_current_state",
-    "neighbor_agents_past",
-    "static_objects",
-    "lanes",
-    "lanes_speed_limit",
-    "lanes_has_speed_limit",
-    "route_lanes",
-    "route_lanes_speed_limit",
-    "route_lanes_has_speed_limit",
 )
 
 
@@ -337,8 +328,7 @@ def _slot_mask(count: int, slots: Sequence[int]) -> torch.Tensor:
 
 
 def _observation(output: TensorDictBase, slot: int) -> SingleObservation:
-    values = {key: _tensor_field(output, key)[slot].detach().clone() for key in _OBSERVATION_KEYS}
-    return cast(SingleObservation, values)
+    return output.select(*OBSERVATION_KEYS)[slot].detach().clone()
 
 
 def _tensor_field(output: TensorDictBase, key: str) -> torch.Tensor:

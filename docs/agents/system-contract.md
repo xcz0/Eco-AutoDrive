@@ -51,7 +51,7 @@ resolved config 对账。
 
 仿真真实状态、模型观测、模型预测和能耗记录必须分别保存。模型预测不得覆盖仿真状态，不同能耗指标不得静默互换或混合累计。业务代码不得从 `ref/` 导入运行时实现。
 
-推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。evaluation 与 policy rollout 共用 `eco_planner.runtime` 中的 runtime/resource config、Fabric 解析/seed、逐 generator batched standard-normal sampler，以及 `HostTrajectories`/`HostTransfer` CUDA→host contract；MetaDrive 观测适配器只生成 CPU raw tensor；Fabric 统一负责观测传输、模型设备和 forward 精度。Serial evaluation、single-environment rollout 与 vector execution 共用 `MetaDriveEnvSlot` 的 reset、stationary warmup、observe 和 trajectory step 生命周期；slot 持有一个 `TrajectoryMetaDriveEnv`、严格 traffic/no-traffic adapter、traffic history 和 map cache，evaluation artifact 与 RL transition 语义仍由调用方拥有。`TorchRLMetaDriveEnv` 以 CPU TensorDict 暴露单一 slot 的 raw observation、`float32 [80,4]` action、reward 与 done/terminated/truncated specs，并复用而不重定义 slot 的 warmup、route、audit 与 execution 语义。
+推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。evaluation 与 policy rollout 共用 `eco_planner.runtime` 中的 runtime/resource config、Fabric 解析/seed、逐 generator batched standard-normal sampler，以及 `HostTrajectories`/`HostTransfer` CUDA→host contract；MetaDrive observation source 只生成 CPU raw TensorDict；Fabric 统一负责观测传输、模型设备和 forward 精度。Serial evaluation、single-environment rollout 与 vector execution 共用 `MetaDriveEnvSlot` 的 reset、stationary warmup、observe 和 trajectory step 生命周期；slot 持有一个 `TrajectoryMetaDriveEnv`、严格 traffic/no-traffic source、traffic history 和 map cache，evaluation artifact 与 RL transition 语义仍由调用方拥有。`TorchRLMetaDriveEnv` 以 CPU TensorDict 暴露单一 slot 的 raw observation、`float32 [80,4]` action、reward 与 done/terminated/truncated specs，并复用而不重定义 slot 的 warmup、route、audit 与 execution 语义。
 
 生产 `VectorMetaDriveEnv` 由 TorchRL 0.13.3 `ParallelEnv` 实现，固定使用 CPU、Windows `spawn`、`shared_memory=true`、`use_buffers=true` 和 `serial_for_single=false`；B=1 也必须使用独立 worker 进程。TorchRL 负责进程健康检查、共享 TensorDict buffer、partial `_reset`/`_step` 调度以及 close/join/terminate 生命周期。项目 façade 持有完整 scenario catalog，将 scenario 编码为 `int64 [B,1]` index，将请求的物理 slot 子集编码为 bool mask，并始终按请求 slot 顺序恢复结果。共享 tensor hot path 返回 observation、reward 和 termination；由于固定的 TensorDict 0.13.0 对 partial mask 与 `NonTensor` output 的组合存在内部错误，reset/execution/traffic audit 等 domain dataclass 以及可捕获 failure 通过 TorchRL 自带的 remote-method channel、在同一 façade 操作锁内读取，不使用项目 Pipe 或自定义 worker protocol。step failure output 必须保留完整 zero observation、done/terminated/truncated 和 `float32 [1]` reward Tensor，再保存原始 operation 与 traceback；façade 标注 slot、关闭整个 pool 并抛出 `VectorMetaDriveWorkerError`。硬进程退出只包装 TorchRL 原始错误并标注当前 operation，不伪造远端 traceback；close 保持幂等。
 
@@ -131,18 +131,27 @@ lane 长度与宽度必须接受 Python 或 NumPy 的真实数值标量，同时
 MetaDrive adapters consume the fixed planner observation ABI from `envs.contracts`; dimensions are
 not runtime configuration and do not depend on checkpoint normalizers or reconstruct a complete
 planner configuration. `PlannerObservationSpec` remains only as a compatibility view of that fixed
-ABI. Adapters produce one CPU `SingleObservation` without a planner batch dimension.
-`collate_observations` is the sole batch boundary: it stacks a same-schema sequence into a
-`BatchObservation` with leading `[B, ...]` dimensions. B=1 planner, evaluation, and rollout
-paths use this collator; `SingleObservation` / `BatchObservation` 的字段、shape 和 dtype 由
-jaxtyping `TypedDict` 表达，collator 运行时只拒绝空序列，不重复校验 schema 或 tensor 类型。
-它不包含 MetaDrive、planner 或 device-placement 逻辑。
+ABI. `MetaDriveObservationSource` only captures simulator state as immutable domain DTOs and local
+`MapSnapshot` arrays. `TrafficHistory`, `TrafficSceneEncoder`, and `ObservationBuilder` are the sole
+feature-encoding pipeline and return one CPU, unbatched `TensorDict`; no MetaDrive module encodes
+participant, static-object, or map features. `collate_observations` is the sole planner batch
+boundary: it stacks canonical same-schema TensorDicts into leading `[B, ...]` dimensions. B=1
+planner, evaluation, and rollout paths use this collator. It only rejects an empty sequence and has
+no MetaDrive, planner, or device-placement logic.
 
-`MetaDriveObservationAdapter` 使用 reset 帧和连续 0.1 s 交通快照构造严格的 21 帧历史。每个快照必须在 MetaDrive 边界捕获为不可变的项目 DTO；捕获边界校验 MetaDrive 参与者类型、位置、heading、速度和尺寸，领域与观测编码链路只消费该明确类型。批量追加历史只校验时间连续性，并在整批确认后一次性提交，失败时历史保持不变。
+`MetaDriveObservationSource` uses the reset frame and consecutive 0.1 s traffic snapshots to build
+a strict 21-frame `TrafficHistory`. Each snapshot must be captured at the MetaDrive boundary as an
+immutable project DTO; that boundary validates MetaDrive participant type, position, heading,
+velocity, and dimensions, while domain and observation encoding consume only those DTOs. Batch
+history append checks continuity and commits only after the whole batch has been accepted, leaving
+history unchanged on failure. `TrafficSceneEncoder` selects current-frame participants by distance
+and stable ID, keeps at most 32, uses current-to-past nearest-state backfill for missing history,
+and encodes vehicle/pedestrian/bicycle as the fixed three-way one-hot channels. It likewise encodes
+at most five static objects with the fixed four-way ABI; all padding stays zero.
 
 当前帧查询半径内的对象按距离和 ID 排序。历史对象缺帧时使用从当前帧向过去保持最近可用状态的官方填充语义；当前帧不存在的对象不得被选入。首次交通推理前，当前实现固定 ego 并推进背景交通 20 个 0.1 s 子步，连同 reset 帧形成 21 帧历史。该预热不计入正式指标，必须保存状态、奖励、终止标志及动态/静态对象数量；ego 位移达到 `1e-3 m` 或预热提前结束时必须失败。
 
-`NoTrafficMetaDriveObservationAdapter` 只允许显式满足 `traffic_density=0`、`random_traffic=false`、`accident_prob=0` 的场景。reset 后若存在任何动态或静态交通对象必须失败；邻车历史和静态物体字段为全零 padding。该入口不得用于有交通场景。
+`NoTrafficMetaDriveObservationSource` 只允许显式满足 `traffic_density=0`、`random_traffic=false`、`accident_prob=0` 的场景。reset 后若存在任何动态或静态交通对象必须失败；`ObservationBuilder` 生成的邻车历史和静态物体字段为全零 padding。该入口不得用于有交通场景。
 
 `VectorMetaDriveEnv.reset` 在 worker-owned `MetaDriveEnvSlot` 内完成与 serial 路径相同的 adapter reset 和 history warmup，再返回单 observation 与 reset 时的 route completion；换图时该 slot 同时重建 environment、adapter 和 map cache。`TorchRLMetaDriveEnv._reset` 在观测构建时若遇到 MetaDrive navigation 损坏（`no connected navigation route lanes`，发生于同 map 累积大量 reset 后），捕获该 `RuntimeError`、调用 `MetaDriveEnvSlot.recreate_environment` 重建 env 并重试一次 reset；此恢复路径不改变正常 reset 行为。`reset_at` 和 `step_at` 分别使用 TorchRL partial `_reset` 和 `_step` mask，只推进指定 slot；worker 异常带回 slot 和 operation，并使整个 vector run 明确失败。
 
