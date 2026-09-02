@@ -1,69 +1,108 @@
-"""Kinematic trajectory execution and typed MetaDrive results."""
+"""Kinematic trajectory-prefix execution over the MetaDrive backend."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 from eco_planner.contracts import (
     PLANNER_HORIZON,
+    SIMULATOR_STEP_S,
     ExecutionMode,
     validate_metadrive_timestep,
 )
 from eco_planner.envs.array_types import (
     ExecutionBooleanArray,
-    ExecutionPointArray,
     ExecutionScalarArray,
     ExecutionStateArray,
-    WorldHeadingArray,
-    WorldPointArray,
+    TrajectoryArray,
     WorldVectorArray,
 )
+from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
 from eco_planner.envs.domain.metrics import (
     TransitionMetrics,
     executed_fuel_proxy_step_energy_ml,
 )
 from eco_planner.envs.domain.traffic import TrafficFrame
-from eco_planner.envs.domain.trajectory import WorldTrajectory
+from eco_planner.envs.domain.trajectory import WorldTrajectory, to_world_trajectory
 from eco_planner.envs.geometry import shortest_angle_delta
+from eco_planner.envs.metadrive.simulator import MetaDriveBackend, MetaDriveStepResult
+from eco_planner.envs.metadrive.transition import TransitionExtractor
+
+_ZERO_VELOCITY: WorldVectorArray = np.zeros(2, dtype=np.float64)
 
 
-@dataclass(frozen=True, slots=True)
-class TrajectoryExecutionRecord:
-    start_center: WorldVectorArray
-    start_heading: float
-    world_centers: WorldPointArray
-    world_headings: WorldHeadingArray
-    substep_states: ExecutionStateArray
-    target_centers: ExecutionPointArray
-    target_headings: ExecutionScalarArray
-    position_errors_m: ExecutionScalarArray
-    heading_errors_rad: ExecutionScalarArray
-    substep_rewards: ExecutionScalarArray
-    substep_dense_rewards: ExecutionScalarArray
-    substep_native_energy_ml: ExecutionScalarArray
-    substep_native_episode_energy_ml: ExecutionScalarArray
-    substep_terminated: ExecutionBooleanArray
-    substep_truncated: ExecutionBooleanArray
-    traffic_frames: tuple[TrafficFrame, ...]
-    route_completion: float
-    arrive_dest: bool
-    out_of_road: bool
-    crash_vehicle: bool
-    crash_object: bool
-    crash_building: bool
-    crash_human: bool
-    max_step: bool
-    crash_sidewalk: bool = False
-    substep_executed_fuel_proxy_energy_ml: ExecutionScalarArray = field(
-        default_factory=lambda: np.empty(0, dtype=np.float64)
-    )
-    substep_distance_m: ExecutionScalarArray = field(
-        default_factory=lambda: np.empty(0, dtype=np.float64)
-    )
-    substep_metrics: tuple[TransitionMetrics, ...] = ()
+class TrajectoryExecutor:
+    """Execute one canonical local trajectory prefix and assemble its immutable facts."""
+
+    def __init__(
+        self,
+        backend: MetaDriveBackend,
+        execution_steps: int,
+    ) -> None:
+        if execution_steps not in {mode.steps for mode in ExecutionMode}:
+            raise ValueError("execution_steps must match a fixed execution mode")
+        self._backend = backend
+        self._execution_steps = execution_steps
+        self._transition_extractor = TransitionExtractor()
+
+    def reset(self) -> TrafficFrame:
+        """Reset transition history after the backend has reset."""
+
+        return self._transition_extractor.reset(self._backend)
+
+    def execute(
+        self, trajectory: TrajectoryArray
+    ) -> tuple[float, bool, bool, TrajectoryExecutionRecord]:
+        """Execute the configured prefix, stopping at the first episode boundary."""
+
+        rear_wheelbase = self._backend.agent.REAR_WHEELBASE
+        if rear_wheelbase is None:
+            raise RuntimeError("controlled vehicle does not define REAR_WHEELBASE")
+        world_trajectory = to_world_trajectory(
+            trajectory,
+            center_position=np.asarray(self._backend.agent.position, dtype=np.float64),
+            center_heading=float(self._backend.agent.heading_theta),
+            rear_wheelbase=float(rear_wheelbase),
+            timestep_s=SIMULATOR_STEP_S,
+        )
+        total_reward = 0.0
+        recorder = TrajectoryExecutionRecorder.empty(self._execution_steps)
+        final_step: MetaDriveStepResult | None = None
+        for index in range(self._execution_steps):
+            action = world_trajectory if index == 0 else None
+            # The policy applies the waypoint in after_step. Suppress movement from the
+            # previous waypoint during the intervening physics phase.
+            self._backend.agent.set_velocity(_ZERO_VELOCITY)
+            self._backend.agent.set_angular_velocity(0.0)
+            step = self._backend.step_world_trajectory(action)
+            metrics = self._transition_extractor.extract(
+                self._backend,
+                step,
+                float(world_trajectory.angular_velocities[index]),
+            )
+            total_reward += step.builtin_reward
+            recorder.append(
+                self._backend.agent,
+                step.builtin_reward,
+                step.builtin_dense_reward,
+                step,
+                float(world_trajectory.angular_velocities[index]),
+                metrics,
+            )
+            final_step = step
+            if step.terminated or step.truncated:
+                break
+        if final_step is None:
+            raise RuntimeError("trajectory executor did not advance the simulator")
+        return (
+            total_reward,
+            final_step.terminated,
+            final_step.truncated,
+            recorder.build(world_trajectory, final_step),
+        )
 
 
 @dataclass(slots=True)
@@ -78,7 +117,6 @@ class TrajectoryExecutionRecorder:
     metrics: list[TransitionMetrics]
     terminated: ExecutionBooleanArray
     truncated: ExecutionBooleanArray
-    traffic_frames: list[TrafficFrame]
     count: int
 
     @classmethod
@@ -94,7 +132,6 @@ class TrajectoryExecutionRecorder:
             metrics=[],
             terminated=np.empty(execution_steps, dtype=np.bool_),
             truncated=np.empty(execution_steps, dtype=np.bool_),
-            traffic_frames=[],
             count=0,
         )
 
@@ -103,12 +140,8 @@ class TrajectoryExecutionRecorder:
         agent: Any,
         reward: float,
         dense_reward: float,
-        native_energy_ml: float,
-        native_episode_energy_ml: float,
-        terminated: bool,
-        truncated: bool,
+        step: MetaDriveStepResult,
         angular_velocity: float,
-        traffic_frame: TrafficFrame,
         metrics: TransitionMetrics,
     ) -> None:
         index = self.count
@@ -119,27 +152,25 @@ class TrajectoryExecutionRecorder:
         self.states[index, 6] = angular_velocity
         self.rewards[index] = reward
         self.dense_rewards[index] = dense_reward
-        self.native_energy_ml[index] = native_energy_ml
-        self.native_episode_energy_ml[index] = native_episode_energy_ml
+        self.native_energy_ml[index] = step.native_step_energy_ml
+        self.native_episode_energy_ml[index] = step.native_episode_energy_ml
         self.executed_fuel_proxy_energy_ml[index] = metrics.executed_fuel_proxy_step_energy_ml
         self.distance_m[index] = metrics.step_distance_m
         self.metrics.append(metrics)
-        self.terminated[index] = terminated
-        self.truncated[index] = truncated
-        self.traffic_frames.append(traffic_frame)
+        self.terminated[index] = step.terminated
+        self.truncated[index] = step.truncated
         self.count += 1
 
-    def update_info(
+    def build(
         self,
-        final_info: dict[str, Any],
         world_trajectory: WorldTrajectory,
-        total_reward: float,
-    ) -> dict[str, Any]:
+        final_step: MetaDriveStepResult,
+    ) -> TrajectoryExecutionRecord:
         executed_steps = self.count
         state_array = self.states[:executed_steps].copy()
         target_centers = world_trajectory.centers[1 : executed_steps + 1]
         target_headings = world_trajectory.headings[1 : executed_steps + 1]
-        execution = TrajectoryExecutionRecord(
+        return TrajectoryExecutionRecord(
             start_center=world_trajectory.centers[0].copy(),
             start_heading=float(world_trajectory.headings[0]),
             world_centers=world_trajectory.centers[1:].copy(),
@@ -162,22 +193,17 @@ class TrajectoryExecutionRecorder:
             substep_metrics=tuple(self.metrics),
             substep_terminated=self.terminated[:executed_steps].copy(),
             substep_truncated=self.truncated[:executed_steps].copy(),
-            traffic_frames=tuple(self.traffic_frames),
-            route_completion=finite_info_scalar(final_info, "route_completion"),
-            arrive_dest=bool(final_info["arrive_dest"]),
-            out_of_road=bool(final_info["out_of_road"]),
-            crash_vehicle=bool(final_info["crash_vehicle"]),
-            crash_object=bool(final_info["crash_object"]),
-            crash_building=bool(final_info["crash_building"]),
-            crash_human=bool(final_info["crash_human"]),
-            max_step=bool(final_info["max_step"]),
-            crash_sidewalk=bool(final_info["crash_sidewalk"]),
+            traffic_frames=tuple(metric.input.traffic_frame for metric in self.metrics),
+            route_completion=final_step.route_completion,
+            arrive_dest=final_step.arrive_dest,
+            out_of_road=final_step.out_of_road,
+            crash_vehicle=final_step.crash_vehicle,
+            crash_object=final_step.crash_object,
+            crash_building=final_step.crash_building,
+            crash_human=final_step.crash_human,
+            crash_sidewalk=final_step.crash_sidewalk,
+            max_step=final_step.max_step,
         )
-        result = dict(final_info)
-        result["trajectory_execution_steps"] = executed_steps
-        result["trajectory_reward_sum"] = total_reward
-        result["trajectory_execution"] = execution
-        return result
 
 
 def metadrive_fuel_proxy_step_energy_ml(
@@ -199,15 +225,11 @@ def execution_steps_from_config(config: Any) -> int:
             return ExecutionMode(mode_value).steps
         except ValueError as error:
             raise ValueError("execution_mode must be 'rollout' or 'evaluation'") from error
-    # Existing serialized experiment configs retain these keys. They are a compatibility input
-    # boundary only; all downstream code receives the fixed mode-derived step count.
     horizon = _require_positive_int(config, "trajectory_horizon")
     execution_steps = _require_positive_int(config, "trajectory_execution_steps")
-    if horizon != PLANNER_HORIZON or execution_steps not in {
-        mode.steps for mode in ExecutionMode
-    }:
+    if horizon != PLANNER_HORIZON or execution_steps not in {mode.steps for mode in ExecutionMode}:
         raise ValueError("legacy trajectory configuration does not match the fixed project ABI")
-    _validated_timestep(config)
+    validate_metadrive_timestep(config["physics_world_step_size"], config["decision_repeat"])
     return execution_steps
 
 
@@ -216,16 +238,3 @@ def _require_positive_int(config: Any, name: str) -> int:
     if type(value) is not int or value <= 0:
         raise ValueError(f"{name} must be a positive integer")
     return value
-
-
-def _validated_timestep(config: Any) -> float:
-    return validate_metadrive_timestep(
-        config["physics_world_step_size"], config["decision_repeat"]
-    )
-
-
-def finite_info_scalar(info: dict[str, Any], name: str) -> float:
-    value: float = info[name]
-    if not np.isfinite(value):
-        raise ValueError(f"{name} must be finite")
-    return float(value)

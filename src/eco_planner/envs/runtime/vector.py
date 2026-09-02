@@ -15,9 +15,9 @@ from torchrl.envs import ParallelEnv
 
 from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.envs.array_types import SingleObservation
+from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
 from eco_planner.envs.domain.metrics import TransitionMetrics
 from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
-from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
 from eco_planner.envs.metadrive.slot import ObservationMode
 from eco_planner.envs.observation import (
     OBSERVATION_KEYS,

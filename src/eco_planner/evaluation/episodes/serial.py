@@ -122,7 +122,7 @@ def run_scenario(
             if config.video.enabled:
                 frames.append(
                     render_cycle_frame(
-                        env_slot.env, execution, state.anchor[:2], config.video, cycle
+                        env_slot.backend, execution, state.anchor[:2], config.video, cycle
                     )
                 )
             final_execution = execution

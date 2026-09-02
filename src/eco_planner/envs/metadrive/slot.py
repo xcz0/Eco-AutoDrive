@@ -3,21 +3,22 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass
-from typing import Any, Literal, cast
+from dataclasses import dataclass, replace
+from typing import Any, Literal
 
 import numpy as np
 
 from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.envs.array_types import SingleObservation, TrajectoryArray
+from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
 from eco_planner.envs.domain.metrics import TransitionMetrics
 from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
-from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
+from eco_planner.envs.metadrive.execution import TrajectoryExecutor, execution_steps_from_config
 from eco_planner.envs.metadrive.observation import (
     MetaDriveObservationSource,
     NoTrafficMetaDriveObservationSource,
 )
-from eco_planner.envs.metadrive.simulator import TrajectoryMetaDriveEnv
+from eco_planner.envs.metadrive.simulator import MetaDriveBackend
 from eco_planner.envs.observation import (
     ObservationBuilder,
     PlannerObservationSpec,
@@ -57,7 +58,7 @@ class EnvSlotStep:
 
 
 class MetaDriveEnvSlot:
-    """Own one MetaDrive environment, observation adapter, and traffic history."""
+    """Compose one simulator backend, trajectory executor, and planner observation source."""
 
     def __init__(
         self,
@@ -79,6 +80,7 @@ class MetaDriveEnvSlot:
             raise ValueError(f"{mode} environments require history_warmup_steps={expected_warmup}")
 
         self._env_config = dict(env_config)
+        self._execution_steps = execution_steps_from_config(self._env_config)
         self._mode = mode
         self._observation_spec = observation_spec
         self._map_query_radius_m = float(map_query_radius_m)
@@ -89,25 +91,32 @@ class MetaDriveEnvSlot:
         self._observation_builder = ObservationBuilder(
             TrafficSceneEncoder(self._map_query_radius_m)
         )
-        self._env = self._create_environment()
+        self._backend = self._create_backend()
+        self._executor = self._create_executor()
 
     @property
-    def env(self) -> TrajectoryMetaDriveEnv:
-        """Return the owned low-level environment for rendering and audits."""
+    def backend(self) -> MetaDriveBackend:
+        """Return the owned simulator backend for rendering and MetaDrive-native audits."""
 
-        return self._env
+        return self._backend
+
+    @property
+    def route_completion(self) -> float:
+        """Return the backend's current finite route-completion fraction."""
+
+        return self._backend.route_completion
 
     @property
     def vehicle_state(self) -> np.ndarray:
         """Return the current seven-value world-frame ego state."""
 
-        velocity = np.asarray(self._env.agent.velocity, dtype=np.float64)
+        velocity = np.asarray(self._backend.agent.velocity, dtype=np.float64)
         return np.array(
             [
-                *np.asarray(self._env.agent.position, dtype=np.float64),
-                float(self._env.agent.heading_theta),
+                *np.asarray(self._backend.agent.position, dtype=np.float64),
+                float(self._backend.agent.heading_theta),
                 *velocity,
-                float(self._env.agent.speed),
+                float(self._backend.agent.speed),
                 0.0,
             ],
             dtype=np.float64,
@@ -116,18 +125,19 @@ class MetaDriveEnvSlot:
     def reset(self, *, map_name: str, seed: int) -> EnvSlotReset:
         """Reset this slot for one map and seed before traffic warmup."""
 
-        if map_name != self._env.config["map"]:
+        if map_name != self._backend.config["map"]:
             self._replace_environment(map_name)
-        self._env.reset(seed=seed)
+        self._backend.reset(seed=seed)
+        initial_traffic_frame = self._executor.reset()
         if isinstance(self._observation_source, MetaDriveObservationSource):
-            self._observation_source.reset(self._env, self._env.initial_traffic_frame)
+            self._observation_source.reset(self._backend, initial_traffic_frame)
         else:
-            self._observation_source.reset(self._env)
+            self._observation_source.reset(self._backend)
         return EnvSlotReset(
-            route_completion=self._env.route_completion,
-            route_length_m=self._env.route_length_m,
+            route_completion=self._backend.route_completion,
+            route_length_m=self._backend.route_length_m,
             warmup_initial_state=self.vehicle_state,
-            programmatic_lane_speed_limit_audit=self._env.programmatic_lane_speed_limit_audit,
+            programmatic_lane_speed_limit_audit=(self._backend.programmatic_lane_speed_limit_audit),
         )
 
     def warmup(self) -> Iterator[TrajectoryExecutionRecord]:
@@ -163,12 +173,12 @@ class MetaDriveEnvSlot:
         if isinstance(self._observation_source, MetaDriveObservationSource):
             observation, audit = self._observation_builder.build(
                 self._observation_source.history,
-                self._observation_source.map_snapshot(self._env),
+                self._observation_source.map_snapshot(self._backend),
             )
             return EnvSlotObservation(observation, audit)
         return EnvSlotObservation(
             self._observation_builder.build_empty_scene(
-                self._observation_source.map_snapshot(self._env)
+                self._observation_source.map_snapshot(self._backend)
             ),
             None,
         )
@@ -176,8 +186,17 @@ class MetaDriveEnvSlot:
     def step(self, trajectory: TrajectoryArray) -> EnvSlotStep:
         """Execute one trajectory prefix and commit its traffic frames."""
 
-        _, reward, terminated, truncated, info = self._env.step(trajectory)
-        execution = cast(TrajectoryExecutionRecord, info["trajectory_execution"])
+        reward, terminated, truncated, execution = self._executor.execute(trajectory)
+        if self._reward_objective is not None:
+            scored = tuple(self._reward_objective(metrics) for metrics in execution.substep_metrics)
+            substep_rewards = np.asarray([item[0] for item in scored], dtype=np.float64)
+            substep_dense_rewards = np.asarray([item[1] for item in scored], dtype=np.float64)
+            execution = replace(
+                execution,
+                substep_rewards=substep_rewards,
+                substep_dense_rewards=substep_dense_rewards,
+            )
+            reward = float(substep_rewards.sum())
         if isinstance(self._observation_source, MetaDriveObservationSource):
             self._observation_source.append_frames(execution.traffic_frames)
         return EnvSlotStep(
@@ -188,7 +207,7 @@ class MetaDriveEnvSlot:
         )
 
     def close(self) -> None:
-        self._env.close()
+        self._backend.close()
 
     def __enter__(self) -> MetaDriveEnvSlot:
         return self
@@ -201,15 +220,21 @@ class MetaDriveEnvSlot:
     ) -> MetaDriveObservationSource | NoTrafficMetaDriveObservationSource:
         if self._mode == "traffic":
             return MetaDriveObservationSource(self._observation_spec, self._map_query_radius_m)
-        return NoTrafficMetaDriveObservationSource(
-            self._observation_spec, self._map_query_radius_m
+        return NoTrafficMetaDriveObservationSource(self._observation_spec, self._map_query_radius_m)
+
+    def _create_backend(self) -> MetaDriveBackend:
+        backend_config = dict(self._env_config)
+        for name in ("execution_mode", "trajectory_horizon", "trajectory_execution_steps"):
+            backend_config.pop(name, None)
+        return MetaDriveBackend(
+            backend_config,
+            builtin_reward_config=self._builtin_reward_config,
         )
 
-    def _create_environment(self) -> TrajectoryMetaDriveEnv:
-        return TrajectoryMetaDriveEnv(
-            self._env_config,
-            builtin_reward_config=self._builtin_reward_config,
-            reward_objective=self._reward_objective,
+    def _create_executor(self) -> TrajectoryExecutor:
+        return TrajectoryExecutor(
+            self._backend,
+            self._execution_steps,
         )
 
     def recreate_environment(self) -> None:
@@ -222,10 +247,11 @@ class MetaDriveEnvSlot:
         self._replace_environment(self._env_config["map"])
 
     def _replace_environment(self, map_name: str) -> None:
-        self._env.close()
+        self._backend.close()
         self._env_config["map"] = map_name
         self._observation_source = self._create_observation_source()
-        self._env = self._create_environment()
+        self._backend = self._create_backend()
+        self._executor = self._create_executor()
 
 
 def _stationary_trajectory() -> TrajectoryArray:

@@ -14,7 +14,7 @@ from torchrl.envs import EnvBase
 
 from eco_planner.contracts import PLANNER_HORIZON
 from eco_planner.envs.array_types import SingleObservation
-from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
+from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
 from eco_planner.envs.metadrive.slot import EnvSlotReset, EnvSlotStep, MetaDriveEnvSlot
 from eco_planner.envs.observation import PlannerObservationSpec, TrafficObservationAudit
 

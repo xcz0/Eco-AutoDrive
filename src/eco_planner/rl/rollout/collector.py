@@ -117,7 +117,7 @@ def collect_rollout_episode(
     try:
         env_slot.reset(map_name=spec.map, seed=spec.seed)
         tuple(env_slot.warmup())
-        previous_route_completion = env_slot.env.route_completion
+        previous_route_completion = env_slot.route_completion
 
         for cycle in range(max_transitions):
             observation = collate_observations([env_slot.observe().observation])
