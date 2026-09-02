@@ -12,7 +12,7 @@ from eco_planner.benchmarking.config import (
     parse_environment_job,
     split_benchmark_config,
 )
-from eco_planner.evaluation.config import EvaluationJobConfig, parse_evaluation_config
+from eco_planner.evaluation import EvaluationJobConfig, parse_evaluation_config
 from eco_planner.rl.config import (
     RolloutJobConfig,
     TrainingJobConfig,

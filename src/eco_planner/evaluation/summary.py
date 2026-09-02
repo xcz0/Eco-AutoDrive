@@ -1,4 +1,4 @@
-"""Evaluation episode summary construction"""
+"""Evaluation episode summary construction."""
 
 from __future__ import annotations
 
@@ -7,13 +7,14 @@ from typing import Any
 import numpy as np
 
 from eco_planner.envs import TrajectoryExecutionRecord
-from eco_planner.evaluation.metrics import compute_episode_metrics, compute_trace_energy
-from eco_planner.evaluation.models import (
+from eco_planner.execution_contracts import SIMULATOR_STEP_S
+
+from .metrics import compute_episode_metrics, compute_trace_energy
+from .models import (
     CompletedEpisodeSummary,
     FailedEpisodeSummary,
     FailurePhase,
 )
-from eco_planner.execution_contracts import SIMULATOR_STEP_S
 
 
 def build_failed_episode_summary(
@@ -97,18 +98,10 @@ def build_episode_summary(
             "guidance": guidance,
             "plan_cycles": int(trace_arrays["initial_noise"].shape[0]),
             "simulator_steps": int(trace_arrays["executed_states"].shape[0]),
-            "simulated_seconds": metrics.simulated_seconds,
             "environment_steps_including_warmup": int(
                 warmup_states.shape[0] + trace_arrays["executed_states"].shape[0]
             ),
-            "total_reward": metrics.total_reward,
-            "distance_m": metrics.distance_m,
-            "energy": metrics.energy,
-            "speed_mps": metrics.speed_mps,
-            "stopped_fraction": metrics.stopped_fraction,
-            "route_completion": metrics.route_completion,
-            "arrive_dest": metrics.arrive_dest,
-            "out_of_road": metrics.out_of_road,
+            "metrics": metrics,
             "crash_vehicle": final_execution.crash_vehicle,
             "crash_object": final_execution.crash_object,
             "crash_building": final_execution.crash_building,
@@ -194,8 +187,6 @@ def _map_input_audit(
 ) -> dict[str, object]:
     speed_limits = trace_arrays["observation_lanes_speed_limit"]
     has_speed_limit = trace_arrays["observation_lanes_has_speed_limit"]
-    if speed_limits.shape != has_speed_limit.shape:
-        raise RuntimeError("trace lane speed limits and validity mask have incompatible shapes")
     valid_counts = has_speed_limit.sum(axis=(1, 2), dtype=np.int64)
     valid_speed_limits = speed_limits[has_speed_limit]
     result = dict(environment_map_audit)
@@ -220,10 +211,6 @@ def _map_input_audit(
 
 
 def _error_summary(errors: np.ndarray) -> dict[str, float]:
-    if errors.ndim != 1 or not errors.size or not np.isfinite(errors).all():
-        raise RuntimeError(
-            "trajectory execution errors must be a non-empty finite one-dimensional array"
-        )
     return {
         "maximum": float(errors.max()),
         "mean": float(errors.mean()),

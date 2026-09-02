@@ -15,8 +15,6 @@ from pydantic import (
     model_validator,
 )
 
-ARTIFACT_SCHEMA_VERSION = 2
-
 
 class ArtifactModel(BaseModel):
     model_config = ConfigDict(
@@ -259,7 +257,6 @@ class EpisodeMetrics(ArtifactModel):
 
 
 class CompletedEpisodeSummary(ArtifactModel):
-    artifact_schema_version: Literal[2] = ARTIFACT_SCHEMA_VERSION
     status: Literal["completed"] = "completed"
     trace_status: Literal["complete"] = "complete"
     scenario: ScenarioSummary
@@ -271,16 +268,8 @@ class CompletedEpisodeSummary(ArtifactModel):
     guidance: GuidanceSummary
     plan_cycles: StrictInt = Field(gt=0)
     simulator_steps: StrictInt = Field(gt=0)
-    simulated_seconds: StrictFloat = Field(gt=0.0)
     environment_steps_including_warmup: StrictInt = Field(gt=0)
-    total_reward: StrictFloat
-    distance_m: StrictFloat = Field(ge=0.0)
-    energy: EnergySummary
-    speed_mps: SpeedSummary
-    stopped_fraction: StrictFloat = Field(ge=0.0, le=1.0)
-    route_completion: StrictFloat
-    arrive_dest: StrictBool
-    out_of_road: StrictBool
+    metrics: EpisodeMetrics
     crash_vehicle: StrictBool
     crash_object: StrictBool
     crash_building: StrictBool
@@ -295,32 +284,8 @@ class CompletedEpisodeSummary(ArtifactModel):
     traffic_observation: TrafficObservationSummary
     trajectory_execution_error: ExecutionErrorSummary
 
-    @property
-    def metrics(self) -> EpisodeMetrics:
-        """Expose common metrics without changing the persisted summary schema."""
-
-        return EpisodeMetrics(
-            simulated_seconds=self.simulated_seconds,
-            distance_m=self.distance_m,
-            speed_mps=self.speed_mps,
-            stopped_fraction=self.stopped_fraction,
-            route_completion=self.route_completion,
-            energy=self.energy,
-            total_reward=self.total_reward,
-            arrive_dest=self.arrive_dest,
-            collision=(
-                self.crash_vehicle
-                or self.crash_object
-                or self.crash_building
-                or self.crash_human
-                or self.crash_sidewalk
-            ),
-            out_of_road=self.out_of_road,
-        )
-
 
 class FailedEpisodeSummary(ArtifactModel):
-    artifact_schema_version: Literal[2] = ARTIFACT_SCHEMA_VERSION
     status: Literal["failed"] = "failed"
     scenario: ScenarioSummary
     evaluation_mode: Literal["no_traffic", "traffic"]
@@ -341,7 +306,6 @@ EpisodeSummary = Annotated[
 
 
 class JobSummary(ArtifactModel):
-    artifact_schema_version: Literal[2] = ARTIFACT_SCHEMA_VERSION
     status: Literal["completed", "failed"]
     runtime: InferenceRuntimeSummary
     checkpoint: CheckpointSummary
@@ -374,7 +338,6 @@ class JobSummary(ArtifactModel):
 
 
 class RuntimeMetadata(ArtifactModel):
-    artifact_schema_version: Literal[2] = ARTIFACT_SCHEMA_VERSION
     git_head: str = Field(min_length=1)
     git_status_short: tuple[str, ...]
     platform: str = Field(min_length=1)
@@ -389,4 +352,3 @@ class RuntimeMetadata(ArtifactModel):
     execution: ExecutionSummary
     elapsed_seconds: StrictFloat = Field(ge=0.0)
     cuda_memory: CudaMemorySummary | None
-

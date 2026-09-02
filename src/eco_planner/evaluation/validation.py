@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from eco_planner.evaluation.artifacts import load_trace_artifact
-from eco_planner.evaluation.models import CompletedEpisodeSummary, EpisodeSummary
-from eco_planner.evaluation.trace import validate_trace_arrays
+import numpy as np
+
+from .io import load_trace_artifact
+from .models import CompletedEpisodeSummary, EpisodeSummary
 
 POSITION_ERROR_LIMIT_M = 1e-3
 HEADING_ERROR_LIMIT_RAD = 1e-4
@@ -22,18 +23,21 @@ def validate_episode_artifact(
     """Check one trace against its typed episode result without recomputing metrics."""
 
     _require_nonempty(path)
-    arrays = load_trace_artifact(path).arrays
+    trace = load_trace_artifact(path)
+    arrays = trace.arrays
     completed = isinstance(episode, CompletedEpisodeSummary)
-    validate_trace_arrays(
-        arrays,
-        expected_plan_cycles=episode.plan_cycles if completed else None,
-        expected_simulator_steps=episode.simulator_steps if completed else None,
-        expected_warmup_steps=warmup_steps if completed else None,
-        require_traffic=completed and require_traffic,
-        expected_trace_status=episode.trace_status,
-    )
+    if trace.trace_status != episode.trace_status:
+        raise ValueError("trace status disagrees with summary")
     if not completed:
         return
+    if arrays["initial_noise"].shape[0] != episode.plan_cycles:
+        raise ValueError("trace planning cycle count disagrees with summary")
+    if arrays["executed_states"].shape[0] != episode.simulator_steps:
+        raise ValueError("trace simulator step count disagrees with summary")
+    if arrays["warmup_states"].shape[0] != warmup_steps:
+        raise ValueError(f"trace must contain exactly {warmup_steps} warmup states")
+    if require_traffic and not np.any(arrays["traffic_participant_counts"] > 0):
+        raise ValueError("trace never observed traffic within the query radius")
     if float(arrays["trajectory_position_errors_m"].max()) >= POSITION_ERROR_LIMIT_M:
         raise ValueError(f"trace {path} exceeds the trajectory position error limit")
     if float(arrays["trajectory_heading_errors_rad"].max()) >= HEADING_ERROR_LIMIT_RAD:

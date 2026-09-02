@@ -1,4 +1,4 @@
-"""Characterize report payloads before the evaluation-stack ownership refactor."""
+"""Characterize stable evaluation report payloads."""
 
 from __future__ import annotations
 
@@ -9,10 +9,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from eco_planner.evaluation import analysis as evaluation_analysis
-from eco_planner.evaluation.models import (
+import eco_planner.evaluation.report as evaluation_report
+from eco_planner.evaluation import (
     CompletedEpisodeSummary,
     EnergySummary,
+    EpisodeMetrics,
     ErrorValues,
     ExecutionErrorSummary,
     MapInputAudit,
@@ -55,21 +56,24 @@ def _episode(*, seed: int, distance_m: float, energy_ml: float) -> CompletedEpis
         guidance=NoGuidanceSummary(name="none"),
         plan_cycles=2,
         simulator_steps=10,
-        simulated_seconds=1.0,
         environment_steps_including_warmup=10,
-        total_reward=10.0 + seed,
-        distance_m=distance_m,
-        energy=EnergySummary(
-            metric="metadrive_fuel_proxy",
-            total_ml=energy_ml,
+        metrics=EpisodeMetrics(
+            simulated_seconds=1.0,
             distance_m=distance_m,
-            ml_per_km=energy_ml * 1_000.0 / distance_m,
+            energy=EnergySummary(
+                metric="metadrive_fuel_proxy",
+                total_ml=energy_ml,
+                distance_m=distance_m,
+                ml_per_km=energy_ml * 1_000.0 / distance_m,
+            ),
+            speed_mps=SpeedSummary(minimum=5.0, mean=6.0 + seed, maximum=7.0),
+            stopped_fraction=0.0,
+            route_completion=0.4 + 0.1 * seed,
+            total_reward=10.0 + seed,
+            arrive_dest=seed == 1,
+            collision=False,
+            out_of_road=False,
         ),
-        speed_mps=SpeedSummary(minimum=5.0, mean=6.0 + seed, maximum=7.0),
-        stopped_fraction=0.0,
-        route_completion=0.4 + 0.1 * seed,
-        arrive_dest=seed == 1,
-        out_of_road=False,
         crash_vehicle=False,
         crash_object=False,
         crash_building=False,
@@ -116,7 +120,7 @@ def _episode(*, seed: int, distance_m: float, energy_ml: float) -> CompletedEpis
 def test_evaluation_matrix_summary_schema_and_statistics_are_stable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    validated = evaluation_analysis.ValidatedMatrix(
+    validated = evaluation_report.ValidatedMatrix(
         matrix_root=tmp_path,
         partial=False,
         observed_jobs={(0, 0.2), (1, 0.2)},
@@ -128,12 +132,12 @@ def test_evaluation_matrix_summary_schema_and_statistics_are_stable(
         ),
     )
     monkeypatch.setattr(
-        evaluation_analysis,
+        evaluation_report,
         "validate_matrix_artifacts",
         lambda *_args, **_kw: validated,
     )
 
-    report = evaluation_analysis.build_matrix_report(tmp_path)
+    report = evaluation_report.build_matrix_report(tmp_path)
 
     assert set(report) == {
         "matrix_root",

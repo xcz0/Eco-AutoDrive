@@ -38,7 +38,7 @@
 
 Hydra/OmegaConf 只存在于配置 composition 边界。CLI 与内部 study workflow 都必须通过
 `eco_planner.jobs.compose_job_config` 组合一个 job；随后由
-`run_evaluation_job` 或 `run_training_job` 解析严格 typed config 并执行领域 runner。runner、episode、runtime 和 execution 组件只接收对应的 typed config 或其子模型，不读取 `DictConfig`。`env` 子树是传给 MetaDrive 的开放第三方配置，保留为普通映射；本项目消费的 horizon、traffic 和 evaluation 字段仍必须由顶层模型交叉校验。
+`run_evaluation_job` 或 `run_training_job` 解析严格 typed config 并执行领域 engine。engine、episode 和 runtime 组件只接收对应的 typed config 或其子模型，不读取 `DictConfig`。`env` 子树是传给 MetaDrive 的开放第三方配置，保留为普通映射；本项目消费的 horizon、traffic 和 evaluation 字段仍必须由顶层模型交叉校验。
 
 semantic job 的 resources config group 使用 null 占位，因此不依赖 `.env` 或 `MACHINE_NAME` 即可 compose 和 typed validate。CLI 与 study bootstrap 可选读取仓库根目录 `.env`；共享 composition helper 在调用方没有显式 `components/resources=...` override 时，以现有环境或 `.env` 的 `MACHINE_NAME` 注入同名版本化 profile。已有进程环境不被 `.env` 覆盖，显式 Hydra override 优先于自动选择。需要 worker、slot 或线程预算的 execution boundary 必须取得 profile，否则直接失败，不合成默认预算。
 
@@ -177,9 +177,9 @@ guided trace 额外保存完整 reference joint prediction、action、横向目�
 
 ## Exploration Policy
 
-Exploration Policy 由 fixed-slot vector rollout collector（B=1 也走同一契约）接入 learned-guidance closed loop，并由 PPO optimizer 更新；它不接入既有 evaluation runner。它的输入固定为：冻结 scene tokens `[B,N,H]` 及 bool padding mask、冻结 route/navigation token `[B,1,H]` 及 bool validity/padding mask，以及 ego-local physical reference trajectory `float [B,80,4]`。reference 使用 10 Hz、米和 `[cos(h),sin(h)]`。所有 feature 必须同 batch、dtype 和 device，且有限；每个 batch item 至少有一个有效 context token。完整的有限值和有效 token 校验发生在 rollout 回传 CPU 的边界或显式调试校验中；policy/PPO 热路径只检查结构契约。
+Exploration Policy 由 fixed-slot vector rollout collector（B=1 也走同一契约）接入 learned-guidance closed loop，并由 PPO optimizer 更新；它不接入既有 evaluation engine。它的输入固定为：冻结 scene tokens `[B,N,H]` 及 bool padding mask、冻结 route/navigation token `[B,1,H]` 及 bool validity/padding mask，以及 ego-local physical reference trajectory `float [B,80,4]`。reference 使用 10 Hz、米和 `[cos(h),sin(h)]`。所有 feature 必须同 batch、dtype 和 device，且有限；每个 batch item 至少有一个有效 context token。完整的有限值和有效 token 校验发生在 rollout 回传 CPU 的边界或显式调试校验中；policy/PPO 热路径只检查结构契约。
 
-rollout runtime 在 eval-mode、所有参数 `requires_grad=False` 的官方模型上，通过 `prepare_policy_guidance()` 一次准备 scene/navigation encoding 和 reference。输出 detach 后才进入 policy；policy backward 不得为 planner 产生 `.grad` 或改变 planner 权重。普通 planner `encode()`、fixed-guidance evaluation runner 和官方 checkpoint state-dict 层级保持不变。
+rollout runtime 在 eval-mode、所有参数 `requires_grad=False` 的官方模型上，通过 `prepare_policy_guidance()` 一次准备 scene/navigation encoding 和 reference。输出 detach 后才进入 policy；policy backward 不得为 planner 产生 `.grad` 或改变 planner 权重。普通 planner `encode()`、fixed-guidance evaluation engine 和官方 checkpoint state-dict 层级保持不变。
 
 PPO 训练必须显式配置 `training.planner_compile_mode`。`eager` 是当前 base profile 默认值；`dit_reduce_overhead` 只允许 CUDA，并以 `torch.compile(mode="reduce-overhead", fullgraph=True, dynamic=False)` 编译 `decoder.dit` 已绑定的 `forward`，不替换注册模块或改变 state-dict key。编译所需后端不可用、graph capture 失败或执行失败时直接报错，不回退 eager。该选项不得改变 sampler、guidance、随机流或冻结 planner hash；独立 rollout 回归入口显式使用 eager。
 
@@ -193,7 +193,7 @@ joint_log_prob_g = joint_log_prob_u - 2 * log(2)
 joint_entropy_g = sum_i H(Beta_i) + 2 * log(2)
 ```
 
-policy action generator 不得改变 PyTorch 全局 RNG，且与 map/noise seed 分离。policy export checkpoint 只包含其 checkpoint `format_version` 与 Exploration Policy 自身的 trainable state dict。该 `format_version` 属于 policy checkpoint 文件结构，不作为 evaluation 或 RL 产物的 schema-version 选择机制。网络结构、Beta 参数化、仿射映射和初始化见 ADR 0016，均为本项目复现决定，不得描述为 PlannerRFT 作者公开实现。
+policy action generator 不得改变 PyTorch 全局 RNG，且与 map/noise seed 分离。policy export checkpoint 只包含其 checkpoint `format_version` 与 Exploration Policy 自身的 trainable state dict；该字段只描述 checkpoint 文件结构。网络结构、Beta 参数化、仿射映射和初始化见 ADR 0016，均为本项目复现决定，不得描述为 PlannerRFT 作者公开实现。
 
 ## Policy-guided rollout
 
@@ -257,18 +257,19 @@ trace array 或 resolved config 重算同名通用指标。
 
 trace recorder 必须在回合开始时按最大 planning/warmup 容量，根据当前 trace field contract 预分配数组并直接写入槽位；`finalize()` 只暴露已记录切片。`trace.npz` 使用标准未压缩 NPZ，以降低长程写盘墙钟。
 
-当前 evaluation 产物采用 **schema v2** 数据契约：
+当前 evaluation 产物只支持当前代码定义的数据契约，不携带格式版本字段，也不提供历史产物迁移或兼容转换：
 
-* job summary、episode summary 和 runtime metadata 显式保存 `artifact_schema_version: 2`，使用严格且冻结的 Pydantic 模型，并设置 `extra="forbid"` 与 `allow_inf_nan=False`；读取时拒绝缺失或非 v2 的版本，不为旧产物合成字段或提供兼容转换。Completed episode summary 必须携带结构化 `energy`；partial failed episode 可携带对应能耗，empty failed episode 为 null。
-* `trace.npz` 也显式保存 int64 scalar `artifact_schema_version: 2`；其字段集合、shape、dtype 和有限性由 `TRACE_FIELDS` / `validate_trace_arrays` 明确定义。
+* job summary、episode summary 和 runtime metadata 使用严格且冻结的 Pydantic 模型，并设置 `extra="forbid"` 与 `allow_inf_nan=False`。Completed episode summary 只在嵌套 `metrics` 中保存通用 episode-level 指标；partial failed episode 可携带对应能耗，empty failed episode 为 null。
+* `trace.npz` 的字段集合、shape、dtype 和有限性由 `TRACE_FIELDS` / `validate_trace_arrays` 明确定义。
 * trace 字段必须是预期的 NumPy array；缺失或未声明的数组都会导致验证失败。
 * guided trace 的 guidance 数组必须完整出现或完整缺失，不能只保存其中一部分。
 * 动态数组必须在 planning、simulator 和 warmup 轴上保持一致；实现还校验 trace status、planning-cycle 数、simulator-step 数、warmup 数、plan index 顺序、五步 execution prefix、terminal flag 位置、非负计数以及其他已实现的跨数组不变量。
 * trace 显式保存 `complete`、`partial` 或 `empty` 状态、initial-state validity、普通及 route lane 的限速与有效性。
-* trace schema/allocation/structural validation 保留在 `evaluation.trace`；trace 与 typed episode result 的执行边界、route/traffic 和接口误差语义验证保留在 `evaluation.validation`；实验的 retention、safety 或统计接受规则保留在各自 `experiments` 模块。后两者不得把 Hydra resolved config 当作第二个 metric/result source；resolved config 仅保留为运行 provenance。
-* 离线 artifact reader 只依赖 pathlib、NumPy 和 Pydantic；读取 summary 或 trace 不得加载 Torch、MetaDrive/Panda3D 或 GIF rendering。写入和视频 rendering 保持独立边界。
+* `evaluation.trace` 只保存轻量字段声明和 I/O structural validation；依赖 Torch/MetaDrive 的在线预分配与记录由 `evaluation.recorder` 拥有。reader 在 I/O 边界完整校验一次，`evaluation.validation` 只补充 trace 与 typed episode result 的计数/status 对齐、route/traffic、seed 配对和接口误差语义；实验的 retention、safety 或统计接受规则保留在各自 `experiments` 模块。
+* `evaluation.engine` 是在线 job/episode 编排入口，`evaluation.report` 是通用离线矩阵报告入口，typed reader/writer 位于 `evaluation.io`。仓库内消费者通过 `eco_planner.evaluation` 的延迟公开接口访问这些能力；读取 summary、trace 或 report 不得加载 Torch、MetaDrive/Panda3D 或 GIF rendering。
+* validation 与 report 不得把 Hydra resolved config 当作第二个 metric/result source；resolved config 仅保留为运行 provenance。
 
-runner 只捕获显式 `EpisodeFailure`：保存阶段、异常类型、消息和 traceback 后继续同一作业的后续场景，作业最终标记失败且 CLI 返回非零。配置、checkpoint、Fabric 初始化、artifact IO 和未分类程序错误立即传播。
+engine 只捕获显式 `EpisodeFailure`：保存阶段、异常类型、消息和 traceback 后继续同一作业的后续场景，作业最终标记失败且 CLI 返回非零。配置、checkpoint、Fabric 初始化、artifact IO 和未分类程序错误立即传播。
 
 所有回合都进入分析，按场景特征、运行阶段和终止类型标注。失败回合不得删除，完成与失败回合不得在缺少标注时合并解释。策略比较必须使用相同地图、交通配置和噪声 seed。
 

@@ -1,4 +1,4 @@
-"""Fast evaluation smoke coverage at the runner/artifact boundary."""
+"""Fast evaluation smoke coverage at the engine/artifact boundary."""
 
 from __future__ import annotations
 
@@ -11,22 +11,25 @@ import torch
 from omegaconf import OmegaConf
 from tensordict import TensorDict
 
+import eco_planner.evaluation.engine as engine
+import eco_planner.evaluation.episode as episode_engine
 from eco_planner.envs import (
     EnvSlotObservation,
     EnvSlotReset,
     EnvSlotStep,
     TrajectoryExecutionRecord,
 )
-from eco_planner.evaluation import execution, runner
-from eco_planner.evaluation.artifacts import (
+from eco_planner.evaluation import (
+    InferenceDecision,
     load_episode_summary,
     load_job_summary,
     load_trace_artifact,
+    parse_evaluation_config,
 )
-from eco_planner.evaluation.config import parse_evaluation_config
-from eco_planner.evaluation.runtime import InferenceDecision, InferenceRuntimeReport
+from eco_planner.evaluation.validation import validate_episode_artifact, validate_matrix_episode
 from eco_planner.models import CheckpointLoadReport, NoGuidanceConfig, SamplerReport
 from eco_planner.runtime.contracts import HostTrajectories
+from eco_planner.runtime.fabric import InferenceRuntimeReport
 
 
 @pytest.mark.smoke
@@ -34,31 +37,42 @@ def test_runner_writes_readable_finite_short_episode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runtime = _ShortEpisodeRuntime()
-    monkeypatch.setattr(execution, "MetaDriveEnvSlot", _ShortEpisodeSlot)
-    monkeypatch.setattr(runner, "create_fabric_inference_runtime", lambda *_: runtime)
-    monkeypatch.setattr(runner, "write_runtime_metadata", lambda *_: None)
+    monkeypatch.setattr(episode_engine, "MetaDriveEnvSlot", _ShortEpisodeSlot)
+    monkeypatch.setattr(engine, "create_fabric_inference_runtime", lambda *_: runtime)
+    monkeypatch.setattr(engine, "write_runtime_metadata", lambda *_: None)
 
-    summary = runner.run_evaluation(parse_evaluation_config(_config()), tmp_path)
+    summary = engine.run_evaluation(parse_evaluation_config(_config()), tmp_path)
 
     job = load_job_summary(tmp_path / "summary.json")
     episode = load_episode_summary(tmp_path / "short" / "summary.json")
     trace = load_trace_artifact(tmp_path / "short" / "trace.npz")
     assert summary == job
-    assert job.artifact_schema_version == 2
     assert job.status == episode.status == "completed"
     assert episode.plan_cycles == 1
     assert episode.simulator_steps == 5
-    assert episode.energy is not None
-    assert episode.energy.total_ml == pytest.approx(0.5)
-    assert episode.stopped_fraction == 0.0
+    assert episode.metrics.energy.total_ml == pytest.approx(0.5)
+    assert episode.metrics.stopped_fraction == 0.0
     assert episode.metrics.aggregation_unit == "evaluation_episode"
     assert episode.metrics.distance_m == pytest.approx(5.0)
     assert episode.metrics.energy.ml_per_km == pytest.approx(100.0)
     assert trace.trace_status == "complete"
-    assert int(trace.arrays["artifact_schema_version"].item()) == 2
+    assert "artifact_schema_version" not in trace.arrays
     assert np.isfinite(trace.arrays["initial_noise"]).all()
     assert np.isfinite(trace.arrays["predictions_local"]).all()
     assert np.isfinite(trace.arrays["executed_fuel_proxy_step_energy_ml"]).all()
+
+    mismatched = episode.model_copy(update={"plan_cycles": 2})
+    with pytest.raises(ValueError, match="planning cycle count"):
+        validate_episode_artifact(
+            tmp_path / "short" / "trace.npz",
+            mismatched,
+            warmup_steps=0,
+            require_traffic=False,
+        )
+
+    paired = episode.model_copy(update={"noise_seed": 3, "route_length_m": 2_500.0})
+    with pytest.raises(ValueError, match="density disagrees"):
+        validate_matrix_episode(paired, tmp_path, seed=3, density=0.5)
 
 
 def test_vector_topology_derives_capacity_from_resource_profile(
@@ -74,10 +88,10 @@ def test_vector_topology_derives_capacity_from_resource_profile(
         "torch_threads_per_worker": 5,
     }
     configured_threads: list[int] = []
-    monkeypatch.setattr(runner.os, "cpu_count", lambda: 16)
-    monkeypatch.setattr(runner.torch, "set_num_threads", configured_threads.append)
+    monkeypatch.setattr(engine.os, "cpu_count", lambda: 16)
+    monkeypatch.setattr(engine.torch, "set_num_threads", configured_threads.append)
 
-    report = runner.configure_job_execution(parse_evaluation_config(config))
+    report = engine.configure_job_execution(parse_evaluation_config(config))
 
     assert report.mode == "serial"
     assert report.launcher == "basic"

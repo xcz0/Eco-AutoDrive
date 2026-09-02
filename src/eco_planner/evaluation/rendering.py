@@ -8,7 +8,8 @@ import numpy as np
 from metadrive.utils.doc_utils import generate_gif
 
 from eco_planner.envs import TrajectoryExecutionRecord, TrajectoryMetaDriveEnv
-from eco_planner.evaluation.config import VideoConfig
+
+from .config import VideoConfig
 
 
 def write_gif(frames: list[np.ndarray], path: Path, fps: int) -> None:

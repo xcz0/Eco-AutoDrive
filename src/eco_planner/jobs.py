@@ -11,9 +11,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from eco_planner._repository import CONFIG_ROOT
 from eco_planner.configuration import with_machine_resource_override
-from eco_planner.evaluation.config import parse_evaluation_config
-from eco_planner.evaluation.models import JobSummary
-from eco_planner.evaluation.runner import run_evaluation
+from eco_planner.evaluation import JobSummary, parse_evaluation_config, run_evaluation
 from eco_planner.rl.artifacts import TrainingRunSummary
 from eco_planner.rl.config import parse_training_config
 from eco_planner.rl.trainer import TrainingUpdateObserver, train

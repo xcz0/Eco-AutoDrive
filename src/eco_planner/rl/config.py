@@ -20,7 +20,7 @@ from eco_planner.envs.metadrive.reward import (
     MetaDriveBuiltinRewardConfig,
     RewardProfileConfig,
 )
-from eco_planner.evaluation.config import ModelPathsConfig, ScenarioConfig
+from eco_planner.evaluation import ModelPathsConfig, ScenarioConfig
 from eco_planner.models import (
     OrthogonalPolicyGuidanceConfig,
     SamplerConfig,

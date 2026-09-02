@@ -1,6 +1,6 @@
 # Flatten the evaluation package while preserving dependency direction
 
-**Status:** Accepted and implemented
+**Status:** Superseded by ADR 0029
 **Date:** 2026-08-25
 
 ADR 0020 通过 `runtime/`、`artifacts/` 和 `analysis/` 子包建立了在线执行、持久化边界与

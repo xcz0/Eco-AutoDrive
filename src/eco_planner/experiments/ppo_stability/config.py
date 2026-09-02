@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model
 
 from eco_planner._repository import CONFIG_ROOT
 from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.evaluation.config import ScenarioConfig
+from eco_planner.evaluation import ScenarioConfig
 
 DEFAULT_STUDY = CONFIG_ROOT / "studies" / "ppo" / "stability.yaml"
 

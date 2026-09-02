@@ -7,8 +7,9 @@ from collections.abc import Mapping
 import numpy as np
 
 from eco_planner.envs import TrajectoryExecutionRecord
-from eco_planner.evaluation.models import EnergySummary, EpisodeMetrics, SpeedSummary
 from eco_planner.execution_contracts import SIMULATOR_STEP_S
+
+from .models import EnergySummary, EpisodeMetrics, SpeedSummary
 
 STOPPED_SPEED_THRESHOLD_MPS = 0.1
 

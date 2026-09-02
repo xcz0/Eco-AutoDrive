@@ -13,8 +13,7 @@ from omegaconf import OmegaConf
 
 from eco_planner.artifacts import collect_repository_metadata
 from eco_planner.benchmarking.config import measurement, write_benchmark_artifacts
-from eco_planner.evaluation.artifacts import load_job_summary, load_runtime_metadata
-from eco_planner.evaluation.models import JobSummary
+from eco_planner.evaluation import JobSummary, load_job_summary, load_runtime_metadata
 
 
 def write_report(

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from omegaconf import DictConfig
 
-from eco_planner.evaluation.config import EvaluationJobConfig, parse_evaluation_config
+from eco_planner.evaluation import EvaluationJobConfig, parse_evaluation_config
 from eco_planner.experiments.energy_sweep import load_energy_study
 from eco_planner.experiments.ppo_stability.config import TrialParameters, load_stability_config
 from eco_planner.experiments.ppo_stability.monitor import StabilityMonitor

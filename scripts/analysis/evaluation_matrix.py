@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from eco_planner.evaluation.analysis import summarize_matrix
+from eco_planner.evaluation import summarize_matrix
 
 
 def main() -> None:

@@ -1,4 +1,4 @@
-"""Serial and fixed-slot vector closed-loop evaluation execution."""
+"""Serial and fixed-slot vector episode execution."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import cast
 
 import numpy as np
+import torch
 from tensordict import TensorDictBase
 
 from eco_planner.envs import (
@@ -21,18 +22,19 @@ from eco_planner.envs import (
     collate_observations,
 )
 from eco_planner.envs.array_types import SingleObservation
-from eco_planner.evaluation.agent import EvaluationAgent
-from eco_planner.evaluation.artifacts import write_episode_artifacts
-from eco_planner.evaluation.config import EvaluationJobConfig, ScenarioConfig
-from eco_planner.evaluation.models import (
+from eco_planner.execution_contracts import evaluation_plan_cycles
+
+from .agent import EvaluationAgent
+from .config import EvaluationJobConfig, ScenarioConfig
+from .io import write_episode_artifacts
+from .models import (
     CompletedEpisodeSummary,
     FailedEpisodeSummary,
     FailurePhase,
 )
-from eco_planner.evaluation.rendering import render_cycle_frame
-from eco_planner.evaluation.summaries import build_episode_summary, build_failed_episode_summary
-from eco_planner.evaluation.trace import EpisodeTraceRecorder
-from eco_planner.execution_contracts import evaluation_plan_cycles
+from .recorder import EpisodeTraceRecorder
+from .rendering import render_cycle_frame
+from .summary import build_episode_summary, build_failed_episode_summary
 
 
 class EpisodeFailure(RuntimeError):
@@ -49,7 +51,7 @@ class _EpisodeState:
     spec: ScenarioConfig
     observation: SingleObservation | None
     traffic_audit: TrafficObservationAudit | None
-    agent_episode: object
+    noise_generator: torch.Generator
     trace: EpisodeTraceRecorder
     anchor: np.ndarray
     route_length_m: float
@@ -127,7 +129,7 @@ def run_scenario(
             spec=spec,
             observation=None,
             traffic_audit=None,
-            agent_episode=agent.new_episode(scenario_index),
+            noise_generator=agent.new_noise_generator(scenario_index),
             trace=trace,
             anchor=reset.warmup_initial_state.copy(),
             route_length_m=episode_route_length_m,
@@ -158,7 +160,7 @@ def run_scenario(
             raw_observation = slot_observation.observation
             traffic_audit = slot_observation.traffic_audit
             inference = agent.decide_batch(
-                collate_observations([raw_observation]), (state.agent_episode,)
+                collate_observations([raw_observation]), (state.noise_generator,)
             )
             state.anchor = env_slot.vehicle_state
             step = env_slot.step(np.asarray(inference.ego_trajectories)[0])
@@ -315,10 +317,6 @@ def run_vector_scenarios(
 ) -> tuple[CompletedEpisodeSummary | FailedEpisodeSummary, ...]:
     """Evaluate a scenario queue with persistent fixed slots and batched planning."""
 
-    if not specs:
-        raise ValueError("vector evaluation requires at least one scenario")
-    if config.video.enabled:
-        raise ValueError("vector evaluation requires video.enabled=false")
     slot_count = min(vector_env_slots, len(specs))
     initial_specs = specs[:slot_count]
     configured_envs = tuple({**config.env, "map": spec.map} for spec in initial_specs)
@@ -387,7 +385,7 @@ def run_vector_scenarios(
             observations = [_state_observation(slots[index]) for index in active]
             decision = agent.decide_batch(
                 collate_observations(observations),
-                tuple(slots[index].agent_episode for index in active),
+                tuple(slots[index].noise_generator for index in active),
             )
             steps = envs.step_slots(active, decision.ego_trajectories)
             audit = decision.audit_result()
@@ -486,7 +484,7 @@ def _initialize_vector_slot(
         ),
         observation=reset.observation,
         traffic_audit=reset.traffic_audit,
-        agent_episode=agent.new_episode(scenario_index),
+        noise_generator=agent.new_noise_generator(scenario_index),
         trace=trace,
         anchor=reset.initial_state,
         route_length_m=reset.route_length_m,
