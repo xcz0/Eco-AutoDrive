@@ -1,13 +1,7 @@
 # @package _global_
 
 defaults:
-  - /components/env
-  - /components/model
-  - /components/runtime
-  - /components/resources: null
-  - /components/video
-  - /components/sampler: dpm10
-  - /components/guidance: none
+  - /components/evaluation
   - /components/benchmark: throughput
   - _self_
 

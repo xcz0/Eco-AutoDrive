@@ -7,14 +7,14 @@ import pytest
 from hydra.errors import MissingConfigException
 from omegaconf import OmegaConf
 
-from eco_planner import workflows
+from eco_planner import jobs
 
 
 def test_compose_job_config_uses_the_shared_hydra_boundary(monkeypatch) -> None:
     monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
 
-    config = workflows.compose_job_config(
-        "jobs/training/ppo/smoke",
+    config = jobs.compose_job_config(
+        "jobs/training/ppo",
         ("runtime.seed=17", "training.replay_id=3"),
     )
 
@@ -30,8 +30,8 @@ def test_compose_job_config_uses_the_shared_hydra_boundary(monkeypatch) -> None:
 def test_compose_job_config_preserves_an_explicit_resource_override(monkeypatch) -> None:
     monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
 
-    config = workflows.compose_job_config(
-        "jobs/training/ppo/smoke",
+    config = jobs.compose_job_config(
+        "jobs/training/ppo",
         (
             "components/resources=rtx_a4000",
             "runtime.seed=17",
@@ -45,8 +45,8 @@ def test_compose_job_config_preserves_an_explicit_resource_override(monkeypatch)
 def test_compose_job_config_without_a_machine_profile(monkeypatch) -> None:
     monkeypatch.delenv("MACHINE_NAME", raising=False)
 
-    config = workflows.compose_job_config(
-        "jobs/training/ppo/smoke",
+    config = jobs.compose_job_config(
+        "jobs/training/ppo",
         ("runtime.seed=17", "training.replay_id=3"),
     )
 
@@ -57,8 +57,8 @@ def test_unknown_machine_profile_is_reported_by_hydra(monkeypatch) -> None:
     monkeypatch.setenv("MACHINE_NAME", "unknown-machine")
 
     with pytest.raises(MissingConfigException, match="components/resources/unknown-machine"):
-        workflows.compose_job_config(
-            "jobs/training/ppo/smoke",
+        jobs.compose_job_config(
+            "jobs/training/ppo",
             ("runtime.seed=17", "training.replay_id=3"),
         )
 
@@ -73,28 +73,25 @@ def test_typed_job_runners_parse_before_invoking_domain_execution(
     training_summary = SimpleNamespace(resources=resource_profile)
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr(workflows, "parse_evaluation_config", lambda config: evaluation_summary)
+    monkeypatch.setattr(jobs, "parse_evaluation_config", lambda config: evaluation_summary)
     monkeypatch.setattr(
-        workflows,
+        jobs,
         "run_evaluation",
         lambda config, output_dir: (
             seen.update(evaluation=(config, output_dir)) or evaluation_summary
         ),
     )
-    monkeypatch.setattr(workflows, "parse_training_config", lambda config: training_summary)
+    monkeypatch.setattr(jobs, "parse_training_config", lambda config: training_summary)
     monkeypatch.setattr(
-        workflows,
+        jobs,
         "train",
         lambda config, output_dir, update_observer=None: (
             seen.update(training=(config, output_dir, update_observer)) or training_summary
         ),
     )
 
-    assert (
-        workflows.run_evaluation_job(evaluation_config, tmp_path / "evaluation")
-        is evaluation_summary
-    )
-    assert workflows.run_training_job(training_config, tmp_path / "training") is training_summary
+    assert jobs.run_evaluation_job(evaluation_config, tmp_path / "evaluation") is evaluation_summary
+    assert jobs.run_training_job(training_config, tmp_path / "training") is training_summary
     assert seen["evaluation"] == (evaluation_summary, tmp_path / "evaluation")
     assert seen["training"] == (training_summary, tmp_path / "training", None)
     assert (tmp_path / "training" / "resolved_config.yaml").is_file()
@@ -111,7 +108,7 @@ def test_job_execution_requires_a_resource_profile(
         if runner_name == "run_evaluation_job"
         else "parse_training_config"
     )
-    monkeypatch.setattr(workflows, parse_name, lambda raw: parsed)
+    monkeypatch.setattr(jobs, parse_name, lambda raw: parsed)
 
     with pytest.raises(ValueError, match="execution requires a resource profile"):
-        getattr(workflows, runner_name)(config, tmp_path / runner_name)
+        getattr(jobs, runner_name)(config, tmp_path / runner_name)

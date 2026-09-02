@@ -14,7 +14,7 @@ from hydra.core.hydra_config import HydraConfig
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig
 
-from eco_planner.evaluation.config import ScenarioConfig
+from eco_planner.evaluation import ScenarioConfig
 from eco_planner.rl.config import TrainingJobConfig, parse_training_config
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater
 from eco_planner.rl.rollout import (

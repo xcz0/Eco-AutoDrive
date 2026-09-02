@@ -21,10 +21,11 @@ from eco_planner.envs import (
     collate_observations,
 )
 from eco_planner.envs.array_types import SingleObservation
-from eco_planner.evaluation.config import EvaluationJobConfig, parse_evaluation_config
-from eco_planner.evaluation.runtime import (
+from eco_planner.evaluation import (
+    EvaluationJobConfig,
     FabricInferenceRuntime,
     create_fabric_inference_runtime,
+    parse_evaluation_config,
 )
 from eco_planner.models import OfficialDiffusionPlannerConfig
 from eco_planner.runtime.resources import require_resource_profile

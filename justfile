@@ -70,70 +70,39 @@ test-gpu:
 [group('development')]
 check: lint format-check typecheck test-all-cpu
 
-# Run the default evaluation profile or pass Hydra arguments unchanged.
+# Run a configured evaluation job or summarize an evaluation matrix.
 [group('evaluation')]
-evaluate *arguments:
-    {{ python }} -m scripts.evaluate {{ arguments }}
+evaluation action *arguments:
+    if ("{{ action }}" -eq "run") { & {{ python }} -m scripts.evaluation {{ arguments }}; exit $LASTEXITCODE } elseif ("{{ action }}" -eq "matrix-report") { & {{ python }} -m scripts.evaluation_matrix {{ arguments }}; exit $LASTEXITCODE } else { throw "evaluation action must be run or matrix-report" }
 
-# Run the fixed energy study CLI.
-[group('evaluation')]
-energy *arguments:
-    {{ python }} -m scripts.studies.energy_matrix {{ arguments }}
+# Run a configured PPO job or summarize reproducibility artifacts.
+[group('training')]
+training action *arguments:
+    if ("{{ action }}" -eq "run") { & {{ python }} -m scripts.training {{ arguments }}; exit $LASTEXITCODE } elseif ("{{ action }}" -eq "reproducibility-report") { & {{ python }} -m scripts.experiments.ppo_reproducibility {{ arguments }}; exit $LASTEXITCODE } else { throw "training action must be run or reproducibility-report" }
+
+# Run a configured benchmark or consolidate evaluation-backend measurements.
+[group('benchmark')]
+benchmark action *arguments:
+    if ("{{ action }}" -eq "run") { & {{ python }} -m scripts.benchmark {{ arguments }}; exit $LASTEXITCODE } elseif ("{{ action }}" -eq "evaluation-report") { & {{ python }} -m scripts.experiments.execution_backend {{ arguments }}; exit $LASTEXITCODE } else { throw "benchmark action must be run or evaluation-report" }
+
+# Run the fixed energy-sweep experiment.
+[group('experiments')]
+energy action *arguments:
+    if ("{{ action }}" -ne "run") { throw "energy action must be run" } else { & {{ python }} -m scripts.experiments.energy_sweep {{ arguments }}; exit $LASTEXITCODE }
 
 # Audit fixed synthetic PlannerRFT-style reward cases without running PPO.
-[group('evaluation')]
-reward-sanity *arguments:
-    {{ python }} -m scripts.studies.reward_sanity {{ arguments }}
+[group('experiments')]
+reward-sanity action *arguments:
+    if ("{{ action }}" -ne "run") { throw "reward-sanity action must be run" } else { & {{ python }} -m scripts.experiments.reward_sanity {{ arguments }}; exit $LASTEXITCODE }
 
-# Run the default PPO training profile or pass Hydra arguments unchanged.
-[group('training')]
-train *arguments:
-    {{ python }} -m scripts.train {{ arguments }}
+# Run or report the matched builtin/energy PPO A/B experiment.
+[group('experiments')]
+ppo-reward-ab action *arguments:
+    & {{ python }} -m scripts.experiments.ppo_reward_ab {{ action }} {{ arguments }}
+    exit $LASTEXITCODE
 
-# Run the matched builtin/energy PPO A/B study.
-[group('training')]
-ppo-reward-ab *arguments:
-    {{ python }} -m scripts.studies.ppo_reward_ab {{ arguments }}
-
-# Run Issue #76 PPO stability search and staged validation.
-[group('training')]
-ppo-stability-stage-a *arguments:
-    {{ python }} -m scripts.studies.ppo_stability stage-a {{ arguments }}
-
-[group('training')]
-ppo-stability-stage-b *arguments:
-    {{ python }} -m scripts.studies.ppo_stability stage-b {{ arguments }}
-
-[group('training')]
-ppo-stability-stage-c *arguments:
-    {{ python }} -m scripts.studies.ppo_stability stage-c {{ arguments }}
-
-[group('training')]
-ppo-stability-diagnose *arguments:
-    {{ python }} -m scripts.studies.ppo_stability diagnose {{ arguments }}
-
-# Run the default benchmark profile or pass Hydra arguments unchanged.
-[group('benchmark')]
-benchmark *arguments:
-    {{ python }} -m scripts.benchmark {{ arguments }}
-
-# Consolidate serial, job-level, and vector evaluation measurements.
-[group('benchmark')]
-benchmark-report *arguments:
-    {{ python }} -m scripts.benchmarking.evaluation_report {{ arguments }}
-
-[group('analysis')]
-summarize-matrix *arguments:
-    {{ python }} -m scripts.analysis.evaluation_matrix {{ arguments }}
-
-[group('analysis')]
-summarize-training *arguments:
-    {{ python }} -m scripts.analysis.training {{ arguments }}
-
-[group('analysis')]
-summarize-ppo-stability *arguments:
-    {{ python }} -m scripts.studies.ppo_stability summarize {{ arguments }}
-
-[group('analysis')]
-review-ppo-reward-ab *arguments:
-    {{ python }} -m scripts.analysis.ppo_reward_ab {{ arguments }}
+# Run staged PPO stability search, validation, diagnostics, or summary.
+[group('experiments')]
+ppo-stability action *arguments:
+    & {{ python }} -m scripts.experiments.ppo_stability {{ action }} {{ arguments }}
+    exit $LASTEXITCODE

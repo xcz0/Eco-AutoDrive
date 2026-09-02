@@ -27,7 +27,7 @@ from eco_planner.envs.metadrive.reward import (
     PlannerRFTEnergyRewardAudit,
     RewardProfileConfig,
 )
-from eco_planner.evaluation.config import ScenarioConfig
+from eco_planner.evaluation import ScenarioConfig
 from eco_planner.rl.rollout.contracts import (
     ExecutionTransitionAudit,
     RolloutEpisode,

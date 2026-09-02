@@ -115,6 +115,7 @@ class TrainingUpdateSummary(_ArtifactModel):
     reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"]
     native_step_energy_total_ml: StrictFloat = Field(ge=0.0)
     executed_fuel_proxy_total_ml: StrictFloat = Field(ge=0.0)
+    executed_fuel_proxy_distance_m: StrictFloat = Field(ge=0.0)
     executed_fuel_proxy_ml_per_km: StrictFloat | None = Field(ge=0.0)
     reward_component_means: RewardComponentMeans | None
 
@@ -234,6 +235,7 @@ def build_update_summary(
                 _tensor(trajectory, "native_step_energy_ml").sum()
             ),
             "executed_fuel_proxy_total_ml": proxy_total,
+            "executed_fuel_proxy_distance_m": distance_total,
             "executed_fuel_proxy_ml_per_km": (
                 proxy_total * 1000.0 / distance_total if distance_total > 0.0 else None
             ),

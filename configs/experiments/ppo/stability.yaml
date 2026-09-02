@@ -1,0 +1,55 @@
+version: 1
+study_name: issue76_ppo_stability
+base_training_config: jobs/training/ppo_conservative
+sampler_seed: 760024
+trial_count: 24
+stage_a_update_count: 30
+stage_a_training_seed: 0
+transitions_per_scenario: 16
+training_maps: [S, SC]
+training_map_seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+
+search:
+  learning_rate_min: 0.00001
+  learning_rate_max: 0.0002
+  epochs: [1, 2, 3]
+  batch_sizes: [128, 256, 512]
+  minibatch_sizes: [64, 128, 256]
+  target_kl_min: 0.005
+  target_kl_max: 0.03
+
+pruning:
+  report_interval_updates: 5
+  consecutive_update_count: 3
+  minimum_episode_length_retention: 0.30
+  out_of_road_fraction: 0.10
+  # Disabled: the stable conservative baseline (P1 rerun after the reset fix)
+  # sustains clip_fraction 0.67-0.74 for all updates while approx_kl stays
+  # ~1e-5, so a 0.50 hard-prune threshold flags every stable configuration.
+  # Clip fraction stays monitored and reported, but is not a hard prune.
+  clip_fraction: null
+  median_startup_trials: 5
+  median_warmup_updates: 5
+
+stage_b:
+  update_count: 50
+  training_seeds: [0, 1, 2]
+  top_config_count: 5
+
+stage_c:
+  update_count: 100
+  training_seeds: [0, 1, 2]
+  top_config_count: 2
+
+evaluation:
+  seed: 760025
+  maps: [S, SC]
+  map_seeds: [16, 17, 18, 19, 20, 21, 22, 23]
+  transitions_per_scenario: 100
+  minimum_retention: 0.90
+
+diagnostics:
+  update_count: 50
+  training_seed: 0
+  lateral_max_offset_m: 1.25
+  longitudinal_max_speed_fraction: 0.15

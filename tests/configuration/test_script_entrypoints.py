@@ -9,7 +9,7 @@ import pytest
 from eco_planner import configuration
 from eco_planner._repository import LOCAL_ENVIRONMENT_PATH
 
-HYDRA_ENTRYPOINTS = ("scripts.evaluate", "scripts.train", "scripts.benchmark")
+HYDRA_ENTRYPOINTS = ("scripts.evaluation", "scripts.training", "scripts.benchmark")
 
 
 @pytest.mark.parametrize("module_name", HYDRA_ENTRYPOINTS)
@@ -43,7 +43,7 @@ def test_main_bootstraps_environment_before_hydra(
     calls: list[tuple[str, object | None]] = []
 
     def record_environment_load(path: object) -> None:
-        if module_name == "scripts.train":
+        if module_name == "scripts.training":
             assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
         monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
         calls.append(("load", path))
@@ -66,7 +66,7 @@ def test_main_bootstraps_environment_before_hydra(
         "runtime.seed=17",
         "components/resources=rtx3050_laptop",
     ]
-    if module_name == "scripts.train":
+    if module_name == "scripts.training":
         assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
     else:
         assert "CUBLAS_WORKSPACE_CONFIG" not in os.environ

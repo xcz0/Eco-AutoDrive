@@ -243,10 +243,49 @@ class FabricRolloutRuntime:
             action.joint_guidance_log_prob,
             output.value,
         )
+        if result.reference_prediction is None or result.guidance_diagnostics is None:
+            raise RuntimeError(
+                "policy guidance planner result is missing required trace diagnostics"
+            )
+        diagnostics = result.guidance_diagnostics
         deferred = self._host_transfer.defer(
             {
                 "prediction": (result.prediction, torch.float32),
                 "initial_noise": (noise, torch.float32),
+                "reference_prediction": (result.reference_prediction, torch.float32),
+                "lateral_target_offset_m": (
+                    diagnostics.lateral_target_offset_m,
+                    torch.float32,
+                ),
+                "longitudinal_target_speed_fraction": (
+                    diagnostics.longitudinal_target_speed_fraction,
+                    torch.float32,
+                ),
+                "longitudinal_target_speed_delta_mps": (
+                    diagnostics.longitudinal_target_speed_delta_mps,
+                    torch.float32,
+                ),
+                "lateral_objective_delta": (
+                    diagnostics.lateral_objective_delta,
+                    torch.float32,
+                ),
+                "longitudinal_objective_delta": (
+                    diagnostics.longitudinal_objective_delta,
+                    torch.float32,
+                ),
+                "applied_gradient_l2": (
+                    diagnostics.applied_gradient_l2,
+                    torch.float32,
+                ),
+                "applied_gradient_max_abs": (
+                    diagnostics.applied_gradient_max_abs,
+                    torch.float32,
+                ),
+                "raw_neighbor_gradient_l2": (
+                    diagnostics.raw_neighbor_gradient_l2,
+                    torch.float32,
+                ),
+                "zero_speed_count": (diagnostics.zero_speed_count, torch.int64),
                 "scene_tokens": (policy_context.scene_tokens, torch.float32),
                 "scene_padding_mask": (policy_context.scene_padding_mask, torch.bool),
                 "navigation_tokens": (policy_context.navigation_tokens, torch.float32),

@@ -1,1 +1,1 @@
-"""Repository-only command, benchmark, study, and analysis modules."""
+"""Repository-only job and experiment command modules."""

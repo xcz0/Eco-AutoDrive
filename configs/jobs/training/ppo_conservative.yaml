@@ -1,0 +1,62 @@
+# @package _global_
+
+# Issue #76 Phase 1 P1: manual conservative PPO baseline.
+# Keeps the smoke PPO component defaults except the update-strength knobs
+# (lr / epochs / batch / minibatch / scheduler horizon) and expands the
+# per-update batch by adding independent scenarios rather than extending
+# single trajectories. Same reward profile (metadrive_builtin_v1) and same
+# map types (S, SC) as P0; only the PPO hyperparameters and scenario count
+# change, so any stability difference is attributable to update strength.
+
+defaults:
+  - /components/ppo_training
+  - _self_
+
+name: plannerrft_ppo_conservative
+
+ppo:
+  learning_rate: 2.5e-5
+  epochs: 1
+  batch_size: 256
+  minibatch_size: 128
+  # 20 updates * 1 epoch * (256 / 128) minibatches = 40 optimizer steps.
+  scheduler_total_optimizer_steps: 40
+
+training:
+  update_count: 20
+  transitions_per_environment: 16
+
+env:
+  horizon: 16
+  # MetaDrive treats the scenario seed as an index into [0, num_scenarios);
+  # the smoke profile only uses seed 0, so num_scenarios=1 is sufficient.
+  # P1 uses seeds 0-7 on S and SC, so the pool must cover at least 8.
+  num_scenarios: 8
+
+# 16 independent (map, seed) scenarios * 16 transitions = 256 transitions per
+# update. P0 uses the same map types with a single seed; P1 adds seeds 1-7 so
+# the batch growth comes from independent rollouts, not longer trajectories.
+scenarios:
+  - {name: straight_s0, map: S, seed: 0}
+  - {name: straight_s1, map: S, seed: 1}
+  - {name: straight_s2, map: S, seed: 2}
+  - {name: straight_s3, map: S, seed: 3}
+  - {name: straight_s4, map: S, seed: 4}
+  - {name: straight_s5, map: S, seed: 5}
+  - {name: straight_s6, map: S, seed: 6}
+  - {name: straight_s7, map: S, seed: 7}
+  - {name: gentle_curve_s0, map: SC, seed: 0}
+  - {name: gentle_curve_s1, map: SC, seed: 1}
+  - {name: gentle_curve_s2, map: SC, seed: 2}
+  - {name: gentle_curve_s3, map: SC, seed: 3}
+  - {name: gentle_curve_s4, map: SC, seed: 4}
+  - {name: gentle_curve_s5, map: SC, seed: 5}
+  - {name: gentle_curve_s6, map: SC, seed: 6}
+  - {name: gentle_curve_s7, map: SC, seed: 7}
+
+hydra:
+  run:
+    dir: outputs/training/ppo/${now:%Y-%m-%d}/${now:%H-%M-%S}-seed-${runtime.seed}-replay-${training.replay_id}
+  sweep:
+    dir: outputs/training/ppo/${now:%Y-%m-%d}/${now:%H-%M-%S}-acceptance
+    subdir: seed-${runtime.seed}-replay-${training.replay_id}
