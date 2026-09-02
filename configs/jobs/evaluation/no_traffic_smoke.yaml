@@ -1,0 +1,20 @@
+# @package _global_
+
+defaults:
+  - /jobs/evaluation/no_traffic
+  - _self_
+
+evaluation:
+  profile: smoke
+  evaluated_horizon_steps: 20
+
+env:
+  horizon: 20
+
+scenarios:
+  - name: straight
+    map: S
+    seed: 0
+
+video:
+  enabled: false

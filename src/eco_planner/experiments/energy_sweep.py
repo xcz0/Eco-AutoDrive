@@ -14,7 +14,7 @@ from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation import load_job_summary
 from eco_planner.jobs import compose_job_config, run_evaluation_job
 
-DEFAULT_STUDY = CONFIG_ROOT / "studies" / "energy" / "matrix.yaml"
+DEFAULT_STUDY = CONFIG_ROOT / "experiments" / "energy" / "matrix.yaml"
 
 
 class _StrictModel(BaseModel):

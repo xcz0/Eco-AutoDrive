@@ -312,7 +312,7 @@ def test_real_checkpoint_metadrive_rollout_updates_policy_without_changing_plann
 ) -> None:
     config_dir = Path(__file__).resolve().parents[2] / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        config = compose(config_name="jobs/training/rollout/smoke")
+        config = compose(config_name="jobs/training/rollout_smoke")
     parsed = parse_rollout_config(config)
     runtime = create_fabric_rollout_runtime(
         parsed.runtime,

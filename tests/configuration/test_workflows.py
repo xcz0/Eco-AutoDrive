@@ -14,7 +14,7 @@ def test_compose_job_config_uses_the_shared_hydra_boundary(monkeypatch) -> None:
     monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
 
     config = jobs.compose_job_config(
-        "jobs/training/ppo/smoke",
+        "jobs/training/ppo",
         ("runtime.seed=17", "training.replay_id=3"),
     )
 
@@ -31,7 +31,7 @@ def test_compose_job_config_preserves_an_explicit_resource_override(monkeypatch)
     monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
 
     config = jobs.compose_job_config(
-        "jobs/training/ppo/smoke",
+        "jobs/training/ppo",
         (
             "components/resources=rtx_a4000",
             "runtime.seed=17",
@@ -46,7 +46,7 @@ def test_compose_job_config_without_a_machine_profile(monkeypatch) -> None:
     monkeypatch.delenv("MACHINE_NAME", raising=False)
 
     config = jobs.compose_job_config(
-        "jobs/training/ppo/smoke",
+        "jobs/training/ppo",
         ("runtime.seed=17", "training.replay_id=3"),
     )
 
@@ -58,7 +58,7 @@ def test_unknown_machine_profile_is_reported_by_hydra(monkeypatch) -> None:
 
     with pytest.raises(MissingConfigException, match="components/resources/unknown-machine"):
         jobs.compose_job_config(
-            "jobs/training/ppo/smoke",
+            "jobs/training/ppo",
             ("runtime.seed=17", "training.replay_id=3"),
         )
 

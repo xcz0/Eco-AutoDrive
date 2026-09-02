@@ -1,11 +1,11 @@
 # Separate reusable components, runnable jobs, and research studies
 
-**Status:** Accepted and implemented; application ownership amended by ADR 0027
+**Status:** Accepted and implemented; terminology and entrypoint layout amended by ADR 0030
 **Date:** 2026-08-27
 
 Repository entrypoints previously mixed thin CLI wrappers, benchmark implementations, fixed research
-studies, and directly importable test helpers. Hydra configuration likewise mixed reusable groups,
-runnable jobs, and study manifests under paths such as `configs/matrices/`. This made dependency
+experiments, and directly importable test helpers. Hydra configuration likewise mixed reusable groups,
+runnable jobs, and experiment manifests under paths such as `configs/matrices/`. This made dependency
 direction and the stability of each interface unclear.
 
 This ADR's configuration layering remains accepted. Its decision to keep repository-only
@@ -16,7 +16,7 @@ Hydra configuration has three layers:
 
 - `configs/components/` contains reusable composition units;
 - `configs/jobs/` contains directly runnable evaluation, training, and benchmark profiles;
-- `configs/studies/` contains fixed research manifests and their study-specific jobs.
+- `configs/experiments/` contains fixed research manifests and their experiment-specific jobs.
 
 A component with one implementation remains a single file. A config-group directory is introduced
 only after multiple selectable implementations exist. Component files use explicit Hydra packages so

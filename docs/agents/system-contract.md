@@ -44,7 +44,7 @@ semantic job 的 resources config group 使用 null 占位，因此不依赖 `.e
 
 `jobs` 是完整 semantic job 的唯一声明位置；`experiments` 只选择 job，并声明
 experiment-specific pairing、搜索、ranking 或显式 overrides。experiment manifest 目前保留在
-`configs/studies/`，不得复制 job 的 scenario、runtime、sampler 或 environment 字段后再与
+`configs/experiments/`，不得复制 job 的 scenario、runtime、sampler 或 environment 字段后再与
 resolved config 对账。
 
 配置、持久化文件以及 MetaDrive、TorchRL、Diffusers、Fabric 等第三方返回值只在首次进入项目 typed domain 的边界校验和转换一次；下游受控数据流依赖明确类型、生产者测试与本节规定的 shape/单位契约，不为静态类型收窄重复执行 `isinstance` 或 Optional 状态检查。有限性、随机流、冻结参数及其他会改变实验语义的显式校验不受此规则影响。

@@ -11,7 +11,7 @@ from eco_planner._repository import CONFIG_ROOT
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation import ScenarioConfig
 
-DEFAULT_STUDY = CONFIG_ROOT / "studies" / "ppo" / "stability.yaml"
+DEFAULT_STUDY = CONFIG_ROOT / "experiments" / "ppo" / "stability.yaml"
 
 
 class _StrictModel(BaseModel):

@@ -25,7 +25,7 @@ from eco_planner.envs.metadrive.reward import (
     score_plannerrft_energy_step,
 )
 
-DEFAULT_CONFIG = CONFIG_ROOT / "studies" / "reward" / "sanity.yaml"
+DEFAULT_CONFIG = CONFIG_ROOT / "experiments" / "reward" / "sanity.yaml"
 _SCORE_FIELDS = (
     "reward_total",
     "reward_ungated",

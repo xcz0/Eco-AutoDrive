@@ -23,7 +23,7 @@ just setup
 just check
 ```
 
-`just --list` 查看全部开发、评测、训练和分析入口。
+`just --list` 查看全部开发、评测、训练、benchmark 和实验入口。
 
 ## 常用工作流
 
@@ -31,29 +31,29 @@ just check
 
 ```powershell
 # 无交通 smoke
-just evaluate --config-name jobs/evaluation/no_traffic/smoke
+just evaluation run --config-name jobs/evaluation/no_traffic_smoke
 
 # 有交通 smoke
-just evaluate --config-name jobs/evaluation/traffic/smoke
+just evaluation run --config-name jobs/evaluation/traffic_smoke
 
 # 无交通 full evaluation
-just evaluate
+just evaluation run
 
 # 有交通 full evaluation
-just evaluate --config-name jobs/evaluation/traffic/full
+just evaluation run --config-name jobs/evaluation/traffic
 ```
 
 矩阵评测：
 
 ```powershell
-just evaluate --config-name jobs/evaluation/no_traffic/matrix --multirun
-just evaluate --config-name jobs/evaluation/traffic/matrix --multirun
+just evaluation run --config-name jobs/evaluation/no_traffic_matrix --multirun
+just evaluation run --config-name jobs/evaluation/traffic_matrix --multirun
 ```
 
 固定 reference guidance smoke：
 
 ```powershell
-just evaluate --config-name jobs/evaluation/no_traffic/smoke components/sampler=ddim5 `
+just evaluation run --config-name jobs/evaluation/no_traffic_smoke components/sampler=ddim5 `
     components/guidance=orthogonal_reference `
     guidance.lateral_scale=1 guidance.longitudinal_scale=0
 ```
@@ -61,29 +61,29 @@ just evaluate --config-name jobs/evaluation/no_traffic/smoke components/sampler=
 PPO closed-loop smoke training：
 
 ```powershell
-just train runtime.seed=0 training.replay_id=0
+just training run runtime.seed=0 training.replay_id=0
 ```
 
 可复用性能诊断与固定能耗矩阵：
 
 ```powershell
-just benchmark
-just benchmark --config-name jobs/benchmark/throughput_traffic
-just benchmark --config-name jobs/benchmark/rollout
-just energy --output-root outputs/energy_matrix/manual-run
+just benchmark run
+just benchmark run --config-name jobs/benchmark/throughput_traffic
+just benchmark run --config-name jobs/benchmark/rollout
+just energy run --output-root outputs/energy_matrix/manual-run
 ```
 
 Issue #59 reward sanity 与匹配 PPO A/B：
 
 ```powershell
-just reward-sanity --output-root outputs/reward_sanity/manual-run
+just reward-sanity run --output-root outputs/reward_sanity/manual-run
 # 阶段 A：4 updates × 1 seed 的机械与短方向门控
-just ppo-reward-ab --output-root outputs/training/ppo-reward-ab/manual-run
-just review-ppo-reward-ab outputs/training/ppo-reward-ab/manual-run
+just ppo-reward-ab run --output-root outputs/training/ppo-reward-ab/manual-run
+just ppo-reward-ab report outputs/training/ppo-reward-ab/manual-run
 
 # 阶段 B：20 updates × 3 seeds 的匹配短趋势运行
-just ppo-reward-ab --output-root outputs/training/ppo-reward-ab-phase-b/manual-run `
-    --study configs/studies/reward/ppo_ab_long_term.yaml
+just ppo-reward-ab run --output-root outputs/training/ppo-reward-ab-phase-b/manual-run `
+    --config configs/experiments/reward/ppo_ab_long_term.yaml
 ```
 
 第一条只计算配置中声明的固定合成 reward case；第二条运行相同 seed、scenario、transition

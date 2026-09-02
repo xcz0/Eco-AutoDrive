@@ -1,0 +1,34 @@
+# @package _global_
+
+defaults:
+  - /components/evaluation
+  - _self_
+
+name: official_traffic_long_closed_loop
+
+evaluation:
+  mode: traffic
+  profile: full
+  history_warmup_steps: 20
+  evaluated_horizon_steps: 3000
+env:
+  start_seed: 0
+  num_scenarios: 5
+  traffic_density: 0.05
+  traffic_mode: trigger
+  horizon: 3020
+
+scenarios:
+  - name: long_straight
+    map: SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+    seed: ${runtime.seed}
+  - name: long_mixed
+    map: SCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSCSC
+    seed: ${runtime.seed}
+
+hydra:
+  run:
+    dir: outputs/traffic/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: outputs/traffic/${now:%Y-%m-%d}/${now:%H-%M-%S}-long-seeds-0-4
+    subdir: ${hydra.job.num}
