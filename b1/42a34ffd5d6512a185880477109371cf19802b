@@ -1,0 +1,51 @@
+src/eco_planner/envs/__init__.py
+  s_bab61b43f38f66::t_3fd2d1ea24c5ab 21,26-27,39
+  s_bab61b43f38f66::t_a06a9175c61799 40-42
+src/eco_planner/runtime/envs/torchrl.py
+  s_bab61b43f38f66::t_b8b9d0c70ef226 16
+src/eco_planner/envs/domain/__init__.py
+  s_bab61b43f38f66::t_bd2ab15a6bd6e0 13-14
+  s_bab61b43f38f66::t_6005f322124008 40-41
+src/eco_planner/rl/reward/__init__.py
+  s_bab61b43f38f66::t_1f6603617e674b 11-14,20-21
+tests/evaluation/test_engine.py
+  s_bab61b43f38f66::t_a28b602edd559a 23-28
+tests/simulation/test_closed_loop.py
+  s_bab61b43f38f66::t_fba5e31f279864 19
+src/eco_planner/envs/metadrive/__init__.py
+  s_bab61b43f38f66::t_9f905650e5a7c0 3-13,15-25
+src/eco_planner/evaluation/episodes/rendering.py
+  s_bab61b43f38f66::t_826edf2b75d4f0 10
+tests/simulation/test_reward.py
+  s_bab61b43f38f66::t_53abfa5e241e0d 8-9,13-14
+tests/simulation/test_geometry.py
+  s_bab61b43f38f66::t_af3118dd81ac9a 21
+src/eco_planner/runtime/envs/worker.py
+  s_bab61b43f38f66::t_d3bb6645cda3ae 15-21
+src/eco_planner/runtime/envs/vector.py
+  s_bab61b43f38f66::t_15c96641743eb2 16-17
+src/eco_planner/rl/reward/plannerrft.py
+  s_bab61b43f38f66::t_121eaa7b4ecb13 10-13
+tests/planning/test_observation.py
+  s_bab61b43f38f66::t_1eeef5aa8ba2d2 10,15-19
+src/eco_planner/rl/reward/audit.py
+  s_bab61b43f38f66::t_5e61d690c4814f 8
+src/eco_planner/experiments/reward_sanity.py
+  s_bab61b43f38f66::t_e0d5e4d96e98d3 17-18,22-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "b142a34ffd5d6512a185880477109371cf19802b",
+  "prompts": {},
+  "sessions": {
+    "s_bab61b43f38f66": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f99e41c51ffe53t7NVXfwAxxX9",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
