@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
 from functools import partial
 from threading import RLock
-from typing import Any
+from typing import Any, TypeVar, cast
 
 import numpy as np
 import torch
@@ -14,19 +13,12 @@ from tensordict import TensorDict, TensorDictBase
 from torchrl.envs import ParallelEnv
 
 from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
-from eco_planner.envs.array_types import SingleObservation
-from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
 from eco_planner.envs.domain.metrics import TransitionMetrics
 from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
 from eco_planner.envs.metadrive.slot import ObservationMode
-from eco_planner.envs.observation import (
-    OBSERVATION_KEYS,
-    PlannerObservationSpec,
-    TrafficObservationAudit,
-)
+from eco_planner.envs.observation import PlannerObservationSpec
 from eco_planner.envs.torchrl.worker import (
     VectorEnvScenario,
-    VectorEnvTiming,
     WorkerFailure,
     WorkerResetResult,
     WorkerStepResult,
@@ -34,39 +26,24 @@ from eco_planner.envs.torchrl.worker import (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class VectorEnvReset:
-    """One slot observation and its reset-domain metadata."""
-
-    slot: int
-    scenario: VectorEnvScenario
-    observation: SingleObservation
-    route_completion: float
-    route_length_m: float
-    warmup_initial_state: np.ndarray
-    initial_state: np.ndarray
-    warmup_executions: tuple[TrajectoryExecutionRecord, ...]
-    traffic_audit: TrafficObservationAudit | None
-    programmatic_lane_speed_limit_audit: Mapping[str, object]
-    timing: VectorEnvTiming
-
-
-@dataclass(frozen=True, slots=True)
-class VectorEnvStep:
-    """One slot transition and its execution-domain metadata."""
-
-    slot: int
-    observation: SingleObservation
-    reward: float
-    terminated: bool
-    truncated: bool
-    execution: TrajectoryExecutionRecord
-    traffic_audit: TrafficObservationAudit | None
-    timing: VectorEnvTiming
-
-
 class VectorMetaDriveWorkerError(RuntimeError):
     """A TorchRL-owned MetaDrive worker failed during one explicit operation."""
+
+
+_OperationResultT = TypeVar("_OperationResultT")
+
+
+def operation_results(
+    output: TensorDictBase, expected_type: type[_OperationResultT]
+) -> tuple[_OperationResultT, ...]:
+    """Return the parent-side domain sidecars paired with one vector TensorDict batch."""
+
+    value = output.get_non_tensor("operation_results")
+    if not isinstance(value, tuple) or len(value) != output.batch_size[0]:
+        raise TypeError("vector output operation_results must match its batch dimension")
+    if not all(isinstance(item, expected_type) for item in value):
+        raise TypeError(f"vector output contains non-{expected_type.__name__} operation results")
+    return cast(tuple[_OperationResultT, ...], value)
 
 
 class VectorMetaDriveEnv:
@@ -146,55 +123,50 @@ class VectorMetaDriveEnv:
 
         return bool(self._env._use_buffers)  # noqa: SLF001 - pinned TorchRL contract
 
-    def reset(self, scenarios: Sequence[VectorEnvScenario]) -> tuple[VectorEnvReset, ...]:
-        """Reset every physical slot to its assigned catalog scenario."""
+    def reset(
+        self,
+        scenarios: Sequence[VectorEnvScenario],
+        *,
+        slots: Sequence[int] | None = None,
+    ) -> TensorDictBase:
+        """Reset the requested physical slots and return one ordered TensorDict batch."""
 
-        if len(scenarios) != self.num_envs:
-            raise ValueError(f"expected {self.num_envs} scenarios, got {len(scenarios)}")
-        slots = tuple(range(self.num_envs))
-        return self._reset_slots(slots, scenarios, partial=False)
+        slots_tuple = self._resolve_slots(slots)
+        if len(scenarios) != len(slots_tuple):
+            raise ValueError(
+                f"expected {len(slots_tuple)} scenarios for requested slots, got {len(scenarios)}"
+            )
+        return self._reset_slots(slots_tuple, scenarios)
 
-    def reset_at(self, slot: int, scenario: VectorEnvScenario) -> VectorEnvReset:
-        """Reset one slot without changing another worker's episode state."""
+    def step(
+        self,
+        trajectories: Sequence[np.ndarray] | np.ndarray,
+        *,
+        slots: Sequence[int] | None = None,
+    ) -> TensorDictBase:
+        """Step the requested physical slots and return one ordered TensorDict batch."""
 
-        self._validate_slot(slot)
-        return self._reset_slots((slot,), (scenario,), partial=True)[0]
-
-    def step(self, trajectories: Sequence[np.ndarray] | np.ndarray) -> tuple[VectorEnvStep, ...]:
-        """Step every physical slot once."""
-
-        return self.step_slots(tuple(range(self.num_envs)), trajectories)
-
-    def step_slots(
-        self, slots: Sequence[int], trajectories: Sequence[np.ndarray] | np.ndarray
-    ) -> tuple[VectorEnvStep, ...]:
-        """Let TorchRL route one partial step to the selected physical slots."""
-
-        slots_tuple = tuple(slots)
-        if not slots_tuple or len(slots_tuple) != len(trajectories):
-            raise ValueError("step_slots requires equally sized non-empty slots and trajectories")
-        if len(set(slots_tuple)) != len(slots_tuple):
-            raise ValueError("step_slots must not repeat a slot")
-        for slot in slots_tuple:
-            self._validate_slot(slot)
+        slots_tuple = self._resolve_slots(slots)
+        arrays = np.asarray(trajectories)
+        if arrays.shape != (len(slots_tuple), PLANNER_HORIZON, 4) or arrays.dtype != np.float32:
+            raise ValueError(
+                f"trajectories must have shape [{len(slots_tuple)}, 80, 4] and dtype float32"
+            )
         actions = torch.zeros((self.num_envs, PLANNER_HORIZON, 4), dtype=torch.float32)
-        for slot, trajectory in zip(slots_tuple, trajectories, strict=True):
-            array = np.asarray(trajectory)
-            if array.shape != (PLANNER_HORIZON, 4) or array.dtype != np.float32:
-                raise ValueError("trajectory must have shape [80, 4] and dtype float32")
-            actions[slot].copy_(torch.from_numpy(array))
+        actions.index_copy_(
+            0,
+            torch.tensor(slots_tuple, dtype=torch.int64),
+            torch.from_numpy(arrays),
+        )
         mask = _slot_mask(self.num_envs, slots_tuple)
         input_td = TensorDict({"action": actions, "_step": mask}, batch_size=[self.num_envs])
         with self._operation_lock:
             output = _tensordict_field(self._call("step", lambda: self._env.step(input_td)), "next")
             domains = self._env.operation_result()
-            return tuple(self._step_result(output, slot, domains[slot]) for slot in slots_tuple)
-
-    def step_at(self, slot: int, trajectory: np.ndarray) -> VectorEnvStep:
-        """Step one physical slot without advancing the others."""
-
-        self._validate_slot(slot)
-        return self.step_slots((slot,), (trajectory,))[0]
+            selected_domains = tuple(self._step_result(slot, domains[slot]) for slot in slots_tuple)
+            return _selected_output(output, slots_tuple).set_non_tensor(
+                "operation_results", selected_domains
+            )
 
     def close(self) -> None:
         """Idempotently delegate pool shutdown and termination to TorchRL."""
@@ -216,9 +188,7 @@ class VectorMetaDriveEnv:
         self,
         slots: tuple[int, ...],
         scenarios: Sequence[VectorEnvScenario],
-        *,
-        partial: bool,
-    ) -> tuple[VectorEnvReset, ...]:
+    ) -> TensorDictBase:
         indices = list(self._active_scenario_indices)
         expected: dict[int, VectorEnvScenario] = {}
         for slot, scenario in zip(slots, scenarios, strict=True):
@@ -233,17 +203,19 @@ class VectorMetaDriveEnv:
         values: dict[str, torch.Tensor] = {
             "scenario_index": torch.tensor(indices, dtype=torch.int64).unsqueeze(-1)
         }
-        if partial:
+        if len(slots) != self.num_envs:
             values["_reset"] = _slot_mask(self.num_envs, slots)
         input_td = TensorDict(values, batch_size=[self.num_envs])
         with self._operation_lock:
             output = self._call("reset", lambda: self._env.reset(input_td))
             domains = self._env.operation_result()
-            results = tuple(
-                self._reset_result(output, slot, expected[slot], domains[slot]) for slot in slots
+            selected_domains = tuple(
+                self._reset_result(slot, expected[slot], domains[slot]) for slot in slots
             )
             self._active_scenario_indices = indices
-            return results
+            return _selected_output(output, slots).set_non_tensor(
+                "operation_results", selected_domains
+            )
 
     def _call(self, operation: str, function: Callable[[], TensorDictBase]) -> TensorDictBase:
         if self._closed:
@@ -261,11 +233,10 @@ class VectorMetaDriveEnv:
 
     def _reset_result(
         self,
-        output: TensorDictBase,
         slot: int,
         scenario: VectorEnvScenario,
         domain: object,
-    ) -> VectorEnvReset:
+    ) -> WorkerResetResult:
         self._raise_worker_failure(slot, domain)
         if not isinstance(domain, WorkerResetResult):
             self.close()
@@ -277,39 +248,16 @@ class VectorMetaDriveEnv:
             raise VectorMetaDriveWorkerError(
                 f"MetaDrive worker slot {slot} returned the wrong reset scenario"
             )
-        return VectorEnvReset(
-            slot=slot,
-            scenario=domain.scenario,
-            observation=_observation(output, slot),
-            route_completion=domain.route_completion,
-            route_length_m=domain.route_length_m,
-            warmup_initial_state=domain.warmup_initial_state,
-            initial_state=domain.initial_state,
-            warmup_executions=domain.warmup_executions,
-            traffic_audit=domain.traffic_audit,
-            programmatic_lane_speed_limit_audit=(domain.programmatic_lane_speed_limit_audit),
-            timing=domain.timing,
-        )
+        return domain
 
-    def _step_result(self, output: TensorDictBase, slot: int, domain: object) -> VectorEnvStep:
+    def _step_result(self, slot: int, domain: object) -> WorkerStepResult:
         self._raise_worker_failure(slot, domain)
         if not isinstance(domain, WorkerStepResult):
             self.close()
             raise VectorMetaDriveWorkerError(
                 f"MetaDrive worker slot {slot} returned invalid step domain data"
             )
-        terminated = bool(output["terminated"][slot].item())
-        truncated = bool(output["truncated"][slot].item())
-        return VectorEnvStep(
-            slot=slot,
-            observation=_observation(output, slot),
-            reward=float(output["reward"][slot].item()),
-            terminated=terminated,
-            truncated=truncated,
-            execution=domain.execution,
-            traffic_audit=domain.traffic_audit,
-            timing=domain.timing,
-        )
+        return domain
 
     def _raise_worker_failure(self, slot: int, domain: object) -> None:
         if isinstance(domain, WorkerFailure):
@@ -323,6 +271,16 @@ class VectorMetaDriveEnv:
         if type(slot) is not int or not 0 <= slot < self.num_envs:
             raise IndexError(f"slot must be in [0, {self.num_envs})")
 
+    def _resolve_slots(self, slots: Sequence[int] | None) -> tuple[int, ...]:
+        resolved = tuple(range(self.num_envs)) if slots is None else tuple(slots)
+        if not resolved:
+            raise ValueError("vector operation requires at least one slot")
+        if len(set(resolved)) != len(resolved):
+            raise ValueError("vector operation must not repeat a slot")
+        for slot in resolved:
+            self._validate_slot(slot)
+        return resolved
+
 
 def _slot_mask(count: int, slots: Sequence[int]) -> torch.Tensor:
     mask = torch.zeros((count, 1), dtype=torch.bool)
@@ -330,15 +288,8 @@ def _slot_mask(count: int, slots: Sequence[int]) -> torch.Tensor:
     return mask
 
 
-def _observation(output: TensorDictBase, slot: int) -> SingleObservation:
-    return output.select(*OBSERVATION_KEYS)[slot].detach().clone()
-
-
-def _tensor_field(output: TensorDictBase, key: str) -> torch.Tensor:
-    value = output.get(key)
-    if not isinstance(value, torch.Tensor):
-        raise TypeError(f"TensorDict field {key!r} must be a tensor")
-    return value
+def _selected_output(output: TensorDictBase, slots: Sequence[int]) -> TensorDictBase:
+    return cast(TensorDictBase, output[list(slots)]).detach().clone()
 
 
 def _tensordict_field(output: TensorDictBase, key: str) -> TensorDictBase:

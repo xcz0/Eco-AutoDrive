@@ -7,9 +7,10 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 import numpy as np
+from tensordict import TensorDictBase
 
 from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
-from eco_planner.envs.array_types import SingleObservation, TrajectoryArray
+from eco_planner.envs.array_types import TrajectoryArray
 from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
 from eco_planner.envs.domain.metrics import TransitionMetrics
 from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
@@ -43,7 +44,7 @@ class EnvSlotReset:
 class EnvSlotObservation:
     """One raw planner observation and its optional traffic-selection audit."""
 
-    observation: SingleObservation
+    observation: TensorDictBase
     traffic_audit: TrafficObservationAudit | None
 
 

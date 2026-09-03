@@ -3,24 +3,25 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
 from time import perf_counter
+from typing import cast
 
 import numpy as np
 import torch
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
+from tensordict import TensorDictBase
 
 from eco_planner.envs import (
     PlannerObservationSpec,
     VectorEnvScenario,
-    VectorEnvStep,
     VectorMetaDriveEnv,
-    collate_observations,
+    WorkerStepResult,
+    operation_results,
 )
-from eco_planner.envs.array_types import SingleObservation
 from eco_planner.evaluation import (
     EvaluationJobConfig,
     FabricInferenceRuntime,
@@ -76,7 +77,7 @@ def run(config: DictConfig) -> None:
 
 def benchmark_planner_batch_scaling(
     runtime: FabricInferenceRuntime,
-    observation: SingleObservation,
+    observation: TensorDictBase,
     *,
     benchmark: ScalingBenchmarkConfig,
 ) -> list[dict[str, object]]:
@@ -84,7 +85,7 @@ def benchmark_planner_batch_scaling(
 
     results: list[dict[str, object]] = []
     for batch_size in benchmark.batch_sizes:
-        batched_observation = collate_observations([observation] * batch_size)
+        batched_observation = cast(TensorDictBase, TensorDictBase.stack([observation] * batch_size))
         generators = tuple(
             torch.Generator(device=runtime.device).manual_seed(runtime.report.seed + index)
             for index in range(batch_size)
@@ -197,9 +198,13 @@ def benchmark_vector_environment_scaling(
                     batch_wall = perf_counter() - started
                     elapsed += batch_wall
                     _require_active_steps(steps)
-                    busy = [step.timing.environment_s + step.timing.observation_s for step in steps]
-                    worker_environment += sum(step.timing.environment_s for step in steps)
-                    worker_observation += sum(step.timing.observation_s for step in steps)
+                    step_results = operation_results(steps, WorkerStepResult)
+                    busy = [
+                        step.timing.environment_s + step.timing.observation_s
+                        for step in step_results
+                    ]
+                    worker_environment += sum(step.timing.environment_s for step in step_results)
+                    worker_observation += sum(step.timing.observation_s for step in step_results)
                     transport_sync += max(0.0, batch_wall - max(busy))
                     imbalance += sum(max(busy) - value for value in busy)
                 total_steps = worker_count * benchmark.measured_cycles
@@ -233,17 +238,16 @@ def _stationary_trajectory(future_len: int) -> np.ndarray:
     return trajectory
 
 
-def _require_active_steps(steps: Sequence[VectorEnvStep]) -> None:
-    for step in steps:
-        if step.terminated or step.truncated:
-            raise RuntimeError("benchmark environment ended before measurement completed")
+def _require_active_steps(steps: TensorDictBase) -> None:
+    if bool(steps["done"].any()):
+        raise RuntimeError("benchmark environment ended before measurement completed")
 
 
 def _representative_observation(
     runtime: FabricInferenceRuntime,
     config: EvaluationJobConfig,
     env_config: dict[str, object],
-) -> SingleObservation:
+) -> TensorDictBase:
     with VectorMetaDriveEnv(
         (env_config,),
         mode=config.evaluation.mode,
@@ -254,8 +258,8 @@ def _representative_observation(
     ) as environments:
         reset = environments.reset(
             (VectorEnvScenario("benchmark-observation", str(env_config["map"]), 0),)
-        )[0]
-    return reset.observation
+        )
+    return cast(TensorDictBase, cast(TensorDictBase, reset["observation"])[0])
 
 
 def _provenance(

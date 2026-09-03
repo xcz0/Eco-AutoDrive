@@ -6,17 +6,18 @@ from pathlib import Path
 from typing import cast
 
 import numpy as np
+from tensordict import TensorDictBase
 
 from eco_planner.contracts import evaluation_plan_cycles
 from eco_planner.envs import (
     PlannerObservationSpec,
     TrajectoryExecutionRecord,
-    VectorEnvReset,
     VectorEnvScenario,
     VectorMetaDriveEnv,
-    collate_observations,
+    WorkerResetResult,
+    WorkerStepResult,
+    operation_results,
 )
-from eco_planner.envs.array_types import SingleObservation
 
 from ..artifacts import CompletedEpisodeSummary, FailedEpisodeSummary, FailurePhase
 from ..config import EvaluationJobConfig, ScenarioConfig
@@ -57,6 +58,7 @@ def run_vector_scenarios(
         torch_threads_per_worker=torch_threads_per_worker,
     ) as envs:
         resets = envs.reset(scenarios[:slot_count])
+        reset_results = operation_results(resets, WorkerResetResult)
         slots: dict[int, EpisodeState] = {}
         slot_scenario_indices: dict[int, int] = {}
         summaries: list[CompletedEpisodeSummary | FailedEpisodeSummary | None] = [None] * len(specs)
@@ -68,10 +70,21 @@ def run_vector_scenarios(
                 scenario_index = next_scenario_index
                 spec = specs[scenario_index]
                 next_scenario_index += 1
-                reset = envs.reset_at(slot_index, VectorEnvScenario(spec.name, spec.map, spec.seed))
+                reset_batch = envs.reset(
+                    (VectorEnvScenario(spec.name, spec.map, spec.seed),),
+                    slots=(slot_index,),
+                )
+                reset = operation_results(reset_batch, WorkerResetResult)[0]
                 try:
                     slots[slot_index] = _initialize_vector_slot(
-                        reset, agent, config, scenario_index
+                        reset,
+                        cast(
+                            TensorDictBase,
+                            cast(TensorDictBase, reset_batch["observation"])[0],
+                        ),
+                        agent,
+                        config,
+                        scenario_index,
                     )
                 except EpisodeFailure as failure:
                     summaries[scenario_index] = persist_failed_episode(
@@ -89,9 +102,18 @@ def run_vector_scenarios(
                 return True
             return False
 
-        for slot_index, reset in enumerate(resets):
+        for slot_index, reset in enumerate(reset_results):
             try:
-                slots[slot_index] = _initialize_vector_slot(reset, agent, config, slot_index)
+                slots[slot_index] = _initialize_vector_slot(
+                    reset,
+                    cast(
+                        TensorDictBase,
+                        cast(TensorDictBase, resets["observation"])[slot_index],
+                    ),
+                    agent,
+                    config,
+                    slot_index,
+                )
             except EpisodeFailure as failure:
                 summaries[slot_index] = persist_failed_episode(
                     initial_specs[slot_index],
@@ -110,23 +132,27 @@ def run_vector_scenarios(
         while active:
             observations = [_state_observation(slots[index]) for index in active]
             decision = agent.decide_batch(
-                collate_observations(observations),
+                cast(TensorDictBase, TensorDictBase.stack(observations)),
                 tuple(slots[index].noise_generator for index in active),
             )
-            steps = envs.step_slots(active, decision.ego_trajectories)
+            steps = envs.step(decision.ego_trajectories, slots=active)
+            step_results = operation_results(steps, WorkerStepResult)
             audit = decision.audit_result()
             next_active: list[int] = []
-            for batch_index, step in enumerate(steps):
+            for batch_index, step in enumerate(step_results):
                 slot_index = active[batch_index]
                 slot = slots[slot_index]
+                reward = float(steps["reward"][batch_index].item())
+                terminated = bool(steps["terminated"][batch_index].item())
+                truncated = bool(steps["truncated"][batch_index].item())
                 slot.record_cycle(
                     _state_observation(slot),
                     audit_slot(audit, batch_index),
                     step.execution,
-                    step.reward,
+                    reward,
                     slot.traffic_audit,
                 )
-                if step.terminated or step.truncated:
+                if terminated or truncated:
                     scenario_index = slot_scenario_indices.pop(slot_index)
                     trace_arrays = slot.trace.finalize()
                     try:
@@ -134,8 +160,8 @@ def run_vector_scenarios(
                             slot.spec,
                             trace_arrays,
                             step.execution,
-                            step.terminated,
-                            step.truncated,
+                            terminated,
+                            truncated,
                             slot.total_reward,
                             slot.environment_map_audit,
                             slot.route_length_m,
@@ -161,7 +187,7 @@ def run_vector_scenarios(
                     if assign_next(slot_index):
                         next_active.append(slot_index)
                     continue
-                slot.observation = step.observation
+                slot.observation = steps["observation"][batch_index]
                 slot.traffic_audit = step.traffic_audit
                 slot.anchor = _state_from_execution(step.execution)
                 next_active.append(slot_index)
@@ -173,7 +199,8 @@ def run_vector_scenarios(
 
 
 def _initialize_vector_slot(
-    reset: VectorEnvReset,
+    reset: WorkerResetResult,
+    observation: TensorDictBase,
     agent: EvaluationAgent,
     config: EvaluationJobConfig,
     scenario_index: int,
@@ -208,7 +235,7 @@ def _initialize_vector_slot(
             map=reset.scenario.map,
             seed=reset.scenario.seed,
         ),
-        observation=reset.observation,
+        observation=observation,
         traffic_audit=reset.traffic_audit,
         noise_generator=agent.new_noise_generator(scenario_index),
         trace=trace,
@@ -224,5 +251,5 @@ def _state_from_execution(execution: TrajectoryExecutionRecord) -> np.ndarray:
     return np.asarray(state, dtype=np.float64).copy()
 
 
-def _state_observation(state: EpisodeState) -> SingleObservation:
-    return cast(SingleObservation, state.observation)
+def _state_observation(state: EpisodeState) -> TensorDictBase:
+    return cast(TensorDictBase, state.observation)

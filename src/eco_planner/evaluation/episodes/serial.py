@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import numpy as np
+from tensordict import TensorDictBase
 
 from eco_planner.contracts import evaluation_plan_cycles
 from eco_planner.envs import (
     MetaDriveEnvSlot,
     PlannerObservationSpec,
     TrajectoryExecutionRecord,
-    collate_observations,
 )
 
 from ..artifacts import CompletedEpisodeSummary, FailedEpisodeSummary, FailurePhase
@@ -105,7 +106,8 @@ def run_scenario(
             raw_observation = slot_observation.observation
             traffic_audit = slot_observation.traffic_audit
             inference = agent.decide_batch(
-                collate_observations([raw_observation]), (state.noise_generator,)
+                cast(TensorDictBase, TensorDictBase.stack([raw_observation])),
+                (state.noise_generator,),
             )
             state.anchor = env_slot.vehicle_state
             step = env_slot.step(np.asarray(inference.ego_trajectories)[0])

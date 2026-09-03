@@ -10,11 +10,28 @@ from torchrl.data import Binary, Composite, Unbounded
 from eco_planner.envs.runtime.vector import (
     VectorMetaDriveEnv,
     VectorMetaDriveWorkerError,
+    operation_results,
 )
 from eco_planner.envs.torchrl.worker import (
     TorchRLScenarioMetaDriveEnv,
     WorkerFailure,
 )
+
+
+def test_operation_results_follow_the_tensor_batch_dimension() -> None:
+    first = WorkerFailure("reset", "first")
+    second = WorkerFailure("step", "second")
+    output = TensorDict({"value": torch.zeros((2, 1))}, batch_size=[2]).set_non_tensor(
+        "operation_results", (first, second)
+    )
+
+    assert operation_results(output, WorkerFailure) == (first, second)
+
+    invalid = TensorDict({"value": torch.zeros((2, 1))}, batch_size=[2]).set_non_tensor(
+        "operation_results", (first,)
+    )
+    with pytest.raises(TypeError, match="batch dimension"):
+        operation_results(invalid, WorkerFailure)
 
 
 def test_step_failure_output_preserves_the_original_worker_traceback() -> None:

@@ -2,12 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Final, cast
-
-import torch
-from tensordict import TensorDict, TensorDictBase
-
 from eco_planner.contracts import (
     AGENT_COUNT,
     AGENT_HISTORY_DIM,
@@ -19,23 +13,10 @@ from eco_planner.contracts import (
     STATIC_OBJECT_DIM,
     TRAFFIC_HISTORY_FRAMES,
 )
-from eco_planner.envs.array_types import BatchObservation, SingleObservation
 from eco_planner.envs.observation.builder import ObservationBuilder
 from eco_planner.envs.observation.history import TrafficHistory
 from eco_planner.envs.observation.map import MapSnapshot
 from eco_planner.envs.observation.scene import TrafficObservationAudit, TrafficSceneEncoder
-
-OBSERVATION_KEYS: Final = (
-    "ego_current_state",
-    "neighbor_agents_past",
-    "static_objects",
-    "lanes",
-    "lanes_speed_limit",
-    "lanes_has_speed_limit",
-    "route_lanes",
-    "route_lanes_speed_limit",
-    "route_lanes_has_speed_limit",
-)
 
 
 class PlannerObservationSpec:
@@ -128,37 +109,11 @@ class PlannerObservationSpec:
         return cls(*values)
 
 
-def observation_tensordict(
-    observation: SingleObservation | Mapping[str, torch.Tensor],
-) -> SingleObservation:
-    """Return the canonical unbatched TensorDict observation container."""
-
-    if isinstance(observation, TensorDictBase):
-        return observation
-    return TensorDict(dict(observation), batch_size=[])
-
-
-def collate_observations(
-    observations: Sequence[SingleObservation | Mapping[str, torch.Tensor]],
-) -> BatchObservation:
-    """Stack canonical single-environment TensorDicts into a planner batch."""
-
-    if not observations:
-        raise ValueError("cannot collate an empty observation sequence")
-    return cast(
-        BatchObservation,
-        torch.stack([observation_tensordict(item) for item in observations]),
-    )
-
-
 __all__ = [
     "ObservationBuilder",
-    "OBSERVATION_KEYS",
     "MapSnapshot",
     "PlannerObservationSpec",
     "TrafficHistory",
     "TrafficObservationAudit",
     "TrafficSceneEncoder",
-    "collate_observations",
-    "observation_tensordict",
 ]

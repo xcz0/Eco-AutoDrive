@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 import torch
 from lightning.fabric import Fabric
+from tensordict import TensorDictBase
 
-from eco_planner.envs.array_types import BatchObservation
 from eco_planner.models import (
     CheckpointLoadReport,
     OfficialDiffusionPlannerConfig,
@@ -120,7 +120,7 @@ class FabricRolloutRuntime:
 
     def decide(
         self,
-        observation: BatchObservation | Mapping[str, torch.Tensor],
+        observation: TensorDictBase,
         diffusion_generator: torch.Generator,
         policy_generator: torch.Generator,
     ) -> RolloutDecision:
@@ -134,7 +134,7 @@ class FabricRolloutRuntime:
 
     def decide_batch(
         self,
-        observation: BatchObservation | Mapping[str, torch.Tensor],
+        observation: TensorDictBase,
         diffusion_generators: Sequence[torch.Generator],
         policy_generators: Sequence[torch.Generator],
         *,
@@ -151,7 +151,7 @@ class FabricRolloutRuntime:
 
     def decide_batch_mean(
         self,
-        observation: BatchObservation | Mapping[str, torch.Tensor],
+        observation: TensorDictBase,
         diffusion_generators: Sequence[torch.Generator],
         *,
         timings: list[RolloutPlannerTiming] | None = None,
@@ -167,21 +167,20 @@ class FabricRolloutRuntime:
 
     def _decide_batch(
         self,
-        observation: BatchObservation | Mapping[str, torch.Tensor],
+        observation: TensorDictBase,
         diffusion_generators: Sequence[torch.Generator],
         policy_generators: Sequence[torch.Generator] | None,
         *,
         timings: list[RolloutPlannerTiming] | None,
     ) -> BatchRolloutDecision:
 
-        raw_observation = cast(dict[str, torch.Tensor], dict(observation))
-        batch = _observation_batch_size(raw_observation)
+        batch = _observation_batch_size(observation)
         _validate_slot_generators(diffusion_generators, batch, "diffusion_generators")
         if policy_generators is not None:
             _validate_slot_generators(policy_generators, batch, "policy_generators")
         profile = timings is not None
         moved, h2d_timing = profile_call(
-            self.device, profile, lambda: self._fabric.to_device(raw_observation)
+            self.device, profile, lambda: self._fabric.to_device(observation)
         )
         moved = _fabric_observation(moved)
         diffusion_rng_states = tuple(_rng_state(generator) for generator in diffusion_generators)
@@ -331,7 +330,7 @@ class FabricRolloutRuntime:
 
     def bootstrap_value(
         self,
-        observation: BatchObservation | Mapping[str, torch.Tensor],
+        observation: TensorDictBase,
         diffusion_generator: torch.Generator,
     ) -> torch.Tensor:
         """Evaluate one old critic value through the shared batched runtime path."""
@@ -340,19 +339,18 @@ class FabricRolloutRuntime:
 
     def bootstrap_value_batch(
         self,
-        observation: BatchObservation | Mapping[str, torch.Tensor],
+        observation: TensorDictBase,
         diffusion_generators: Sequence[torch.Generator],
         *,
         timings: list[RolloutPlannerTiming] | None = None,
     ) -> torch.Tensor:
         """Evaluate old critic values for a batch without sampling or executing actions."""
 
-        raw_observation = cast(dict[str, torch.Tensor], dict(observation))
-        batch = _observation_batch_size(raw_observation)
+        batch = _observation_batch_size(observation)
         _validate_slot_generators(diffusion_generators, batch, "diffusion_generators")
         profile = timings is not None
         moved, h2d_timing = profile_call(
-            self.device, profile, lambda: self._fabric.to_device(raw_observation)
+            self.device, profile, lambda: self._fabric.to_device(observation)
         )
         moved = _fabric_observation(moved)
         noise, noise_timing = profile_call(
@@ -478,17 +476,15 @@ def _unwrap_diffusion_planner(module: torch.nn.Module) -> PretrainedDiffusionPla
     return unwrapped
 
 
-def _fabric_observation(value: object) -> dict[str, torch.Tensor]:
+def _fabric_observation(value: object) -> TensorDictBase:
     """Validate one Fabric observation transfer at the third-party boundary."""
 
-    if not isinstance(value, dict) or not all(
-        isinstance(name, str) and isinstance(tensor, torch.Tensor) for name, tensor in value.items()
-    ):
-        raise TypeError("Fabric must move rollout observations as a string-to-tensor mapping")
-    return cast(dict[str, torch.Tensor], value)
+    if not isinstance(value, TensorDictBase):
+        raise TypeError("Fabric must preserve the rollout TensorDict observation container")
+    return value
 
 
-def _observation_batch_size(observation: Mapping[str, torch.Tensor]) -> int:
+def _observation_batch_size(observation: TensorDictBase) -> int:
     value = observation.get("ego_current_state")
     if not isinstance(value, torch.Tensor) or value.ndim < 1 or value.shape[0] <= 0:
         raise ValueError(

@@ -7,7 +7,6 @@ from eco_planner.envs.domain import TrajectoryExecutionRecord, WorldTrajectory
 from eco_planner.envs.observation import (
     PlannerObservationSpec,
     TrafficObservationAudit,
-    collate_observations,
 )
 from eco_planner.envs.metadrive.slot import (
     EnvSlotObservation,
@@ -17,16 +16,18 @@ from eco_planner.envs.metadrive.slot import (
 )
 from eco_planner.envs.torchrl.adapter import TorchRLMetaDriveEnv
 from eco_planner.envs.runtime.vector import (
-    VectorEnvReset,
-    VectorEnvScenario,
-    VectorEnvStep,
-    VectorEnvTiming,
     VectorMetaDriveEnv,
     VectorMetaDriveWorkerError,
+    operation_results,
+)
+from eco_planner.envs.torchrl.worker import (
+    VectorEnvScenario,
+    VectorEnvTiming,
+    WorkerResetResult,
+    WorkerStepResult,
 )
 
 __all__ = [
-    "collate_observations",
     "PlannerObservationSpec",
     "TrafficObservationAudit",
     "TrajectoryExecutionRecord",
@@ -36,10 +37,11 @@ __all__ = [
     "EnvSlotStep",
     "MetaDriveEnvSlot",
     "TorchRLMetaDriveEnv",
-    "VectorEnvReset",
     "VectorEnvScenario",
-    "VectorEnvStep",
     "VectorEnvTiming",
     "VectorMetaDriveEnv",
     "VectorMetaDriveWorkerError",
+    "operation_results",
+    "WorkerResetResult",
+    "WorkerStepResult",
 ]

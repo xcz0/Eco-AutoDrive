@@ -8,12 +8,11 @@ from typing import cast
 
 import numpy as np
 import torch
-from tensordict import TensorDictBase
+from tensordict import TensorDict, TensorDictBase
 from torchrl.data import Binary, Composite, Unbounded
 from torchrl.envs import EnvBase
 
 from eco_planner.contracts import PLANNER_HORIZON
-from eco_planner.envs.array_types import SingleObservation
 from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
 from eco_planner.envs.metadrive.slot import EnvSlotReset, EnvSlotStep, MetaDriveEnvSlot
 from eco_planner.envs.observation import PlannerObservationSpec, TrafficObservationAudit
@@ -86,7 +85,15 @@ class TorchRLMetaDriveEnv(EnvBase):
         self._last_observation_s = perf_counter() - observation_started
         self._last_initial_state = self._slot.vehicle_state
         self._last_traffic_audit = observation.traffic_audit
-        return _observation_tensordict(observation.observation)
+        return TensorDict(
+            {
+                "observation": observation.observation.clone(),
+                "done": torch.zeros(1, dtype=torch.bool),
+                "terminated": torch.zeros(1, dtype=torch.bool),
+                "truncated": torch.zeros(1, dtype=torch.bool),
+            },
+            batch_size=[],
+        )
 
     def _step(self, tensordict: TensorDictBase) -> TensorDictBase:
         action = tensordict.get("action")
@@ -102,13 +109,15 @@ class TorchRLMetaDriveEnv(EnvBase):
         observation = self._slot.observe()
         self._last_observation_s = perf_counter() - observation_started
         self._last_traffic_audit = observation.traffic_audit
-        return observation.observation.clone().update(
+        return TensorDict(
             {
+                "observation": observation.observation.clone(),
                 "reward": torch.tensor([result.reward], dtype=torch.float32),
                 "done": torch.tensor([result.terminated or result.truncated], dtype=torch.bool),
                 "terminated": torch.tensor([result.terminated], dtype=torch.bool),
                 "truncated": torch.tensor([result.truncated], dtype=torch.bool),
-            }
+            },
+            batch_size=[],
         )
 
     def _set_seed(self, seed: int | None) -> None:
@@ -180,51 +189,45 @@ class TorchRLMetaDriveEnv(EnvBase):
 
 def _observation_spec(spec: PlannerObservationSpec) -> Composite:
     return Composite(
-        ego_current_state=Unbounded(
-            shape=torch.Size((10,)), dtype=torch.float32, device=_CPU_DEVICE
-        ),
-        neighbor_agents_past=Unbounded(
-            shape=torch.Size((spec.agent_num, spec.time_len, spec.agent_state_dim)),
-            dtype=torch.float32,
+        observation=Composite(
+            ego_current_state=Unbounded(
+                shape=torch.Size((10,)), dtype=torch.float32, device=_CPU_DEVICE
+            ),
+            neighbor_agents_past=Unbounded(
+                shape=torch.Size((spec.agent_num, spec.time_len, spec.agent_state_dim)),
+                dtype=torch.float32,
+                device=_CPU_DEVICE,
+            ),
+            static_objects=Unbounded(
+                shape=torch.Size((spec.static_objects_num, spec.static_objects_state_dim)),
+                dtype=torch.float32,
+                device=_CPU_DEVICE,
+            ),
+            lanes=Unbounded(
+                shape=torch.Size((spec.lane_num, spec.lane_len, spec.lane_state_dim)),
+                dtype=torch.float32,
+                device=_CPU_DEVICE,
+            ),
+            lanes_speed_limit=Unbounded(
+                shape=torch.Size((spec.lane_num, 1)), dtype=torch.float32, device=_CPU_DEVICE
+            ),
+            lanes_has_speed_limit=Binary(
+                1, shape=torch.Size((spec.lane_num, 1)), dtype=torch.bool, device=_CPU_DEVICE
+            ),
+            route_lanes=Unbounded(
+                shape=torch.Size((spec.route_num, spec.route_len, spec.route_state_dim)),
+                dtype=torch.float32,
+                device=_CPU_DEVICE,
+            ),
+            route_lanes_speed_limit=Unbounded(
+                shape=torch.Size((spec.route_num, 1)), dtype=torch.float32, device=_CPU_DEVICE
+            ),
+            route_lanes_has_speed_limit=Binary(
+                1, shape=torch.Size((spec.route_num, 1)), dtype=torch.bool, device=_CPU_DEVICE
+            ),
+            shape=(),
             device=_CPU_DEVICE,
-        ),
-        static_objects=Unbounded(
-            shape=torch.Size((spec.static_objects_num, spec.static_objects_state_dim)),
-            dtype=torch.float32,
-            device=_CPU_DEVICE,
-        ),
-        lanes=Unbounded(
-            shape=torch.Size((spec.lane_num, spec.lane_len, spec.lane_state_dim)),
-            dtype=torch.float32,
-            device=_CPU_DEVICE,
-        ),
-        lanes_speed_limit=Unbounded(
-            shape=torch.Size((spec.lane_num, 1)), dtype=torch.float32, device=_CPU_DEVICE
-        ),
-        lanes_has_speed_limit=Binary(
-            1, shape=torch.Size((spec.lane_num, 1)), dtype=torch.bool, device=_CPU_DEVICE
-        ),
-        route_lanes=Unbounded(
-            shape=torch.Size((spec.route_num, spec.route_len, spec.route_state_dim)),
-            dtype=torch.float32,
-            device=_CPU_DEVICE,
-        ),
-        route_lanes_speed_limit=Unbounded(
-            shape=torch.Size((spec.route_num, 1)), dtype=torch.float32, device=_CPU_DEVICE
-        ),
-        route_lanes_has_speed_limit=Binary(
-            1, shape=torch.Size((spec.route_num, 1)), dtype=torch.bool, device=_CPU_DEVICE
         ),
         shape=(),
         device=_CPU_DEVICE,
-    )
-
-
-def _observation_tensordict(observation: SingleObservation) -> TensorDictBase:
-    return observation.clone().update(
-        {
-            "done": torch.zeros(1, dtype=torch.bool),
-            "terminated": torch.zeros(1, dtype=torch.bool),
-            "truncated": torch.zeros(1, dtype=torch.bool),
-        }
     )

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import torch
 from omegaconf import OmegaConf
-from tensordict import TensorDict
+from tensordict import TensorDict, TensorDictBase
 
 import eco_planner.evaluation.engine as engine
 import eco_planner.evaluation.episodes.serial as episode_engine
@@ -180,9 +180,7 @@ class _ShortEpisodeRuntime:
     def new_noise_generator(self) -> torch.Generator:
         return torch.Generator(device="cpu").manual_seed(self.report.seed)
 
-    def infer(
-        self, observation: dict[str, torch.Tensor], generator: torch.Generator
-    ) -> InferenceDecision:
+    def infer(self, observation: TensorDictBase, generator: torch.Generator) -> InferenceDecision:
         assert observation["ego_current_state"].shape == (1, 10)
         noise = torch.randn((1, 11, 80, 4), generator=generator)
         prediction = torch.zeros_like(noise)
@@ -225,18 +223,21 @@ def _config() -> object:
     )
 
 
-def _observation() -> dict[str, torch.Tensor]:
-    return {
-        "ego_current_state": torch.zeros(10),
-        "neighbor_agents_past": torch.zeros((32, 21, 11)),
-        "static_objects": torch.zeros((5, 10)),
-        "lanes": torch.zeros((70, 20, 12)),
-        "lanes_speed_limit": torch.full((70, 1), 50.0 / 3.6),
-        "lanes_has_speed_limit": torch.ones((70, 1), dtype=torch.bool),
-        "route_lanes": torch.zeros((25, 20, 12)),
-        "route_lanes_speed_limit": torch.full((25, 1), 50.0 / 3.6),
-        "route_lanes_has_speed_limit": torch.ones((25, 1), dtype=torch.bool),
-    }
+def _observation() -> TensorDictBase:
+    return TensorDict(
+        {
+            "ego_current_state": torch.zeros(10),
+            "neighbor_agents_past": torch.zeros((32, 21, 11)),
+            "static_objects": torch.zeros((5, 10)),
+            "lanes": torch.zeros((70, 20, 12)),
+            "lanes_speed_limit": torch.full((70, 1), 50.0 / 3.6),
+            "lanes_has_speed_limit": torch.ones((70, 1), dtype=torch.bool),
+            "route_lanes": torch.zeros((25, 20, 12)),
+            "route_lanes_speed_limit": torch.full((25, 1), 50.0 / 3.6),
+            "route_lanes_has_speed_limit": torch.ones((25, 1), dtype=torch.bool),
+        },
+        batch_size=[],
+    )
 
 
 def _execution_record() -> TrajectoryExecutionRecord:

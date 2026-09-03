@@ -12,7 +12,6 @@ import torch
 from tensordict import TensorDictBase
 
 from eco_planner.envs import TrafficObservationAudit, TrajectoryExecutionRecord
-from eco_planner.envs.array_types import SingleObservation
 
 from ..artifacts import (
     CompletedEpisodeSummary,
@@ -38,7 +37,7 @@ class EpisodeFailure(RuntimeError):
 @dataclass
 class EpisodeState:
     spec: ScenarioConfig
-    observation: SingleObservation | None
+    observation: TensorDictBase | None
     traffic_audit: TrafficObservationAudit | None
     noise_generator: torch.Generator
     trace: EpisodeTraceRecorder
@@ -51,7 +50,7 @@ class EpisodeState:
 
     def record_cycle(
         self,
-        observation: SingleObservation,
+        observation: TensorDictBase,
         inference: TensorDictBase,
         execution: TrajectoryExecutionRecord,
         reward: float,

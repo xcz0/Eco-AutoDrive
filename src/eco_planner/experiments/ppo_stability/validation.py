@@ -10,10 +10,10 @@ from typing import Literal
 import numpy as np
 import torch
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
+from tensordict import TensorDictBase
 
 from eco_planner.artifacts import write_json
 from eco_planner.contracts import EVALUATION_EXECUTION_STEPS
-from eco_planner.envs.array_types import BatchObservation
 from eco_planner.evaluation import (
     CompletedEpisodeSummary,
     EvaluationDecision,
@@ -84,7 +84,7 @@ class _PPOCheckpointEvaluationAgent:
 
     def decide_batch(
         self,
-        observation: BatchObservation,
+        observation: TensorDictBase,
         generators: Sequence[torch.Generator],
     ) -> EvaluationDecision:
         return self.runtime.decide_batch_mean(observation, tuple(generators))

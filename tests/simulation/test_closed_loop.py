@@ -16,6 +16,9 @@ from eco_planner.envs import (
     PlannerObservationSpec,
     VectorEnvScenario,
     VectorMetaDriveEnv,
+    WorkerResetResult,
+    WorkerStepResult,
+    operation_results,
 )
 from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
 from eco_planner.envs.metadrive.simulator import MetaDriveBackend
@@ -253,19 +256,60 @@ def test_two_slot_vector_rollout_executes_current_training_path(
     ) as envs:
         resets = envs.reset(scenarios)
         steps = envs.step([_straight_trajectory() for _ in scenarios])
+        reset_results = operation_results(resets, WorkerResetResult)
+        step_results = operation_results(steps, WorkerStepResult)
 
-    assert [item.slot for item in resets] == [0, 1]
-    assert [item.slot for item in steps] == [0, 1]
-    for reset, step in zip(resets, steps, strict=True):
-        assert reset.observation.batch_size == torch.Size([])
-        assert step.observation.batch_size == torch.Size([])
-        assert reset.observation["ego_current_state"].shape == (10,)
+    assert resets.batch_size == torch.Size([2])
+    assert steps.batch_size == torch.Size([2])
+    for index, (_reset, step) in enumerate(zip(reset_results, step_results, strict=True)):
+        reset_observation = resets["observation"][index]
+        step_observation = steps["observation"][index]
+        assert reset_observation.batch_size == torch.Size([])
+        assert step_observation.batch_size == torch.Size([])
+        assert reset_observation["ego_current_state"].shape == (10,)
         assert step.execution.substep_states.shape == (1, 7)
-        assert isinstance(step.terminated, bool)
-        assert isinstance(step.truncated, bool)
-        assert np.isfinite(step.reward)
-        assert torch.count_nonzero(reset.observation["route_lanes"]).item() > 0
-        assert torch.count_nonzero(step.observation["route_lanes"]).item() > 0
+        assert steps["terminated"][index].dtype is torch.bool
+        assert steps["truncated"][index].dtype is torch.bool
+        assert torch.isfinite(steps["reward"][index]).all()
+        assert torch.count_nonzero(reset_observation["route_lanes"]).item() > 0
+        assert torch.count_nonzero(step_observation["route_lanes"]).item() > 0
+
+
+@pytest.mark.simulator
+def test_vector_partial_step_preserves_unselected_slot_and_requested_order(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    scenarios = (
+        VectorEnvScenario(name="slot-0", map="S", seed=0),
+        VectorEnvScenario(name="slot-1", map="S", seed=1),
+    )
+    with VectorMetaDriveEnv(
+        [_environment_config("S", trajectory_execution_steps=1) for _ in scenarios],
+        mode="no_traffic",
+        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+        scenarios=scenarios,
+    ) as envs:
+        resets = envs.reset(scenarios)
+        reset_results = operation_results(resets, WorkerResetResult)
+        slot_one = envs.step((_straight_trajectory(),), slots=(1,))
+        preserved = slot_one.clone()
+        slot_zero = envs.step((_straight_trajectory(),), slots=(0,))
+
+    slot_one_result = operation_results(slot_one, WorkerStepResult)[0]
+    slot_zero_result = operation_results(slot_zero, WorkerStepResult)[0]
+    np.testing.assert_allclose(
+        slot_one_result.execution.start_center,
+        reset_results[1].initial_state[:2],
+    )
+    np.testing.assert_allclose(
+        slot_zero_result.execution.start_center,
+        reset_results[0].initial_state[:2],
+    )
+    torch.testing.assert_close(slot_one["observation"], preserved["observation"])
+    assert slot_one.batch_size == torch.Size([1])
+    assert slot_zero.batch_size == torch.Size([1])
 
 
 @pytest.mark.simulator
@@ -300,22 +344,22 @@ def test_off_route_lane_is_terminal_with_padded_route_observation(
         reward_objective=create_reward_objective(reward_profile),
     ) as envs:
         envs.reset((scenario,))
-        step = envs.step((trajectory,))[0]
+        step_batch = envs.step((trajectory,))
+        step = operation_results(step_batch, WorkerStepResult)[0]
+        observation = step_batch["observation"][0]
 
-    assert step.terminated is True
-    assert step.truncated is False
+    assert bool(step_batch["terminated"][0].item()) is True
+    assert bool(step_batch["truncated"][0].item()) is False
     assert step.execution.out_of_road is True
     assert step.execution.substep_terminated.tolist() == [True]
     assert step.execution.substep_truncated.tolist() == [False]
-    assert np.isfinite(step.reward)
+    assert torch.isfinite(step_batch["reward"][0]).all()
     assert all(
-        torch.isfinite(value).all()
-        for value in step.observation.values()
-        if value.is_floating_point()
+        torch.isfinite(value).all() for value in observation.values() if value.is_floating_point()
     )
-    assert torch.count_nonzero(step.observation["route_lanes"]).item() == 0
-    assert torch.count_nonzero(step.observation["route_lanes_speed_limit"]).item() == 0
-    assert not torch.any(step.observation["route_lanes_has_speed_limit"])
+    assert torch.count_nonzero(observation["route_lanes"]).item() == 0
+    assert torch.count_nonzero(observation["route_lanes_speed_limit"]).item() == 0
+    assert not torch.any(observation["route_lanes_has_speed_limit"])
     assert len(step.execution.substep_metrics) == 1
     if isinstance(reward_profile, PlannerRFTEnergyRewardConfig):
         assert (

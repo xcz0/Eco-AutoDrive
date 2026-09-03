@@ -5,23 +5,23 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from time import perf_counter
-from typing import Literal
+from typing import Literal, cast
 from weakref import finalize
 
 import numpy as np
 import torch
+from tensordict import TensorDictBase
 
 from eco_planner.envs import (
     MetaDriveEnvSlot,
     PlannerObservationSpec,
     TrajectoryExecutionRecord,
-    VectorEnvReset,
     VectorEnvScenario,
-    VectorEnvStep,
     VectorMetaDriveEnv,
-    collate_observations,
+    WorkerResetResult,
+    WorkerStepResult,
+    operation_results,
 )
-from eco_planner.envs.array_types import SingleObservation
 from eco_planner.evaluation import ScenarioConfig
 from eco_planner.rl.reward import (
     MetaDriveBuiltinRewardAudit,
@@ -59,6 +59,75 @@ class VectorRolloutRoundTiming:
     worker_busy_s: float
     transport_sync_s: float
     worker_imbalance_s: float
+
+
+@dataclass
+class _EpisodeLifecycle:
+    previous_route_completion: float
+    cycle: int = 0
+    builder: RolloutEpisodeBuilder = field(default_factory=RolloutEpisodeBuilder)
+
+    @property
+    def empty(self) -> bool:
+        return self.builder.empty
+
+    def link_next_state_value(self, decision: RolloutDecision) -> None:
+        if not self.builder.empty:
+            self.builder.link_next_state_value(decision.training_decision["state_value"])
+
+    def append(
+        self,
+        decision: RolloutDecision,
+        execution: TrajectoryExecutionRecord,
+        *,
+        map_seed: int,
+        noise_seed: int,
+        policy_action_seed: int,
+        stopped_speed_threshold_mps: float,
+        reward_profile: RewardProfileConfig | None,
+        terminated: bool,
+        truncated: bool,
+        collection_limit: bool,
+    ) -> TailKind | None:
+        self.builder.append(
+            decision.training_decision,
+            decision.audit_result(),
+            _execution_transition_audit(
+                execution,
+                self.previous_route_completion,
+                stopped_speed_threshold_mps,
+                reward_profile=reward_profile,
+                terminated=terminated,
+                truncated=truncated,
+            ),
+            RolloutProvenance(
+                map_seed=map_seed,
+                noise_seed=noise_seed,
+                policy_action_seed=policy_action_seed,
+                planning_cycle_index=self.cycle,
+            ),
+        )
+        self.cycle += 1
+        self.previous_route_completion = execution.route_completion
+        if terminated:
+            return "terminated"
+        if truncated:
+            return "truncated"
+        if collection_limit:
+            return "rollout_limit"
+        return None
+
+    def finish(self, kind: TailKind, bootstrap_value: torch.Tensor) -> RolloutEpisode:
+        episode = self.builder.finish(kind, bootstrap_value)
+        self.builder = RolloutEpisodeBuilder()
+        self.cycle = 0
+        return episode
+
+    def reset(self, route_completion: float) -> None:
+        if not self.builder.empty:
+            raise RuntimeError("cannot reset an unfinished rollout episode")
+        self.previous_route_completion = route_completion
+        self.cycle = 0
 
 
 def collect_rollout_episode(
@@ -113,51 +182,43 @@ def collect_rollout_episode(
         diffusion_generator = runtime.new_noise_generator()
     if policy_generator is None:
         policy_generator = runtime.new_policy_generator()
-    episode = RolloutEpisodeBuilder()
     try:
         env_slot.reset(map_name=spec.map, seed=spec.seed)
         tuple(env_slot.warmup())
-        previous_route_completion = env_slot.route_completion
+        lifecycle = _EpisodeLifecycle(env_slot.route_completion)
 
         for cycle in range(max_transitions):
-            observation = collate_observations([env_slot.observe().observation])
+            observation = cast(
+                TensorDictBase, TensorDictBase.stack([env_slot.observe().observation])
+            )
             decision = runtime.decide(observation, diffusion_generator, policy_generator)
-            if not episode.empty:
-                episode.link_next_state_value(decision.training_decision["state_value"])
+            lifecycle.link_next_state_value(decision)
             step = env_slot.step(decision.ego_trajectory)
             terminated = step.terminated
             truncated = step.truncated
             execution = step.execution
-            episode.append(
-                decision.training_decision,
-                decision.audit_result(),
-                _execution_transition_audit(
-                    execution,
-                    previous_route_completion,
-                    stopped_speed_threshold_mps,
-                    reward_profile=reward_profile,
-                    terminated=terminated,
-                    truncated=truncated,
-                ),
-                RolloutProvenance(
-                    map_seed=spec.seed,
-                    noise_seed=resolved_noise_seed,
-                    policy_action_seed=resolved_policy_seed,
-                    planning_cycle_index=cycle,
-                ),
+            tail = lifecycle.append(
+                decision,
+                execution,
+                map_seed=spec.seed,
+                noise_seed=resolved_noise_seed,
+                policy_action_seed=resolved_policy_seed,
+                stopped_speed_threshold_mps=stopped_speed_threshold_mps,
+                reward_profile=reward_profile,
+                terminated=terminated,
+                truncated=truncated,
+                collection_limit=cycle + 1 == max_transitions,
             )
-            previous_route_completion = execution.route_completion
-            if terminated:
-                return episode.finish("terminated", torch.zeros(1))
-            if truncated:
-                next_observation = collate_observations([env_slot.observe().observation])
-                return episode.finish(
-                    "truncated", runtime.bootstrap_value(next_observation, diffusion_generator)
+            if tail == "terminated":
+                return lifecycle.finish(tail, torch.zeros(1))
+            if tail in {"truncated", "rollout_limit"}:
+                next_observation = cast(
+                    TensorDictBase, TensorDictBase.stack([env_slot.observe().observation])
                 )
-        next_observation = collate_observations([env_slot.observe().observation])
-        return episode.finish(
-            "rollout_limit", runtime.bootstrap_value(next_observation, diffusion_generator)
-        )
+                return lifecycle.finish(
+                    tail, runtime.bootstrap_value(next_observation, diffusion_generator)
+                )
+        raise RuntimeError("rollout lifecycle did not finish at its explicit transition limit")
     finally:
         env_slot.close()
 
@@ -170,17 +231,12 @@ class _SlotCollectionState:
     policy_generator: torch.Generator
     noise_seed: int
     policy_action_seed: int
-    observation: SingleObservation
-    previous_route_completion: float
+    lifecycle: _EpisodeLifecycle
     collected: int = 0
-    episode_cycle: int = 0
-    episode: RolloutEpisodeBuilder = field(default_factory=RolloutEpisodeBuilder)
     episodes: list[RolloutEpisode] = field(default_factory=list)
 
-    def reset(self, result: VectorEnvReset) -> None:
-        self.observation = result.observation
-        self.previous_route_completion = result.route_completion
-        self.episode_cycle = 0
+    def reset(self, result: WorkerResetResult) -> None:
+        self.lifecycle.reset(result.route_completion)
 
 
 class VectorRolloutCollector:
@@ -269,7 +325,7 @@ class VectorRolloutCollector:
         collected: list[tuple[RolloutEpisode, ...]] = []
         for start in range(0, len(self._specs), self._physical_slot_count):
             stop = min(start + self._physical_slot_count, len(self._specs))
-            states = self._initialize_group(
+            states, observation = self._initialize_group(
                 self._specs[start:stop],
                 self._scenarios[start:stop],
                 diffusion_generators[start:stop],
@@ -280,6 +336,7 @@ class VectorRolloutCollector:
             collected.extend(
                 self._collect_group(
                     states,
+                    observation,
                     transitions_per_slot=transitions_per_slot,
                     stopped_speed_threshold_mps=stopped_speed_threshold_mps,
                     policy_sampling=policy_sampling,
@@ -296,14 +353,15 @@ class VectorRolloutCollector:
         policy_generators: tuple[torch.Generator, ...],
         noise_seeds: tuple[int, ...],
         policy_action_seeds: tuple[int, ...],
-    ) -> list[_SlotCollectionState]:
-        if len(specs) == self._physical_slot_count:
-            resets = self._envs.reset(scenarios)
-        else:
-            resets = tuple(
-                self._envs.reset_at(slot, scenario) for slot, scenario in enumerate(scenarios)
-            )
-        return [
+    ) -> tuple[list[_SlotCollectionState], TensorDictBase]:
+        slots = tuple(range(len(specs)))
+        resets = self._envs.reset(
+            scenarios,
+            slots=None if len(specs) == self._physical_slot_count else slots,
+        )
+        reset_results = operation_results(resets, WorkerResetResult)
+        observation = cast(TensorDictBase, resets["observation"])
+        states = [
             _SlotCollectionState(
                 spec=spec,
                 scenario=scenario,
@@ -311,8 +369,7 @@ class VectorRolloutCollector:
                 policy_generator=policy_generator,
                 noise_seed=noise_seed,
                 policy_action_seed=policy_action_seed,
-                observation=reset.observation,
-                previous_route_completion=reset.route_completion,
+                lifecycle=_EpisodeLifecycle(reset.route_completion),
             )
             for (
                 spec,
@@ -329,14 +386,16 @@ class VectorRolloutCollector:
                 policy_generators,
                 noise_seeds,
                 policy_action_seeds,
-                resets,
+                reset_results,
                 strict=True,
             )
         ]
+        return states, observation
 
     def _collect_group(
         self,
         states: list[_SlotCollectionState],
+        observation: TensorDictBase,
         *,
         transitions_per_slot: int,
         stopped_speed_threshold_mps: float,
@@ -349,9 +408,7 @@ class VectorRolloutCollector:
             if any(state.collected != states[0].collected for state in states):
                 raise RuntimeError("vector rollout consumed unequal transition counts")
             profile = timings is not None
-            collate_started = perf_counter() if profile else 0.0
-            observation = collate_observations([state.observation for state in states])
-            collate_s = perf_counter() - collate_started if profile else 0.0
+            collate_s = 0.0
             planner_timings: list[RolloutPlannerTiming] = []
             planner_started = perf_counter() if profile else 0.0
             diffusion_generators = tuple(state.diffusion_generator for state in states)
@@ -369,16 +426,14 @@ class VectorRolloutCollector:
                     timings=planner_timings if profile else None,
                 )
             for slot, state in enumerate(states):
-                if not state.episode.empty:
-                    state.episode.link_next_state_value(
-                        decision.slot(slot).training_decision["state_value"]
-                    )
+                state.lifecycle.link_next_state_value(decision.slot(slot))
             planner_s = perf_counter() - planner_started if profile else 0.0
             environment_started = perf_counter() if profile else 0.0
-            if full_capacity:
-                steps = self._envs.step(decision.ego_trajectories)
-            else:
-                steps = self._envs.step_slots(active_slots, decision.ego_trajectories)
+            steps = self._envs.step(
+                decision.ego_trajectories,
+                slots=None if full_capacity else active_slots,
+            )
+            step_results = operation_results(steps, WorkerStepResult)
             environment_s = perf_counter() - environment_started if profile else 0.0
             audit_started = perf_counter() if profile else 0.0
             if profile:
@@ -388,7 +443,7 @@ class VectorRolloutCollector:
             if profile:
                 _append_decision_timing(
                     timings,
-                    steps,
+                    step_results,
                     capacity=self._physical_slot_count,
                     collate_s=collate_s,
                     planner_s=planner_s,
@@ -401,11 +456,13 @@ class VectorRolloutCollector:
                 )
 
             tails: list[tuple[int, TailKind]] = []
-            for slot, (state, step) in enumerate(zip(states, steps, strict=True)):
+            for slot, (state, step_result) in enumerate(zip(states, step_results, strict=True)):
                 tail = _append_slot_transition(
                     state,
                     decision.slot(slot),
-                    step,
+                    step_result,
+                    terminated=bool(steps["terminated"][slot].item()),
+                    truncated=bool(steps["truncated"][slot].item()),
                     transitions_per_slot=transitions_per_slot,
                     stopped_speed_threshold_mps=stopped_speed_threshold_mps,
                     reward_profile=self._reward_profile,
@@ -417,8 +474,9 @@ class VectorRolloutCollector:
             bootstrap_values: dict[int, torch.Tensor] = {}
             if bootstrap_slots:
                 bootstrap_collate_started = perf_counter() if profile else 0.0
-                bootstrap_observation = collate_observations(
-                    [steps[slot].observation for slot in bootstrap_slots]
+                bootstrap_observation = cast(
+                    TensorDictBase,
+                    cast(TensorDictBase, steps["observation"])[bootstrap_slots],
                 )
                 bootstrap_collate_s = perf_counter() - bootstrap_collate_started if profile else 0.0
                 bootstrap_timings: list[RolloutPlannerTiming] = []
@@ -440,23 +498,31 @@ class VectorRolloutCollector:
                 for index, slot in enumerate(bootstrap_slots):
                     bootstrap_values[slot] = values[index : index + 1]
 
-            tail_slots = {slot for slot, _ in tails}
+            reset_slots: list[int] = []
             for slot, kind in tails:
                 state = states[slot]
                 state.episodes.append(
-                    state.episode.finish(
+                    state.lifecycle.finish(
                         kind,
                         torch.zeros(1) if kind == "terminated" else bootstrap_values[slot],
                     )
                 )
-                state.episode = RolloutEpisodeBuilder()
                 if state.collected < transitions_per_slot:
-                    state.reset(self._envs.reset_at(slot, state.scenario))
-            for slot, (state, step) in enumerate(zip(states, steps, strict=True)):
-                if state.collected < transitions_per_slot and slot not in tail_slots:
-                    state.observation = step.observation
+                    reset_slots.append(slot)
+            if reset_slots:
+                reset_batch = self._envs.reset(
+                    tuple(states[slot].scenario for slot in reset_slots),
+                    slots=reset_slots,
+                )
+                reset_results = operation_results(reset_batch, WorkerResetResult)
+                for slot, reset_result in zip(reset_slots, reset_results, strict=True):
+                    states[slot].reset(reset_result)
+                observation = cast(TensorDictBase, steps["observation"]).clone()
+                observation[reset_slots] = cast(TensorDictBase, reset_batch["observation"])
+            else:
+                observation = cast(TensorDictBase, steps["observation"])
 
-        if any(not state.episode.empty for state in states):
+        if any(not state.lifecycle.empty for state in states):
             raise RuntimeError("vector rollout ended with an unfinished episode")
         return tuple(tuple(state.episodes) for state in states)
 
@@ -464,46 +530,34 @@ class VectorRolloutCollector:
 def _append_slot_transition(
     state: _SlotCollectionState,
     decision: RolloutDecision,
-    step: VectorEnvStep,
+    step: WorkerStepResult,
     *,
+    terminated: bool,
+    truncated: bool,
     transitions_per_slot: int,
     stopped_speed_threshold_mps: float,
     reward_profile: RewardProfileConfig | None,
 ) -> TailKind | None:
     execution = step.execution
-    state.episode.append(
-        decision.training_decision,
-        decision.audit_result(),
-        _execution_transition_audit(
-            execution,
-            state.previous_route_completion,
-            stopped_speed_threshold_mps,
-            reward_profile=reward_profile,
-            terminated=step.terminated,
-            truncated=step.truncated,
-        ),
-        RolloutProvenance(
-            map_seed=state.spec.seed,
-            noise_seed=state.noise_seed,
-            policy_action_seed=state.policy_action_seed,
-            planning_cycle_index=state.episode_cycle,
-        ),
+    tail = state.lifecycle.append(
+        decision,
+        execution,
+        map_seed=state.spec.seed,
+        noise_seed=state.noise_seed,
+        policy_action_seed=state.policy_action_seed,
+        stopped_speed_threshold_mps=stopped_speed_threshold_mps,
+        reward_profile=reward_profile,
+        terminated=terminated,
+        truncated=truncated,
+        collection_limit=state.collected + 1 == transitions_per_slot,
     )
     state.collected += 1
-    state.episode_cycle += 1
-    state.previous_route_completion = execution.route_completion
-    if step.terminated:
-        return "terminated"
-    if step.truncated:
-        return "truncated"
-    if state.collected == transitions_per_slot:
-        return "rollout_limit"
-    return None
+    return tail
 
 
 def _append_decision_timing(
     timings: list[VectorRolloutRoundTiming] | None,
-    steps: tuple[VectorEnvStep, ...],
+    steps: tuple[WorkerStepResult, ...],
     *,
     capacity: int,
     collate_s: float,

@@ -12,7 +12,6 @@ from ..artifacts.trace import EXECUTION_PREFIX_STEPS, OBSERVATION_FIELDS, alloca
 
 if TYPE_CHECKING:
     from eco_planner.envs import TrafficObservationAudit, TrajectoryExecutionRecord
-    from eco_planner.envs.array_types import SingleObservation
 
 
 class EpisodeTraceRecorder:
@@ -115,7 +114,7 @@ class EpisodeTraceRecorder:
     def append_cycle(
         self,
         anchor: np.ndarray,
-        observation: SingleObservation,
+        observation: TensorDictBase,
         inference: TensorDictBase,
         execution: TrajectoryExecutionRecord,
         plan_index: int,
@@ -268,7 +267,7 @@ def _write_traffic_audit(
     arrays["traffic_has_nearest"][cycle] = nearest is not None
 
 
-def _raw_observation_for_trace(observation: SingleObservation) -> dict[str, np.ndarray]:
+def _raw_observation_for_trace(observation: TensorDictBase) -> dict[str, np.ndarray]:
     return {name: observation[name].detach().numpy() for name in OBSERVATION_FIELDS}
 
 

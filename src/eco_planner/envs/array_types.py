@@ -9,7 +9,6 @@ from typing import TypeAlias, TypedDict
 
 import numpy as np
 from jaxtyping import Bool, Float32, Float64
-from tensordict import TensorDictBase
 
 from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_FRAMES
 
@@ -40,9 +39,3 @@ class NumpyMapObservation(TypedDict):
     route_lanes: Float32[np.ndarray, "25 20 12"]
     route_lanes_speed_limit: Float32[np.ndarray, "25 1"]
     route_lanes_has_speed_limit: Bool[np.ndarray, "25 1"]
-
-SingleObservation: TypeAlias = TensorDictBase
-"""One unbatched official observation held in a CPU TensorDict."""
-
-BatchObservation: TypeAlias = TensorDictBase
-"""A planner batch formed by stacking single-observation TensorDicts."""

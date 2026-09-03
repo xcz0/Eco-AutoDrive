@@ -7,7 +7,6 @@ import torch
 from tensordict import TensorDict
 
 from eco_planner.contracts import TRAFFIC_HISTORY_FRAMES
-from eco_planner.envs import collate_observations
 from eco_planner.envs.domain.traffic import (
     StaticTrafficObjectState,
     TrafficFrame,
@@ -37,14 +36,14 @@ def _frame(
 def _observation(lane_value: float) -> TensorDict:
     return TensorDict(
         {
-        "ego_current_state": torch.zeros(10, dtype=torch.float32),
-        "neighbor_agents_past": torch.zeros((32, 21, 11), dtype=torch.float32),
-        "static_objects": torch.zeros((5, 10), dtype=torch.float32),
-        "lanes": torch.full((70, 20, 12), lane_value, dtype=torch.float32),
-        "lanes_speed_limit": torch.zeros((70, 1), dtype=torch.float32),
-        "lanes_has_speed_limit": torch.zeros((70, 1), dtype=torch.bool),
-        "route_lanes": torch.zeros((25, 20, 12), dtype=torch.float32),
-        "route_lanes_speed_limit": torch.zeros((25, 1), dtype=torch.float32),
+            "ego_current_state": torch.zeros(10, dtype=torch.float32),
+            "neighbor_agents_past": torch.zeros((32, 21, 11), dtype=torch.float32),
+            "static_objects": torch.zeros((5, 10), dtype=torch.float32),
+            "lanes": torch.full((70, 20, 12), lane_value, dtype=torch.float32),
+            "lanes_speed_limit": torch.zeros((70, 1), dtype=torch.float32),
+            "lanes_has_speed_limit": torch.zeros((70, 1), dtype=torch.bool),
+            "route_lanes": torch.zeros((25, 20, 12), dtype=torch.float32),
+            "route_lanes_speed_limit": torch.zeros((25, 1), dtype=torch.float32),
             "route_lanes_has_speed_limit": torch.zeros((25, 1), dtype=torch.bool),
         },
         batch_size=[],
@@ -126,12 +125,12 @@ def test_scene_encoder_uses_official_type_features_and_current_to_past_backfill(
     assert not static_objects[1:].any()
 
 
-def test_collate_observations_preserves_values_and_stacks_batches() -> None:
+def test_tensordict_stack_preserves_values_and_batch_shape() -> None:
     first = _observation(1.0)
     second = _observation(2.0)
 
-    batch_one = collate_observations([first])
-    batch_two = collate_observations([first, second])
+    batch_one = torch.stack([first])
+    batch_two = torch.stack([first, second])
 
     for name, value in first.items():
         torch.testing.assert_close(batch_one[name][0], value, rtol=0.0, atol=0.0)
@@ -140,8 +139,3 @@ def test_collate_observations_preserves_values_and_stacks_batches() -> None:
     assert batch_two["lanes_has_speed_limit"].shape == (2, 70, 1)
     assert batch_two["lanes_has_speed_limit"].dtype == torch.bool
     torch.testing.assert_close(batch_two["lanes"][1], second["lanes"], rtol=0.0, atol=0.0)
-
-
-def test_collate_observations_rejects_empty_sequence() -> None:
-    with pytest.raises(ValueError, match="empty"):
-        collate_observations([])

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from time import perf_counter
 
@@ -116,7 +116,7 @@ def validate_optional_guidance_result(
 
 
 def validate_artifact_observation_fields(
-    observation: Mapping[str, torch.Tensor],
+    observation: TensorDictBase,
     config: OfficialDiffusionPlannerConfig,
 ) -> int:
     ego_current_state = observation.get("ego_current_state")
