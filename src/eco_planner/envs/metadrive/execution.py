@@ -16,7 +16,6 @@ from eco_planner.contracts import (
 
 from ..array_types import (
     ExecutionBooleanArray,
-    ExecutionScalarArray,
     ExecutionStateArray,
     TrajectoryArray,
     WorldVectorArray,
@@ -25,6 +24,7 @@ from ..domain import (
     EnergyMetricProvider,
     TrafficFrame,
     TrajectoryExecutionRecord,
+    TrajectoryExecutionResult,
     TransitionMetrics,
     WorldTrajectory,
     to_world_trajectory,
@@ -33,18 +33,6 @@ from .simulator import MetaDriveBackend, MetaDriveStepResult
 from .transition import TransitionExtractor
 
 _ZERO_VELOCITY: WorldVectorArray = np.zeros(2, dtype=np.float64)
-
-
-@dataclass(frozen=True, slots=True)
-class TrajectoryExecutorResult:
-    """Facts and objective-neutral metrics produced by one executed prefix."""
-
-    execution: TrajectoryExecutionRecord
-    metrics: tuple[TransitionMetrics, ...]
-    builtin_rewards: ExecutionScalarArray
-    builtin_dense_rewards: ExecutionScalarArray
-    terminated: bool
-    truncated: bool
 
 
 class TrajectoryExecutor:
@@ -67,7 +55,7 @@ class TrajectoryExecutor:
 
         return self._transition_extractor.reset(self._backend)
 
-    def execute(self, trajectory: TrajectoryArray) -> TrajectoryExecutorResult:
+    def execute(self, trajectory: TrajectoryArray) -> TrajectoryExecutionResult:
         """Execute the configured prefix, stopping at the first episode boundary."""
 
         rear_wheelbase = self._backend.agent.REAR_WHEELBASE
@@ -99,8 +87,6 @@ class TrajectoryExecutor:
             )
             recorder.append(
                 self._backend.agent,
-                step.builtin_reward,
-                step.builtin_dense_reward,
                 step,
                 float(world_trajectory.angular_velocities[index]),
                 metrics,
@@ -116,8 +102,6 @@ class TrajectoryExecutor:
 @dataclass(slots=True)
 class TrajectoryExecutionRecorder:
     states: ExecutionStateArray
-    rewards: ExecutionScalarArray
-    dense_rewards: ExecutionScalarArray
     metrics: list[TransitionMetrics]
     terminated: ExecutionBooleanArray
     truncated: ExecutionBooleanArray
@@ -127,8 +111,6 @@ class TrajectoryExecutionRecorder:
     def empty(cls, execution_steps: int) -> TrajectoryExecutionRecorder:
         return cls(
             states=np.empty((execution_steps, 7), dtype=np.float64),
-            rewards=np.empty(execution_steps, dtype=np.float64),
-            dense_rewards=np.empty(execution_steps, dtype=np.float64),
             metrics=[],
             terminated=np.empty(execution_steps, dtype=np.bool_),
             truncated=np.empty(execution_steps, dtype=np.bool_),
@@ -138,8 +120,6 @@ class TrajectoryExecutionRecorder:
     def append(
         self,
         agent: Any,
-        reward: float,
-        dense_reward: float,
         step: MetaDriveStepResult,
         angular_velocity: float,
         metrics: TransitionMetrics,
@@ -150,8 +130,6 @@ class TrajectoryExecutionRecorder:
         self.states[index, 3:5] = agent.velocity
         self.states[index, 5] = float(agent.speed)
         self.states[index, 6] = angular_velocity
-        self.rewards[index] = reward
-        self.dense_rewards[index] = dense_reward
         self.metrics.append(metrics)
         self.terminated[index] = step.terminated
         self.truncated[index] = step.truncated
@@ -161,12 +139,12 @@ class TrajectoryExecutionRecorder:
         self,
         world_trajectory: WorldTrajectory,
         final_step: MetaDriveStepResult,
-    ) -> TrajectoryExecutorResult:
+    ) -> TrajectoryExecutionResult:
         executed_steps = self.count
         state_array = self.states[:executed_steps].copy()
         target_centers = world_trajectory.centers[1 : executed_steps + 1]
         target_headings = world_trajectory.headings[1 : executed_steps + 1]
-        return TrajectoryExecutorResult(
+        return TrajectoryExecutionResult(
             execution=TrajectoryExecutionRecord(
                 start_center=world_trajectory.centers[0].copy(),
                 start_heading=float(world_trajectory.headings[0]),
@@ -189,8 +167,6 @@ class TrajectoryExecutionRecorder:
                 max_step=final_step.max_step,
             ),
             metrics=tuple(self.metrics),
-            builtin_rewards=self.rewards[:executed_steps].copy(),
-            builtin_dense_rewards=self.dense_rewards[:executed_steps].copy(),
             terminated=final_step.terminated,
             truncated=final_step.truncated,
         )

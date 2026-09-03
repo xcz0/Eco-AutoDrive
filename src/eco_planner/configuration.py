@@ -9,9 +9,29 @@ from pathlib import Path
 from typing import Any, TypeGuard
 
 from omegaconf import DictConfig, OmegaConf
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 _ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 _RESOURCE_CONFIG_GROUP = "components/resources"
+
+
+class _SharedConfigModel(BaseModel):
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid", allow_inf_nan=False)
+
+
+class ScenarioConfig(_SharedConfigModel):
+    """Objective-neutral identity of one map/seed scenario."""
+
+    name: str = Field(min_length=1)
+    map: str = Field(min_length=1)
+    seed: StrictInt = Field(ge=0)
+
+
+class ModelPathsConfig(_SharedConfigModel):
+    """Filesystem inputs shared by evaluation, benchmarking, and RL."""
+
+    args_path: str = Field(min_length=1)
+    checkpoint_path: str = Field(min_length=1)
 
 
 def load_local_environment(env_path: Path) -> None:

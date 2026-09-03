@@ -1,7 +1,7 @@
 """Framework-independent environment facts, metrics, and energy providers."""
 
 from .energy import MetaDriveFuelProxyProvider
-from .execution import TrajectoryExecutionRecord
+from .execution import TrajectoryExecutionRecord, TrajectoryExecutionResult
 from .fastsim import FASTSimEnergyConfig, FASTSimEnergyProvider
 from .metrics import (
     EnergyMetricName,
@@ -11,7 +11,6 @@ from .metrics import (
     TransitionMetricInput,
     TransitionMetrics,
     derive_transition_metrics,
-    minimum_time_to_collision_s,
 )
 from .traffic import (
     ParticipantKind,
@@ -32,13 +31,13 @@ __all__ = [
     "MetaDriveFuelProxyProvider",
     "StaticTrafficObjectState",
     "TrajectoryExecutionRecord",
+    "TrajectoryExecutionResult",
     "TransitionMetricInput",
     "TransitionMetrics",
     "TrafficFrame",
     "TrafficParticipantState",
     "WorldTrajectory",
     "derive_transition_metrics",
-    "minimum_time_to_collision_s",
     "to_world_trajectory",
     "ParticipantKind",
     "StaticObjectKind",

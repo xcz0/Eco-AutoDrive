@@ -12,13 +12,10 @@ from tensordict import TensorDict, TensorDictBase
 
 from eco_planner.contracts import PLANNER_ACTOR_COUNT, PLANNER_HORIZON, PLANNER_STATE_DIM
 from eco_planner.rl.policy import ExplorationPolicyContext
-from eco_planner.rl.reward import (
-    PlannerRFTEnergyRewardAudit,
-    RewardAudit,
-)
+from eco_planner.rl.reward import RewardResult
 
 TailKind = Literal["terminated", "truncated", "rollout_limit"]
-RewardProfileName = Literal["metadrive_builtin_v1", "plannerrft_energy_v1"]
+RewardProfileName = Literal["plannerrft_energy_v1"]
 _CPU_DEVICE = torch.device("cpu")
 _CONTEXT_KEYS = (
     "scene_tokens",
@@ -45,7 +42,7 @@ _NEXT_TRAINING_KEYS = frozenset(
         "truncated",
     }
 )
-_BUILTIN_AUDIT_KEYS: tuple[str, ...] = (
+_AUDIT_KEYS: tuple[str, ...] = (
     *_CONTEXT_KEYS,
     "base_action",
     "guidance_action",
@@ -56,9 +53,14 @@ _BUILTIN_AUDIT_KEYS: tuple[str, ...] = (
     "initial_noise",
     "diffusion_rng_state",
     "policy_rng_state",
-    "reward",
-    "dense_reward",
-    "terminal_override",
+    "reward_total",
+    "reward_base_total",
+    "reward_safety_gate",
+    "reward_component_ttc",
+    "reward_component_progress",
+    "reward_component_comfort",
+    "reward_component_speed",
+    "reward_component_energy",
     "route_completion_delta",
     "distance_m",
     "speed_mps",
@@ -84,18 +86,9 @@ _BUILTIN_AUDIT_KEYS: tuple[str, ...] = (
     "executed_fuel_proxy_step_energy_ml",
     "executed_fuel_proxy_ml_per_km",
     "energy_distance_valid",
-)
-_ENERGY_AUDIT_KEYS: tuple[str, ...] = (
-    *_BUILTIN_AUDIT_KEYS,
-    "reward_gate",
-    "collision_score",
-    "drivable_score",
-    "wrong_direction_score",
-    "ttc_score",
-    "progress_score",
-    "comfort_score",
-    "speed_score",
-    "energy_score",
+    "reward_diagnostic_collision_score",
+    "reward_diagnostic_drivable_score",
+    "reward_diagnostic_wrong_direction_score",
     "has_ttc_candidate",
     "min_ttc_s",
     "route_progress_delta_m",
@@ -133,9 +126,7 @@ class DecisionAudit:
 class ExecutionTransitionAudit:
     """Typed environment result for one 10 Hz rollout transition."""
 
-    reward: float
-    dense_reward: float
-    terminal_override: float
+    reward_result: RewardResult
     route_completion_delta: float
     distance_m: float
     speed_mps: float
@@ -151,7 +142,6 @@ class ExecutionTransitionAudit:
     crash_sidewalk: bool
     terminated: bool
     truncated: bool
-    reward_audit: RewardAudit
 
 
 @dataclass(frozen=True)
@@ -212,7 +202,7 @@ class RolloutEpisodeBuilder:
         execution: ExecutionTransitionAudit,
         provenance: RolloutProvenance,
     ) -> None:
-        profile = execution.reward_audit.profile_name
+        profile = execution.reward_result.profile_name
         if self._reward_profile is None:
             self._reward_profile = profile
         elif profile != self._reward_profile:
@@ -220,7 +210,7 @@ class RolloutEpisodeBuilder:
         self._training.append(
             build_training_transition(
                 training_decision,
-                reward=execution.reward,
+                reward=execution.reward_result.total,
                 terminated=execution.terminated,
                 truncated=execution.truncated,
             )
@@ -320,9 +310,14 @@ def build_rollout_audit(
         "initial_noise": decision.initial_noise,
         "diffusion_rng_state": decision.diffusion_rng_state.unsqueeze(0),
         "policy_rng_state": decision.policy_rng_state.unsqueeze(0),
-        "reward": _float(execution.reward),
-        "dense_reward": _float(execution.dense_reward),
-        "terminal_override": _float(execution.terminal_override),
+        "reward_total": _float(execution.reward_result.total),
+        "reward_base_total": _float(execution.reward_result.base_total),
+        "reward_safety_gate": _float(execution.reward_result.safety_gate),
+        "reward_component_ttc": _float(execution.reward_result.components.ttc),
+        "reward_component_progress": _float(execution.reward_result.components.progress),
+        "reward_component_comfort": _float(execution.reward_result.components.comfort),
+        "reward_component_speed": _float(execution.reward_result.components.speed),
+        "reward_component_energy": _float(execution.reward_result.components.energy),
         "route_completion_delta": _float(execution.route_completion_delta),
         "distance_m": _float(execution.distance_m),
         "speed_mps": _float(execution.speed_mps),
@@ -342,45 +337,45 @@ def build_rollout_audit(
         "noise_seed": _integer(provenance.noise_seed),
         "policy_action_seed": _integer(provenance.policy_action_seed),
         "planning_cycle_index": _integer(provenance.planning_cycle_index),
-        "step_distance_m": _float(execution.reward_audit.step_distance_m),
-        "native_step_energy_ml": _float(execution.reward_audit.native_step_energy_ml),
-        "native_episode_energy_ml": _float(execution.reward_audit.native_episode_energy_ml),
+        "step_distance_m": _float(execution.reward_result.diagnostics.step_distance_m),
+        "native_step_energy_ml": _float(execution.reward_result.diagnostics.native_step_energy_ml),
+        "native_episode_energy_ml": _float(
+            execution.reward_result.diagnostics.native_episode_energy_ml
+        ),
         "executed_fuel_proxy_step_energy_ml": _float(
-            execution.reward_audit.executed_fuel_proxy_step_energy_ml
+            execution.reward_result.diagnostics.executed_fuel_proxy_step_energy_ml
         ),
         "executed_fuel_proxy_ml_per_km": _float(
-            execution.reward_audit.executed_fuel_proxy_ml_per_km
+            execution.reward_result.diagnostics.executed_fuel_proxy_ml_per_km
         ),
-        "energy_distance_valid": _bool(execution.reward_audit.energy_distance_valid),
+        "energy_distance_valid": _bool(
+            execution.reward_result.diagnostics.energy_distance_valid
+        ),
+        "reward_diagnostic_collision_score": _float(
+            execution.reward_result.diagnostics.collision_score
+        ),
+        "reward_diagnostic_drivable_score": _float(
+            execution.reward_result.diagnostics.drivable_score
+        ),
+        "reward_diagnostic_wrong_direction_score": _float(
+            execution.reward_result.diagnostics.wrong_direction_score
+        ),
+        "has_ttc_candidate": _bool(execution.reward_result.diagnostics.has_ttc_candidate),
+        "min_ttc_s": _float(execution.reward_result.diagnostics.min_ttc_s),
+        "route_progress_delta_m": _float(
+            execution.reward_result.diagnostics.route_progress_delta_m
+        ),
+        "speed_limit_mps": _float(execution.reward_result.diagnostics.speed_limit_mps),
+        "overspeed_mps": _float(execution.reward_result.diagnostics.overspeed_mps),
+        "longitudinal_acceleration_mps2": _float(
+            execution.reward_result.diagnostics.longitudinal_acceleration_mps2
+        ),
+        "lateral_acceleration_mps2": _float(
+            execution.reward_result.diagnostics.lateral_acceleration_mps2
+        ),
+        "jerk_mps3": _float(execution.reward_result.diagnostics.jerk_mps3),
+        "yaw_rate_radps": _float(execution.reward_result.diagnostics.yaw_rate_radps),
     }
-    if execution.reward != execution.reward_audit.reward_total:
-        raise ValueError("rollout reward must equal its typed environment reward audit")
-    reward_audit = execution.reward_audit
-    if isinstance(reward_audit, PlannerRFTEnergyRewardAudit):
-        payload.update(
-            {
-                "reward_gate": _float(reward_audit.reward_gate),
-                "collision_score": _float(reward_audit.collision_score),
-                "drivable_score": _float(reward_audit.drivable_score),
-                "wrong_direction_score": _float(reward_audit.wrong_direction_score),
-                "ttc_score": _float(reward_audit.ttc_score),
-                "progress_score": _float(reward_audit.progress_score),
-                "comfort_score": _float(reward_audit.comfort_score),
-                "speed_score": _float(reward_audit.speed_score),
-                "energy_score": _float(reward_audit.energy_score),
-                "has_ttc_candidate": _bool(reward_audit.has_ttc_candidate),
-                "min_ttc_s": _float(reward_audit.min_ttc_s),
-                "route_progress_delta_m": _float(reward_audit.route_progress_delta_m),
-                "speed_limit_mps": _float(reward_audit.speed_limit_mps),
-                "overspeed_mps": _float(reward_audit.overspeed_mps),
-                "longitudinal_acceleration_mps2": _float(
-                    reward_audit.longitudinal_acceleration_mps2
-                ),
-                "lateral_acceleration_mps2": _float(reward_audit.lateral_acceleration_mps2),
-                "jerk_mps3": _float(reward_audit.jerk_mps3),
-                "yaw_rate_radps": _float(reward_audit.yaw_rate_radps),
-            }
-        )
     return TensorDict(payload, batch_size=[1])
 
 
@@ -435,10 +430,8 @@ def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
 def rollout_audit_keys(reward_profile: RewardProfileName) -> tuple[str, ...]:
     """Return the exact in-memory audit keys for one reward profile."""
 
-    if reward_profile == "metadrive_builtin_v1":
-        return _BUILTIN_AUDIT_KEYS
     if reward_profile == "plannerrft_energy_v1":
-        return _ENERGY_AUDIT_KEYS
+        return _AUDIT_KEYS
     raise ValueError("rollout episode has an invalid reward profile")
 
 
@@ -473,26 +466,25 @@ def _validate_audit_trajectory(
         if trajectory[key].dtype != torch.uint8 or trajectory[key].ndim != 2:
             raise TypeError(f"{key} must have shape [T, state_length] and uint8 dtype")
     if not torch.allclose(
-        trajectory["reward"],
-        trajectory["dense_reward"] + trajectory["terminal_override"],
+        trajectory["reward_total"],
+        trajectory["reward_base_total"] * trajectory["reward_safety_gate"],
         rtol=0.0,
         atol=1e-6,
     ):
-        raise ValueError("rollout audit reward must equal dense_reward plus terminal_override")
-    if reward_profile == "plannerrft_energy_v1":
-        for key in (
-            "reward_gate",
-            "collision_score",
-            "drivable_score",
-            "wrong_direction_score",
-            "ttc_score",
-            "progress_score",
-            "comfort_score",
-            "speed_score",
-            "energy_score",
-        ):
-            if torch.any((trajectory[key] < 0.0) | (trajectory[key] > 1.0)):
-                raise ValueError(f"rollout audit {key} must remain in [0, 1]")
+        raise ValueError("rollout reward total must equal base total times safety gate")
+    for key in (
+        "reward_safety_gate",
+        "reward_component_ttc",
+        "reward_component_progress",
+        "reward_component_comfort",
+        "reward_component_speed",
+        "reward_component_energy",
+        "reward_diagnostic_collision_score",
+        "reward_diagnostic_drivable_score",
+        "reward_diagnostic_wrong_direction_score",
+    ):
+        if torch.any((trajectory[key] < 0.0) | (trajectory[key] > 1.0)):
+            raise ValueError(f"rollout audit {key} must remain in [0, 1]")
 
 
 def _validate_trajectory(

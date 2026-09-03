@@ -62,7 +62,6 @@ _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
     "initial_state": TraceFieldSpec((7,), np.dtype(np.float64)),
     "initial_state_valid": TraceFieldSpec((), np.dtype(np.bool_), finite=False),
     "warmup_states": TraceFieldSpec((_WARMUP, 7), np.dtype(np.float64)),
-    "warmup_rewards": TraceFieldSpec((_WARMUP,), np.dtype(np.float64)),
     "warmup_native_step_energy_ml": TraceFieldSpec((_WARMUP,), np.dtype(np.float64)),
     "warmup_native_episode_energy_ml": TraceFieldSpec((_WARMUP,), np.dtype(np.float64)),
     "warmup_fuel_proxy_step_energy_ml": TraceFieldSpec((_WARMUP,), np.dtype(np.float64)),
@@ -84,7 +83,6 @@ _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
         (_PLAN, PLANNER_HORIZON, PLANNER_STATE_DIM), np.dtype(np.float64)
     ),
     "executed_states": TraceFieldSpec((_SIMULATOR, 7), np.dtype(np.float64)),
-    "executed_rewards": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "executed_native_step_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "executed_native_episode_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "executed_fuel_proxy_step_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),

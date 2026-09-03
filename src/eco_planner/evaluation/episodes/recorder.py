@@ -11,7 +11,11 @@ from tensordict import TensorDictBase
 from ..artifacts.trace import EXECUTION_PREFIX_STEPS, OBSERVATION_FIELDS, allocate_trace_arrays
 
 if TYPE_CHECKING:
-    from eco_planner.envs import EnvSlotStep, TrafficObservationAudit, TrajectoryExecutionRecord
+    from eco_planner.envs import (
+        TrafficObservationAudit,
+        TrajectoryExecutionRecord,
+        TrajectoryExecutionResult,
+    )
 
 
 class EpisodeTraceRecorder:
@@ -89,7 +93,7 @@ class EpisodeTraceRecorder:
 
     def append_warmup(
         self,
-        step: EnvSlotStep,
+        step: TrajectoryExecutionResult,
         participant_counts: np.ndarray,
         static_object_counts: np.ndarray,
     ) -> None:
@@ -116,7 +120,7 @@ class EpisodeTraceRecorder:
         anchor: np.ndarray,
         observation: TensorDictBase,
         inference: TensorDictBase,
-        step: EnvSlotStep,
+        step: TrajectoryExecutionResult,
         plan_index: int,
         traffic_audit: TrafficObservationAudit | None,
     ) -> None:
@@ -232,14 +236,13 @@ _GUIDANCE_DIAGNOSTIC_NAMES = {
 }
 
 
-def _execution_arrays(step: EnvSlotStep) -> dict[str, np.ndarray]:
+def _execution_arrays(step: TrajectoryExecutionResult) -> dict[str, np.ndarray]:
     execution = step.execution
     fuel_ml = [metrics.energy.fuel_ml for metrics in step.metrics]
     if any(value is None for value in fuel_ml):
         raise RuntimeError("evaluation trace requires a fuel-volume energy metric")
     return {
         "states": execution.substep_states,
-        "rewards": step.substep_rewards,
         "native_step_energy_ml": np.asarray(
             [metrics.input.native_step_energy_ml for metrics in step.metrics], dtype=np.float64
         ),

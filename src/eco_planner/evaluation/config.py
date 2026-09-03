@@ -15,7 +15,7 @@ from pydantic import (
     model_validator,
 )
 
-from eco_planner.configuration import resolve_config_mapping
+from eco_planner.configuration import ModelPathsConfig, ScenarioConfig, resolve_config_mapping
 from eco_planner.contracts import EVALUATION_EXECUTION_STEPS, TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.models import (
     GuidanceConfig,
@@ -35,12 +35,6 @@ class _StrictModel(BaseModel):
         arbitrary_types_allowed=True,
         allow_inf_nan=False,
     )
-
-
-class ScenarioConfig(_StrictModel):
-    name: str = Field(min_length=1)
-    map: str = Field(min_length=1)
-    seed: StrictInt = Field(ge=0)
 
 
 class ExecutionConfig(_StrictModel):
@@ -74,11 +68,6 @@ class EvaluationConfig(_StrictModel):
     evaluated_horizon_steps: StrictInt = Field(gt=0)
     execution: ExecutionConfig
     matrix: MatrixConfig | None = None
-
-
-class ModelPathsConfig(_StrictModel):
-    args_path: str = Field(min_length=1)
-    checkpoint_path: str = Field(min_length=1)
 
 
 class VideoConfig(_StrictModel):

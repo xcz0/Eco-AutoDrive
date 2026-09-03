@@ -12,19 +12,16 @@ import numpy as np
 import torch
 from tensordict import TensorDictBase
 
+from eco_planner.configuration import ScenarioConfig
 from eco_planner.envs import (
-    EnvSlotStep,
     MetaDriveEnvSlot,
     PlannerObservationSpec,
+    TrajectoryExecutionResult,
 )
-from eco_planner.evaluation import ScenarioConfig
 from eco_planner.rl.reward import (
-    MetaDriveBuiltinRewardAudit,
-    MetaDriveBuiltinRewardConfig,
-    PlannerRFTEnergyRewardAudit,
+    RewardEvaluator,
     RewardProfileConfig,
-    build_reward_audit,
-    create_reward_objective,
+    create_reward_evaluator,
 )
 from eco_planner.rl.rollout.contracts import (
     ExecutionTransitionAudit,
@@ -80,13 +77,13 @@ class _EpisodeLifecycle:
     def append(
         self,
         decision: RolloutDecision,
-        step: EnvSlotStep,
+        step: TrajectoryExecutionResult,
         *,
         map_seed: int,
         noise_seed: int,
         policy_action_seed: int,
         stopped_speed_threshold_mps: float,
-        reward_profile: RewardProfileConfig | None,
+        reward_evaluator: RewardEvaluator,
         terminated: bool,
         truncated: bool,
         collection_limit: bool,
@@ -98,7 +95,7 @@ class _EpisodeLifecycle:
                 step,
                 self.previous_route_completion,
                 stopped_speed_threshold_mps,
-                reward_profile=reward_profile,
+                reward_evaluator=reward_evaluator,
                 terminated=terminated,
                 truncated=truncated,
             ),
@@ -146,7 +143,7 @@ def collect_rollout_episode(
     policy_generator: torch.Generator | None = None,
     noise_seed: int | None = None,
     policy_action_seed: int | None = None,
-    reward_profile: RewardProfileConfig | None = None,
+    reward_profile: RewardProfileConfig,
 ) -> RolloutEpisode:
     """Collect one bounded episode without reset, batching, artifacts, or policy updates."""
 
@@ -171,9 +168,8 @@ def collect_rollout_episode(
         observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
         map_query_radius_m=map_query_radius_m,
         history_warmup_steps=history_warmup_steps,
-        builtin_reward_config=_builtin_reward_config(reward_profile),
-        reward_objective=_reward_objective(reward_profile),
     )
+    reward_evaluator = create_reward_evaluator(reward_profile)
     resolved_noise_seed = runtime.noise_seed if noise_seed is None else _seed(noise_seed, "noise")
     resolved_policy_seed = (
         runtime.policy_action_seed
@@ -205,7 +201,7 @@ def collect_rollout_episode(
                 noise_seed=resolved_noise_seed,
                 policy_action_seed=resolved_policy_seed,
                 stopped_speed_threshold_mps=stopped_speed_threshold_mps,
-                reward_profile=reward_profile,
+                reward_evaluator=reward_evaluator,
                 terminated=terminated,
                 truncated=truncated,
                 collection_limit=cycle + 1 == max_transitions,
@@ -254,7 +250,7 @@ class VectorRolloutCollector:
         history_warmup_steps: int,
         physical_slot_count: int | None = None,
         torch_threads_per_worker: int | None = None,
-        reward_profile: RewardProfileConfig | None = None,
+        reward_profile: RewardProfileConfig,
     ) -> None:
         if not specs:
             raise ValueError("vector rollout requires at least one scenario")
@@ -268,7 +264,7 @@ class VectorRolloutCollector:
             raise ValueError("physical_slot_count must be a positive integer")
         self._specs = specs
         self._runtime = runtime
-        self._reward_profile = reward_profile
+        self._reward_evaluator = create_reward_evaluator(reward_profile)
         self._physical_slot_count = min(physical_slot_count, len(specs))
         self._scenarios = tuple(VectorEnvScenario(spec.name, spec.map, spec.seed) for spec in specs)
         configured_envs = tuple(
@@ -282,8 +278,6 @@ class VectorRolloutCollector:
             history_warmup_steps=history_warmup_steps,
             scenarios=self._scenarios,
             torch_threads_per_worker=torch_threads_per_worker,
-            builtin_reward_config=_builtin_reward_config(reward_profile),
-            reward_objective=_reward_objective(reward_profile),
         )
         self._close_finalizer = finalize(self, self._envs.close)
 
@@ -466,7 +460,7 @@ class VectorRolloutCollector:
                     truncated=bool(steps["truncated"][slot].item()),
                     transitions_per_slot=transitions_per_slot,
                     stopped_speed_threshold_mps=stopped_speed_threshold_mps,
-                    reward_profile=self._reward_profile,
+                    reward_evaluator=self._reward_evaluator,
                 )
                 if tail is not None:
                     tails.append((slot, tail))
@@ -537,7 +531,7 @@ def _append_slot_transition(
     truncated: bool,
     transitions_per_slot: int,
     stopped_speed_threshold_mps: float,
-    reward_profile: RewardProfileConfig | None,
+    reward_evaluator: RewardEvaluator,
 ) -> TailKind | None:
     env_step = step.step
     tail = state.lifecycle.append(
@@ -547,7 +541,7 @@ def _append_slot_transition(
         noise_seed=state.noise_seed,
         policy_action_seed=state.policy_action_seed,
         stopped_speed_threshold_mps=stopped_speed_threshold_mps,
-        reward_profile=reward_profile,
+        reward_evaluator=reward_evaluator,
         terminated=terminated,
         truncated=truncated,
         collection_limit=state.collected + 1 == transitions_per_slot,
@@ -643,7 +637,7 @@ def collect_vector_rollout_episodes(
     policy_action_seeds: tuple[int, ...],
     policy_sampling: Literal["sample", "mean"] = "sample",
     timings: list[VectorRolloutRoundTiming] | None = None,
-    reward_profile: RewardProfileConfig | None = None,
+    reward_profile: RewardProfileConfig,
 ) -> tuple[tuple[RolloutEpisode, ...], ...]:
     """Collect one PPO batch with a temporary vector worker pool.
 
@@ -690,28 +684,25 @@ def _validate_vector_slots(
 
 
 def _execution_transition_audit(
-    step: EnvSlotStep,
+    step: TrajectoryExecutionResult,
     previous_route_completion: float,
     stopped_speed_threshold_mps: float,
     *,
     terminated: bool,
     truncated: bool,
-    reward_profile: RewardProfileConfig | None,
+    reward_evaluator: RewardEvaluator,
 ) -> ExecutionTransitionAudit:
     execution = step.execution
     if execution.substep_states.shape[0] != 1:
         raise RuntimeError("rollout transition must execute exactly one substep")
-    reward = float(step.substep_rewards.sum())
-    dense_reward, terminal_override, reward_audit = _reward_audit_values(
-        step, reward, reward_profile
-    )
+    if len(step.metrics) != 1:
+        raise RuntimeError("rollout transition must expose exactly one transition metric")
+    reward_result = reward_evaluator(step.metrics[0])
     state = execution.substep_states[0]
     distance_m = float(np.linalg.norm(state[:2] - execution.start_center))
     speed_mps = float(state[5])
     return ExecutionTransitionAudit(
-        reward=reward,
-        dense_reward=dense_reward,
-        terminal_override=terminal_override,
+        reward_result=reward_result,
         route_completion_delta=float(execution.route_completion - previous_route_completion),
         distance_m=distance_m,
         speed_mps=speed_mps,
@@ -727,38 +718,7 @@ def _execution_transition_audit(
         crash_sidewalk=execution.crash_sidewalk,
         terminated=terminated,
         truncated=truncated,
-        reward_audit=reward_audit,
     )
-
-
-def _reward_audit_values(
-    step: EnvSlotStep,
-    reward: float,
-    reward_profile: RewardProfileConfig | None,
-) -> tuple[float, float, MetaDriveBuiltinRewardAudit | PlannerRFTEnergyRewardAudit]:
-    if len(step.metrics) != 1:
-        raise RuntimeError("rollout transition must expose exactly one transition metric")
-    audit = build_reward_audit(
-        reward_profile,
-        step.metrics[0],
-        reward_total=reward,
-        dense_reward=float(step.substep_dense_rewards[0]),
-    )
-    if isinstance(audit, PlannerRFTEnergyRewardAudit):
-        return audit.reward_ungated, audit.reward_total - audit.reward_ungated, audit
-    if isinstance(audit, MetaDriveBuiltinRewardAudit):
-        return audit.dense_reward, audit.terminal_override, audit
-    raise TypeError("rollout transition returned an unsupported reward audit type")
-
-
-def _builtin_reward_config(
-    reward_profile: RewardProfileConfig | None,
-) -> MetaDriveBuiltinRewardConfig | None:
-    return reward_profile if isinstance(reward_profile, MetaDriveBuiltinRewardConfig) else None
-
-
-def _reward_objective(reward_profile: RewardProfileConfig | None):
-    return create_reward_objective(reward_profile) if reward_profile is not None else None
 
 
 def _seed(value: int, name: str) -> int:

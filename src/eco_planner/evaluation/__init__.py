@@ -33,8 +33,6 @@ if TYPE_CHECKING:
     )
     from .config import (
         EvaluationJobConfig,
-        ModelPathsConfig,
-        ScenarioConfig,
         parse_evaluation_config,
     )
     from .engine import run_evaluation, run_evaluation_agent
@@ -52,8 +50,6 @@ _EXPORTS = {
     "EvaluationAgent": (".inference", "EvaluationAgent"),
     "EvaluationDecision": (".inference", "EvaluationDecision"),
     "EvaluationJobConfig": (".config", "EvaluationJobConfig"),
-    "ModelPathsConfig": (".config", "ModelPathsConfig"),
-    "ScenarioConfig": (".config", "ScenarioConfig"),
     "parse_evaluation_config": (".config", "parse_evaluation_config"),
     "run_evaluation": (".engine", "run_evaluation"),
     "run_evaluation_agent": (".engine", "run_evaluation_agent"),
@@ -101,11 +97,9 @@ __all__ = [
     "InferenceDecision",
     "JobSummary",
     "MapInputAudit",
-    "ModelPathsConfig",
     "NoGuidanceSummary",
     "RuntimeMetadata",
     "SamplerSummary",
-    "ScenarioConfig",
     "ScenarioSummary",
     "SpeedSummary",
     "TerminationSummary",

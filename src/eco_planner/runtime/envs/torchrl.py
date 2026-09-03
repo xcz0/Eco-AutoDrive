@@ -13,7 +13,8 @@ from torchrl.data import Binary, Composite, Unbounded
 from torchrl.envs import EnvBase
 
 from eco_planner.contracts import PLANNER_HORIZON
-from eco_planner.envs.metadrive import EnvSlotReset, EnvSlotStep, MetaDriveEnvSlot
+from eco_planner.envs.domain import TrajectoryExecutionResult
+from eco_planner.envs.metadrive import EnvSlotReset, MetaDriveEnvSlot
 from eco_planner.envs.observation import PlannerObservationSpec, TrafficObservationAudit
 
 _CPU_DEVICE = torch.device("cpu")
@@ -38,8 +39,8 @@ class TorchRLMetaDriveEnv(EnvBase):
         self._seed = seed
         self._last_reset: EnvSlotReset | None = None
         self._last_initial_state: np.ndarray | None = None
-        self._last_step: EnvSlotStep | None = None
-        self._last_warmup_steps: tuple[EnvSlotStep, ...] = ()
+        self._last_step: TrajectoryExecutionResult | None = None
+        self._last_warmup_steps: tuple[TrajectoryExecutionResult, ...] = ()
         self._last_traffic_audit: TrafficObservationAudit | None = None
         self._last_programmatic_lane_speed_limit_audit: Mapping[str, object] = {}
         self._last_environment_s = 0.0
@@ -109,7 +110,9 @@ class TorchRLMetaDriveEnv(EnvBase):
         return TensorDict(
             {
                 "observation": observation.observation.clone(),
-                "reward": torch.tensor([result.reward], dtype=torch.float32),
+                # TorchRL requires a reward field structurally. RL replaces this neutral
+                # placeholder with the parent-side reward evaluator result.
+                "reward": torch.zeros(1, dtype=torch.float32),
                 "done": torch.tensor([result.terminated or result.truncated], dtype=torch.bool),
                 "terminated": torch.tensor([result.terminated], dtype=torch.bool),
                 "truncated": torch.tensor([result.truncated], dtype=torch.bool),
@@ -136,13 +139,13 @@ class TorchRLMetaDriveEnv(EnvBase):
         return cast(np.ndarray, self._last_initial_state)
 
     @property
-    def last_step(self) -> EnvSlotStep:
+    def last_step(self) -> TrajectoryExecutionResult:
         """Return the domain step result produced by the latest transition."""
 
-        return cast(EnvSlotStep, self._last_step)
+        return cast(TrajectoryExecutionResult, self._last_step)
 
     @property
-    def last_warmup_steps(self) -> tuple[EnvSlotStep, ...]:
+    def last_warmup_steps(self) -> tuple[TrajectoryExecutionResult, ...]:
         """Return the warmup step results emitted by the latest reset."""
 
         return self._last_warmup_steps

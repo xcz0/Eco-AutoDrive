@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import traceback
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,10 +12,8 @@ import torch
 from tensordict import TensorDictBase
 from torchrl.data import Composite, Unbounded
 
-from eco_planner.envs.domain import TransitionMetrics
+from eco_planner.envs.domain import TrajectoryExecutionResult
 from eco_planner.envs.metadrive import (
-    EnvSlotStep,
-    MetaDriveBuiltinRewardConfig,
     MetaDriveEnvSlot,
     ObservationMode,
 )
@@ -47,7 +45,7 @@ class WorkerResetResult:
     route_length_m: float
     warmup_initial_state: np.ndarray
     initial_state: np.ndarray
-    warmup_steps: tuple[EnvSlotStep, ...]
+    warmup_steps: tuple[TrajectoryExecutionResult, ...]
     traffic_audit: TrafficObservationAudit | None
     programmatic_lane_speed_limit_audit: Mapping[str, object]
     timing: VectorEnvTiming
@@ -55,7 +53,7 @@ class WorkerResetResult:
 
 @dataclass(frozen=True, slots=True)
 class WorkerStepResult:
-    step: EnvSlotStep
+    step: TrajectoryExecutionResult
     traffic_audit: TrafficObservationAudit | None
     timing: VectorEnvTiming
 
@@ -165,8 +163,6 @@ def make_torchrl_scenario_env(
     map_query_radius_m: float,
     history_warmup_steps: int,
     scenarios: tuple[VectorEnvScenario, ...],
-    builtin_reward_config: MetaDriveBuiltinRewardConfig | None,
-    reward_objective: Callable[[TransitionMetrics], tuple[float, float]] | None,
 ) -> TorchRLScenarioMetaDriveEnv:
     scenario = scenarios[0]
     slot = MetaDriveEnvSlot(
@@ -175,8 +171,6 @@ def make_torchrl_scenario_env(
         observation_spec=observation_spec,
         map_query_radius_m=map_query_radius_m,
         history_warmup_steps=history_warmup_steps,
-        builtin_reward_config=builtin_reward_config,
-        reward_objective=reward_objective,
     )
     return TorchRLScenarioMetaDriveEnv(
         slot,

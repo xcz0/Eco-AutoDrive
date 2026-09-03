@@ -20,7 +20,6 @@ from eco_planner.contracts import (
 
 from ..array_types import PlannerOnlyObservationArray
 from ..domain import WorldTrajectory
-from .config import MetaDriveBuiltinRewardConfig
 from .lane_speed import ProgrammaticLaneSpeedAdapter
 from .map import navigation_route_roads
 from .policy import KinematicTrajectoryPolicy
@@ -43,8 +42,6 @@ class _BackendObservation(BaseObservation):
 class MetaDriveStepResult:
     """Typed MetaDrive-native outcome for one actual 0.1 s transition."""
 
-    builtin_reward: float
-    builtin_dense_reward: float
     native_step_energy_ml: float
     native_episode_energy_ml: float
     terminated: bool
@@ -78,8 +75,6 @@ class MetaDriveBackend(MetaDriveEnv):
     def __init__(
         self,
         config: dict[str, Any] | None = None,
-        *,
-        builtin_reward_config: MetaDriveBuiltinRewardConfig | None = None,
     ) -> None:
         if config is None:
             raise ValueError("MetaDriveBackend requires an explicit configuration")
@@ -96,8 +91,6 @@ class MetaDriveBackend(MetaDriveEnv):
             raise ValueError("agent_policy must be KinematicTrajectoryPolicy")
 
         configured = dict(config)
-        if builtin_reward_config is not None:
-            configured.update(builtin_reward_config.model_dump(exclude={"name"}))
         configured["physics_world_step_size"] = METADRIVE_PHYSICS_STEP_S
         configured["decision_repeat"] = METADRIVE_DECISION_REPEAT
         validate_metadrive_timestep(
@@ -190,17 +183,14 @@ class MetaDriveBackend(MetaDriveEnv):
         engine_info = self._step_planner_simulator({DEFAULT_AGENT: action})
         agent_id, agent = next(iter(self.agents.items()))
         self.episode_lengths[agent_id] += 1
-        builtin_reward, reward_info = super().reward_function(agent_id)
         done, done_info = self.done_function(agent_id)
         _, cost_info = self.cost_function(agent_id)
         self.dones[agent_id] = done or self.dones[agent_id]
         info = concat_step_infos(
-            [engine_info, {agent_id: done_info}, {agent_id: reward_info}, {agent_id: cost_info}]
+            [engine_info, {agent_id: done_info}, {agent_id: cost_info}]
         )
         agent_info = info.pop(agent_id)
         info.update(agent_info)
-        reward = float(builtin_reward)
-        self.episode_rewards[agent_id] += reward
         truncated = bool(info.get(TerminationState.MAX_STEP, False))
         terminated = bool(self.dones[agent_id])
         if self.config["horizon"] and self.episode_step > 5 * self.config["horizon"]:
@@ -211,8 +201,6 @@ class MetaDriveBackend(MetaDriveEnv):
         if agent is not self.agent:
             raise RuntimeError("single-agent environment changed its active agent")
         return MetaDriveStepResult(
-            builtin_reward=reward,
-            builtin_dense_reward=_finite_info_scalar(info, "step_reward"),
             native_step_energy_ml=_finite_info_scalar(info, "step_energy"),
             native_episode_energy_ml=_finite_info_scalar(info, "episode_energy"),
             terminated=terminated,

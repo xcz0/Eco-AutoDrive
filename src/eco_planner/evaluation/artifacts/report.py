@@ -72,7 +72,6 @@ def _build_report(validated: ValidatedMatrix) -> dict[str, Any]:
                 "energy_ml_per_km": None if metrics is None else metrics.energy.ml_per_km,
                 "route_completion": None if metrics is None else metrics.route_completion,
                 "mean_speed_mps": None if metrics is None else metrics.speed_mps.mean,
-                "total_reward": None if metrics is None else metrics.total_reward,
             }
         )
     return {
@@ -260,9 +259,6 @@ def build_matrix_statistics(episodes: Sequence[EpisodeSummary]) -> dict[str, Any
                 ),
                 "mean_speed_mps": bootstrap(
                     np.asarray([item.speed_mps.mean for item in metrics], dtype=np.float64)
-                ),
-                "total_reward": bootstrap(
-                    np.asarray([item.total_reward for item in metrics], dtype=np.float64)
                 ),
             },
             "arrive_rate": float(np.mean([item.arrive_dest for item in metrics])),

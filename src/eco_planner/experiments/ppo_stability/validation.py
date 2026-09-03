@@ -13,13 +13,13 @@ from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
 from tensordict import TensorDictBase
 
 from eco_planner.artifacts import write_json
+from eco_planner.configuration import ScenarioConfig
 from eco_planner.contracts import EVALUATION_EXECUTION_STEPS
 from eco_planner.evaluation import (
     CompletedEpisodeSummary,
     EvaluationDecision,
     EvaluationJobConfig,
     JobSummary,
-    ScenarioConfig,
     run_evaluation_agent,
 )
 from eco_planner.experiments.ppo_stability.config import (

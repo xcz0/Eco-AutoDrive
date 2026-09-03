@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -11,15 +11,14 @@ from tensordict import TensorDictBase
 
 from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
 
-from ..array_types import ExecutionScalarArray, TrajectoryArray
-from ..domain import MetaDriveFuelProxyProvider, TrajectoryExecutionRecord, TransitionMetrics
+from ..array_types import TrajectoryArray
+from ..domain import MetaDriveFuelProxyProvider, TrajectoryExecutionResult
 from ..observation import (
     ObservationBuilder,
     PlannerObservationSpec,
     TrafficObservationAudit,
     TrafficSceneEncoder,
 )
-from .config import MetaDriveBuiltinRewardConfig
 from .execution import TrajectoryExecutor, execution_steps_from_config
 from .observation import MetaDriveObservationSource, NoTrafficMetaDriveObservationSource
 from .simulator import MetaDriveBackend
@@ -45,19 +44,6 @@ class EnvSlotObservation:
     traffic_audit: TrafficObservationAudit | None
 
 
-@dataclass(frozen=True, slots=True)
-class EnvSlotStep:
-    """One completed trajectory-prefix transition."""
-
-    reward: float
-    substep_rewards: ExecutionScalarArray
-    substep_dense_rewards: ExecutionScalarArray
-    metrics: tuple[TransitionMetrics, ...]
-    terminated: bool
-    truncated: bool
-    execution: TrajectoryExecutionRecord
-
-
 class MetaDriveEnvSlot:
     """Compose one simulator backend, trajectory executor, and planner observation source."""
 
@@ -69,8 +55,6 @@ class MetaDriveEnvSlot:
         observation_spec: PlannerObservationSpec,
         map_query_radius_m: float,
         history_warmup_steps: int,
-        builtin_reward_config: MetaDriveBuiltinRewardConfig | None = None,
-        reward_objective: Callable[[TransitionMetrics], tuple[float, float]] | None = None,
     ) -> None:
         if mode not in {"traffic", "no_traffic"}:
             raise ValueError("mode must be either 'traffic' or 'no_traffic'")
@@ -86,8 +70,6 @@ class MetaDriveEnvSlot:
         self._observation_spec = observation_spec
         self._map_query_radius_m = float(map_query_radius_m)
         self._history_warmup_steps = history_warmup_steps
-        self._builtin_reward_config = builtin_reward_config
-        self._reward_objective = reward_objective
         self._observation_source = self._create_observation_source()
         self._observation_builder = ObservationBuilder(
             TrafficSceneEncoder(self._map_query_radius_m)
@@ -141,7 +123,7 @@ class MetaDriveEnvSlot:
             programmatic_lane_speed_limit_audit=(self._backend.programmatic_lane_speed_limit_audit),
         )
 
-    def warmup(self) -> Iterator[EnvSlotStep]:
+    def warmup(self) -> Iterator[TrajectoryExecutionResult]:
         """Advance stationary ego while yielding every completed warmup execution."""
 
         if self._mode == "no_traffic":
@@ -184,27 +166,13 @@ class MetaDriveEnvSlot:
             None,
         )
 
-    def step(self, trajectory: TrajectoryArray) -> EnvSlotStep:
+    def step(self, trajectory: TrajectoryArray) -> TrajectoryExecutionResult:
         """Execute one trajectory prefix and commit its traffic frames."""
 
         result = self._executor.execute(trajectory)
-        substep_rewards = result.builtin_rewards
-        substep_dense_rewards = result.builtin_dense_rewards
-        if self._reward_objective is not None:
-            scored = tuple(self._reward_objective(metrics) for metrics in result.metrics)
-            substep_rewards = np.asarray([item[0] for item in scored], dtype=np.float64)
-            substep_dense_rewards = np.asarray([item[1] for item in scored], dtype=np.float64)
         if isinstance(self._observation_source, MetaDriveObservationSource):
             self._observation_source.append_frames(result.execution.traffic_frames)
-        return EnvSlotStep(
-            reward=float(substep_rewards.sum()),
-            substep_rewards=substep_rewards,
-            substep_dense_rewards=substep_dense_rewards,
-            metrics=result.metrics,
-            terminated=bool(result.terminated),
-            truncated=bool(result.truncated),
-            execution=result.execution,
-        )
+        return result
 
     def close(self) -> None:
         self._backend.close()
@@ -226,10 +194,7 @@ class MetaDriveEnvSlot:
         backend_config = dict(self._env_config)
         for name in ("execution_mode", "trajectory_horizon", "trajectory_execution_steps"):
             backend_config.pop(name, None)
-        return MetaDriveBackend(
-            backend_config,
-            builtin_reward_config=self._builtin_reward_config,
-        )
+        return MetaDriveBackend(backend_config)
 
     def _create_executor(self) -> TrajectoryExecutor:
         return TrajectoryExecutor(

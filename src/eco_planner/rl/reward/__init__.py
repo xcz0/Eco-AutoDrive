@@ -1,80 +1,40 @@
-"""RL reward profiles, objectives, and profile-specific audits."""
+"""RL-owned reward configuration, evaluation, and results."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, TypeAlias
+from typing import TypeAlias
 
-from pydantic import Field
+from eco_planner.envs.domain import TransitionMetrics
 
-from eco_planner.envs import TransitionMetrics
-from eco_planner.envs.metadrive import MetaDriveBuiltinRewardConfig
-
-from .audit import (
-    MetaDriveBuiltinRewardAudit,
-    PlannerRFTEnergyRewardAudit,
-    RewardAudit,
-    build_metadrive_builtin_reward_audit,
-)
 from .config import PlannerRFTEnergyRewardConfig
-from .plannerrft import score_plannerrft_energy_step
+from .objectives import evaluate_plannerrft_energy_step
+from .result import RewardComponents, RewardDiagnostics, RewardResult
 
-RewardProfileConfig: TypeAlias = Annotated[
-    MetaDriveBuiltinRewardConfig | PlannerRFTEnergyRewardConfig,
-    Field(discriminator="name"),
-]
-RewardObjective: TypeAlias = Callable[[TransitionMetrics], tuple[float, float]]
+RewardProfileConfig: TypeAlias = PlannerRFTEnergyRewardConfig
 
 
 @dataclass(frozen=True, slots=True)
-class PlannerRFTEnergyRewardObjective:
-    """Pickle-safe reward callable passed into Windows-spawned environment workers."""
+class RewardEvaluator:
+    """Evaluate one transition according to the selected RL objective."""
 
-    config: PlannerRFTEnergyRewardConfig
+    config: RewardProfileConfig
 
-    def __call__(self, metrics: TransitionMetrics) -> tuple[float, float]:
-        audit = score_plannerrft_energy_step(self.config, metrics)
-        return audit.reward_total, audit.reward_ungated
-
-
-def create_reward_objective(profile: RewardProfileConfig) -> RewardObjective | None:
-    """Create a simulator-independent scorer; native MetaDrive reward needs no scorer."""
-
-    if isinstance(profile, MetaDriveBuiltinRewardConfig):
-        return None
-    return PlannerRFTEnergyRewardObjective(profile)
+    def __call__(self, metrics: TransitionMetrics) -> RewardResult:
+        return evaluate_plannerrft_energy_step(self.config, metrics)
 
 
-def build_reward_audit(
-    profile: RewardProfileConfig | None,
-    metrics: TransitionMetrics,
-    *,
-    reward_total: float,
-    dense_reward: float,
-) -> RewardAudit:
-    """Build the RL artifact audit from execution facts and a selected profile."""
-
-    if profile is None or isinstance(profile, MetaDriveBuiltinRewardConfig):
-        return build_metadrive_builtin_reward_audit(
-            metrics, reward_total=reward_total, dense_reward=dense_reward
-        )
-    audit = score_plannerrft_energy_step(profile, metrics)
-    if audit.reward_total != reward_total or audit.reward_ungated != dense_reward:
-        raise ValueError("environment reward does not match the selected RL objective")
-    return audit
+def create_reward_evaluator(profile: RewardProfileConfig) -> RewardEvaluator:
+    return RewardEvaluator(profile)
 
 
 __all__ = [
-    "MetaDriveBuiltinRewardAudit",
-    "MetaDriveBuiltinRewardConfig",
-    "PlannerRFTEnergyRewardAudit",
     "PlannerRFTEnergyRewardConfig",
-    "PlannerRFTEnergyRewardObjective",
-    "RewardAudit",
-    "RewardObjective",
+    "RewardComponents",
+    "RewardDiagnostics",
+    "RewardEvaluator",
     "RewardProfileConfig",
-    "build_reward_audit",
-    "create_reward_objective",
-    "score_plannerrft_energy_step",
+    "RewardResult",
+    "create_reward_evaluator",
+    "evaluate_plannerrft_energy_step",
 ]

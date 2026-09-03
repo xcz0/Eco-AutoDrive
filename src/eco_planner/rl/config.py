@@ -15,9 +15,8 @@ from pydantic import (
     model_validator,
 )
 
-from eco_planner.configuration import resolve_config_mapping
+from eco_planner.configuration import ModelPathsConfig, ScenarioConfig, resolve_config_mapping
 from eco_planner.contracts import ROLLOUT_EXECUTION_STEPS, TRAFFIC_HISTORY_WARMUP_STEPS
-from eco_planner.evaluation import ModelPathsConfig, ScenarioConfig
 from eco_planner.models import (
     OrthogonalPolicyGuidanceConfig,
     SamplerConfig,
@@ -29,10 +28,7 @@ from eco_planner.rl.policy.config import (
     ExplorationPolicyConfig,
     parse_exploration_policy_config,
 )
-from eco_planner.rl.reward import (
-    MetaDriveBuiltinRewardConfig,
-    RewardProfileConfig,
-)
+from eco_planner.rl.reward import RewardProfileConfig
 from eco_planner.runtime.config import RuntimeConfig
 from eco_planner.runtime.resources import ResourceProfileConfig
 
@@ -136,26 +132,6 @@ class TrainingJobConfig(_StrictModel):
         if not self.scenarios:
             raise ValueError("training requires at least one scenario")
         _validate_rollout_environment(self.env, 0, self.training.transitions_per_environment)
-        if isinstance(self.reward, MetaDriveBuiltinRewardConfig):
-            conflicting = {
-                name
-                for name in (
-                    "driving_reward",
-                    "speed_reward",
-                    "success_reward",
-                    "out_of_road_penalty",
-                    "crash_vehicle_penalty",
-                    "crash_object_penalty",
-                    "crash_sidewalk_penalty",
-                    "use_lateral_reward",
-                )
-                if name in self.env and self.env[name] != getattr(self.reward, name)
-            }
-            if conflicting:
-                raise ValueError(
-                    "env reward fields conflict with the selected reward profile: "
-                    f"{sorted(conflicting)}"
-                )
         sample_count = len(self.scenarios) * self.training.transitions_per_environment
         if self.ppo.batch_size != sample_count:
             raise ValueError("ppo.batch_size must equal all closed-loop transitions per update")

@@ -17,8 +17,8 @@ import eco_planner.evaluation.episodes.serial as episode_engine
 from eco_planner.envs import (
     EnvSlotObservation,
     EnvSlotReset,
-    EnvSlotStep,
     TrajectoryExecutionRecord,
+    TrajectoryExecutionResult,
 )
 from eco_planner.envs.domain import (
     EnergyMetrics,
@@ -138,7 +138,7 @@ class _ShortEpisodeSlot:
     def observe(self) -> EnvSlotObservation:
         return EnvSlotObservation(_observation(), None)
 
-    def step(self, trajectory: np.ndarray) -> EnvSlotStep:
+    def step(self, trajectory: np.ndarray) -> TrajectoryExecutionResult:
         assert trajectory.shape == (80, 4)
         self._state = np.array([5.0, 0.0, 0.0, 10.0, 0.0, 10.0, 0.0])
         return _step_result()
@@ -274,12 +274,9 @@ def _execution_record() -> TrajectoryExecutionRecord:
     )
 
 
-def _step_result() -> EnvSlotStep:
+def _step_result() -> TrajectoryExecutionResult:
     metrics = tuple(_transition_metrics(index) for index in range(5))
-    return EnvSlotStep(
-        reward=5.0,
-        substep_rewards=np.ones(5),
-        substep_dense_rewards=np.ones(5),
+    return TrajectoryExecutionResult(
         metrics=metrics,
         terminated=True,
         truncated=False,
@@ -334,8 +331,6 @@ def test_execution_record_contains_only_execution_facts() -> None:
         {
             "position_errors_m",
             "heading_errors_rad",
-            "substep_rewards",
-            "substep_dense_rewards",
             "substep_native_energy_ml",
             "substep_native_episode_energy_ml",
             "substep_executed_fuel_proxy_energy_ml",

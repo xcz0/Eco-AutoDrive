@@ -13,6 +13,7 @@ from ..array_types import (
     WorldPointArray,
     WorldVectorArray,
 )
+from .metrics import TransitionMetrics
 from .traffic import TrafficFrame
 
 
@@ -39,3 +40,13 @@ class TrajectoryExecutionRecord:
     crash_human: bool
     max_step: bool
     crash_sidewalk: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TrajectoryExecutionResult:
+    """Objective-neutral result of one executed planner trajectory prefix."""
+
+    execution: TrajectoryExecutionRecord
+    metrics: tuple[TransitionMetrics, ...]
+    terminated: bool
+    truncated: bool

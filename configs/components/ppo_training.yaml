@@ -8,7 +8,7 @@ defaults:
   - /components/sampler: ddim5
   - /components/guidance: orthogonal_policy
   - /components/policy
-  - /components/reward: metadrive_builtin_v1
+  - /components/reward: plannerrft_energy_v1
   - /components/ppo
   - _self_
 

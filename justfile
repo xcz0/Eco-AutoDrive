@@ -95,12 +95,6 @@ energy action *arguments:
 reward-sanity action *arguments:
     if ("{{ action }}" -ne "run") { throw "reward-sanity action must be run" } else { & {{ python }} -m scripts.experiments.reward_sanity {{ arguments }}; exit $LASTEXITCODE }
 
-# Run or report the matched builtin/energy PPO A/B experiment.
-[group('experiments')]
-ppo-reward-ab action *arguments:
-    & {{ python }} -m scripts.experiments.ppo_reward_ab {{ action }} {{ arguments }}
-    exit $LASTEXITCODE
-
 # Run staged PPO stability search, validation, diagnostics, or summary.
 [group('experiments')]
 ppo-stability action *arguments:

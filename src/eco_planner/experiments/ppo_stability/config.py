@@ -8,8 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 
 from eco_planner._repository import CONFIG_ROOT
-from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.evaluation import ScenarioConfig
+from eco_planner.configuration import ScenarioConfig, load_resolved_yaml_mapping
 
 DEFAULT_STUDY = CONFIG_ROOT / "experiments" / "ppo" / "stability.yaml"
 

@@ -38,15 +38,17 @@ class _ArtifactModel(BaseModel):
 
 
 class RewardComponentMeans(_ArtifactModel):
-    reward_gate: StrictFloat = Field(ge=0.0, le=1.0)
+    ttc: StrictFloat = Field(ge=0.0, le=1.0)
+    progress: StrictFloat = Field(ge=0.0, le=1.0)
+    comfort: StrictFloat = Field(ge=0.0, le=1.0)
+    speed: StrictFloat = Field(ge=0.0, le=1.0)
+    energy: StrictFloat = Field(ge=0.0, le=1.0)
+
+
+class RewardDiagnosticMeans(_ArtifactModel):
     collision_score: StrictFloat = Field(ge=0.0, le=1.0)
     drivable_score: StrictFloat = Field(ge=0.0, le=1.0)
     wrong_direction_score: StrictFloat = Field(ge=0.0, le=1.0)
-    ttc_score: StrictFloat = Field(ge=0.0, le=1.0)
-    progress_score: StrictFloat = Field(ge=0.0, le=1.0)
-    comfort_score: StrictFloat = Field(ge=0.0, le=1.0)
-    speed_score: StrictFloat = Field(ge=0.0, le=1.0)
-    energy_score: StrictFloat = Field(ge=0.0, le=1.0)
 
 
 class PPOGradientDiagnosticsSummary(_ArtifactModel):
@@ -64,8 +66,8 @@ class TrainingUpdateSummary(_ArtifactModel):
     episode_count: StrictInt = Field(gt=0)
     mean_episode_length: StrictFloat = Field(gt=0.0)
     total_reward: StrictFloat
-    dense_reward: StrictFloat
-    terminal_override: StrictFloat
+    base_reward: StrictFloat
+    mean_safety_gate: StrictFloat = Field(ge=0.0, le=1.0)
     route_completion_delta: StrictFloat
     distance_m: StrictFloat = Field(ge=0.0)
     mean_speed_mps: StrictFloat = Field(ge=0.0)
@@ -112,12 +114,13 @@ class TrainingUpdateSummary(_ArtifactModel):
     policy_ratio_p95: StrictFloat = Field(gt=0.0)
     policy_ratio_max: StrictFloat = Field(gt=0.0)
     gradient_diagnostics: PPOGradientDiagnosticsSummary | None
-    reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"]
+    reward_profile: Literal["plannerrft_energy_v1"]
     native_step_energy_total_ml: StrictFloat = Field(ge=0.0)
     executed_fuel_proxy_total_ml: StrictFloat = Field(ge=0.0)
     executed_fuel_proxy_distance_m: StrictFloat = Field(ge=0.0)
     executed_fuel_proxy_ml_per_km: StrictFloat | None = Field(ge=0.0)
-    reward_component_means: RewardComponentMeans | None
+    reward_component_means: RewardComponentMeans
+    reward_diagnostic_means: RewardDiagnosticMeans
 
 
 class PolicyProbeSummary(_ArtifactModel):
@@ -141,7 +144,7 @@ class TrainingRunSummary(_ArtifactModel):
     probe_before: PolicyProbeSummary
     probe_after: PolicyProbeSummary
     updates: tuple[TrainingUpdateSummary, ...]
-    reward_profile: Literal["metadrive_builtin_v1", "plannerrft_energy_v1"]
+    reward_profile: Literal["plannerrft_energy_v1"]
 
 
 def policy_state_hash(policy: ExplorationPolicy) -> str:
@@ -202,9 +205,9 @@ def build_update_summary(
         "sample_count": sample_count,
         "episode_count": episode_count,
         "mean_episode_length": float(mean_episode_length),
-        "total_reward": float(_tensor(trajectory, "reward").sum()),
-        "dense_reward": float(_tensor(trajectory, "dense_reward").sum()),
-        "terminal_override": float(_tensor(trajectory, "terminal_override").sum()),
+        "total_reward": float(_tensor(trajectory, "reward_total").sum()),
+        "base_reward": float(_tensor(trajectory, "reward_base_total").sum()),
+        "mean_safety_gate": float(_tensor(trajectory, "reward_safety_gate").mean()),
         "route_completion_delta": float(_tensor(trajectory, "route_completion_delta").sum()),
         "distance_m": float(_tensor(trajectory, "distance_m").sum()),
         "mean_speed_mps": float(_tensor(trajectory, "speed_mps").mean()),
@@ -239,28 +242,16 @@ def build_update_summary(
             "executed_fuel_proxy_ml_per_km": (
                 proxy_total * 1000.0 / distance_total if distance_total > 0.0 else None
             ),
-            "reward_component_means": None,
+            "reward_component_means": {
+                name: float(_tensor(trajectory, f"reward_component_{name}").mean())
+                for name in ("ttc", "progress", "comfort", "speed", "energy")
+            },
+            "reward_diagnostic_means": {
+                name: float(_tensor(trajectory, f"reward_diagnostic_{name}").mean())
+                for name in ("collision_score", "drivable_score", "wrong_direction_score")
+            },
         }
     )
-    if reward_profile == "plannerrft_energy_v1":
-        payload.update(
-            {
-                "reward_component_means": {
-                    name: float(_tensor(trajectory, name).mean())
-                    for name in (
-                        "reward_gate",
-                        "collision_score",
-                        "drivable_score",
-                        "wrong_direction_score",
-                        "ttc_score",
-                        "progress_score",
-                        "comfort_score",
-                        "speed_score",
-                        "energy_score",
-                    )
-                },
-            }
-        )
     payload.update(asdict(report))
     return TrainingUpdateSummary.model_validate(payload)
 

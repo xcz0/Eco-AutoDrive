@@ -13,9 +13,9 @@
 项目已经具备：
 
 - closed-loop rollout + GAE/PPO；
-- `metadrive_builtin_v1` 与 `plannerrft_energy_v1` 两类 reward profile；
+- `plannerrft_energy_v1` 单一已实现 reward profile，reward 由父进程 collector 单次计算；
 - execution-trace proxy energy；
-- matched reward A/B 工作流；
+- 已完成的历史 matched reward A/B 实验记录；
 - 受限 no-traffic S/SC 条件下的 PPO 稳定候选配置。
 
 现有证据只说明 reward 可以正确进入 PPO 数据流，并且短趋势 A/B 没有观察到明显 reward hacking；尚没有证据证明当前 energy reward 能够产生 learned-policy energy improvement。

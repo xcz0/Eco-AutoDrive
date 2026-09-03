@@ -21,11 +21,9 @@ from eco_planner.models.config import OfficialDiffusionPlannerConfig
 from eco_planner.rl.config import parse_rollout_config
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater
 from eco_planner.rl.reward import (
-    MetaDriveBuiltinRewardConfig,
     PlannerRFTEnergyRewardConfig,
     RewardProfileConfig,
-    create_reward_objective,
-    score_plannerrft_energy_step,
+    evaluate_plannerrft_energy_step,
 )
 from eco_planner.rl.rollout import collect_rollout_episode, create_fabric_rollout_runtime
 from eco_planner.runtime.envs import (
@@ -116,13 +114,12 @@ def _off_route_trajectory(env: MetaDriveBackend, query_radius_m: float) -> np.nd
     return trajectory
 
 
-def _reward_profile(name: str) -> MetaDriveBuiltinRewardConfig | PlannerRFTEnergyRewardConfig:
+def _reward_profile(name: str) -> PlannerRFTEnergyRewardConfig:
     config_root = Path(__file__).resolve().parents[2] / "configs" / "components" / "reward"
     raw = OmegaConf.to_container(OmegaConf.load(config_root / f"{name}.yaml"), resolve=True)
     return TypeAdapter(RewardProfileConfig).validate_python(raw)
 
 
-_BUILTIN_REWARD = _reward_profile("metadrive_builtin_v1")
 _ENERGY_REWARD = _reward_profile("plannerrft_energy_v1")
 
 
@@ -169,7 +166,6 @@ def test_environment_slot_executes_evaluation_prefix_with_valid_audit(
         assert execution.substep_truncated.shape == (5,)
         assert isinstance(result.terminated, bool)
         assert isinstance(result.truncated, bool)
-        assert np.isfinite(result.reward)
         assert np.isfinite(execution.substep_states).all()
         native_energy = np.asarray(
             [metrics.input.native_step_energy_ml for metrics in result.metrics]
@@ -319,10 +315,8 @@ def test_vector_partial_step_preserves_unselected_slot_and_requested_order(
 
 
 @pytest.mark.simulator
-@pytest.mark.parametrize("reward_profile", (_BUILTIN_REWARD, _ENERGY_REWARD))
 def test_off_route_lane_is_terminal_with_padded_route_observation(
     official_model_config: OfficialDiffusionPlannerConfig,
-    reward_profile: MetaDriveBuiltinRewardConfig | PlannerRFTEnergyRewardConfig,
 ) -> None:
     query_radius_m = 5.0
     config = _environment_config("SXS", trajectory_execution_steps=1)
@@ -344,10 +338,6 @@ def test_off_route_lane_is_terminal_with_padded_route_observation(
         map_query_radius_m=query_radius_m,
         history_warmup_steps=0,
         scenarios=(scenario,),
-        builtin_reward_config=(
-            reward_profile if isinstance(reward_profile, MetaDriveBuiltinRewardConfig) else None
-        ),
-        reward_objective=create_reward_objective(reward_profile),
     ) as envs:
         envs.reset((scenario,))
         step_batch = envs.step((trajectory,))
@@ -367,10 +357,9 @@ def test_off_route_lane_is_terminal_with_padded_route_observation(
     assert torch.count_nonzero(observation["route_lanes_speed_limit"]).item() == 0
     assert not torch.any(observation["route_lanes_has_speed_limit"])
     assert len(step.step.metrics) == 1
-    if isinstance(reward_profile, PlannerRFTEnergyRewardConfig):
-        assert (
-            score_plannerrft_energy_step(reward_profile, step.step.metrics[-1]).reward_gate == 0.0
-        )
+    assert evaluate_plannerrft_energy_step(
+        _ENERGY_REWARD, step.step.metrics[-1]
+    ).safety_gate == 0.0
 
 
 @pytest.mark.simulator

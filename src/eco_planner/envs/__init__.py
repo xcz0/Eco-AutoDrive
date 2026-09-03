@@ -5,6 +5,7 @@
 # Torch must load before MetaDrive/Panda3D on Windows to avoid DLL initialization failures.
 from .domain import (
     TrajectoryExecutionRecord,
+    TrajectoryExecutionResult,
     WorldTrajectory,
     MetaDriveFuelProxyProvider,
     StaticTrafficObjectState,
@@ -21,7 +22,6 @@ from .observation import (
 from .metadrive import (
     EnvSlotObservation,
     EnvSlotReset,
-    EnvSlotStep,
     MetaDriveEnvSlot,
     ObservationMode,
     MetaDriveBackend,
@@ -31,10 +31,10 @@ __all__ = [
     "PlannerObservationSpec",
     "TrafficObservationAudit",
     "TrajectoryExecutionRecord",
+    "TrajectoryExecutionResult",
     "WorldTrajectory",
     "EnvSlotObservation",
     "EnvSlotReset",
-    "EnvSlotStep",
     "MetaDriveEnvSlot",
     "ObservationMode",
     "MetaDriveBackend",

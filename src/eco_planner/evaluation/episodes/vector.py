@@ -8,6 +8,7 @@ from typing import cast
 import numpy as np
 from tensordict import TensorDictBase
 
+from eco_planner.configuration import ScenarioConfig
 from eco_planner.contracts import evaluation_plan_cycles
 from eco_planner.envs import (
     PlannerObservationSpec,
@@ -22,7 +23,7 @@ from eco_planner.runtime.envs import (
 )
 
 from ..artifacts import CompletedEpisodeSummary, FailedEpisodeSummary, FailurePhase
-from ..config import EvaluationJobConfig, ScenarioConfig
+from ..config import EvaluationJobConfig
 from ..inference import EvaluationAgent
 from .lifecycle import (
     EpisodeFailure,
@@ -162,7 +163,6 @@ def run_vector_scenarios(
                             step.step.execution,
                             terminated,
                             truncated,
-                            slot.total_reward,
                             slot.environment_map_audit,
                             slot.route_length_m,
                             slot.saw_traffic,

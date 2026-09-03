@@ -11,7 +11,12 @@ import numpy as np
 import torch
 from tensordict import TensorDictBase
 
-from eco_planner.envs import EnvSlotStep, TrafficObservationAudit, TrajectoryExecutionRecord
+from eco_planner.configuration import ScenarioConfig
+from eco_planner.envs import (
+    TrafficObservationAudit,
+    TrajectoryExecutionRecord,
+    TrajectoryExecutionResult,
+)
 
 from ..artifacts import (
     CompletedEpisodeSummary,
@@ -20,7 +25,7 @@ from ..artifacts import (
     write_episode_artifacts,
 )
 from ..artifacts.summary import build_episode_summary, build_failed_episode_summary
-from ..config import EvaluationJobConfig, ScenarioConfig
+from ..config import EvaluationJobConfig
 from ..inference import EvaluationAgent
 from .recorder import EpisodeTraceRecorder
 
@@ -45,14 +50,13 @@ class EpisodeState:
     route_length_m: float
     environment_map_audit: dict[str, object]
     saw_traffic: bool = False
-    total_reward: float = 0.0
     plan_index: int = 0
 
     def record_cycle(
         self,
         observation: TensorDictBase,
         inference: TensorDictBase,
-        step: EnvSlotStep,
+        step: TrajectoryExecutionResult,
         traffic_audit: TrafficObservationAudit | None,
     ) -> int:
         cycle = self.plan_index
@@ -65,7 +69,6 @@ class EpisodeState:
             traffic_audit,
         )
         self.saw_traffic = self.saw_traffic or has_traffic(traffic_audit)
-        self.total_reward += step.reward
         self.plan_index += 1
         return cycle
 
@@ -76,7 +79,6 @@ def finalize_completed_episode(
     final_execution: TrajectoryExecutionRecord,
     terminated: bool,
     truncated: bool,
-    total_reward: float,
     environment_map_audit: dict[str, object],
     route_length_m: float,
     saw_traffic: bool,
@@ -100,7 +102,6 @@ def finalize_completed_episode(
         final_execution,
         terminated,
         truncated,
-        total_reward,
         agent.noise_seed(scenario_index),
         environment_map_audit,
         config.evaluation.mode,

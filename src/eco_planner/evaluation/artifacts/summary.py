@@ -26,8 +26,6 @@ STOPPED_SPEED_THRESHOLD_MPS = 0.1
 def compute_episode_metrics(
     trace_arrays: Mapping[str, np.ndarray],
     final_execution: TrajectoryExecutionRecord,
-    *,
-    total_reward: float,
 ) -> EpisodeMetrics:
     """Compute one evaluation episode's common metrics from its execution trace."""
 
@@ -53,7 +51,6 @@ def compute_episode_metrics(
         stopped_fraction=float(np.mean(speeds < STOPPED_SPEED_THRESHOLD_MPS)),
         route_completion=final_execution.route_completion,
         energy=energy,
-        total_reward=total_reward,
         arrive_dest=final_execution.arrive_dest,
         collision=(
             final_execution.crash_vehicle
@@ -143,7 +140,6 @@ def build_episode_summary(
     final_execution: TrajectoryExecutionRecord,
     terminated: bool,
     truncated: bool,
-    total_reward: float,
     noise_seed: int,
     environment_map_audit: dict[str, object],
     evaluation_mode: str,
@@ -154,7 +150,7 @@ def build_episode_summary(
 ) -> CompletedEpisodeSummary:
     """Build the stable per-episode summary JSON payload."""
 
-    metrics = compute_episode_metrics(trace_arrays, final_execution, total_reward=total_reward)
+    metrics = compute_episode_metrics(trace_arrays, final_execution)
     warmup_states = trace_arrays["warmup_states"]
     warmup_displacement = (
         np.linalg.norm(

@@ -22,21 +22,21 @@ from eco_planner.envs import (
     TransitionMetricInput,
     derive_transition_metrics,
 )
-from eco_planner.rl.reward import PlannerRFTEnergyRewardConfig, score_plannerrft_energy_step
+from eco_planner.rl.reward import PlannerRFTEnergyRewardConfig, evaluate_plannerrft_energy_step
 
 DEFAULT_CONFIG = CONFIG_ROOT / "experiments" / "reward" / "sanity.yaml"
 _SCORE_FIELDS = (
-    "reward_total",
-    "reward_ungated",
-    "reward_gate",
-    "collision_score",
-    "drivable_score",
-    "wrong_direction_score",
-    "ttc_score",
-    "progress_score",
-    "comfort_score",
-    "speed_score",
-    "energy_score",
+    "total",
+    "base_total",
+    "safety_gate",
+    "diagnostics.collision_score",
+    "diagnostics.drivable_score",
+    "diagnostics.wrong_direction_score",
+    "components.ttc",
+    "components.progress",
+    "components.comfort",
+    "components.speed",
+    "components.energy",
 )
 
 
@@ -167,11 +167,12 @@ def evaluate_sanity(config: _SanityConfig) -> dict[str, object]:
         values = config.base_input.model_dump(mode="python")
         values.update(case.overrides.model_dump(mode="python", exclude_none=True))
         metrics = derive_transition_metrics(_reward_input(values), MetaDriveFuelProxyProvider())
-        audit = score_plannerrft_energy_step(reward, metrics)
-        payload = asdict(audit)
+        result = evaluate_plannerrft_energy_step(reward, metrics)
+        payload = asdict(result)
         cases[case.name] = payload
         scores_valid = all(
-            math.isfinite(float(payload[field])) and 0.0 <= float(payload[field]) <= 1.0
+            math.isfinite(_numeric_field(payload, field))
+            and 0.0 <= _numeric_field(payload, field) <= 1.0
             for field in _SCORE_FIELDS
         )
         checks.append({"name": f"{case.name}:scores_finite_unit_interval", "passed": scores_valid})
@@ -299,16 +300,25 @@ def _point(values: list[StrictFloat]) -> tuple[float, float]:
 
 
 def _numeric_field(payload: dict[str, object], field: str) -> float:
-    value = payload.get(field)
+    value = _field(payload, field)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"reward audit field {field!r} is not numeric")
     return float(value)
 
 
 def _boolean_field(payload: dict[str, object], field: str) -> bool:
-    value = payload.get(field)
+    value = _field(payload, field)
     if not isinstance(value, bool):
         raise ValueError(f"reward audit field {field!r} is not boolean")
+    return value
+
+
+def _field(payload: dict[str, object], field: str) -> object:
+    value: object = payload
+    for part in field.split("."):
+        if not isinstance(value, dict) or part not in value:
+            raise ValueError(f"reward result does not contain field {field!r}")
+        value = value[part]
     return value
 
 

@@ -8,6 +8,7 @@ from typing import cast
 import numpy as np
 from tensordict import TensorDictBase
 
+from eco_planner.configuration import ScenarioConfig
 from eco_planner.contracts import evaluation_plan_cycles
 from eco_planner.envs import (
     MetaDriveEnvSlot,
@@ -16,7 +17,7 @@ from eco_planner.envs import (
 )
 
 from ..artifacts import CompletedEpisodeSummary, FailedEpisodeSummary, FailurePhase
-from ..config import EvaluationJobConfig, ScenarioConfig
+from ..config import EvaluationJobConfig
 from ..inference import EvaluationAgent
 from .lifecycle import (
     EpisodeFailure,
@@ -141,7 +142,6 @@ def run_scenario(
             final_execution,
             terminated,
             truncated,
-            state.total_reward,
             state.environment_map_audit,
             state.route_length_m,
             state.saw_traffic,

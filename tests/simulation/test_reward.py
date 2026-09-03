@@ -13,7 +13,7 @@ from eco_planner.envs.domain import (
     TransitionMetricInput,
     derive_transition_metrics,
 )
-from eco_planner.rl.reward import PlannerRFTEnergyRewardConfig, score_plannerrft_energy_step
+from eco_planner.rl.reward import PlannerRFTEnergyRewardConfig, evaluate_plannerrft_energy_step
 
 
 def _config() -> PlannerRFTEnergyRewardConfig:
@@ -115,20 +115,26 @@ def test_transition_metrics_derive_target_errors_outside_execution_record() -> N
 
 @pytest.mark.smoke
 def test_plannerrft_energy_reward_matches_the_worked_no_traffic_example() -> None:
-    audit = score_plannerrft_energy_step(_config(), _metrics())
+    result = evaluate_plannerrft_energy_step(_config(), _metrics())
 
-    assert audit.reward_gate == 1.0
-    assert audit.ttc_score == 1.0
-    assert audit.progress_score == 1.0
-    assert audit.comfort_score == 1.0
-    assert audit.speed_score == 1.0
-    assert audit.executed_fuel_proxy_ml_per_km == pytest.approx(32.5 * math.exp(0.36))
-    assert audit.energy_score == pytest.approx(math.exp(-(32.5 * math.exp(0.36)) / 50.0))
-    assert audit.reward_total == pytest.approx((5.0 + 5.0 + 2.0 + 4.0 + audit.energy_score) / 17.0)
+    assert result.safety_gate == 1.0
+    assert result.components.ttc == 1.0
+    assert result.components.progress == 1.0
+    assert result.components.comfort == 1.0
+    assert result.components.speed == 1.0
+    assert result.diagnostics.executed_fuel_proxy_ml_per_km == pytest.approx(
+        32.5 * math.exp(0.36)
+    )
+    assert result.components.energy == pytest.approx(
+        math.exp(-(32.5 * math.exp(0.36)) / 50.0)
+    )
+    assert result.total == pytest.approx(
+        (5.0 + 5.0 + 2.0 + 4.0 + result.components.energy) / 17.0
+    )
 
 
 def test_energy_score_does_not_reward_a_stationary_transition() -> None:
-    audit = score_plannerrft_energy_step(
+    result = evaluate_plannerrft_energy_step(
         _config(),
         _metrics(
             position_xy_m=(0.0, 0.0),
@@ -138,10 +144,10 @@ def test_energy_score_does_not_reward_a_stationary_transition() -> None:
         ),
     )
 
-    assert not audit.energy_distance_valid
-    assert audit.step_distance_m == 0.0
-    assert audit.energy_score == 0.0
-    assert audit.progress_score == 0.0
+    assert not result.diagnostics.energy_distance_valid
+    assert result.diagnostics.step_distance_m == 0.0
+    assert result.components.energy == 0.0
+    assert result.components.progress == 0.0
 
 
 def test_ttc_and_terminal_gates_are_independent_auditable_components() -> None:
@@ -154,19 +160,19 @@ def test_ttc_and_terminal_gates_are_independent_auditable_components() -> None:
         width_m=2.0,
         length_m=4.0,
     )
-    approaching = score_plannerrft_energy_step(
+    approaching = evaluate_plannerrft_energy_step(
         _config(), _metrics(traffic_frame=_frame(participants=(lead,)))
     )
-    collision = score_plannerrft_energy_step(
+    collision = evaluate_plannerrft_energy_step(
         _config(), _metrics(traffic_frame=_frame(participants=(lead,)), crash_vehicle=True)
     )
 
-    assert approaching.min_ttc_s == pytest.approx(0.5)
-    assert approaching.ttc_score == 0.0
-    assert approaching.reward_gate == 1.0
-    assert collision.collision_score == 0.0
-    assert collision.reward_gate == 0.0
-    assert collision.reward_total == 0.0
+    assert approaching.diagnostics.min_ttc_s == pytest.approx(0.5)
+    assert approaching.components.ttc == 0.0
+    assert approaching.safety_gate == 1.0
+    assert collision.diagnostics.collision_score == 0.0
+    assert collision.safety_gate == 0.0
+    assert collision.total == 0.0
 
 
 def test_ttc_ignores_non_closing_lead_traffic_and_scores_static_corridor_objects() -> None:
@@ -188,23 +194,23 @@ def test_ttc_ignores_non_closing_lead_traffic_and_scores_static_corridor_objects
         length_m=4.0,
     )
 
-    non_closing = score_plannerrft_energy_step(
+    non_closing = evaluate_plannerrft_energy_step(
         _config(), _metrics(traffic_frame=_frame(participants=(following,)))
     )
-    static = score_plannerrft_energy_step(
+    static = evaluate_plannerrft_energy_step(
         _config(), _metrics(traffic_frame=_frame(static_objects=(barrier,)))
     )
 
-    assert not non_closing.has_ttc_candidate
-    assert non_closing.min_ttc_s == 10.0
-    assert non_closing.ttc_score == 1.0
-    assert static.has_ttc_candidate
-    assert static.min_ttc_s == pytest.approx(0.6)
-    assert static.ttc_score == 0.0
+    assert not non_closing.diagnostics.has_ttc_candidate
+    assert non_closing.diagnostics.min_ttc_s == 10.0
+    assert non_closing.components.ttc == 1.0
+    assert static.diagnostics.has_ttc_candidate
+    assert static.diagnostics.min_ttc_s == pytest.approx(0.6)
+    assert static.components.ttc == 0.0
 
 
 def test_wrong_direction_speed_and_comfort_scores_follow_configured_bounds() -> None:
-    audit = score_plannerrft_energy_step(
+    result = evaluate_plannerrft_energy_step(
         _config(),
         _metrics(
             velocity_xy_mps=(14.0, 0.0),
@@ -214,12 +220,12 @@ def test_wrong_direction_speed_and_comfort_scores_follow_configured_bounds() -> 
         ),
     )
 
-    assert audit.wrong_direction_score == 0.0
-    assert audit.reward_gate == 0.0
-    assert audit.speed_score == pytest.approx(0.2)
-    assert audit.longitudinal_acceleration_mps2 == pytest.approx(40.0)
-    assert audit.jerk_mps3 == pytest.approx(400.0)
-    assert audit.comfort_score == 0.0
+    assert result.diagnostics.wrong_direction_score == 0.0
+    assert result.safety_gate == 0.0
+    assert result.components.speed == pytest.approx(0.2)
+    assert result.diagnostics.longitudinal_acceleration_mps2 == pytest.approx(40.0)
+    assert result.diagnostics.jerk_mps3 == pytest.approx(400.0)
+    assert result.components.comfort == 0.0
 
 
 @pytest.mark.parametrize(
@@ -233,10 +239,10 @@ def test_wrong_direction_speed_and_comfort_scores_follow_configured_bounds() -> 
     ],
 )
 def test_every_configured_terminal_gate_zeroes_reward(updates: dict[str, bool]) -> None:
-    audit = score_plannerrft_energy_step(_config(), _metrics(**updates))
+    result = evaluate_plannerrft_energy_step(_config(), _metrics(**updates))
 
-    assert audit.reward_gate == 0.0
-    assert audit.reward_total == 0.0
+    assert result.safety_gate == 0.0
+    assert result.total == 0.0
 
 
 @pytest.mark.parametrize(
@@ -252,21 +258,21 @@ def test_every_configured_terminal_gate_zeroes_reward(updates: dict[str, bool]) 
 def test_all_plannerrft_component_scores_are_finite_unit_interval(
     updates: dict[str, object],
 ) -> None:
-    audit = score_plannerrft_energy_step(_config(), _metrics(**updates))
+    result = evaluate_plannerrft_energy_step(_config(), _metrics(**updates))
 
     scores = np.asarray(
         [
-            audit.reward_total,
-            audit.reward_ungated,
-            audit.reward_gate,
-            audit.collision_score,
-            audit.drivable_score,
-            audit.wrong_direction_score,
-            audit.ttc_score,
-            audit.progress_score,
-            audit.comfort_score,
-            audit.speed_score,
-            audit.energy_score,
+            result.total,
+            result.base_total,
+            result.safety_gate,
+            result.diagnostics.collision_score,
+            result.diagnostics.drivable_score,
+            result.diagnostics.wrong_direction_score,
+            result.components.ttc,
+            result.components.progress,
+            result.components.comfort,
+            result.components.speed,
+            result.components.energy,
         ]
     )
     assert np.isfinite(scores).all()
