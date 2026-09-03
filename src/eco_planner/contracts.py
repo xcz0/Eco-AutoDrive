@@ -8,6 +8,8 @@ from typing import Final
 import numpy as np
 
 PLANNER_HORIZON: Final = 80
+PLANNER_ACTOR_COUNT: Final = 11
+PLANNER_STATE_DIM: Final = 4
 SIMULATOR_STEP_S: Final = 0.1
 METADRIVE_PHYSICS_STEP_S: Final = 0.02
 METADRIVE_DECISION_REPEAT: Final = 5
@@ -37,9 +39,7 @@ class ExecutionMode(str, Enum):
         """Return the fixed number of 10 Hz points executed for this mode."""
 
         return (
-            ROLLOUT_EXECUTION_STEPS
-            if self is ExecutionMode.ROLLOUT
-            else EVALUATION_EXECUTION_STEPS
+            ROLLOUT_EXECUTION_STEPS if self is ExecutionMode.ROLLOUT else EVALUATION_EXECUTION_STEPS
         )
 
 

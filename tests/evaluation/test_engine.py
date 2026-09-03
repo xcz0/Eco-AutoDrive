@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +20,8 @@ from eco_planner.envs import (
     EnvSlotStep,
     TrajectoryExecutionRecord,
 )
+from eco_planner.envs.domain import EnergyMetrics, TransitionMetricInput, TransitionMetrics
+from eco_planner.envs.domain.traffic import TrafficFrame
 from eco_planner.evaluation import (
     InferenceDecision,
     load_episode_summary,
@@ -134,7 +137,7 @@ class _ShortEpisodeSlot:
     def step(self, trajectory: np.ndarray) -> EnvSlotStep:
         assert trajectory.shape == (80, 4)
         self._state = np.array([5.0, 0.0, 0.0, 10.0, 0.0, 10.0, 0.0])
-        return EnvSlotStep(5.0, True, False, _execution_record())
+        return _step_result()
 
     def close(self) -> None:
         pass
@@ -253,14 +256,6 @@ def _execution_record() -> TrajectoryExecutionRecord:
         substep_states=states,
         target_centers=positions,
         target_headings=np.zeros(5),
-        position_errors_m=np.zeros(5),
-        heading_errors_rad=np.zeros(5),
-        substep_rewards=np.ones(5),
-        substep_dense_rewards=np.ones(5),
-        substep_native_energy_ml=np.full(5, 0.1),
-        substep_native_episode_energy_ml=np.arange(1, 6, dtype=np.float64) / 10.0,
-        substep_executed_fuel_proxy_energy_ml=np.full(5, 0.1),
-        substep_distance_m=np.ones(5),
         substep_terminated=np.array([False, False, False, False, True]),
         substep_truncated=np.zeros(5, dtype=np.bool_),
         traffic_frames=(),
@@ -272,4 +267,75 @@ def _execution_record() -> TrajectoryExecutionRecord:
         crash_building=False,
         crash_human=False,
         max_step=False,
+    )
+
+
+def _step_result() -> EnvSlotStep:
+    metrics = tuple(_transition_metrics(index) for index in range(5))
+    return EnvSlotStep(
+        reward=5.0,
+        substep_rewards=np.ones(5),
+        substep_dense_rewards=np.ones(5),
+        metrics=metrics,
+        terminated=True,
+        truncated=False,
+        execution=_execution_record(),
+    )
+
+
+def _transition_metrics(index: int) -> TransitionMetrics:
+    position = (float(index + 1), 0.0)
+    transition_input = TransitionMetricInput(
+        previous_position_xy_m=(float(index), 0.0),
+        position_xy_m=position,
+        previous_velocity_xy_mps=(10.0, 0.0),
+        velocity_xy_mps=(10.0, 0.0),
+        previous_acceleration_xy_mps2=(0.0, 0.0),
+        heading_rad=0.0,
+        yaw_rate_radps=0.0,
+        route_progress_delta_m=1.0,
+        route_heading_rad=0.0,
+        speed_limit_mps=10.0,
+        ego_width_m=2.0,
+        ego_length_m=4.0,
+        traffic_frame=TrafficFrame(index + 1, position, 0.0, 1.0, (), ()),
+        target_position_xy_m=position,
+        target_heading_rad=0.0,
+        crash_vehicle=False,
+        crash_object=False,
+        crash_building=False,
+        crash_human=False,
+        crash_sidewalk=False,
+        out_of_road=False,
+        native_step_energy_ml=0.1,
+        native_episode_energy_ml=float(index + 1) / 10.0,
+        timestep_s=0.1,
+    )
+    return TransitionMetrics(
+        input=transition_input,
+        speed_mps=10.0,
+        longitudinal_acceleration_mps2=0.0,
+        lateral_acceleration_mps2=0.0,
+        jerk_mps3=0.0,
+        step_distance_m=1.0,
+        position_error_m=0.0,
+        heading_error_rad=0.0,
+        energy=EnergyMetrics("metadrive_fuel_proxy", 1.0, None, 0.1),
+    )
+
+
+def test_execution_record_contains_only_execution_facts() -> None:
+    names = {field.name for field in fields(TrajectoryExecutionRecord)}
+    assert names.isdisjoint(
+        {
+            "position_errors_m",
+            "heading_errors_rad",
+            "substep_rewards",
+            "substep_dense_rewards",
+            "substep_native_energy_ml",
+            "substep_native_episode_energy_ml",
+            "substep_executed_fuel_proxy_energy_ml",
+            "substep_distance_m",
+            "substep_metrics",
+        }
     )

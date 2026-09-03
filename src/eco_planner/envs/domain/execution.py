@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
-import numpy as np
+from dataclasses import dataclass
 
 from eco_planner.envs.array_types import (
     ExecutionBooleanArray,
@@ -15,13 +13,12 @@ from eco_planner.envs.array_types import (
     WorldPointArray,
     WorldVectorArray,
 )
-from eco_planner.envs.domain.metrics import TransitionMetrics
 from eco_planner.envs.domain.traffic import TrafficFrame
 
 
 @dataclass(frozen=True, slots=True)
 class TrajectoryExecutionRecord:
-    """Target, actual, metric, reward, and termination facts for one executed prefix."""
+    """Target, actual, traffic, and termination facts for one executed prefix."""
 
     start_center: WorldVectorArray
     start_heading: float
@@ -30,12 +27,6 @@ class TrajectoryExecutionRecord:
     substep_states: ExecutionStateArray
     target_centers: ExecutionPointArray
     target_headings: ExecutionScalarArray
-    position_errors_m: ExecutionScalarArray
-    heading_errors_rad: ExecutionScalarArray
-    substep_rewards: ExecutionScalarArray
-    substep_dense_rewards: ExecutionScalarArray
-    substep_native_energy_ml: ExecutionScalarArray
-    substep_native_episode_energy_ml: ExecutionScalarArray
     substep_terminated: ExecutionBooleanArray
     substep_truncated: ExecutionBooleanArray
     traffic_frames: tuple[TrafficFrame, ...]
@@ -48,10 +39,3 @@ class TrajectoryExecutionRecord:
     crash_human: bool
     max_step: bool
     crash_sidewalk: bool = False
-    substep_executed_fuel_proxy_energy_ml: ExecutionScalarArray = field(
-        default_factory=lambda: np.empty(0, dtype=np.float64)
-    )
-    substep_distance_m: ExecutionScalarArray = field(
-        default_factory=lambda: np.empty(0, dtype=np.float64)
-    )
-    substep_metrics: tuple[TransitionMetrics, ...] = ()

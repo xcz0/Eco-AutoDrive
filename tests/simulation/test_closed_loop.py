@@ -14,11 +14,6 @@ from pydantic import TypeAdapter
 from eco_planner.envs import (
     MetaDriveEnvSlot,
     PlannerObservationSpec,
-    VectorEnvScenario,
-    VectorMetaDriveEnv,
-    WorkerResetResult,
-    WorkerStepResult,
-    operation_results,
 )
 from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
 from eco_planner.envs.metadrive.simulator import MetaDriveBackend
@@ -33,6 +28,13 @@ from eco_planner.rl.reward import (
     score_plannerrft_energy_step,
 )
 from eco_planner.rl.rollout import collect_rollout_episode, create_fabric_rollout_runtime
+from eco_planner.runtime.envs import (
+    VectorEnvScenario,
+    VectorMetaDriveEnv,
+    WorkerResetResult,
+    WorkerStepResult,
+    operation_results,
+)
 
 
 @pytest.fixture(scope="module")
@@ -169,10 +171,14 @@ def test_environment_slot_executes_evaluation_prefix_with_valid_audit(
         assert isinstance(result.truncated, bool)
         assert np.isfinite(result.reward)
         assert np.isfinite(execution.substep_states).all()
-        assert np.isfinite(execution.substep_native_energy_ml).all()
-        assert np.isfinite(execution.substep_executed_fuel_proxy_energy_ml).all()
-        assert np.all(execution.substep_native_energy_ml >= 0.0)
-        assert np.all(execution.substep_executed_fuel_proxy_energy_ml >= 0.0)
+        native_energy = np.asarray(
+            [metrics.input.native_step_energy_ml for metrics in result.metrics]
+        )
+        proxy_energy = np.asarray([metrics.energy.fuel_ml for metrics in result.metrics])
+        assert np.isfinite(native_energy).all()
+        assert np.isfinite(proxy_energy).all()
+        assert np.all(native_energy >= 0.0)
+        assert np.all(proxy_energy >= 0.0)
         np.testing.assert_allclose(
             execution.substep_states[-1, :2],
             np.asarray(slot.backend.agent.position),
@@ -224,7 +230,7 @@ def test_traffic_history_enters_planner_observation(
     observation = result.observation
     audit = result.traffic_audit
 
-    assert sum(item.substep_states.shape[0] for item in warmup) == 20
+    assert sum(item.execution.substep_states.shape[0] for item in warmup) == 20
     assert observation["neighbor_agents_past"].shape == (32, 21, 11)
     assert observation.batch_size == torch.Size([])
     assert observation["static_objects"].shape == (5, 10)
@@ -267,7 +273,7 @@ def test_two_slot_vector_rollout_executes_current_training_path(
         assert reset_observation.batch_size == torch.Size([])
         assert step_observation.batch_size == torch.Size([])
         assert reset_observation["ego_current_state"].shape == (10,)
-        assert step.execution.substep_states.shape == (1, 7)
+        assert step.step.execution.substep_states.shape == (1, 7)
         assert steps["terminated"][index].dtype is torch.bool
         assert steps["truncated"][index].dtype is torch.bool
         assert torch.isfinite(steps["reward"][index]).all()
@@ -300,11 +306,11 @@ def test_vector_partial_step_preserves_unselected_slot_and_requested_order(
     slot_one_result = operation_results(slot_one, WorkerStepResult)[0]
     slot_zero_result = operation_results(slot_zero, WorkerStepResult)[0]
     np.testing.assert_allclose(
-        slot_one_result.execution.start_center,
+        slot_one_result.step.execution.start_center,
         reset_results[1].initial_state[:2],
     )
     np.testing.assert_allclose(
-        slot_zero_result.execution.start_center,
+        slot_zero_result.step.execution.start_center,
         reset_results[0].initial_state[:2],
     )
     torch.testing.assert_close(slot_one["observation"], preserved["observation"])
@@ -350,9 +356,9 @@ def test_off_route_lane_is_terminal_with_padded_route_observation(
 
     assert bool(step_batch["terminated"][0].item()) is True
     assert bool(step_batch["truncated"][0].item()) is False
-    assert step.execution.out_of_road is True
-    assert step.execution.substep_terminated.tolist() == [True]
-    assert step.execution.substep_truncated.tolist() == [False]
+    assert step.step.execution.out_of_road is True
+    assert step.step.execution.substep_terminated.tolist() == [True]
+    assert step.step.execution.substep_truncated.tolist() == [False]
     assert torch.isfinite(step_batch["reward"][0]).all()
     assert all(
         torch.isfinite(value).all() for value in observation.values() if value.is_floating_point()
@@ -360,13 +366,10 @@ def test_off_route_lane_is_terminal_with_padded_route_observation(
     assert torch.count_nonzero(observation["route_lanes"]).item() == 0
     assert torch.count_nonzero(observation["route_lanes_speed_limit"]).item() == 0
     assert not torch.any(observation["route_lanes_has_speed_limit"])
-    assert len(step.execution.substep_metrics) == 1
+    assert len(step.step.metrics) == 1
     if isinstance(reward_profile, PlannerRFTEnergyRewardConfig):
         assert (
-            score_plannerrft_energy_step(
-                reward_profile, step.execution.substep_metrics[-1]
-            ).reward_gate
-            == 0.0
+            score_plannerrft_energy_step(reward_profile, step.step.metrics[-1]).reward_gate == 0.0
         )
 
 

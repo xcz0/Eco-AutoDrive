@@ -6,7 +6,7 @@ import math
 
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat
 
-from eco_planner.energy.metrics import EnergyMetrics, EnergyTrace
+from eco_planner.envs.domain.metrics import EnergyMetrics, EnergyTrace
 
 _FUEL_ENERGY_PATH = "veh.pt_type.Conv.fc.state.energy_fuel_joules"
 _DISTANCE_PATH = "veh.state.dist_meters"
@@ -44,12 +44,7 @@ class FASTSimEnergyProvider:
         simulation.walk()
         result = simulation.to_pydict(flatten=True)
         model_distance_m = float(result[_DISTANCE_PATH])
-        if not math.isclose(
-            model_distance_m,
-            trace.distance_m,
-            rel_tol=1e-9,
-            abs_tol=1e-9,
-        ):
+        if not math.isclose(model_distance_m, trace.distance_m, rel_tol=1e-9, abs_tol=1e-9):
             raise ValueError(
                 "FASTSim cycle distance does not match the executed trace distance: "
                 f"{model_distance_m} != {trace.distance_m}"

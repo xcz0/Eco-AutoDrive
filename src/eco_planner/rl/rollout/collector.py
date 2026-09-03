@@ -13,14 +13,9 @@ import torch
 from tensordict import TensorDictBase
 
 from eco_planner.envs import (
+    EnvSlotStep,
     MetaDriveEnvSlot,
     PlannerObservationSpec,
-    TrajectoryExecutionRecord,
-    VectorEnvScenario,
-    VectorMetaDriveEnv,
-    WorkerResetResult,
-    WorkerStepResult,
-    operation_results,
 )
 from eco_planner.evaluation import ScenarioConfig
 from eco_planner.rl.reward import (
@@ -41,6 +36,13 @@ from eco_planner.rl.rollout.contracts import (
 from eco_planner.rl.rollout.decision import RolloutDecision
 from eco_planner.rl.rollout.profiling import RolloutPlannerTiming
 from eco_planner.rl.rollout.runtime import FabricRolloutRuntime
+from eco_planner.runtime.envs import (
+    VectorEnvScenario,
+    VectorMetaDriveEnv,
+    WorkerResetResult,
+    WorkerStepResult,
+    operation_results,
+)
 
 
 @dataclass(frozen=True)
@@ -78,7 +80,7 @@ class _EpisodeLifecycle:
     def append(
         self,
         decision: RolloutDecision,
-        execution: TrajectoryExecutionRecord,
+        step: EnvSlotStep,
         *,
         map_seed: int,
         noise_seed: int,
@@ -93,7 +95,7 @@ class _EpisodeLifecycle:
             decision.training_decision,
             decision.audit_result(),
             _execution_transition_audit(
-                execution,
+                step,
                 self.previous_route_completion,
                 stopped_speed_threshold_mps,
                 reward_profile=reward_profile,
@@ -108,7 +110,7 @@ class _EpisodeLifecycle:
             ),
         )
         self.cycle += 1
-        self.previous_route_completion = execution.route_completion
+        self.previous_route_completion = step.execution.route_completion
         if terminated:
             return "terminated"
         if truncated:
@@ -196,10 +198,9 @@ def collect_rollout_episode(
             step = env_slot.step(decision.ego_trajectory)
             terminated = step.terminated
             truncated = step.truncated
-            execution = step.execution
             tail = lifecycle.append(
                 decision,
-                execution,
+                step,
                 map_seed=spec.seed,
                 noise_seed=resolved_noise_seed,
                 policy_action_seed=resolved_policy_seed,
@@ -538,10 +539,10 @@ def _append_slot_transition(
     stopped_speed_threshold_mps: float,
     reward_profile: RewardProfileConfig | None,
 ) -> TailKind | None:
-    execution = step.execution
+    env_step = step.step
     tail = state.lifecycle.append(
         decision,
-        execution,
+        env_step,
         map_seed=state.spec.seed,
         noise_seed=state.noise_seed,
         policy_action_seed=state.policy_action_seed,
@@ -689,7 +690,7 @@ def _validate_vector_slots(
 
 
 def _execution_transition_audit(
-    execution: TrajectoryExecutionRecord,
+    step: EnvSlotStep,
     previous_route_completion: float,
     stopped_speed_threshold_mps: float,
     *,
@@ -697,11 +698,12 @@ def _execution_transition_audit(
     truncated: bool,
     reward_profile: RewardProfileConfig | None,
 ) -> ExecutionTransitionAudit:
+    execution = step.execution
     if execution.substep_states.shape[0] != 1:
         raise RuntimeError("rollout transition must execute exactly one substep")
-    reward = float(execution.substep_rewards.sum())
+    reward = float(step.substep_rewards.sum())
     dense_reward, terminal_override, reward_audit = _reward_audit_values(
-        execution, reward, reward_profile
+        step, reward, reward_profile
     )
     state = execution.substep_states[0]
     distance_m = float(np.linalg.norm(state[:2] - execution.start_center))
@@ -714,8 +716,8 @@ def _execution_transition_audit(
         distance_m=distance_m,
         speed_mps=speed_mps,
         stopped=speed_mps < stopped_speed_threshold_mps,
-        position_error_m=float(execution.position_errors_m[0]),
-        heading_error_rad=float(execution.heading_errors_rad[0]),
+        position_error_m=step.metrics[0].position_error_m,
+        heading_error_rad=step.metrics[0].heading_error_rad,
         arrive_dest=execution.arrive_dest,
         out_of_road=execution.out_of_road,
         crash_vehicle=execution.crash_vehicle,
@@ -730,17 +732,17 @@ def _execution_transition_audit(
 
 
 def _reward_audit_values(
-    execution: TrajectoryExecutionRecord,
+    step: EnvSlotStep,
     reward: float,
     reward_profile: RewardProfileConfig | None,
 ) -> tuple[float, float, MetaDriveBuiltinRewardAudit | PlannerRFTEnergyRewardAudit]:
-    if len(execution.substep_metrics) != 1:
+    if len(step.metrics) != 1:
         raise RuntimeError("rollout transition must expose exactly one transition metric")
     audit = build_reward_audit(
         reward_profile,
-        execution.substep_metrics[0],
+        step.metrics[0],
         reward_total=reward,
-        dense_reward=float(execution.substep_dense_rewards[0]),
+        dense_reward=float(step.substep_dense_rewards[0]),
     )
     if isinstance(audit, PlannerRFTEnergyRewardAudit):
         return audit.reward_ungated, audit.reward_total - audit.reward_ungated, audit

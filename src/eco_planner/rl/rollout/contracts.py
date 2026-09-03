@@ -10,6 +10,7 @@ import numpy as np
 import torch
 from tensordict import TensorDict, TensorDictBase
 
+from eco_planner.contracts import PLANNER_ACTOR_COUNT, PLANNER_HORIZON, PLANNER_STATE_DIM
 from eco_planner.rl.policy import ExplorationPolicyContext
 from eco_planner.rl.reward import (
     PlannerRFTEnergyRewardAudit,
@@ -462,8 +463,12 @@ def _validate_audit_trajectory(
         raise ValueError("rollout audit guidance_action must be strictly inside (-1, 1)")
     if torch.any(trajectory["beta_alpha"] <= 0.0) or torch.any(trajectory["beta_beta"] <= 0.0):
         raise ValueError("rollout audit Beta parameters must be strictly positive")
-    if tuple(trajectory["initial_noise"].shape[1:]) != (11, 80, 4):
-        raise ValueError("rollout audit initial_noise must have shape [T, 11, 80, 4]")
+    expected_noise_shape = (PLANNER_ACTOR_COUNT, PLANNER_HORIZON, PLANNER_STATE_DIM)
+    if tuple(trajectory["initial_noise"].shape[1:]) != expected_noise_shape:
+        raise ValueError(
+            "rollout audit initial_noise must have shape "
+            f"[T, {PLANNER_ACTOR_COUNT}, {PLANNER_HORIZON}, {PLANNER_STATE_DIM}]"
+        )
     for key in ("diffusion_rng_state", "policy_rng_state"):
         if trajectory[key].dtype != torch.uint8 or trajectory[key].ndim != 2:
             raise TypeError(f"{key} must have shape [T, state_length] and uint8 dtype")

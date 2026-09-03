@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from eco_planner.energy import MetaDriveFuelProxyProvider
+from eco_planner.envs.domain import MetaDriveFuelProxyProvider
 from eco_planner.envs.domain.metrics import TransitionMetricInput, derive_transition_metrics
 from eco_planner.envs.domain.traffic import (
     StaticTrafficObjectState,
@@ -85,6 +85,8 @@ def _input(**updates: object) -> TransitionMetricInput:
         "ego_width_m": 2.0,
         "ego_length_m": 4.0,
         "traffic_frame": _frame(),
+        "target_position_xy_m": (1.0, 0.0),
+        "target_heading_rad": 0.0,
         "crash_vehicle": False,
         "crash_object": False,
         "crash_building": False,
@@ -101,6 +103,13 @@ def _input(**updates: object) -> TransitionMetricInput:
 
 def _metrics(**updates: object):
     return derive_transition_metrics(_input(**updates), MetaDriveFuelProxyProvider())
+
+
+def test_transition_metrics_derive_target_errors_outside_execution_record() -> None:
+    metrics = _metrics(target_position_xy_m=(1.0, 1.0), target_heading_rad=math.pi / 2)
+
+    assert metrics.position_error_m == pytest.approx(1.0)
+    assert metrics.heading_error_rad == pytest.approx(math.pi / 2)
 
 
 @pytest.mark.smoke

@@ -8,8 +8,8 @@ from typing import Any
 import numpy as np
 
 from eco_planner.contracts import SIMULATOR_STEP_S
-from eco_planner.energy import EnergyMetrics
 from eco_planner.envs import TrajectoryExecutionRecord
+from eco_planner.envs.domain import EnergyMetrics
 
 from .models import (
     CompletedEpisodeSummary,

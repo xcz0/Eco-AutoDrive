@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat
 from eco_planner._repository import CONFIG_ROOT, REPOSITORY_ROOT
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.energy import MetaDriveFuelProxyProvider
+from eco_planner.envs.domain import MetaDriveFuelProxyProvider
 from eco_planner.envs.domain.metrics import TransitionMetricInput, derive_transition_metrics
 from eco_planner.envs.domain.traffic import (
     StaticTrafficObjectState,
@@ -279,6 +279,8 @@ def _reward_input(values: dict[str, object]) -> TransitionMetricInput:
             participants=participants,
             static_objects=static_objects,
         ),
+        target_position_xy_m=_point(parsed.position_xy_m),
+        target_heading_rad=parsed.heading_rad,
         crash_vehicle=parsed.crash_vehicle,
         crash_object=parsed.crash_object,
         crash_building=parsed.crash_building,

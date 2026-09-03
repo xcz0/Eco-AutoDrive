@@ -7,12 +7,12 @@ import torch
 from tensordict import TensorDict
 from torchrl.data import Binary, Composite, Unbounded
 
-from eco_planner.envs.runtime.vector import (
+from eco_planner.runtime.envs.vector import (
     VectorMetaDriveEnv,
     VectorMetaDriveWorkerError,
     operation_results,
 )
-from eco_planner.envs.torchrl.worker import (
+from eco_planner.runtime.envs.worker import (
     TorchRLScenarioMetaDriveEnv,
     WorkerFailure,
 )

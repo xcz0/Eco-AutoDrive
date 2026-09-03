@@ -17,7 +17,7 @@ from eco_planner.envs.domain.metrics import TransitionMetrics
 from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
 from eco_planner.envs.metadrive.slot import ObservationMode
 from eco_planner.envs.observation import PlannerObservationSpec
-from eco_planner.envs.torchrl.worker import (
+from eco_planner.runtime.envs.worker import (
     VectorEnvScenario,
     WorkerFailure,
     WorkerResetResult,
@@ -150,7 +150,8 @@ class VectorMetaDriveEnv:
         arrays = np.asarray(trajectories)
         if arrays.shape != (len(slots_tuple), PLANNER_HORIZON, 4) or arrays.dtype != np.float32:
             raise ValueError(
-                f"trajectories must have shape [{len(slots_tuple)}, 80, 4] and dtype float32"
+                "trajectories must have shape "
+                f"[{len(slots_tuple)}, {PLANNER_HORIZON}, 4] and dtype float32"
             )
         actions = torch.zeros((self.num_envs, PLANNER_HORIZON, 4), dtype=torch.float32)
         actions.index_copy_(

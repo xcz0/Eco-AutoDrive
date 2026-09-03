@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from eco_planner.energy import EnergyMetrics, EnergyTrace
+from eco_planner.envs.domain import EnergyMetrics, EnergyTrace
 
 
 def test_energy_metrics_expose_consistent_units() -> None:

@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
 from tensordict import TensorDictBase
 
 from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
-from eco_planner.energy import MetaDriveFuelProxyProvider
-from eco_planner.envs.array_types import TrajectoryArray
+from eco_planner.envs.array_types import ExecutionScalarArray, TrajectoryArray
+from eco_planner.envs.domain.energy import MetaDriveFuelProxyProvider
 from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
 from eco_planner.envs.domain.metrics import TransitionMetrics
 from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
@@ -54,6 +54,9 @@ class EnvSlotStep:
     """One completed trajectory-prefix transition."""
 
     reward: float
+    substep_rewards: ExecutionScalarArray
+    substep_dense_rewards: ExecutionScalarArray
+    metrics: tuple[TransitionMetrics, ...]
     terminated: bool
     truncated: bool
     execution: TrajectoryExecutionRecord
@@ -142,7 +145,7 @@ class MetaDriveEnvSlot:
             programmatic_lane_speed_limit_audit=(self._backend.programmatic_lane_speed_limit_audit),
         )
 
-    def warmup(self) -> Iterator[TrajectoryExecutionRecord]:
+    def warmup(self) -> Iterator[EnvSlotStep]:
         """Advance stationary ego while yielding every completed warmup execution."""
 
         if self._mode == "no_traffic":
@@ -152,7 +155,7 @@ class MetaDriveEnvSlot:
         while collected < self._history_warmup_steps:
             result = self.step(_stationary_trajectory())
             execution = result.execution
-            yield execution
+            yield result
             if result.terminated or result.truncated:
                 raise RuntimeError("traffic history warmup ended before the required frame count")
             if (
@@ -188,24 +191,23 @@ class MetaDriveEnvSlot:
     def step(self, trajectory: TrajectoryArray) -> EnvSlotStep:
         """Execute one trajectory prefix and commit its traffic frames."""
 
-        reward, terminated, truncated, execution = self._executor.execute(trajectory)
+        result = self._executor.execute(trajectory)
+        substep_rewards = result.builtin_rewards
+        substep_dense_rewards = result.builtin_dense_rewards
         if self._reward_objective is not None:
-            scored = tuple(self._reward_objective(metrics) for metrics in execution.substep_metrics)
+            scored = tuple(self._reward_objective(metrics) for metrics in result.metrics)
             substep_rewards = np.asarray([item[0] for item in scored], dtype=np.float64)
             substep_dense_rewards = np.asarray([item[1] for item in scored], dtype=np.float64)
-            execution = replace(
-                execution,
-                substep_rewards=substep_rewards,
-                substep_dense_rewards=substep_dense_rewards,
-            )
-            reward = float(substep_rewards.sum())
         if isinstance(self._observation_source, MetaDriveObservationSource):
-            self._observation_source.append_frames(execution.traffic_frames)
+            self._observation_source.append_frames(result.execution.traffic_frames)
         return EnvSlotStep(
-            reward=float(reward),
-            terminated=bool(terminated),
-            truncated=bool(truncated),
-            execution=execution,
+            reward=float(substep_rewards.sum()),
+            substep_rewards=substep_rewards,
+            substep_dense_rewards=substep_dense_rewards,
+            metrics=result.metrics,
+            terminated=bool(result.terminated),
+            truncated=bool(result.truncated),
+            execution=result.execution,
         )
 
     def close(self) -> None:

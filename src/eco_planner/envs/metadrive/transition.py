@@ -7,8 +7,8 @@ from typing import Any
 import numpy as np
 
 from eco_planner.contracts import SIMULATOR_STEP_S
-from eco_planner.energy import EnergyMetricProvider
 from eco_planner.envs.domain.metrics import (
+    EnergyMetricProvider,
     TransitionMetricInput,
     TransitionMetrics,
     derive_transition_metrics,
@@ -41,6 +41,8 @@ class TransitionExtractor:
         backend: MetaDriveBackend,
         step: MetaDriveStepResult,
         yaw_rate_radps: float,
+        target_position_xy_m: tuple[float, float],
+        target_heading_rad: float,
     ) -> TransitionMetrics:
         """Capture traffic and derive metrics for one completed simulator transition."""
 
@@ -84,6 +86,8 @@ class TransitionExtractor:
             ego_width_m=float(vehicle.WIDTH),
             ego_length_m=float(vehicle.LENGTH),
             traffic_frame=capture_traffic_frame(backend),
+            target_position_xy_m=target_position_xy_m,
+            target_heading_rad=target_heading_rad,
             crash_vehicle=step.crash_vehicle,
             crash_object=step.crash_object,
             crash_building=step.crash_building,

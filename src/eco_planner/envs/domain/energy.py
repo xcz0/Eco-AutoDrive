@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from eco_planner.energy.metrics import EnergyMetrics, EnergyTrace
+from eco_planner.envs.domain.metrics import EnergyMetrics, EnergyTrace
 
 
 class MetaDriveFuelProxyProvider:

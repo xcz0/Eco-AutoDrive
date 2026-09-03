@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from tensordict import TensorDictBase
 
-from eco_planner.envs import TrafficObservationAudit, TrajectoryExecutionRecord
+from eco_planner.envs import EnvSlotStep, TrafficObservationAudit, TrajectoryExecutionRecord
 
 from ..artifacts import (
     CompletedEpisodeSummary,
@@ -52,8 +52,7 @@ class EpisodeState:
         self,
         observation: TensorDictBase,
         inference: TensorDictBase,
-        execution: TrajectoryExecutionRecord,
-        reward: float,
+        step: EnvSlotStep,
         traffic_audit: TrafficObservationAudit | None,
     ) -> int:
         cycle = self.plan_index
@@ -61,12 +60,12 @@ class EpisodeState:
             self.anchor,
             observation,
             inference,
-            execution,
+            step,
             cycle,
             traffic_audit,
         )
         self.saw_traffic = self.saw_traffic or has_traffic(traffic_audit)
-        self.total_reward += float(reward)
+        self.total_reward += step.reward
         self.plan_index += 1
         return cycle
 

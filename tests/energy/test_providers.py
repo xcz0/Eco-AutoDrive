@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from eco_planner.energy import (
+from eco_planner.envs.domain import (
     EnergyTrace,
     FASTSimEnergyConfig,
     FASTSimEnergyProvider,

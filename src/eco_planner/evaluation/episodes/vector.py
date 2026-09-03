@@ -12,6 +12,8 @@ from eco_planner.contracts import evaluation_plan_cycles
 from eco_planner.envs import (
     PlannerObservationSpec,
     TrajectoryExecutionRecord,
+)
+from eco_planner.runtime.envs import (
     VectorEnvScenario,
     VectorMetaDriveEnv,
     WorkerResetResult,
@@ -142,14 +144,12 @@ def run_vector_scenarios(
             for batch_index, step in enumerate(step_results):
                 slot_index = active[batch_index]
                 slot = slots[slot_index]
-                reward = float(steps["reward"][batch_index].item())
                 terminated = bool(steps["terminated"][batch_index].item())
                 truncated = bool(steps["truncated"][batch_index].item())
                 slot.record_cycle(
                     _state_observation(slot),
                     audit_slot(audit, batch_index),
-                    step.execution,
-                    reward,
+                    step.step,
                     slot.traffic_audit,
                 )
                 if terminated or truncated:
@@ -159,7 +159,7 @@ def run_vector_scenarios(
                         summaries[scenario_index] = finalize_completed_episode(
                             slot.spec,
                             trace_arrays,
-                            step.execution,
+                            step.step.execution,
                             terminated,
                             truncated,
                             slot.total_reward,
@@ -189,7 +189,7 @@ def run_vector_scenarios(
                     continue
                 slot.observation = steps["observation"][batch_index]
                 slot.traffic_audit = step.traffic_audit
-                slot.anchor = _state_from_execution(step.execution)
+                slot.anchor = _state_from_execution(step.step.execution)
                 next_active.append(slot_index)
             active = next_active
     return cast(
@@ -218,9 +218,10 @@ def _initialize_vector_slot(
         max_warmup_steps=config.evaluation.history_warmup_steps,
         guided=agent.guided,
     )
-    for execution in reset.warmup_executions:
+    for step in reset.warmup_steps:
+        execution = step.execution
         trace.append_warmup(
-            execution,
+            step,
             np.asarray(
                 [len(frame.participants) for frame in execution.traffic_frames], dtype=np.int64
             ),

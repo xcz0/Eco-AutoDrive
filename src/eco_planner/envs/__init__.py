@@ -14,18 +14,6 @@ from eco_planner.envs.metadrive.slot import (
     EnvSlotStep,
     MetaDriveEnvSlot,
 )
-from eco_planner.envs.torchrl.adapter import TorchRLMetaDriveEnv
-from eco_planner.envs.runtime.vector import (
-    VectorMetaDriveEnv,
-    VectorMetaDriveWorkerError,
-    operation_results,
-)
-from eco_planner.envs.torchrl.worker import (
-    VectorEnvScenario,
-    VectorEnvTiming,
-    WorkerResetResult,
-    WorkerStepResult,
-)
 
 __all__ = [
     "PlannerObservationSpec",
@@ -36,12 +24,4 @@ __all__ = [
     "EnvSlotReset",
     "EnvSlotStep",
     "MetaDriveEnvSlot",
-    "TorchRLMetaDriveEnv",
-    "VectorEnvScenario",
-    "VectorEnvTiming",
-    "VectorMetaDriveEnv",
-    "VectorMetaDriveWorkerError",
-    "operation_results",
-    "WorkerResetResult",
-    "WorkerStepResult",
 ]

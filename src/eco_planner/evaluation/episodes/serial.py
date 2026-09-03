@@ -83,10 +83,11 @@ def run_scenario(
         )
         if mode == "traffic":
             try:
-                for execution in env_slot.warmup():
+                for step in env_slot.warmup():
+                    execution = step.execution
                     traffic_frames = execution.traffic_frames
                     trace.append_warmup(
-                        execution,
+                        step,
                         np.asarray(
                             [len(frame.participants) for frame in traffic_frames], dtype=np.int64
                         ),
@@ -117,8 +118,7 @@ def run_scenario(
             cycle = state.record_cycle(
                 raw_observation,
                 audit_slot(inference.audit_result(), 0),
-                execution,
-                step.reward,
+                step,
                 traffic_audit,
             )
             if config.video.enabled:

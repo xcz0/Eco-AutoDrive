@@ -8,8 +8,11 @@ artifact continuity, while FASTSim is a stateful backward-looking vehicle model 
 on the complete time/speed cycle. Resetting FASTSim for every 0.1 s transition would repeatedly reset
 the powertrain state and would not represent one continuous drive.
 
-Energy providers therefore share an objective-neutral `EnergyTrace -> EnergyMetrics` boundary while
-retaining distinct metric names and native units. The online environment uses
+Environment-domain energy providers therefore share an objective-neutral
+`EnergyTrace -> EnergyMetrics` boundary in `envs.domain.metrics` while retaining distinct metric
+names and native units. The provider protocol is defined with those value contracts; the online
+proxy lives in `envs.domain.energy` and the offline adapter in `envs.domain.fastsim`. The online
+environment uses
 `metadrive_fuel_proxy`, evaluated from actual executed distance and endpoint speed. Existing reward,
 trace, rollout, and evaluation fields continue to record this metric in mL, with unchanged numerical
 semantics.

@@ -12,12 +12,11 @@ import torch
 from tensordict import TensorDictBase
 from torchrl.data import Composite, Unbounded
 
-from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
 from eco_planner.envs.domain.metrics import TransitionMetrics
 from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
-from eco_planner.envs.metadrive.slot import MetaDriveEnvSlot, ObservationMode
+from eco_planner.envs.metadrive.slot import EnvSlotStep, MetaDriveEnvSlot, ObservationMode
 from eco_planner.envs.observation import PlannerObservationSpec, TrafficObservationAudit
-from eco_planner.envs.torchrl.adapter import TorchRLMetaDriveEnv
+from eco_planner.runtime.envs.torchrl import TorchRLMetaDriveEnv
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +43,7 @@ class WorkerResetResult:
     route_length_m: float
     warmup_initial_state: np.ndarray
     initial_state: np.ndarray
-    warmup_executions: tuple[TrajectoryExecutionRecord, ...]
+    warmup_steps: tuple[EnvSlotStep, ...]
     traffic_audit: TrafficObservationAudit | None
     programmatic_lane_speed_limit_audit: Mapping[str, object]
     timing: VectorEnvTiming
@@ -52,7 +51,7 @@ class WorkerResetResult:
 
 @dataclass(frozen=True, slots=True)
 class WorkerStepResult:
-    execution: TrajectoryExecutionRecord
+    step: EnvSlotStep
     traffic_audit: TrafficObservationAudit | None
     timing: VectorEnvTiming
 
@@ -116,7 +115,7 @@ class TorchRLScenarioMetaDriveEnv(TorchRLMetaDriveEnv):
                 route_length_m=reset.route_length_m,
                 warmup_initial_state=reset.warmup_initial_state,
                 initial_state=self.last_initial_state,
-                warmup_executions=self.last_warmup_executions,
+                warmup_steps=self.last_warmup_steps,
                 traffic_audit=self.last_traffic_audit,
                 programmatic_lane_speed_limit_audit=reset.programmatic_lane_speed_limit_audit,
                 timing=VectorEnvTiming(
@@ -132,7 +131,7 @@ class TorchRLScenarioMetaDriveEnv(TorchRLMetaDriveEnv):
         try:
             output = super()._step(tensordict)
             self._operation_result = WorkerStepResult(
-                execution=self.last_step.execution,
+                step=self.last_step,
                 traffic_audit=self.last_traffic_audit,
                 timing=VectorEnvTiming(
                     environment_s=self.last_environment_s,

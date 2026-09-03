@@ -15,13 +15,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from tensordict import TensorDictBase
 
-from eco_planner.envs import (
-    PlannerObservationSpec,
-    VectorEnvScenario,
-    VectorMetaDriveEnv,
-    WorkerStepResult,
-    operation_results,
-)
+from eco_planner.envs import PlannerObservationSpec
 from eco_planner.evaluation import (
     EvaluationJobConfig,
     FabricInferenceRuntime,
@@ -29,6 +23,12 @@ from eco_planner.evaluation import (
     parse_evaluation_config,
 )
 from eco_planner.models import OfficialDiffusionPlannerConfig
+from eco_planner.runtime.envs import (
+    VectorEnvScenario,
+    VectorMetaDriveEnv,
+    WorkerStepResult,
+    operation_results,
+)
 from eco_planner.runtime.resources import require_resource_profile
 
 from .config import (

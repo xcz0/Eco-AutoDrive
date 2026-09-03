@@ -13,7 +13,6 @@ from torchrl.data import Binary, Composite, Unbounded
 from torchrl.envs import EnvBase
 
 from eco_planner.contracts import PLANNER_HORIZON
-from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
 from eco_planner.envs.metadrive.slot import EnvSlotReset, EnvSlotStep, MetaDriveEnvSlot
 from eco_planner.envs.observation import PlannerObservationSpec, TrafficObservationAudit
 
@@ -40,8 +39,7 @@ class TorchRLMetaDriveEnv(EnvBase):
         self._last_reset: EnvSlotReset | None = None
         self._last_initial_state: np.ndarray | None = None
         self._last_step: EnvSlotStep | None = None
-        self._last_execution: TrajectoryExecutionRecord | None = None
-        self._last_warmup_executions: tuple[TrajectoryExecutionRecord, ...] = ()
+        self._last_warmup_steps: tuple[EnvSlotStep, ...] = ()
         self._last_traffic_audit: TrafficObservationAudit | None = None
         self._last_programmatic_lane_speed_limit_audit: Mapping[str, object] = {}
         self._last_environment_s = 0.0
@@ -77,7 +75,7 @@ class TorchRLMetaDriveEnv(EnvBase):
         environment_started = perf_counter()
         reset = self._slot.reset(map_name=self._map_name, seed=self._seed)
         self._last_reset = reset
-        self._last_warmup_executions = tuple(self._slot.warmup())
+        self._last_warmup_steps = tuple(self._slot.warmup())
         self._last_environment_s = perf_counter() - environment_started
         self._last_programmatic_lane_speed_limit_audit = reset.programmatic_lane_speed_limit_audit
         observation_started = perf_counter()
@@ -104,7 +102,6 @@ class TorchRLMetaDriveEnv(EnvBase):
         result = self._slot.step(trajectory)
         self._last_environment_s = perf_counter() - environment_started
         self._last_step = result
-        self._last_execution = result.execution
         observation_started = perf_counter()
         observation = self._slot.observe()
         self._last_observation_s = perf_counter() - observation_started
@@ -145,16 +142,10 @@ class TorchRLMetaDriveEnv(EnvBase):
         return cast(EnvSlotStep, self._last_step)
 
     @property
-    def last_execution(self) -> TrajectoryExecutionRecord:
-        """Return the immutable execution record produced by the latest step."""
+    def last_warmup_steps(self) -> tuple[EnvSlotStep, ...]:
+        """Return the warmup step results emitted by the latest reset."""
 
-        return cast(TrajectoryExecutionRecord, self._last_execution)
-
-    @property
-    def last_warmup_executions(self) -> tuple[TrajectoryExecutionRecord, ...]:
-        """Return the warmup records emitted by the latest reset."""
-
-        return self._last_warmup_executions
+        return self._last_warmup_steps
 
     @property
     def last_traffic_audit(self) -> TrafficObservationAudit | None:
