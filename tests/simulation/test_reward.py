@@ -5,12 +5,13 @@ import math
 import numpy as np
 import pytest
 
-from eco_planner.envs.domain import MetaDriveFuelProxyProvider
-from eco_planner.envs.domain.metrics import TransitionMetricInput, derive_transition_metrics
-from eco_planner.envs.domain.traffic import (
+from eco_planner.envs.domain import (
+    MetaDriveFuelProxyProvider,
     StaticTrafficObjectState,
     TrafficFrame,
     TrafficParticipantState,
+    TransitionMetricInput,
+    derive_transition_metrics,
 )
 from eco_planner.rl.reward import PlannerRFTEnergyRewardConfig, score_plannerrft_energy_step
 

@@ -13,9 +13,10 @@ from eco_planner.contracts import (
     STATIC_OBJECT_DIM,
     TRAFFIC_HISTORY_FRAMES,
 )
-from eco_planner.envs.observation.history import TrafficHistory
-from eco_planner.envs.observation.map import MapSnapshot
-from eco_planner.envs.observation.scene import TrafficObservationAudit, TrafficSceneEncoder
+
+from .history import TrafficHistory
+from .map import MapSnapshot
+from .scene import TrafficObservationAudit, TrafficSceneEncoder
 
 _EGO_CURRENT_STATE = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 

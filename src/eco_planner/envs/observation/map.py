@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from eco_planner.envs.array_types import NumpyMapObservation
+from ..array_types import NumpyMapObservation
 
 
 @dataclass(frozen=True, slots=True)

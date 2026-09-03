@@ -1,22 +1,26 @@
 """Framework-independent environment facts, metrics, and energy providers."""
 
-from eco_planner.envs.domain.energy import MetaDriveFuelProxyProvider
-from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
-from eco_planner.envs.domain.fastsim import FASTSimEnergyConfig, FASTSimEnergyProvider
-from eco_planner.envs.domain.metrics import (
+from .energy import MetaDriveFuelProxyProvider
+from .execution import TrajectoryExecutionRecord
+from .fastsim import FASTSimEnergyConfig, FASTSimEnergyProvider
+from .metrics import (
     EnergyMetricName,
     EnergyMetricProvider,
     EnergyMetrics,
     EnergyTrace,
     TransitionMetricInput,
     TransitionMetrics,
+    derive_transition_metrics,
+    minimum_time_to_collision_s,
 )
-from eco_planner.envs.domain.traffic import (
+from .traffic import (
+    ParticipantKind,
+    StaticObjectKind,
     StaticTrafficObjectState,
     TrafficFrame,
     TrafficParticipantState,
 )
-from eco_planner.envs.domain.trajectory import WorldTrajectory, to_world_trajectory
+from .trajectory import WorldTrajectory, to_world_trajectory
 
 __all__ = [
     "EnergyMetricName",
@@ -33,5 +37,9 @@ __all__ = [
     "TrafficFrame",
     "TrafficParticipantState",
     "WorldTrajectory",
+    "derive_transition_metrics",
+    "minimum_time_to_collision_s",
     "to_world_trajectory",
+    "ParticipantKind",
+    "StaticObjectKind",
 ]

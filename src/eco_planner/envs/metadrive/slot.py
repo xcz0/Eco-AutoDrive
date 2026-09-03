@@ -10,23 +10,19 @@ import numpy as np
 from tensordict import TensorDictBase
 
 from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
-from eco_planner.envs.array_types import ExecutionScalarArray, TrajectoryArray
-from eco_planner.envs.domain.energy import MetaDriveFuelProxyProvider
-from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
-from eco_planner.envs.domain.metrics import TransitionMetrics
-from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
-from eco_planner.envs.metadrive.execution import TrajectoryExecutor, execution_steps_from_config
-from eco_planner.envs.metadrive.observation import (
-    MetaDriveObservationSource,
-    NoTrafficMetaDriveObservationSource,
-)
-from eco_planner.envs.metadrive.simulator import MetaDriveBackend
-from eco_planner.envs.observation import (
+
+from ..array_types import ExecutionScalarArray, TrajectoryArray
+from ..domain import MetaDriveFuelProxyProvider, TrajectoryExecutionRecord, TransitionMetrics
+from ..observation import (
     ObservationBuilder,
     PlannerObservationSpec,
     TrafficObservationAudit,
     TrafficSceneEncoder,
 )
+from .config import MetaDriveBuiltinRewardConfig
+from .execution import TrajectoryExecutor, execution_steps_from_config
+from .observation import MetaDriveObservationSource, NoTrafficMetaDriveObservationSource
+from .simulator import MetaDriveBackend
 
 ObservationMode = Literal["traffic", "no_traffic"]
 

@@ -18,7 +18,7 @@ from eco_planner.contracts import (
     evaluation_plan_cycles,
     validate_metadrive_timestep,
 )
-from eco_planner.envs.domain.trajectory import to_world_trajectory
+from eco_planner.envs.domain import to_world_trajectory
 from eco_planner.envs.geometry import (
     local_points_to_world,
     rear_axle_position,

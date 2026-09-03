@@ -10,11 +10,9 @@ from metadrive.component.traffic_participants.base_traffic_participant import (
 )
 from metadrive.component.vehicle.base_vehicle import BaseVehicle
 
-from eco_planner.envs.domain.traffic import TrafficFrame
-from eco_planner.envs.metadrive.map import MetaDriveMapAdapter
-from eco_planner.envs.observation import PlannerObservationSpec
-from eco_planner.envs.observation.history import TrafficHistory
-from eco_planner.envs.observation.map import MapSnapshot
+from ..domain.traffic import TrafficFrame
+from ..observation import MapSnapshot, PlannerObservationSpec, TrafficHistory
+from .map import MetaDriveMapAdapter
 
 
 class MetaDriveObservationSource:

@@ -12,9 +12,10 @@ from eco_planner.contracts import (
     STATIC_OBJECT_COUNT,
     STATIC_OBJECT_DIM,
 )
-from eco_planner.envs.array_types import NeighborAgentsArray, StaticObjectsArray
-from eco_planner.envs.geometry import rear_axle_position, world_vectors_to_local
-from eco_planner.envs.observation.history import TrafficHistory
+
+from ..array_types import NeighborAgentsArray, StaticObjectsArray
+from ..geometry import rear_axle_position, world_vectors_to_local
+from .history import TrafficHistory
 
 
 @dataclass(frozen=True, slots=True)

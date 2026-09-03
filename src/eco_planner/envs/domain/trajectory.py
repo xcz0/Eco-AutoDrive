@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from eco_planner.envs.array_types import (
+from ..array_types import (
     TrajectoryArray,
     WorldAngularVelocityArray,
     WorldHeadingArray,
@@ -14,7 +14,7 @@ from eco_planner.envs.array_types import (
     WorldVectorArray,
     WorldVelocityArray,
 )
-from eco_planner.envs.geometry import (
+from ..geometry import (
     local_points_to_world,
     rear_axle_position,
     shortest_angle_delta,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from eco_planner.envs.array_types import Float64Array, WorldPointArray, WorldVectorArray
+from .array_types import Float64Array, WorldPointArray, WorldVectorArray
 
 
 def rear_axle_position(

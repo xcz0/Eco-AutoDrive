@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
-from eco_planner.envs.domain.metrics import TransitionMetrics
+from eco_planner.envs import TransitionMetrics
 
 
 @dataclass(frozen=True, slots=True)

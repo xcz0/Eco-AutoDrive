@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from eco_planner.envs.array_types import (
+from ..array_types import (
     ExecutionBooleanArray,
     ExecutionPointArray,
     ExecutionScalarArray,
@@ -13,7 +13,7 @@ from eco_planner.envs.array_types import (
     WorldPointArray,
     WorldVectorArray,
 )
-from eco_planner.envs.domain.traffic import TrafficFrame
+from .traffic import TrafficFrame
 
 
 @dataclass(frozen=True, slots=True)

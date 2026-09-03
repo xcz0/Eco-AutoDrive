@@ -7,16 +7,17 @@ from typing import Any
 import numpy as np
 
 from eco_planner.contracts import SIMULATOR_STEP_S
-from eco_planner.envs.domain.metrics import (
+
+from ..domain import (
     EnergyMetricProvider,
+    TrafficFrame,
     TransitionMetricInput,
     TransitionMetrics,
     derive_transition_metrics,
 )
-from eco_planner.envs.domain.traffic import TrafficFrame
-from eco_planner.envs.metadrive.lane_speed import model_lane_speed_limit_mps
-from eco_planner.envs.metadrive.simulator import MetaDriveBackend, MetaDriveStepResult
-from eco_planner.envs.metadrive.snapshot import capture_traffic_frame
+from .lane_speed import model_lane_speed_limit_mps
+from .simulator import MetaDriveBackend, MetaDriveStepResult
+from .snapshot import capture_traffic_frame
 
 
 class TransitionExtractor:

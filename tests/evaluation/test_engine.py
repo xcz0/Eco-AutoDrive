@@ -20,8 +20,12 @@ from eco_planner.envs import (
     EnvSlotStep,
     TrajectoryExecutionRecord,
 )
-from eco_planner.envs.domain import EnergyMetrics, TransitionMetricInput, TransitionMetrics
-from eco_planner.envs.domain.traffic import TrafficFrame
+from eco_planner.envs.domain import (
+    EnergyMetrics,
+    TrafficFrame,
+    TransitionMetricInput,
+    TransitionMetrics,
+)
 from eco_planner.evaluation import (
     InferenceDecision,
     load_episode_summary,

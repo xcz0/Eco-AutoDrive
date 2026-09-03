@@ -14,12 +14,13 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat
 from eco_planner._repository import CONFIG_ROOT, REPOSITORY_ROOT
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.envs.domain import MetaDriveFuelProxyProvider
-from eco_planner.envs.domain.metrics import TransitionMetricInput, derive_transition_metrics
-from eco_planner.envs.domain.traffic import (
+from eco_planner.envs import (
+    MetaDriveFuelProxyProvider,
     StaticTrafficObjectState,
     TrafficFrame,
     TrafficParticipantState,
+    TransitionMetricInput,
+    derive_transition_metrics,
 )
 from eco_planner.rl.reward import PlannerRFTEnergyRewardConfig, score_plannerrft_energy_step
 

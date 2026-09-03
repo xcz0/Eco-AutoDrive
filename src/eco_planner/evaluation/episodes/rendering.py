@@ -7,8 +7,7 @@ from pathlib import Path
 import numpy as np
 from metadrive.utils.doc_utils import generate_gif
 
-from eco_planner.envs import TrajectoryExecutionRecord
-from eco_planner.envs.metadrive.simulator import MetaDriveBackend
+from eco_planner.envs import MetaDriveBackend, TrajectoryExecutionRecord
 
 from ..config import VideoConfig
 

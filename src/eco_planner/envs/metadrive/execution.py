@@ -13,19 +13,24 @@ from eco_planner.contracts import (
     ExecutionMode,
     validate_metadrive_timestep,
 )
-from eco_planner.envs.array_types import (
+
+from ..array_types import (
     ExecutionBooleanArray,
     ExecutionScalarArray,
     ExecutionStateArray,
     TrajectoryArray,
     WorldVectorArray,
 )
-from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
-from eco_planner.envs.domain.metrics import EnergyMetricProvider, TransitionMetrics
-from eco_planner.envs.domain.traffic import TrafficFrame
-from eco_planner.envs.domain.trajectory import WorldTrajectory, to_world_trajectory
-from eco_planner.envs.metadrive.simulator import MetaDriveBackend, MetaDriveStepResult
-from eco_planner.envs.metadrive.transition import TransitionExtractor
+from ..domain import (
+    EnergyMetricProvider,
+    TrafficFrame,
+    TrajectoryExecutionRecord,
+    TransitionMetrics,
+    WorldTrajectory,
+    to_world_trajectory,
+)
+from .simulator import MetaDriveBackend, MetaDriveStepResult
+from .transition import TransitionExtractor
 
 _ZERO_VELOCITY: WorldVectorArray = np.zeros(2, dtype=np.float64)
 

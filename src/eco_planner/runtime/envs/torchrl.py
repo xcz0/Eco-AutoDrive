@@ -13,7 +13,7 @@ from torchrl.data import Binary, Composite, Unbounded
 from torchrl.envs import EnvBase
 
 from eco_planner.contracts import PLANNER_HORIZON
-from eco_planner.envs.metadrive.slot import EnvSlotReset, EnvSlotStep, MetaDriveEnvSlot
+from eco_planner.envs.metadrive import EnvSlotReset, EnvSlotStep, MetaDriveEnvSlot
 from eco_planner.envs.observation import PlannerObservationSpec, TrafficObservationAudit
 
 _CPU_DEVICE = torch.device("cpu")

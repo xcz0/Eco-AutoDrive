@@ -17,12 +17,13 @@ from eco_planner.contracts import (
     METADRIVE_PHYSICS_STEP_S,
     validate_metadrive_timestep,
 )
-from eco_planner.envs.array_types import PlannerOnlyObservationArray
-from eco_planner.envs.domain.trajectory import WorldTrajectory
-from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
-from eco_planner.envs.metadrive.lane_speed import ProgrammaticLaneSpeedAdapter
-from eco_planner.envs.metadrive.map import navigation_route_roads
-from eco_planner.envs.metadrive.policy import KinematicTrajectoryPolicy
+
+from ..array_types import PlannerOnlyObservationArray
+from ..domain import WorldTrajectory
+from .config import MetaDriveBuiltinRewardConfig
+from .lane_speed import ProgrammaticLaneSpeedAdapter
+from .map import navigation_route_roads
+from .policy import KinematicTrajectoryPolicy
 
 _BACKEND_OBSERVATION: PlannerOnlyObservationArray = np.zeros(1, dtype=np.float32)
 

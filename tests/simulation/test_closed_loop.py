@@ -16,7 +16,7 @@ from eco_planner.envs import (
     PlannerObservationSpec,
 )
 from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
-from eco_planner.envs.metadrive.simulator import MetaDriveBackend
+from eco_planner.envs.metadrive import MetaDriveBackend
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 from eco_planner.rl.config import parse_rollout_config
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater

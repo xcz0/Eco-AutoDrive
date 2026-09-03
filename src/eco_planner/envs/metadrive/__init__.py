@@ -1,6 +1,25 @@
 """MetaDrive adapters for the project-owned environment contracts."""
 
-from eco_planner.envs.metadrive.policy import KinematicTrajectoryPolicy
-from eco_planner.envs.metadrive.snapshot import capture_traffic_frame
+from .config import MetaDriveBuiltinRewardConfig
+from .policy import KinematicTrajectoryPolicy
+from .simulator import MetaDriveBackend
+from .slot import (
+    EnvSlotObservation,
+    EnvSlotReset,
+    EnvSlotStep,
+    MetaDriveEnvSlot,
+    ObservationMode,
+)
+from .snapshot import capture_traffic_frame
 
-__all__ = ["KinematicTrajectoryPolicy", "capture_traffic_frame"]
+__all__ = [
+    "EnvSlotObservation",
+    "EnvSlotReset",
+    "EnvSlotStep",
+    "KinematicTrajectoryPolicy",
+    "MetaDriveBackend",
+    "MetaDriveBuiltinRewardConfig",
+    "MetaDriveEnvSlot",
+    "ObservationMode",
+    "capture_traffic_frame",
+]

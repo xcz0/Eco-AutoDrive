@@ -8,16 +8,17 @@ from typing import Annotated, TypeAlias
 
 from pydantic import Field
 
-from eco_planner.envs.domain.metrics import TransitionMetrics
-from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
-from eco_planner.rl.reward.audit import (
+from eco_planner.envs import TransitionMetrics
+from eco_planner.envs.metadrive import MetaDriveBuiltinRewardConfig
+
+from .audit import (
     MetaDriveBuiltinRewardAudit,
     PlannerRFTEnergyRewardAudit,
     RewardAudit,
     build_metadrive_builtin_reward_audit,
 )
-from eco_planner.rl.reward.config import PlannerRFTEnergyRewardConfig
-from eco_planner.rl.reward.plannerrft import score_plannerrft_energy_step
+from .config import PlannerRFTEnergyRewardConfig
+from .plannerrft import score_plannerrft_energy_step
 
 RewardProfileConfig: TypeAlias = Annotated[
     MetaDriveBuiltinRewardConfig | PlannerRFTEnergyRewardConfig,

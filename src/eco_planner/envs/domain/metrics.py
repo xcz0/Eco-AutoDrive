@@ -8,7 +8,7 @@ from typing import Literal, Protocol, TypeAlias
 
 import numpy as np
 
-from eco_planner.envs.domain.traffic import TrafficFrame
+from .traffic import TrafficFrame
 
 EnergyMetricName: TypeAlias = Literal["metadrive_fuel_proxy", "fastsim_fuel_energy"]
 

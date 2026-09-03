@@ -13,9 +13,8 @@ from tensordict import TensorDict, TensorDictBase
 from torchrl.envs import ParallelEnv
 
 from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
-from eco_planner.envs.domain.metrics import TransitionMetrics
-from eco_planner.envs.metadrive.config import MetaDriveBuiltinRewardConfig
-from eco_planner.envs.metadrive.slot import ObservationMode
+from eco_planner.envs.domain import TransitionMetrics
+from eco_planner.envs.metadrive import MetaDriveBuiltinRewardConfig, ObservationMode
 from eco_planner.envs.observation import PlannerObservationSpec
 from eco_planner.runtime.envs.worker import (
     VectorEnvScenario,

@@ -9,15 +9,15 @@ import numpy as np
 from shapely import LineString, box
 from shapely.strtree import STRtree
 
-from eco_planner.envs.array_types import (
+from ..array_types import (
     EncodedLaneArray,
     LaneGeometryArray,
     NumpyMapObservation,
     WorldVectorArray,
 )
-from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
-from eco_planner.envs.metadrive.lane_speed import model_lane_speed_limit_mps
-from eco_planner.envs.observation import PlannerObservationSpec
+from ..geometry import rear_axle_position, world_points_to_local
+from ..observation import PlannerObservationSpec
+from .lane_speed import model_lane_speed_limit_mps
 
 _LANE_FEATURE_DIM = 12
 _TRAFFIC_LIGHT_UNKNOWN = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)

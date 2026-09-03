@@ -7,12 +7,10 @@ from dataclasses import fields
 
 import numpy as np
 
-from eco_planner.envs.domain.metrics import (
-    TransitionMetrics,
-    minimum_time_to_collision_s,
-)
-from eco_planner.rl.reward.audit import PlannerRFTEnergyRewardAudit
-from eco_planner.rl.reward.config import PlannerRFTEnergyRewardConfig
+from eco_planner.envs.domain import TransitionMetrics, minimum_time_to_collision_s
+
+from .audit import PlannerRFTEnergyRewardAudit
+from .config import PlannerRFTEnergyRewardConfig
 
 
 def score_plannerrft_energy_step(

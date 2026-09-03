@@ -11,7 +11,8 @@ from metadrive.policy.base_policy import BasePolicy
 from metadrive.policy.replay_policy import ReplayTrafficParticipantPolicy
 
 from eco_planner.contracts import PLANNER_HORIZON
-from eco_planner.envs.domain.trajectory import WorldTrajectory
+
+from ..domain import WorldTrajectory
 
 
 class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):

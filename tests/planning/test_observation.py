@@ -7,14 +7,16 @@ import torch
 from tensordict import TensorDict
 
 from eco_planner.contracts import TRAFFIC_HISTORY_FRAMES
-from eco_planner.envs.domain.traffic import (
+from eco_planner.envs.domain import (
     StaticTrafficObjectState,
     TrafficFrame,
     TrafficParticipantState,
 )
-from eco_planner.envs.observation import PlannerObservationSpec
-from eco_planner.envs.observation.history import TrafficHistory
-from eco_planner.envs.observation.scene import TrafficSceneEncoder
+from eco_planner.envs.observation import (
+    PlannerObservationSpec,
+    TrafficHistory,
+    TrafficSceneEncoder,
+)
 
 
 def _frame(
