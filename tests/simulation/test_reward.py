@@ -5,7 +5,8 @@ import math
 import numpy as np
 import pytest
 
-from eco_planner.envs.domain.metrics import TransitionMetricInput
+from eco_planner.energy import MetaDriveFuelProxyProvider
+from eco_planner.envs.domain.metrics import TransitionMetricInput, derive_transition_metrics
 from eco_planner.envs.domain.traffic import (
     StaticTrafficObjectState,
     TrafficFrame,
@@ -98,9 +99,13 @@ def _input(**updates: object) -> TransitionMetricInput:
     return TransitionMetricInput(**values)  # type: ignore[arg-type]
 
 
+def _metrics(**updates: object):
+    return derive_transition_metrics(_input(**updates), MetaDriveFuelProxyProvider())
+
+
 @pytest.mark.smoke
 def test_plannerrft_energy_reward_matches_the_worked_no_traffic_example() -> None:
-    audit = score_plannerrft_energy_step(_config(), _input())
+    audit = score_plannerrft_energy_step(_config(), _metrics())
 
     assert audit.reward_gate == 1.0
     assert audit.ttc_score == 1.0
@@ -115,7 +120,7 @@ def test_plannerrft_energy_reward_matches_the_worked_no_traffic_example() -> Non
 def test_energy_score_does_not_reward_a_stationary_transition() -> None:
     audit = score_plannerrft_energy_step(
         _config(),
-        _input(
+        _metrics(
             position_xy_m=(0.0, 0.0),
             velocity_xy_mps=(0.0, 0.0),
             route_progress_delta_m=0.0,
@@ -140,10 +145,10 @@ def test_ttc_and_terminal_gates_are_independent_auditable_components() -> None:
         length_m=4.0,
     )
     approaching = score_plannerrft_energy_step(
-        _config(), _input(traffic_frame=_frame(participants=(lead,)))
+        _config(), _metrics(traffic_frame=_frame(participants=(lead,)))
     )
     collision = score_plannerrft_energy_step(
-        _config(), _input(traffic_frame=_frame(participants=(lead,)), crash_vehicle=True)
+        _config(), _metrics(traffic_frame=_frame(participants=(lead,)), crash_vehicle=True)
     )
 
     assert approaching.min_ttc_s == pytest.approx(0.5)
@@ -174,10 +179,10 @@ def test_ttc_ignores_non_closing_lead_traffic_and_scores_static_corridor_objects
     )
 
     non_closing = score_plannerrft_energy_step(
-        _config(), _input(traffic_frame=_frame(participants=(following,)))
+        _config(), _metrics(traffic_frame=_frame(participants=(following,)))
     )
     static = score_plannerrft_energy_step(
-        _config(), _input(traffic_frame=_frame(static_objects=(barrier,)))
+        _config(), _metrics(traffic_frame=_frame(static_objects=(barrier,)))
     )
 
     assert not non_closing.has_ttc_candidate
@@ -191,7 +196,7 @@ def test_ttc_ignores_non_closing_lead_traffic_and_scores_static_corridor_objects
 def test_wrong_direction_speed_and_comfort_scores_follow_configured_bounds() -> None:
     audit = score_plannerrft_energy_step(
         _config(),
-        _input(
+        _metrics(
             velocity_xy_mps=(14.0, 0.0),
             previous_velocity_xy_mps=(10.0, 0.0),
             previous_acceleration_xy_mps2=(0.0, 0.0),
@@ -218,7 +223,7 @@ def test_wrong_direction_speed_and_comfort_scores_follow_configured_bounds() -> 
     ],
 )
 def test_every_configured_terminal_gate_zeroes_reward(updates: dict[str, bool]) -> None:
-    audit = score_plannerrft_energy_step(_config(), _input(**updates))
+    audit = score_plannerrft_energy_step(_config(), _metrics(**updates))
 
     assert audit.reward_gate == 0.0
     assert audit.reward_total == 0.0
@@ -237,7 +242,7 @@ def test_every_configured_terminal_gate_zeroes_reward(updates: dict[str, bool]) 
 def test_all_plannerrft_component_scores_are_finite_unit_interval(
     updates: dict[str, object],
 ) -> None:
-    audit = score_plannerrft_energy_step(_config(), _input(**updates))
+    audit = score_plannerrft_energy_step(_config(), _metrics(**updates))
 
     scores = np.asarray(
         [

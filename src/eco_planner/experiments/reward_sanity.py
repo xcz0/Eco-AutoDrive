@@ -14,7 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat
 from eco_planner._repository import CONFIG_ROOT, REPOSITORY_ROOT
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.envs.domain.metrics import TransitionMetricInput
+from eco_planner.energy import MetaDriveFuelProxyProvider
+from eco_planner.envs.domain.metrics import TransitionMetricInput, derive_transition_metrics
 from eco_planner.envs.domain.traffic import (
     StaticTrafficObjectState,
     TrafficFrame,
@@ -164,7 +165,8 @@ def evaluate_sanity(config: _SanityConfig) -> dict[str, object]:
             raise ValueError(f"duplicate reward sanity case {case.name!r}")
         values = config.base_input.model_dump(mode="python")
         values.update(case.overrides.model_dump(mode="python", exclude_none=True))
-        audit = score_plannerrft_energy_step(reward, _reward_input(values))
+        metrics = derive_transition_metrics(_reward_input(values), MetaDriveFuelProxyProvider())
+        audit = score_plannerrft_energy_step(reward, metrics)
         payload = asdict(audit)
         cases[case.name] = payload
         scores_valid = all(

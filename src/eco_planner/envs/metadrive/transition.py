@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from eco_planner.contracts import SIMULATOR_STEP_S
+from eco_planner.energy import EnergyMetricProvider
 from eco_planner.envs.domain.metrics import (
     TransitionMetricInput,
     TransitionMetrics,
@@ -21,7 +22,8 @@ from eco_planner.envs.metadrive.snapshot import capture_traffic_frame
 class TransitionExtractor:
     """Own the previous motion state required to derive consecutive transition metrics."""
 
-    def __init__(self) -> None:
+    def __init__(self, energy_provider: EnergyMetricProvider) -> None:
+        self._energy_provider = energy_provider
         self._previous_position: np.ndarray | None = None
         self._previous_velocity: np.ndarray | None = None
         self._previous_acceleration: np.ndarray | None = None
@@ -92,7 +94,7 @@ class TransitionExtractor:
             native_episode_energy_ml=step.native_episode_energy_ml,
             timestep_s=SIMULATOR_STEP_S,
         )
-        metrics = derive_transition_metrics(metric_input)
+        metrics = derive_transition_metrics(metric_input, self._energy_provider)
         self._advance(metric_input)
         return metrics
 

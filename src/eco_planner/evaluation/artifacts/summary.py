@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from eco_planner.contracts import SIMULATOR_STEP_S
+from eco_planner.energy import EnergyMetrics
 from eco_planner.envs import TrajectoryExecutionRecord
 
 from .models import (
@@ -82,13 +83,19 @@ def compute_trace_energy(trace_arrays: Mapping[str, np.ndarray]) -> EnergySummar
     for name, value in values.items():
         if value.shape != expected_shape or not np.isfinite(value).all() or np.any(value < 0.0):
             raise ValueError(f"trace {name} must be finite, non-negative, and state-aligned")
-    total_ml = float(values["executed_fuel_proxy_step_energy_ml"].sum(dtype=np.float64))
-    distance_m = float(values["executed_step_distance_m"].sum(dtype=np.float64))
+    metrics = EnergyMetrics(
+        metric="metadrive_fuel_proxy",
+        distance_m=float(values["executed_step_distance_m"].sum(dtype=np.float64)),
+        energy_j=None,
+        fuel_ml=float(values["executed_fuel_proxy_step_energy_ml"].sum(dtype=np.float64)),
+    )
+    if metrics.fuel_ml is None:
+        raise RuntimeError("fuel-proxy aggregation did not produce a fuel-volume metric")
     return EnergySummary(
         metric="metadrive_fuel_proxy",
-        total_ml=total_ml,
-        distance_m=distance_m,
-        ml_per_km=None if distance_m == 0.0 else total_ml * 1_000.0 / distance_m,
+        total_ml=metrics.fuel_ml,
+        distance_m=metrics.distance_m,
+        ml_per_km=metrics.fuel_ml_per_km,
     )
 
 

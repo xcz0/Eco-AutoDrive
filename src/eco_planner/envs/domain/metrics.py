@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from eco_planner.energy import EnergyMetricProvider, EnergyMetrics, EnergyTrace
 from eco_planner.envs.domain.traffic import TrafficFrame
 
 
@@ -48,16 +49,13 @@ class TransitionMetrics:
     lateral_acceleration_mps2: float
     jerk_mps3: float
     step_distance_m: float
-    executed_fuel_proxy_step_energy_ml: float
-
-    @property
-    def executed_fuel_proxy_ml_per_km(self) -> float:
-        if self.step_distance_m == 0.0:
-            return 0.0
-        return self.executed_fuel_proxy_step_energy_ml * 1000.0 / self.step_distance_m
+    energy: EnergyMetrics
 
 
-def derive_transition_metrics(step: TransitionMetricInput) -> TransitionMetrics:
+def derive_transition_metrics(
+    step: TransitionMetricInput,
+    energy_provider: EnergyMetricProvider,
+) -> TransitionMetrics:
     """Derive motion and energy metrics from simulator facts once at the boundary."""
 
     previous_position = _vector(step.previous_position_xy_m, "previous position")
@@ -86,18 +84,26 @@ def derive_transition_metrics(step: TransitionMetricInput) -> TransitionMetrics:
     if step.timestep_s <= 0.0:
         raise ValueError("transition metric timestep must be positive")
 
+    speed_mps = float(np.linalg.norm(velocity))
+    step_distance_m = float(np.linalg.norm(position - previous_position))
     acceleration = (velocity - previous_velocity) / step.timestep_s
     forward = np.asarray([math.cos(step.heading_rad), math.sin(step.heading_rad)])
     left = np.asarray([-forward[1], forward[0]])
     return TransitionMetrics(
         input=step,
-        speed_mps=float(np.linalg.norm(velocity)),
+        speed_mps=speed_mps,
         longitudinal_acceleration_mps2=float(np.dot(acceleration, forward)),
         lateral_acceleration_mps2=float(np.dot(acceleration, left)),
         jerk_mps3=float(np.linalg.norm(acceleration - previous_acceleration) / step.timestep_s),
-        step_distance_m=float(np.linalg.norm(position - previous_position)),
-        executed_fuel_proxy_step_energy_ml=executed_fuel_proxy_step_energy_ml(
-            step.previous_position_xy_m, step.position_xy_m, float(np.linalg.norm(velocity))
+        step_distance_m=step_distance_m,
+        energy=energy_provider.measure(
+            EnergyTrace(
+                time_s=np.asarray([0.0, step.timestep_s], dtype=np.float64),
+                speed_mps=np.asarray(
+                    [float(np.linalg.norm(previous_velocity)), speed_mps], dtype=np.float64
+                ),
+                step_distance_m=np.asarray([step_distance_m], dtype=np.float64),
+            )
         ),
     )
 
@@ -163,23 +169,6 @@ def minimum_time_to_collision_s(
     return min(min(candidates), maximum_ttc_s), True
 
 
-def executed_fuel_proxy_step_energy_ml(
-    start_position_xy_m: tuple[float, float] | np.ndarray,
-    end_position_xy_m: tuple[float, float] | np.ndarray,
-    speed_mps: float,
-) -> float:
-    """Recompute MetaDrive's fuel proxy from the actual kinematic execution trace."""
-
-    start = np.asarray(start_position_xy_m, dtype=np.float64)
-    end = np.asarray(end_position_xy_m, dtype=np.float64)
-    if start.shape != (2,) or end.shape != (2,) or not np.isfinite([*start, *end]).all():
-        raise ValueError("fuel proxy positions must be finite 2D vectors")
-    if not math.isfinite(speed_mps) or speed_mps < 0.0:
-        raise ValueError("fuel proxy speed must be finite and non-negative")
-    distance_m = float(np.linalg.norm(end - start))
-    return 3.25 * math.exp(0.01 * speed_mps * 3.6) * (distance_m / 1000.0) / 100.0 * 1000.0
-
-
 def _vector(value: tuple[float, float], name: str) -> np.ndarray:
     result = np.asarray(value, dtype=np.float64)
     if result.shape != (2,) or not np.isfinite(result).all():
@@ -191,6 +180,5 @@ __all__ = [
     "TransitionMetricInput",
     "TransitionMetrics",
     "derive_transition_metrics",
-    "executed_fuel_proxy_step_energy_ml",
     "minimum_time_to_collision_s",
 ]

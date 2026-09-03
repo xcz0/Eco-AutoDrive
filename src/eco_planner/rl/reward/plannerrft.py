@@ -8,9 +8,7 @@ from dataclasses import fields
 import numpy as np
 
 from eco_planner.envs.domain.metrics import (
-    TransitionMetricInput,
     TransitionMetrics,
-    derive_transition_metrics,
     minimum_time_to_collision_s,
 )
 from eco_planner.rl.reward.audit import PlannerRFTEnergyRewardAudit
@@ -19,12 +17,10 @@ from eco_planner.rl.reward.config import PlannerRFTEnergyRewardConfig
 
 def score_plannerrft_energy_step(
     config: PlannerRFTEnergyRewardConfig,
-    metrics: TransitionMetrics | TransitionMetricInput,
+    metrics: TransitionMetrics,
 ) -> PlannerRFTEnergyRewardAudit:
     """Score one executed transition without accessing simulator objects."""
 
-    if isinstance(metrics, TransitionMetricInput):
-        metrics = derive_transition_metrics(metrics)
     step = metrics.input
     collision = any(
         (
@@ -84,8 +80,13 @@ def score_plannerrft_energy_step(
         )
     )
     energy_distance_valid = metrics.step_distance_m >= config.energy.minimum_step_distance_m
+    measured_fuel_ml_per_km = metrics.energy.fuel_ml_per_km
+    if metrics.energy.fuel_ml is None:
+        raise ValueError("PlannerRFT energy reward requires a fuel-volume metric")
     fuel_proxy_ml_per_km = (
-        metrics.executed_fuel_proxy_ml_per_km if energy_distance_valid else 0.0
+        measured_fuel_ml_per_km
+        if energy_distance_valid and measured_fuel_ml_per_km is not None
+        else 0.0
     )
     energy_score = (
         math.exp(-fuel_proxy_ml_per_km / config.energy.reference_ml_per_km)
@@ -126,7 +127,7 @@ def score_plannerrft_energy_step(
         step_distance_m=metrics.step_distance_m,
         native_step_energy_ml=step.native_step_energy_ml,
         native_episode_energy_ml=step.native_episode_energy_ml,
-        executed_fuel_proxy_step_energy_ml=metrics.executed_fuel_proxy_step_energy_ml,
+        executed_fuel_proxy_step_energy_ml=metrics.energy.fuel_ml,
         executed_fuel_proxy_ml_per_km=fuel_proxy_ml_per_km,
         energy_distance_valid=energy_distance_valid,
     )

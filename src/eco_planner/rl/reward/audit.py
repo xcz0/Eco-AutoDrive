@@ -62,6 +62,9 @@ def build_metadrive_builtin_reward_audit(
 ) -> MetaDriveBuiltinRewardAudit:
     """Attach native MetaDrive reward fields to already-derived transition metrics."""
 
+    fuel_ml = metrics.energy.fuel_ml
+    if fuel_ml is None:
+        raise ValueError("MetaDrive reward audit requires a fuel-volume metric")
     return MetaDriveBuiltinRewardAudit(
         profile_name="metadrive_builtin_v1",
         reward_total=reward_total,
@@ -70,8 +73,8 @@ def build_metadrive_builtin_reward_audit(
         step_distance_m=metrics.step_distance_m,
         native_step_energy_ml=metrics.input.native_step_energy_ml,
         native_episode_energy_ml=metrics.input.native_episode_energy_ml,
-        executed_fuel_proxy_step_energy_ml=metrics.executed_fuel_proxy_step_energy_ml,
-        executed_fuel_proxy_ml_per_km=metrics.executed_fuel_proxy_ml_per_km,
+        executed_fuel_proxy_step_energy_ml=fuel_ml,
+        executed_fuel_proxy_ml_per_km=metrics.energy.fuel_ml_per_km or 0.0,
         energy_distance_valid=metrics.step_distance_m > 0.0,
     )
 

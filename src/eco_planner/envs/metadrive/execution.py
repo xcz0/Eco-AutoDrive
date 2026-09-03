@@ -13,6 +13,7 @@ from eco_planner.contracts import (
     ExecutionMode,
     validate_metadrive_timestep,
 )
+from eco_planner.energy import EnergyMetricProvider
 from eco_planner.envs.array_types import (
     ExecutionBooleanArray,
     ExecutionScalarArray,
@@ -21,10 +22,7 @@ from eco_planner.envs.array_types import (
     WorldVectorArray,
 )
 from eco_planner.envs.domain.execution import TrajectoryExecutionRecord
-from eco_planner.envs.domain.metrics import (
-    TransitionMetrics,
-    executed_fuel_proxy_step_energy_ml,
-)
+from eco_planner.envs.domain.metrics import TransitionMetrics
 from eco_planner.envs.domain.traffic import TrafficFrame
 from eco_planner.envs.domain.trajectory import WorldTrajectory, to_world_trajectory
 from eco_planner.envs.geometry import shortest_angle_delta
@@ -41,12 +39,13 @@ class TrajectoryExecutor:
         self,
         backend: MetaDriveBackend,
         execution_steps: int,
+        energy_provider: EnergyMetricProvider,
     ) -> None:
         if execution_steps not in {mode.steps for mode in ExecutionMode}:
             raise ValueError("execution_steps must match a fixed execution mode")
         self._backend = backend
         self._execution_steps = execution_steps
-        self._transition_extractor = TransitionExtractor()
+        self._transition_extractor = TransitionExtractor(energy_provider)
 
     def reset(self) -> TrafficFrame:
         """Reset transition history after the backend has reset."""
@@ -154,7 +153,10 @@ class TrajectoryExecutionRecorder:
         self.dense_rewards[index] = dense_reward
         self.native_energy_ml[index] = step.native_step_energy_ml
         self.native_episode_energy_ml[index] = step.native_episode_energy_ml
-        self.executed_fuel_proxy_energy_ml[index] = metrics.executed_fuel_proxy_step_energy_ml
+        fuel_ml = metrics.energy.fuel_ml
+        if fuel_ml is None:
+            raise RuntimeError("trajectory execution requires a fuel-volume energy metric")
+        self.executed_fuel_proxy_energy_ml[index] = fuel_ml
         self.distance_m[index] = metrics.step_distance_m
         self.metrics.append(metrics)
         self.terminated[index] = step.terminated
@@ -204,16 +206,6 @@ class TrajectoryExecutionRecorder:
             crash_sidewalk=final_step.crash_sidewalk,
             max_step=final_step.max_step,
         )
-
-
-def metadrive_fuel_proxy_step_energy_ml(
-    start_position: WorldVectorArray,
-    end_position: WorldVectorArray,
-    speed_mps: float,
-) -> float:
-    """Evaluate MetaDrive's fuel proxy for one executed 0.1 s substep."""
-
-    return executed_fuel_proxy_step_energy_ml(start_position, end_position, speed_mps)
 
 
 def execution_steps_from_config(config: Any) -> int:
