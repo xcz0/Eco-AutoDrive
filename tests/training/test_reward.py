@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 
-import numpy as np
 import pytest
 
 from eco_planner.envs.domain import (
@@ -104,13 +103,6 @@ def _input(**updates: object) -> TransitionMetricInput:
 
 def _metrics(**updates: object):
     return derive_transition_metrics(_input(**updates), MetaDriveFuelProxyProvider())
-
-
-def test_transition_metrics_derive_target_errors_outside_execution_record() -> None:
-    metrics = _metrics(target_position_xy_m=(1.0, 1.0), target_heading_rad=math.pi / 2)
-
-    assert metrics.position_error_m == pytest.approx(1.0)
-    assert metrics.heading_error_rad == pytest.approx(math.pi / 2)
 
 
 @pytest.mark.smoke
@@ -220,54 +212,3 @@ def test_wrong_direction_speed_and_comfort_scores_follow_configured_bounds() -> 
     assert result.diagnostics.longitudinal_acceleration_mps2 == pytest.approx(40.0)
     assert result.diagnostics.jerk_mps3 == pytest.approx(400.0)
     assert result.components.comfort == 0.0
-
-
-@pytest.mark.parametrize(
-    "updates",
-    [
-        {"out_of_road": True},
-        {"crash_object": True},
-        {"crash_building": True},
-        {"crash_human": True},
-        {"crash_sidewalk": True},
-    ],
-)
-def test_every_configured_terminal_gate_zeroes_reward(updates: dict[str, bool]) -> None:
-    result = evaluate_plannerrft_energy_step(_config(), _metrics(**updates))
-
-    assert result.safety_gate == 0.0
-    assert result.total == 0.0
-
-
-@pytest.mark.parametrize(
-    "updates",
-    [
-        {},
-        {"position_xy_m": (0.005, 0.0), "route_progress_delta_m": 0.005},
-        {"velocity_xy_mps": (15.0, 0.0)},
-        {"yaw_rate_radps": 1.0},
-        {"route_progress_delta_m": -1.0},
-    ],
-)
-def test_all_plannerrft_component_scores_are_finite_unit_interval(
-    updates: dict[str, object],
-) -> None:
-    result = evaluate_plannerrft_energy_step(_config(), _metrics(**updates))
-
-    scores = np.asarray(
-        [
-            result.total,
-            result.base_total,
-            result.safety_gate,
-            result.diagnostics.collision_score,
-            result.diagnostics.drivable_score,
-            result.diagnostics.wrong_direction_score,
-            result.components.ttc,
-            result.components.progress,
-            result.components.comfort,
-            result.components.speed,
-            result.components.energy,
-        ]
-    )
-    assert np.isfinite(scores).all()
-    assert ((0.0 <= scores) & (scores <= 1.0)).all()

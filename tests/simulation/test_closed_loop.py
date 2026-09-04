@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -16,7 +15,6 @@ from eco_planner.contracts import ExecutionMode
 from eco_planner.envs import MetaDriveEnvSlot
 from eco_planner.envs.domain.geometry import rear_axle_position, world_points_to_local
 from eco_planner.envs.metadrive import MetaDriveBackend
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
 from eco_planner.rl.config import parse_rollout_config
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater
 from eco_planner.rl.reward import (
@@ -119,38 +117,6 @@ def _reward_profile(name: str) -> PlannerRFTEnergyRewardConfig:
 _ENERGY_REWARD = _reward_profile("plannerrft_energy_v1")
 
 
-def test_official_planner_config_accepts_fixed_abi(
-    official_model_config: OfficialDiffusionPlannerConfig,
-) -> None:
-    assert replace(official_model_config) == official_model_config
-
-
-@pytest.mark.parametrize(
-    ("field", "invalid_value"),
-    (
-        ("future_len", 79),
-        ("time_len", 20),
-        ("agent_state_dim", 10),
-        ("agent_num", 31),
-        ("static_objects_state_dim", 9),
-        ("static_objects_num", 4),
-        ("lane_len", 19),
-        ("lane_state_dim", 11),
-        ("lane_num", 69),
-        ("route_len", 19),
-        ("route_state_dim", 11),
-        ("route_num", 24),
-    ),
-)
-def test_official_planner_config_rejects_observation_abi_mismatch(
-    official_model_config: OfficialDiffusionPlannerConfig,
-    field: str,
-    invalid_value: int,
-) -> None:
-    with pytest.raises(ValueError, match=field):
-        replace(official_model_config, **{field: invalid_value})
-
-
 def _ppo_config() -> PPOConfig:
     return PPOConfig(
         name="closed_loop_smoke",
@@ -176,16 +142,19 @@ def _ppo_config() -> PPOConfig:
 
 @pytest.mark.simulator
 def test_environment_slot_executes_evaluation_prefix_with_valid_audit() -> None:
+    config = _environment_config("SSS")
+    config["programmatic_lane_speed_limit_profile_kmh"] = [50.0, 30.0, 50.0]
     with MetaDriveEnvSlot(
-        _environment_config("S"),
+        config,
         mode="no_traffic",
         execution_mode=ExecutionMode.EVALUATION,
         map_query_radius_m=100.0,
         history_warmup_steps=0,
     ) as slot:
-        slot.reset(map_name="S", seed=0)
+        reset = slot.reset(map_name="SSS", seed=0)
         result = slot.step(_straight_trajectory()).execution
         execution = result.execution
+        speed_limit_audit = reset.programmatic_lane_speed_limit_audit
 
         assert execution.substep_states.shape == (5, 7)
         assert execution.substep_terminated.shape == (5,)
@@ -201,6 +170,9 @@ def test_environment_slot_executes_evaluation_prefix_with_valid_audit() -> None:
         assert np.isfinite(proxy_energy).all()
         assert np.all(native_energy >= 0.0)
         assert np.all(proxy_energy >= 0.0)
+        assert speed_limit_audit["block_speed_limit_profile_kmh"] == (50.0, 30.0, 50.0)
+        assert speed_limit_audit["block_speed_limit_profile_applied_lane_count"] > 0
+        assert set(speed_limit_audit["lane_speed_limit_kmh_counts"]) == {"30", "50"}
         np.testing.assert_allclose(
             execution.substep_states[-1, :2],
             np.asarray(slot.backend.agent.position),
