@@ -1,63 +1,91 @@
-"""Shared single-process MetaDrive environment lifecycle."""
+"""Atomic single-process MetaDrive environment lifecycle."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any, Literal
 
 import numpy as np
 from tensordict import TensorDictBase
 
-from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
-
-from ..array_types import TrajectoryArray
-from ..domain import MetaDriveFuelProxyProvider, TrajectoryExecutionResult
-from ..observation import (
-    ObservationBuilder,
-    PlannerObservationSpec,
-    TrafficObservationAudit,
-    TrafficSceneEncoder,
+from eco_planner.contracts import (
+    PLANNER_HORIZON,
+    TRAFFIC_HISTORY_WARMUP_STEPS,
+    ExecutionMode,
 )
-from .execution import TrajectoryExecutor, execution_steps_from_config
-from .observation import MetaDriveObservationSource, NoTrafficMetaDriveObservationSource
+
+from ..domain.arrays import TrajectoryArray
+from ..domain.energy import MetaDriveFuelProxyProvider
+from ..domain.execution import TrajectoryExecutionResult
+from ..observation.scene import TrafficObservationAudit
+from .execution import TrajectoryExecutor
+from .observation import (
+    MetaDriveObservationPipeline,
+    NoTrafficMetaDriveObservationPipeline,
+    TrafficMetaDriveObservationPipeline,
+)
 from .simulator import MetaDriveBackend
 
 ObservationMode = Literal["traffic", "no_traffic"]
 
 
 @dataclass(frozen=True, slots=True)
-class EnvSlotReset:
-    """Metadata captured at reset before optional traffic warmup."""
-
-    route_completion: float
-    route_length_m: float
-    warmup_initial_state: np.ndarray
-    programmatic_lane_speed_limit_audit: Mapping[str, object]
-
-
-@dataclass(frozen=True, slots=True)
-class EnvSlotObservation:
-    """One raw planner observation and its optional traffic-selection audit."""
+class EnvSlotState:
+    """Planner-visible state captured at one simulator decision boundary."""
 
     observation: TensorDictBase
     traffic_audit: TrafficObservationAudit | None
+    vehicle_state: np.ndarray
+    route_completion: float
+
+
+@dataclass(frozen=True, slots=True)
+class EnvSlotTiming:
+    """Simulator and observation service time for one atomic operation."""
+
+    environment_s: float
+    observation_s: float
+
+
+@dataclass(frozen=True, slots=True)
+class EnvSlotReset:
+    """Complete reset, warmup, initial observation, and audit result."""
+
+    state: EnvSlotState
+    route_length_m: float
+    warmup_initial_state: np.ndarray
+    warmup_steps: tuple[TrajectoryExecutionResult, ...]
+    programmatic_lane_speed_limit_audit: Mapping[str, object]
+    timing: EnvSlotTiming
+
+
+@dataclass(frozen=True, slots=True)
+class EnvSlotStep:
+    """One trajectory execution and the next planner-visible state."""
+
+    state: EnvSlotState
+    execution: TrajectoryExecutionResult
+    timing: EnvSlotTiming
 
 
 class MetaDriveEnvSlot:
-    """Compose one simulator backend, trajectory executor, and planner observation source."""
+    """Compose one simulator, trajectory executor, and observation pipeline."""
 
     def __init__(
         self,
         env_config: Mapping[str, Any],
         *,
         mode: ObservationMode,
-        observation_spec: PlannerObservationSpec,
+        execution_mode: ExecutionMode,
         map_query_radius_m: float,
         history_warmup_steps: int,
     ) -> None:
         if mode not in {"traffic", "no_traffic"}:
             raise ValueError("mode must be either 'traffic' or 'no_traffic'")
+        if not isinstance(execution_mode, ExecutionMode):
+            raise TypeError("execution_mode must be an ExecutionMode")
         if type(map_query_radius_m) not in {int, float} or map_query_radius_m <= 0.0:
             raise ValueError("map_query_radius_m must be a positive real scalar")
         expected_warmup = TRAFFIC_HISTORY_WARMUP_STEPS if mode == "traffic" else 0
@@ -65,34 +93,113 @@ class MetaDriveEnvSlot:
             raise ValueError(f"{mode} environments require history_warmup_steps={expected_warmup}")
 
         self._env_config = dict(env_config)
-        self._execution_steps = execution_steps_from_config(self._env_config)
+        self._execution_steps = execution_mode.steps
         self._mode = mode
-        self._observation_spec = observation_spec
         self._map_query_radius_m = float(map_query_radius_m)
         self._history_warmup_steps = history_warmup_steps
-        self._observation_source = self._create_observation_source()
-        self._observation_builder = ObservationBuilder(
-            TrafficSceneEncoder(self._map_query_radius_m)
-        )
+        self._observation_pipeline = self._create_observation_pipeline()
         self._backend = self._create_backend()
         self._executor = self._create_executor()
 
     @property
     def backend(self) -> MetaDriveBackend:
-        """Return the owned simulator backend for rendering and MetaDrive-native audits."""
+        """Return the owned simulator backend for rendering and native audits."""
 
         return self._backend
 
-    @property
-    def route_completion(self) -> float:
-        """Return the backend's current finite route-completion fraction."""
+    def reset(self, *, map_name: str, seed: int) -> EnvSlotReset:
+        """Reset, warm up, and return the first complete planner state."""
 
-        return self._backend.route_completion
+        environment_started = perf_counter()
+        if map_name != self._backend.config["map"]:
+            self._replace_environment(map_name)
+        self._backend.reset(seed=seed)
+        warmup_initial_state = self._vehicle_state()
+        initial_traffic_frame = self._executor.reset()
+        self._observation_pipeline.reset(self._backend, initial_traffic_frame)
+        warmup_steps = tuple(self._warmup())
+        environment_s = perf_counter() - environment_started
 
-    @property
-    def vehicle_state(self) -> np.ndarray:
-        """Return the current seven-value world-frame ego state."""
+        observation_started = perf_counter()
+        state = self._state()
+        observation_s = perf_counter() - observation_started
+        return EnvSlotReset(
+            state=state,
+            route_length_m=self._backend.route_length_m,
+            warmup_initial_state=warmup_initial_state,
+            warmup_steps=warmup_steps,
+            programmatic_lane_speed_limit_audit=self._backend.programmatic_lane_speed_limit_audit,
+            timing=EnvSlotTiming(environment_s, observation_s),
+        )
 
+    def step(self, trajectory: TrajectoryArray) -> EnvSlotStep:
+        """Execute one trajectory prefix and return the next complete planner state."""
+
+        environment_started = perf_counter()
+        execution = self._execute(trajectory)
+        environment_s = perf_counter() - environment_started
+        observation_started = perf_counter()
+        state = self._state()
+        observation_s = perf_counter() - observation_started
+        return EnvSlotStep(
+            state=state,
+            execution=execution,
+            timing=EnvSlotTiming(environment_s, observation_s),
+        )
+
+    def close(self) -> None:
+        self._backend.close()
+
+    def __enter__(self) -> MetaDriveEnvSlot:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+    def recreate_environment(self) -> None:
+        """Recreate the environment after MetaDrive navigation corruption."""
+
+        self._replace_environment(self._env_config["map"])
+
+    def _warmup(self) -> Iterator[TrajectoryExecutionResult]:
+        if self._mode == "no_traffic":
+            return
+        initial_position = self._vehicle_state()[:2]
+        collected = 0
+        while collected < self._history_warmup_steps:
+            result = self._execute(_stationary_trajectory())
+            yield result
+            if result.terminated or result.truncated:
+                raise RuntimeError("traffic history warmup ended before the required frame count")
+            if (
+                float(
+                    np.linalg.norm(
+                        result.execution.substep_states[:, :2] - initial_position,
+                        axis=1,
+                    ).max()
+                )
+                >= 1e-3
+            ):
+                raise RuntimeError("ego moved during stationary traffic history warmup")
+            collected += result.execution.substep_states.shape[0]
+        if collected != self._history_warmup_steps:
+            raise RuntimeError("traffic history warmup overshot the required frame count")
+
+    def _execute(self, trajectory: TrajectoryArray) -> TrajectoryExecutionResult:
+        result = self._executor.execute(trajectory)
+        self._observation_pipeline.append_frames(result.execution.traffic_frames)
+        return result
+
+    def _state(self) -> EnvSlotState:
+        observation, traffic_audit = self._observation_pipeline.build(self._backend)
+        return EnvSlotState(
+            observation=observation,
+            traffic_audit=traffic_audit,
+            vehicle_state=self._vehicle_state(),
+            route_completion=self._backend.route_completion,
+        )
+
+    def _vehicle_state(self) -> np.ndarray:
         velocity = np.asarray(self._backend.agent.velocity, dtype=np.float64)
         return np.array(
             [
@@ -105,96 +212,13 @@ class MetaDriveEnvSlot:
             dtype=np.float64,
         )
 
-    def reset(self, *, map_name: str, seed: int) -> EnvSlotReset:
-        """Reset this slot for one map and seed before traffic warmup."""
-
-        if map_name != self._backend.config["map"]:
-            self._replace_environment(map_name)
-        self._backend.reset(seed=seed)
-        initial_traffic_frame = self._executor.reset()
-        if isinstance(self._observation_source, MetaDriveObservationSource):
-            self._observation_source.reset(self._backend, initial_traffic_frame)
-        else:
-            self._observation_source.reset(self._backend)
-        return EnvSlotReset(
-            route_completion=self._backend.route_completion,
-            route_length_m=self._backend.route_length_m,
-            warmup_initial_state=self.vehicle_state,
-            programmatic_lane_speed_limit_audit=(self._backend.programmatic_lane_speed_limit_audit),
-        )
-
-    def warmup(self) -> Iterator[TrajectoryExecutionResult]:
-        """Advance stationary ego while yielding every completed warmup execution."""
-
-        if self._mode == "no_traffic":
-            return
-        initial_position = self.vehicle_state[:2].copy()
-        collected = 0
-        while collected < self._history_warmup_steps:
-            result = self.step(_stationary_trajectory())
-            execution = result.execution
-            yield result
-            if result.terminated or result.truncated:
-                raise RuntimeError("traffic history warmup ended before the required frame count")
-            if (
-                float(
-                    np.linalg.norm(
-                        execution.substep_states[:, :2] - initial_position,
-                        axis=1,
-                    ).max()
-                )
-                >= 1e-3
-            ):
-                raise RuntimeError("ego moved during stationary traffic history warmup")
-            collected += execution.substep_states.shape[0]
-        if collected != self._history_warmup_steps:
-            raise RuntimeError("traffic history warmup overshot the required frame count")
-
-    def observe(self) -> EnvSlotObservation:
-        """Build the current raw CPU planner observation."""
-
-        if isinstance(self._observation_source, MetaDriveObservationSource):
-            observation, audit = self._observation_builder.build(
-                self._observation_source.history,
-                self._observation_source.map_snapshot(self._backend),
-            )
-            return EnvSlotObservation(observation, audit)
-        return EnvSlotObservation(
-            self._observation_builder.build_empty_scene(
-                self._observation_source.map_snapshot(self._backend)
-            ),
-            None,
-        )
-
-    def step(self, trajectory: TrajectoryArray) -> TrajectoryExecutionResult:
-        """Execute one trajectory prefix and commit its traffic frames."""
-
-        result = self._executor.execute(trajectory)
-        if isinstance(self._observation_source, MetaDriveObservationSource):
-            self._observation_source.append_frames(result.execution.traffic_frames)
-        return result
-
-    def close(self) -> None:
-        self._backend.close()
-
-    def __enter__(self) -> MetaDriveEnvSlot:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        self.close()
-
-    def _create_observation_source(
-        self,
-    ) -> MetaDriveObservationSource | NoTrafficMetaDriveObservationSource:
+    def _create_observation_pipeline(self) -> MetaDriveObservationPipeline:
         if self._mode == "traffic":
-            return MetaDriveObservationSource(self._observation_spec, self._map_query_radius_m)
-        return NoTrafficMetaDriveObservationSource(self._observation_spec, self._map_query_radius_m)
+            return TrafficMetaDriveObservationPipeline(self._map_query_radius_m)
+        return NoTrafficMetaDriveObservationPipeline(self._map_query_radius_m)
 
     def _create_backend(self) -> MetaDriveBackend:
-        backend_config = dict(self._env_config)
-        for name in ("execution_mode", "trajectory_horizon", "trajectory_execution_steps"):
-            backend_config.pop(name, None)
-        return MetaDriveBackend(backend_config)
+        return MetaDriveBackend(dict(self._env_config))
 
     def _create_executor(self) -> TrajectoryExecutor:
         return TrajectoryExecutor(
@@ -203,19 +227,10 @@ class MetaDriveEnvSlot:
             MetaDriveFuelProxyProvider(),
         )
 
-    def recreate_environment(self) -> None:
-        """Close and recreate the MetaDrive environment with the current map.
-
-        MetaDrive's navigation state can corrupt after many same-map resets; this
-        method rebuilds the environment from scratch without changing the config.
-        """
-
-        self._replace_environment(self._env_config["map"])
-
     def _replace_environment(self, map_name: str) -> None:
         self._backend.close()
         self._env_config["map"] = map_name
-        self._observation_source = self._create_observation_source()
+        self._observation_pipeline = self._create_observation_pipeline()
         self._backend = self._create_backend()
         self._executor = self._create_executor()
 

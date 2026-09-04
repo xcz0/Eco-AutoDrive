@@ -16,7 +16,7 @@ from metadrive.component.traffic_participants.cyclist import Cyclist, CyclistBou
 from metadrive.component.traffic_participants.pedestrian import Pedestrian, PedestrianBoundingBox
 from metadrive.component.vehicle.base_vehicle import BaseVehicle
 
-from ..domain import (
+from ..domain.traffic import (
     ParticipantKind,
     StaticObjectKind,
     StaticTrafficObjectState,

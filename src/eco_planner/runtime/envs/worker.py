@@ -12,12 +12,15 @@ import torch
 from tensordict import TensorDictBase
 from torchrl.data import Composite, Unbounded
 
+from eco_planner.contracts import ExecutionMode
 from eco_planner.envs.domain import TrajectoryExecutionResult
 from eco_planner.envs.metadrive import (
+    EnvSlotReset,
+    EnvSlotStep,
     MetaDriveEnvSlot,
     ObservationMode,
 )
-from eco_planner.envs.observation import PlannerObservationSpec, TrafficObservationAudit
+from eco_planner.envs.observation import TrafficObservationAudit
 from eco_planner.runtime.envs.torchrl import TorchRLMetaDriveEnv
 
 
@@ -73,7 +76,6 @@ class TorchRLScenarioMetaDriveEnv(TorchRLMetaDriveEnv):
         *,
         map_name: str,
         seed: int,
-        observation_spec: PlannerObservationSpec,
         scenarios: tuple[VectorEnvScenario, ...],
     ) -> None:
         if not scenarios:
@@ -82,7 +84,6 @@ class TorchRLScenarioMetaDriveEnv(TorchRLMetaDriveEnv):
             slot,
             map_name=map_name,
             seed=seed,
-            observation_spec=observation_spec,
         )
         self._scenarios = scenarios
         self._active_scenario_index = 0
@@ -110,19 +111,21 @@ class TorchRLScenarioMetaDriveEnv(TorchRLMetaDriveEnv):
                 self._map_name = scenario.map
                 self._seed = scenario.seed
             output = super()._reset(None)
-            reset = self.last_reset
+            reset = self.last_slot_result
+            if not isinstance(reset, EnvSlotReset):
+                raise TypeError("MetaDrive reset did not produce an EnvSlotReset")
             self._operation_result = WorkerResetResult(
                 scenario=self._scenarios[self._active_scenario_index],
-                route_completion=reset.route_completion,
+                route_completion=reset.state.route_completion,
                 route_length_m=reset.route_length_m,
                 warmup_initial_state=reset.warmup_initial_state,
-                initial_state=self.last_initial_state,
-                warmup_steps=self.last_warmup_steps,
-                traffic_audit=self.last_traffic_audit,
+                initial_state=reset.state.vehicle_state,
+                warmup_steps=reset.warmup_steps,
+                traffic_audit=reset.state.traffic_audit,
                 programmatic_lane_speed_limit_audit=reset.programmatic_lane_speed_limit_audit,
                 timing=VectorEnvTiming(
-                    environment_s=self.last_environment_s,
-                    observation_s=self.last_observation_s,
+                    environment_s=reset.timing.environment_s,
+                    observation_s=reset.timing.observation_s,
                 ),
             )
             return output
@@ -132,12 +135,15 @@ class TorchRLScenarioMetaDriveEnv(TorchRLMetaDriveEnv):
     def _step(self, tensordict: TensorDictBase) -> TensorDictBase:
         try:
             output = super()._step(tensordict)
+            result = self.last_slot_result
+            if not isinstance(result, EnvSlotStep):
+                raise TypeError("MetaDrive step did not produce an EnvSlotStep")
             self._operation_result = WorkerStepResult(
-                step=self.last_step,
-                traffic_audit=self.last_traffic_audit,
+                step=result.execution,
+                traffic_audit=result.state.traffic_audit,
                 timing=VectorEnvTiming(
-                    environment_s=self.last_environment_s,
-                    observation_s=self.last_observation_s,
+                    environment_s=result.timing.environment_s,
+                    observation_s=result.timing.observation_s,
                 ),
             )
             return output
@@ -159,7 +165,7 @@ class TorchRLScenarioMetaDriveEnv(TorchRLMetaDriveEnv):
 def make_torchrl_scenario_env(
     env_config: Mapping[str, Any],
     mode: ObservationMode,
-    observation_spec: PlannerObservationSpec,
+    execution_mode: ExecutionMode,
     map_query_radius_m: float,
     history_warmup_steps: int,
     scenarios: tuple[VectorEnvScenario, ...],
@@ -168,7 +174,7 @@ def make_torchrl_scenario_env(
     slot = MetaDriveEnvSlot(
         {**env_config, "map": scenario.map},
         mode=mode,
-        observation_spec=observation_spec,
+        execution_mode=execution_mode,
         map_query_radius_m=map_query_radius_m,
         history_warmup_steps=history_warmup_steps,
     )
@@ -176,7 +182,6 @@ def make_torchrl_scenario_env(
         slot,
         map_name=scenario.map,
         seed=scenario.seed,
-        observation_spec=observation_spec,
         scenarios=scenarios,
     )
 

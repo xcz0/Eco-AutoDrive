@@ -13,9 +13,9 @@ import torch
 from tensordict import TensorDictBase
 
 from eco_planner.configuration import ScenarioConfig
+from eco_planner.contracts import ExecutionMode
 from eco_planner.envs import (
     MetaDriveEnvSlot,
-    PlannerObservationSpec,
     TrajectoryExecutionResult,
 )
 from eco_planner.rl.reward import (
@@ -159,13 +159,10 @@ def collect_rollout_episode(
         raise ValueError("stopped_speed_threshold_mps must be a positive finite float")
     configured = dict(env_config)
     configured["map"] = spec.map
-    if configured.get("execution_mode") not in {None, "rollout"}:
-        raise ValueError("rollout requires env.execution_mode=rollout")
-    configured["execution_mode"] = "rollout"
     env_slot = MetaDriveEnvSlot(
         configured,
         mode=mode,
-        observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
+        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=map_query_radius_m,
         history_warmup_steps=history_warmup_steps,
     )
@@ -181,17 +178,16 @@ def collect_rollout_episode(
     if policy_generator is None:
         policy_generator = runtime.new_policy_generator()
     try:
-        env_slot.reset(map_name=spec.map, seed=spec.seed)
-        tuple(env_slot.warmup())
-        lifecycle = _EpisodeLifecycle(env_slot.route_completion)
+        reset = env_slot.reset(map_name=spec.map, seed=spec.seed)
+        current_state = reset.state
+        lifecycle = _EpisodeLifecycle(current_state.route_completion)
 
         for cycle in range(max_transitions):
-            observation = cast(
-                TensorDictBase, TensorDictBase.stack([env_slot.observe().observation])
-            )
+            observation = cast(TensorDictBase, TensorDictBase.stack([current_state.observation]))
             decision = runtime.decide(observation, diffusion_generator, policy_generator)
             lifecycle.link_next_state_value(decision)
-            step = env_slot.step(decision.ego_trajectory)
+            slot_step = env_slot.step(decision.ego_trajectory)
+            step = slot_step.execution
             terminated = step.terminated
             truncated = step.truncated
             tail = lifecycle.append(
@@ -210,11 +206,12 @@ def collect_rollout_episode(
                 return lifecycle.finish(tail, torch.zeros(1))
             if tail in {"truncated", "rollout_limit"}:
                 next_observation = cast(
-                    TensorDictBase, TensorDictBase.stack([env_slot.observe().observation])
+                    TensorDictBase, TensorDictBase.stack([slot_step.state.observation])
                 )
                 return lifecycle.finish(
                     tail, runtime.bootstrap_value(next_observation, diffusion_generator)
                 )
+            current_state = slot_step.state
         raise RuntimeError("rollout lifecycle did not finish at its explicit transition limit")
     finally:
         env_slot.close()
@@ -255,9 +252,6 @@ class VectorRolloutCollector:
         if not specs:
             raise ValueError("vector rollout requires at least one scenario")
         configured = dict(env_config)
-        if configured.get("execution_mode") not in {None, "rollout"}:
-            raise ValueError("rollout requires env.execution_mode=rollout")
-        configured["execution_mode"] = "rollout"
         if physical_slot_count is None:
             physical_slot_count = len(specs)
         if type(physical_slot_count) is not int or physical_slot_count <= 0:
@@ -273,7 +267,7 @@ class VectorRolloutCollector:
         self._envs = VectorMetaDriveEnv(
             configured_envs,
             mode=mode,
-            observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
+            execution_mode=ExecutionMode.ROLLOUT,
             map_query_radius_m=map_query_radius_m,
             history_warmup_steps=history_warmup_steps,
             scenarios=self._scenarios,

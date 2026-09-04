@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -11,11 +12,9 @@ from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 from pydantic import TypeAdapter
 
-from eco_planner.envs import (
-    MetaDriveEnvSlot,
-    PlannerObservationSpec,
-)
-from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
+from eco_planner.contracts import ExecutionMode
+from eco_planner.envs import MetaDriveEnvSlot
+from eco_planner.envs.domain.geometry import rear_axle_position, world_points_to_local
 from eco_planner.envs.metadrive import MetaDriveBackend
 from eco_planner.models.config import OfficialDiffusionPlannerConfig
 from eco_planner.rl.config import parse_rollout_config
@@ -49,7 +48,6 @@ def _environment_config(
     map_sequence: str,
     *,
     traffic_density: float = 0.0,
-    trajectory_execution_steps: int = 5,
 ) -> dict[str, object]:
     return {
         "use_render": False,
@@ -60,8 +58,6 @@ def _environment_config(
         "random_spawn_lane_index": False,
         "physics_world_step_size": 0.02,
         "decision_repeat": 5,
-        "trajectory_horizon": 80,
-        "trajectory_execution_steps": trajectory_execution_steps,
         "programmatic_lane_speed_limit_kmh": 50.0,
     }
 
@@ -123,6 +119,38 @@ def _reward_profile(name: str) -> PlannerRFTEnergyRewardConfig:
 _ENERGY_REWARD = _reward_profile("plannerrft_energy_v1")
 
 
+def test_official_planner_config_accepts_fixed_abi(
+    official_model_config: OfficialDiffusionPlannerConfig,
+) -> None:
+    assert replace(official_model_config) == official_model_config
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    (
+        ("future_len", 79),
+        ("time_len", 20),
+        ("agent_state_dim", 10),
+        ("agent_num", 31),
+        ("static_objects_state_dim", 9),
+        ("static_objects_num", 4),
+        ("lane_len", 19),
+        ("lane_state_dim", 11),
+        ("lane_num", 69),
+        ("route_len", 19),
+        ("route_state_dim", 11),
+        ("route_num", 24),
+    ),
+)
+def test_official_planner_config_rejects_observation_abi_mismatch(
+    official_model_config: OfficialDiffusionPlannerConfig,
+    field: str,
+    invalid_value: int,
+) -> None:
+    with pytest.raises(ValueError, match=field):
+        replace(official_model_config, **{field: invalid_value})
+
+
 def _ppo_config() -> PPOConfig:
     return PPOConfig(
         name="closed_loop_smoke",
@@ -147,18 +175,16 @@ def _ppo_config() -> PPOConfig:
 
 
 @pytest.mark.simulator
-def test_environment_slot_executes_evaluation_prefix_with_valid_audit(
-    official_model_config: OfficialDiffusionPlannerConfig,
-) -> None:
+def test_environment_slot_executes_evaluation_prefix_with_valid_audit() -> None:
     with MetaDriveEnvSlot(
         _environment_config("S"),
         mode="no_traffic",
-        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        execution_mode=ExecutionMode.EVALUATION,
         map_query_radius_m=100.0,
         history_warmup_steps=0,
     ) as slot:
         slot.reset(map_name="S", seed=0)
-        result = slot.step(_straight_trajectory())
+        result = slot.step(_straight_trajectory()).execution
         execution = result.execution
 
         assert execution.substep_states.shape == (5, 7)
@@ -183,14 +209,12 @@ def test_environment_slot_executes_evaluation_prefix_with_valid_audit(
 
 
 @pytest.mark.simulator
-def test_same_scenario_reset_restores_spawn_after_trajectory_step(
-    official_model_config: OfficialDiffusionPlannerConfig,
-) -> None:
-    config = _environment_config("S", trajectory_execution_steps=1)
+def test_same_scenario_reset_restores_spawn_after_trajectory_step() -> None:
+    config = _environment_config("S")
     with MetaDriveEnvSlot(
         config,
         mode="no_traffic",
-        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=100.0,
         history_warmup_steps=0,
     ) as slot:
@@ -204,27 +228,26 @@ def test_same_scenario_reset_restores_spawn_after_trajectory_step(
         initial.warmup_initial_state,
         atol=1e-6,
     )
-    assert repeated.route_completion == pytest.approx(initial.route_completion, abs=1e-6)
+    assert repeated.state.route_completion == pytest.approx(
+        initial.state.route_completion, abs=1e-6
+    )
 
 
 @pytest.mark.simulator
-def test_traffic_history_enters_planner_observation(
-    official_model_config: OfficialDiffusionPlannerConfig,
-) -> None:
+def test_traffic_history_enters_planner_observation() -> None:
     config = _environment_config("SC", traffic_density=0.1)
     config["horizon"] = 30
     with MetaDriveEnvSlot(
         config,
         mode="traffic",
-        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        execution_mode=ExecutionMode.EVALUATION,
         map_query_radius_m=100.0,
         history_warmup_steps=20,
     ) as slot:
-        slot.reset(map_name="SC", seed=0)
-        warmup = tuple(slot.warmup())
-        result = slot.observe()
-    observation = result.observation
-    audit = result.traffic_audit
+        reset = slot.reset(map_name="SC", seed=0)
+    warmup = reset.warmup_steps
+    observation = reset.state.observation
+    audit = reset.state.traffic_audit
 
     assert sum(item.execution.substep_states.shape[0] for item in warmup) == 20
     assert observation["neighbor_agents_past"].shape == (32, 21, 11)
@@ -241,17 +264,15 @@ def test_traffic_history_enters_planner_observation(
 
 
 @pytest.mark.simulator
-def test_two_slot_vector_rollout_executes_current_training_path(
-    official_model_config: OfficialDiffusionPlannerConfig,
-) -> None:
+def test_two_slot_vector_rollout_executes_current_training_path() -> None:
     scenarios = (
         VectorEnvScenario(name="slot-0", map="S", seed=0),
         VectorEnvScenario(name="slot-1", map="S", seed=1),
     )
     with VectorMetaDriveEnv(
-        [_environment_config("S", trajectory_execution_steps=1) for _ in scenarios],
+        [_environment_config("S") for _ in scenarios],
         mode="no_traffic",
-        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=100.0,
         history_warmup_steps=0,
         scenarios=scenarios,
@@ -278,17 +299,15 @@ def test_two_slot_vector_rollout_executes_current_training_path(
 
 
 @pytest.mark.simulator
-def test_vector_partial_step_preserves_unselected_slot_and_requested_order(
-    official_model_config: OfficialDiffusionPlannerConfig,
-) -> None:
+def test_vector_partial_step_preserves_unselected_slot_and_requested_order() -> None:
     scenarios = (
         VectorEnvScenario(name="slot-0", map="S", seed=0),
         VectorEnvScenario(name="slot-1", map="S", seed=1),
     )
     with VectorMetaDriveEnv(
-        [_environment_config("S", trajectory_execution_steps=1) for _ in scenarios],
+        [_environment_config("S") for _ in scenarios],
         mode="no_traffic",
-        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=100.0,
         history_warmup_steps=0,
         scenarios=scenarios,
@@ -315,16 +334,14 @@ def test_vector_partial_step_preserves_unselected_slot_and_requested_order(
 
 
 @pytest.mark.simulator
-def test_off_route_lane_is_terminal_with_padded_route_observation(
-    official_model_config: OfficialDiffusionPlannerConfig,
-) -> None:
+def test_off_route_lane_is_terminal_with_padded_route_observation() -> None:
     query_radius_m = 5.0
-    config = _environment_config("SXS", trajectory_execution_steps=1)
+    config = _environment_config("SXS")
     scenario = VectorEnvScenario(name="off-route", map="SXS", seed=0)
     with MetaDriveEnvSlot(
         config,
         mode="no_traffic",
-        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=query_radius_m,
         history_warmup_steps=0,
     ) as source:
@@ -334,7 +351,7 @@ def test_off_route_lane_is_terminal_with_padded_route_observation(
     with VectorMetaDriveEnv(
         [config],
         mode="no_traffic",
-        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=query_radius_m,
         history_warmup_steps=0,
         scenarios=(scenario,),
@@ -357,9 +374,7 @@ def test_off_route_lane_is_terminal_with_padded_route_observation(
     assert torch.count_nonzero(observation["route_lanes_speed_limit"]).item() == 0
     assert not torch.any(observation["route_lanes_has_speed_limit"])
     assert len(step.step.metrics) == 1
-    assert evaluate_plannerrft_energy_step(
-        _ENERGY_REWARD, step.step.metrics[-1]
-    ).safety_gate == 0.0
+    assert evaluate_plannerrft_energy_step(_ENERGY_REWARD, step.step.metrics[-1]).safety_gate == 0.0
 
 
 @pytest.mark.simulator

@@ -9,11 +9,8 @@ import numpy as np
 from tensordict import TensorDictBase
 
 from eco_planner.configuration import ScenarioConfig
-from eco_planner.contracts import evaluation_plan_cycles
-from eco_planner.envs import (
-    PlannerObservationSpec,
-    TrajectoryExecutionRecord,
-)
+from eco_planner.contracts import ExecutionMode, evaluation_plan_cycles
+from eco_planner.envs import TrajectoryExecutionRecord
 from eco_planner.runtime.envs import (
     VectorEnvScenario,
     VectorMetaDriveEnv,
@@ -54,7 +51,7 @@ def run_vector_scenarios(
     with VectorMetaDriveEnv(
         configured_envs,
         mode=config.evaluation.mode,
-        observation_spec=PlannerObservationSpec.from_planner_config(agent.planner_config),
+        execution_mode=ExecutionMode.EVALUATION,
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.evaluation.history_warmup_steps,
         scenarios=scenarios,

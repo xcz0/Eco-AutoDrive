@@ -9,10 +9,9 @@ import numpy as np
 from tensordict import TensorDictBase
 
 from eco_planner.configuration import ScenarioConfig
-from eco_planner.contracts import evaluation_plan_cycles
+from eco_planner.contracts import ExecutionMode, evaluation_plan_cycles
 from eco_planner.envs import (
     MetaDriveEnvSlot,
-    PlannerObservationSpec,
     TrajectoryExecutionRecord,
 )
 
@@ -52,7 +51,7 @@ def run_scenario(
         env_slot = MetaDriveEnvSlot(
             env_config,
             mode=mode,
-            observation_spec=PlannerObservationSpec.from_planner_config(agent.planner_config),
+            execution_mode=ExecutionMode.EVALUATION,
             map_query_radius_m=config.map_query_radius_m,
             history_warmup_steps=config.evaluation.history_warmup_steps,
         )
@@ -84,7 +83,7 @@ def run_scenario(
         )
         if mode == "traffic":
             try:
-                for step in env_slot.warmup():
+                for step in reset.warmup_steps:
                     execution = step.execution
                     traffic_frames = execution.traffic_frames
                     trace.append_warmup(
@@ -98,21 +97,22 @@ def run_scenario(
                     )
             except Exception as error:
                 raise EpisodeFailure(FailurePhase.WARMUP, error) from error
-            trace.replace_initial_state(env_slot.vehicle_state)
+            trace.replace_initial_state(reset.state.vehicle_state)
 
         terminated = False
         truncated = False
         final_execution: TrajectoryExecutionRecord | None = None
+        current_slot_state = reset.state
         while not terminated and not truncated:
-            slot_observation = env_slot.observe()
-            raw_observation = slot_observation.observation
-            traffic_audit = slot_observation.traffic_audit
+            raw_observation = current_slot_state.observation
+            traffic_audit = current_slot_state.traffic_audit
             inference = agent.decide_batch(
                 cast(TensorDictBase, TensorDictBase.stack([raw_observation])),
                 (state.noise_generator,),
             )
-            state.anchor = env_slot.vehicle_state
-            step = env_slot.step(np.asarray(inference.ego_trajectories)[0])
+            state.anchor = current_slot_state.vehicle_state
+            slot_step = env_slot.step(np.asarray(inference.ego_trajectories)[0])
+            step = slot_step.execution
             terminated = step.terminated
             truncated = step.truncated
             execution = step.execution
@@ -129,6 +129,7 @@ def run_scenario(
                     )
                 )
             final_execution = execution
+            current_slot_state = slot_step.state
         if final_execution is None:
             raise EpisodeFailure(
                 phase=FailurePhase.EXECUTION,

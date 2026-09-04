@@ -13,8 +13,8 @@ from eco_planner.contracts import (
     STATIC_OBJECT_DIM,
 )
 
-from ..array_types import NeighborAgentsArray, StaticObjectsArray
-from ..geometry import rear_axle_position, world_vectors_to_local
+from ..domain.geometry import rear_axle_position, world_vectors_to_local
+from .arrays import NeighborAgentsArray, StaticObjectsArray
 from .history import TrafficHistory
 
 
@@ -42,25 +42,22 @@ class TrafficSceneEncoder:
             latest.ego_heading_rad,
             latest.ego_rear_wheelbase_m,
         )
-        participants = sorted(
-            latest.participants,
-            key=lambda state: (_distance(state.position_xy_m, anchor), state.object_id),
-        )
+        participant_distances = [
+            (_distance(state.position_xy_m, anchor), state) for state in latest.participants
+        ]
+        participant_distances.sort(key=lambda item: (item[0], item[1].object_id))
         in_radius = [
-            state
-            for state in participants
-            if _distance(state.position_xy_m, anchor) <= self._query_radius_m
+            state for distance, state in participant_distances if distance <= self._query_radius_m
+        ]
+        history_by_id = [
+            {state.object_id: state for state in frame.participants} for frame in frames
         ]
         neighbor_agents = np.zeros((AGENT_COUNT, len(frames), AGENT_HISTORY_DIM), dtype=np.float32)
         for output_index, state in enumerate(in_radius[:AGENT_COUNT]):
             historical_states = [state] * len(frames)
             filled = state
             for history_index in range(len(frames) - 1, -1, -1):
-                frame = frames[history_index]
-                historical = next(
-                    (item for item in frame.participants if item.object_id == state.object_id),
-                    None,
-                )
+                historical = history_by_id[history_index].get(state.object_id)
                 if historical is not None:
                     filled = historical
                 historical_states[history_index] = filled
@@ -86,14 +83,12 @@ class TrafficSceneEncoder:
                     *_participant_kind_features(historical.kind),
                 )
         static_objects = np.zeros((STATIC_OBJECT_COUNT, STATIC_OBJECT_DIM), dtype=np.float32)
-        static = sorted(
-            latest.static_objects,
-            key=lambda state: (_distance(state.position_xy_m, anchor), state.object_id),
-        )
+        static_distances = [
+            (_distance(state.position_xy_m, anchor), state) for state in latest.static_objects
+        ]
+        static_distances.sort(key=lambda item: (item[0], item[1].object_id))
         static_in_radius = [
-            state
-            for state in static
-            if _distance(state.position_xy_m, anchor) <= self._query_radius_m
+            state for distance, state in static_distances if distance <= self._query_radius_m
         ]
         for output_index, state in enumerate(static_in_radius[:STATIC_OBJECT_COUNT]):
             local = world_vectors_to_local(
@@ -110,7 +105,9 @@ class TrafficSceneEncoder:
                 state.length_m,
                 *_static_kind_features(state.kind),
             )
-        distances = [_distance(state.position_xy_m, anchor) for state in in_radius]
+        distances = [
+            distance for distance, _ in participant_distances if distance <= self._query_radius_m
+        ]
         return (
             neighbor_agents,
             static_objects,

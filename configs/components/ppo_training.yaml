@@ -29,7 +29,6 @@ training:
   resume_checkpoint_path: null
 
 env:
-  execution_mode: rollout
   horizon: 16
 
 runtime:

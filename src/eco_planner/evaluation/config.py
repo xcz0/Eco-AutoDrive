@@ -16,7 +16,7 @@ from pydantic import (
 )
 
 from eco_planner.configuration import ModelPathsConfig, ScenarioConfig, resolve_config_mapping
-from eco_planner.contracts import EVALUATION_EXECUTION_STEPS, TRAFFIC_HISTORY_WARMUP_STEPS
+from eco_planner.contracts import TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.models import (
     GuidanceConfig,
     SamplerConfig,
@@ -96,14 +96,6 @@ class EvaluationJobConfig(_StrictModel):
     @model_validator(mode="after")
     def validate_job(self) -> EvaluationJobConfig:
         evaluation = self.evaluation
-        mode = self.env.get("execution_mode")
-        if mode is not None and mode != "evaluation":
-            raise ValueError("evaluation requires env.execution_mode=evaluation")
-        if (
-            mode is None
-            and self.env.get("trajectory_execution_steps") != EVALUATION_EXECUTION_STEPS
-        ):
-            raise ValueError("evaluation requires env.execution_mode=evaluation")
         horizon = self.env.get("horizon")
         if type(horizon) is not int:
             raise TypeError("env.horizon must be an integer")

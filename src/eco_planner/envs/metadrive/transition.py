@@ -8,9 +8,9 @@ import numpy as np
 
 from eco_planner.contracts import SIMULATOR_STEP_S
 
-from ..domain import (
-    EnergyMetricProvider,
-    TrafficFrame,
+from ..domain.energy import EnergyMetricProvider
+from ..domain.traffic import TrafficFrame
+from ..domain.transition import (
     TransitionMetricInput,
     TransitionMetrics,
     derive_transition_metrics,

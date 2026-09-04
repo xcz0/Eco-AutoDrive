@@ -12,6 +12,19 @@ from typing import Any, Literal, cast
 import torch
 from omegaconf import DictConfig, OmegaConf
 
+from eco_planner.contracts import (
+    AGENT_COUNT,
+    AGENT_HISTORY_DIM,
+    LANE_COUNT,
+    LANE_FEATURE_DIM,
+    LANE_POINTS,
+    PLANNER_HORIZON,
+    ROUTE_LANE_COUNT,
+    STATIC_OBJECT_COUNT,
+    STATIC_OBJECT_DIM,
+    TRAFFIC_HISTORY_FRAMES,
+)
+
 DDIM5_TIMESTEPS = (1.0, 0.8, 0.6, 0.4, 0.2, 0.0)
 
 _DeviceDtype = tuple[torch.device, torch.dtype]
@@ -111,6 +124,33 @@ class OfficialDiffusionPlannerConfig:
     predicted_neighbor_num: int
     state_normalizer: StateNormalizer
     observation_normalizer: ObservationNormalizer
+
+    def __post_init__(self) -> None:
+        fixed_dimensions = {
+            "future_len": PLANNER_HORIZON,
+            "time_len": TRAFFIC_HISTORY_FRAMES,
+            "agent_state_dim": AGENT_HISTORY_DIM,
+            "agent_num": AGENT_COUNT,
+            "static_objects_state_dim": STATIC_OBJECT_DIM,
+            "static_objects_num": STATIC_OBJECT_COUNT,
+            "lane_len": LANE_POINTS,
+            "lane_state_dim": LANE_FEATURE_DIM,
+            "lane_num": LANE_COUNT,
+            "route_len": LANE_POINTS,
+            "route_state_dim": LANE_FEATURE_DIM,
+            "route_num": ROUTE_LANE_COUNT,
+        }
+        mismatches = {
+            name: (getattr(self, name), expected)
+            for name, expected in fixed_dimensions.items()
+            if getattr(self, name) != expected
+        }
+        if mismatches:
+            details = ", ".join(
+                f"{name}={actual!r} (expected {expected})"
+                for name, (actual, expected) in mismatches.items()
+            )
+            raise ValueError(f"official planner dimensions do not match the fixed ABI: {details}")
 
     @property
     def observation_feature_dimensions(self) -> dict[str, int]:

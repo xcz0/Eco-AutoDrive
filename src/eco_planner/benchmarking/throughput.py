@@ -15,14 +15,13 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from tensordict import TensorDictBase
 
-from eco_planner.envs import PlannerObservationSpec
+from eco_planner.contracts import PLANNER_HORIZON, ExecutionMode
 from eco_planner.evaluation import (
     EvaluationJobConfig,
     FabricInferenceRuntime,
     create_fabric_inference_runtime,
     parse_evaluation_config,
 )
-from eco_planner.models import OfficialDiffusionPlannerConfig
 from eco_planner.runtime.envs import (
     VectorEnvScenario,
     VectorMetaDriveEnv,
@@ -65,7 +64,6 @@ def run(config: DictConfig) -> None:
         "environment": benchmark_vector_environment_scaling(
             env_config,
             mode=parsed.evaluation.mode,
-            model_config=runtime.planner_config,
             map_query_radius_m=parsed.map_query_radius_m,
             history_warmup_steps=parsed.evaluation.history_warmup_steps,
             benchmark=benchmark,
@@ -151,7 +149,6 @@ def benchmark_vector_environment_scaling(
     env_config: Mapping[str, object],
     *,
     mode: str,
-    model_config: OfficialDiffusionPlannerConfig,
     map_query_radius_m: float,
     history_warmup_steps: int,
     benchmark: ScalingBenchmarkConfig,
@@ -160,7 +157,7 @@ def benchmark_vector_environment_scaling(
 
     if mode not in {"traffic", "no_traffic"}:
         raise ValueError("mode must be 'traffic' or 'no_traffic'")
-    trajectory = _stationary_trajectory(model_config.future_len)
+    trajectory = _stationary_trajectory()
     results: list[dict[str, object]] = []
     for worker_count in benchmark.worker_counts:
         steps_per_second: list[float] = []
@@ -179,7 +176,7 @@ def benchmark_vector_environment_scaling(
             with VectorMetaDriveEnv(
                 configs,
                 mode=mode,  # type: ignore[arg-type]
-                observation_spec=PlannerObservationSpec.from_planner_config(model_config),
+                execution_mode=ExecutionMode.EVALUATION,
                 map_query_radius_m=map_query_radius_m,
                 history_warmup_steps=history_warmup_steps,
                 scenarios=scenarios,
@@ -232,8 +229,8 @@ def benchmark_vector_environment_scaling(
     return results
 
 
-def _stationary_trajectory(future_len: int) -> np.ndarray:
-    trajectory = np.zeros((future_len, 4), dtype=np.float32)
+def _stationary_trajectory() -> np.ndarray:
+    trajectory = np.zeros((PLANNER_HORIZON, 4), dtype=np.float32)
     trajectory[:, 2] = 1.0
     return trajectory
 
@@ -251,7 +248,7 @@ def _representative_observation(
     with VectorMetaDriveEnv(
         (env_config,),
         mode=config.evaluation.mode,
-        observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
+        execution_mode=ExecutionMode.EVALUATION,
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.evaluation.history_warmup_steps,
         scenarios=(VectorEnvScenario("benchmark-observation", str(env_config["map"]), 0),),

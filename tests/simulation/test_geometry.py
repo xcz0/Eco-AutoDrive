@@ -19,7 +19,7 @@ from eco_planner.contracts import (
     validate_metadrive_timestep,
 )
 from eco_planner.envs.domain import to_world_trajectory
-from eco_planner.envs.geometry import (
+from eco_planner.envs.domain.geometry import (
     local_points_to_world,
     rear_axle_position,
     shortest_angle_delta,
@@ -72,9 +72,9 @@ def test_world_trajectory_preserves_rear_axle_velocity_and_wrapped_yaw_rate() ->
     )
 
     rear_anchor = rear_axle_position(center_position, center_heading, rear_wheelbase)
-    expected_rear_axle = local_points_to_world(
-        np.array([[1.0, 0.0]]), rear_anchor, center_heading
-    )[0]
+    expected_rear_axle = local_points_to_world(np.array([[1.0, 0.0]]), rear_anchor, center_heading)[
+        0
+    ]
     expected_center = expected_rear_axle + rear_wheelbase * np.array(
         [np.cos(target_heading), np.sin(target_heading)]
     )

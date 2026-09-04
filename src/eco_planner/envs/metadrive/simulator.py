@@ -18,8 +18,8 @@ from eco_planner.contracts import (
     validate_metadrive_timestep,
 )
 
-from ..array_types import PlannerOnlyObservationArray
-from ..domain import WorldTrajectory
+from ..domain.trajectory import WorldTrajectory
+from ..observation.arrays import PlannerOnlyObservationArray
 from .lane_speed import ProgrammaticLaneSpeedAdapter
 from .map import navigation_route_roads
 from .policy import KinematicTrajectoryPolicy
@@ -186,9 +186,7 @@ class MetaDriveBackend(MetaDriveEnv):
         done, done_info = self.done_function(agent_id)
         _, cost_info = self.cost_function(agent_id)
         self.dones[agent_id] = done or self.dones[agent_id]
-        info = concat_step_infos(
-            [engine_info, {agent_id: done_info}, {agent_id: cost_info}]
-        )
+        info = concat_step_infos([engine_info, {agent_id: done_info}, {agent_id: cost_info}])
         agent_info = info.pop(agent_id)
         info.update(agent_info)
         truncated = bool(info.get(TerminationState.MAX_STEP, False))

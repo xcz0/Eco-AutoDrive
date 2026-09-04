@@ -15,8 +15,10 @@ from tensordict import TensorDict, TensorDictBase
 import eco_planner.evaluation.engine as engine
 import eco_planner.evaluation.episodes.serial as episode_engine
 from eco_planner.envs import (
-    EnvSlotObservation,
     EnvSlotReset,
+    EnvSlotState,
+    EnvSlotStep,
+    EnvSlotTiming,
     TrajectoryExecutionRecord,
     TrajectoryExecutionResult,
 )
@@ -117,31 +119,30 @@ class _ShortEpisodeSlot:
         self.env = SimpleNamespace()
         self._state = np.zeros(7, dtype=np.float64)
 
-    @property
-    def vehicle_state(self) -> np.ndarray:
-        return self._state.copy()
-
     def reset(self, *, map_name: str, seed: int) -> EnvSlotReset:
         assert (map_name, seed) == ("S", 3)
         return EnvSlotReset(
-            route_completion=0.0,
+            state=EnvSlotState(_observation(), None, self._state.copy(), 0.0),
             route_length_m=100.0,
-            warmup_initial_state=self.vehicle_state,
+            warmup_initial_state=self._state.copy(),
+            warmup_steps=(),
             programmatic_lane_speed_limit_audit={
                 "speed_limit_sentinel_replaced_count": 18,
                 "speed_limit_existing_preserved_count": 0,
                 "configured_programmatic_lane_speed_limit_kmh": 50.0,
                 "lane_speed_limit_kmh_counts": {"50": 18},
             },
+            timing=EnvSlotTiming(0.0, 0.0),
         )
 
-    def observe(self) -> EnvSlotObservation:
-        return EnvSlotObservation(_observation(), None)
-
-    def step(self, trajectory: np.ndarray) -> TrajectoryExecutionResult:
+    def step(self, trajectory: np.ndarray) -> EnvSlotStep:
         assert trajectory.shape == (80, 4)
         self._state = np.array([5.0, 0.0, 0.0, 10.0, 0.0, 10.0, 0.0])
-        return _step_result()
+        return EnvSlotStep(
+            state=EnvSlotState(_observation(), None, self._state.copy(), 0.5),
+            execution=_step_result(),
+            timing=EnvSlotTiming(0.0, 0.0),
+        )
 
     def close(self) -> None:
         pass
@@ -210,7 +211,7 @@ def _config() -> object:
                     "deterministic": False,
                 },
             },
-            "env": {"traffic_density": 0.0, "trajectory_execution_steps": 5, "horizon": 5},
+            "env": {"traffic_density": 0.0, "horizon": 5},
             "map_query_radius_m": 100.0,
             "model": {"args_path": "args.json", "checkpoint_path": "model.pth"},
             "runtime": {"accelerator": "cpu", "precision": "32-true", "seed": 7},

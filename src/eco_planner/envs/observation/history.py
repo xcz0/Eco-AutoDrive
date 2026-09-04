@@ -6,7 +6,7 @@ from collections import deque
 
 from eco_planner.contracts import TRAFFIC_HISTORY_FRAMES
 
-from ..domain import TrafficFrame
+from ..domain.traffic import TrafficFrame
 
 
 class TrafficHistory:

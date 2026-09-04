@@ -12,9 +12,12 @@ import torch
 from tensordict import TensorDict, TensorDictBase
 from torchrl.envs import ParallelEnv
 
-from eco_planner.contracts import PLANNER_HORIZON, TRAFFIC_HISTORY_WARMUP_STEPS
+from eco_planner.contracts import (
+    PLANNER_HORIZON,
+    TRAFFIC_HISTORY_WARMUP_STEPS,
+    ExecutionMode,
+)
 from eco_planner.envs.metadrive import ObservationMode
-from eco_planner.envs.observation import PlannerObservationSpec
 from eco_planner.runtime.envs.worker import (
     VectorEnvScenario,
     WorkerFailure,
@@ -52,7 +55,7 @@ class VectorMetaDriveEnv:
         env_configs: Sequence[Mapping[str, Any]],
         *,
         mode: ObservationMode,
-        observation_spec: PlannerObservationSpec,
+        execution_mode: ExecutionMode,
         map_query_radius_m: float,
         history_warmup_steps: int,
         scenarios: Sequence[VectorEnvScenario],
@@ -61,7 +64,7 @@ class VectorMetaDriveEnv:
         _validate_configuration(
             env_configs,
             mode=mode,
-            observation_spec=observation_spec,
+            execution_mode=execution_mode,
             map_query_radius_m=map_query_radius_m,
             history_warmup_steps=history_warmup_steps,
         )
@@ -88,7 +91,7 @@ class VectorMetaDriveEnv:
             make_torchrl_scenario_env,
             dict(env_configs[0]),
             mode,
-            observation_spec,
+            execution_mode,
             float(map_query_radius_m),
             history_warmup_steps,
             self._scenarios,
@@ -298,7 +301,7 @@ def _validate_configuration(
     env_configs: Sequence[Mapping[str, Any]],
     *,
     mode: ObservationMode,
-    observation_spec: PlannerObservationSpec,
+    execution_mode: ExecutionMode,
     map_query_radius_m: float,
     history_warmup_steps: int,
 ) -> None:
@@ -306,6 +309,8 @@ def _validate_configuration(
         raise ValueError("VectorMetaDriveEnv requires at least one environment slot")
     if mode not in {"traffic", "no_traffic"}:
         raise ValueError("mode must be either 'traffic' or 'no_traffic'")
+    if not isinstance(execution_mode, ExecutionMode):
+        raise TypeError("execution_mode must be an ExecutionMode")
     if type(map_query_radius_m) not in {int, float} or map_query_radius_m <= 0.0:
         raise ValueError("map_query_radius_m must be a positive real scalar")
     if type(history_warmup_steps) is not int or history_warmup_steps < 0:

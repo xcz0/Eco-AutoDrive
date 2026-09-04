@@ -9,18 +9,22 @@ import numpy as np
 from shapely import LineString, box
 from shapely.strtree import STRtree
 
-from ..array_types import (
+from eco_planner.contracts import LANE_COUNT, LANE_FEATURE_DIM, LANE_POINTS, ROUTE_LANE_COUNT
+
+from ..domain.arrays import WorldVectorArray
+from ..domain.geometry import rear_axle_position, world_points_to_local
+from ..observation.arrays import (
     EncodedLaneArray,
     LaneGeometryArray,
-    NumpyMapObservation,
-    WorldVectorArray,
+    MapObservationArrays,
 )
-from ..geometry import rear_axle_position, world_points_to_local
-from ..observation import PlannerObservationSpec
 from .lane_speed import model_lane_speed_limit_mps
 
-_LANE_FEATURE_DIM = 12
 _TRAFFIC_LIGHT_UNKNOWN = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+
+
+class LocalRouteUnavailableError(RuntimeError):
+    """The current local lane selection contains no connected navigation route."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,18 +53,10 @@ class MetaDriveMapAdapter:
 
     def __init__(
         self,
-        observation_spec: PlannerObservationSpec,
         query_radius_m: float,
     ) -> None:
         if not np.isfinite(query_radius_m) or query_radius_m <= 0.0:
             raise ValueError("query_radius_m must be finite and positive")
-        if observation_spec.lane_state_dim != _LANE_FEATURE_DIM:
-            raise ValueError(f"lane_state_dim must be {_LANE_FEATURE_DIM}")
-        if observation_spec.route_state_dim != _LANE_FEATURE_DIM:
-            raise ValueError(f"route_state_dim must be {_LANE_FEATURE_DIM}")
-        if observation_spec.route_len != observation_spec.lane_len:
-            raise ValueError("route_len must equal lane_len")
-        self._config = observation_spec
         self._query_radius_m = float(query_radius_m)
         self._map_identity: int | None = None
         self._lane_snapshots: tuple[_LaneSnapshot, ...] | None = None
@@ -82,7 +78,7 @@ class MetaDriveMapAdapter:
             for snapshot in snapshots
         )
 
-    def build_arrays(self, env: Any, *, allow_empty_route: bool = False) -> NumpyMapObservation:
+    def build_arrays(self, env: Any, *, allow_empty_route: bool = False) -> MapObservationArrays:
         """Build raw NumPy map fields before the common observation output boundary."""
 
         current_map, _, ego, navigation = self._environment_parts(env)
@@ -138,8 +134,8 @@ class MetaDriveMapAdapter:
         length = float(lane.length)
         if not np.isfinite(length) or length <= 0.0:
             raise ValueError(f"lane {lane_index!r} must have a finite positive length")
-        longitudinal = np.linspace(0.0, length, self._config.lane_len, dtype=np.float64)
-        centers = np.empty((self._config.lane_len, 2), dtype=np.float64)
+        longitudinal = np.linspace(0.0, length, LANE_POINTS, dtype=np.float64)
+        centers = np.empty((LANE_POINTS, 2), dtype=np.float64)
         left = np.empty_like(centers)
         right = np.empty_like(centers)
         for index, value in enumerate(longitudinal):
@@ -176,7 +172,7 @@ class MetaDriveMapAdapter:
             if distance <= self._query_radius_m:
                 candidates.append((distance, snapshot))
         candidates.sort(key=lambda candidate: (candidate[0], candidate[1].stable_id))
-        selected = [snapshot for _, snapshot in candidates[: self._config.lane_num]]
+        selected = [snapshot for _, snapshot in candidates[:LANE_COUNT]]
         if not selected:
             raise RuntimeError("no lanes were found within the configured map query radius")
         return selected
@@ -218,26 +214,25 @@ class MetaDriveMapAdapter:
         if not connected_local_route:
             if allow_empty_route:
                 return []
-            raise RuntimeError("no connected navigation route lanes exist in the local lane set")
+            raise LocalRouteUnavailableError(
+                "no connected navigation route lanes exist in the local lane set"
+            )
         route_road_set = set(connected_local_route)
         selected = [snapshot for snapshot in lane_snapshots if snapshot.road in route_road_set]
         if not selected:
             raise RuntimeError("navigation route did not resolve to a selected local lane")
-        return selected[: self._config.route_num]
+        return selected[:ROUTE_LANE_COUNT]
 
-    def _allocate_arrays(self) -> NumpyMapObservation:
-        config = self._config
+    def _allocate_arrays(self) -> MapObservationArrays:
         return {
-            "lanes": np.zeros(
-                (config.lane_num, config.lane_len, config.lane_state_dim), dtype=np.float32
-            ),
-            "lanes_speed_limit": np.zeros((config.lane_num, 1), dtype=np.float32),
-            "lanes_has_speed_limit": np.zeros((config.lane_num, 1), dtype=np.bool_),
+            "lanes": np.zeros((LANE_COUNT, LANE_POINTS, LANE_FEATURE_DIM), dtype=np.float32),
+            "lanes_speed_limit": np.zeros((LANE_COUNT, 1), dtype=np.float32),
+            "lanes_has_speed_limit": np.zeros((LANE_COUNT, 1), dtype=np.bool_),
             "route_lanes": np.zeros(
-                (config.route_num, config.route_len, config.route_state_dim), dtype=np.float32
+                (ROUTE_LANE_COUNT, LANE_POINTS, LANE_FEATURE_DIM), dtype=np.float32
             ),
-            "route_lanes_speed_limit": np.zeros((config.route_num, 1), dtype=np.float32),
-            "route_lanes_has_speed_limit": np.zeros((config.route_num, 1), dtype=np.bool_),
+            "route_lanes_speed_limit": np.zeros((ROUTE_LANE_COUNT, 1), dtype=np.float32),
+            "route_lanes_has_speed_limit": np.zeros((ROUTE_LANE_COUNT, 1), dtype=np.bool_),
         }
 
     def _encode_lanes(
@@ -267,7 +262,7 @@ class MetaDriveMapAdapter:
         )
         results: list[tuple[EncodedLaneArray, float, bool]] = []
         for index, snapshot in enumerate(snapshots):
-            features = np.zeros((self._config.lane_len, _LANE_FEATURE_DIM), dtype=np.float32)
+            features = np.zeros((LANE_POINTS, LANE_FEATURE_DIM), dtype=np.float32)
             features[:, :2] = centers_local[index]
             features[:-1, 2:4] = np.diff(centers_local[index], axis=0)
             features[:, 4:6] = left_local[index] - centers_local[index]

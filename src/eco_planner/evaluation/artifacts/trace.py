@@ -9,19 +9,12 @@ import numpy as np
 
 from eco_planner.contracts import (
     AGENT_COUNT,
-    AGENT_HISTORY_DIM,
     EVALUATION_EXECUTION_STEPS,
-    LANE_COUNT,
-    LANE_FEATURE_DIM,
-    LANE_POINTS,
     PLANNER_ACTOR_COUNT,
     PLANNER_HORIZON,
     PLANNER_STATE_DIM,
-    ROUTE_LANE_COUNT,
-    STATIC_OBJECT_COUNT,
-    STATIC_OBJECT_DIM,
-    TRAFFIC_HISTORY_FRAMES,
 )
+from eco_planner.envs.observation import PLANNER_OBSERVATION_FIELDS
 
 EXECUTION_PREFIX_STEPS = EVALUATION_EXECUTION_STEPS
 
@@ -40,20 +33,7 @@ class TraceFieldSpec:
     finite: bool = True
 
 
-OBSERVATION_FIELDS: dict[str, tuple[tuple[int, ...], np.dtype]] = {
-    "ego_current_state": ((10,), np.dtype(np.float32)),
-    "neighbor_agents_past": (
-        (AGENT_COUNT, TRAFFIC_HISTORY_FRAMES, AGENT_HISTORY_DIM),
-        np.dtype(np.float32),
-    ),
-    "static_objects": ((STATIC_OBJECT_COUNT, STATIC_OBJECT_DIM), np.dtype(np.float32)),
-    "lanes": ((LANE_COUNT, LANE_POINTS, LANE_FEATURE_DIM), np.dtype(np.float32)),
-    "lanes_speed_limit": ((LANE_COUNT, 1), np.dtype(np.float32)),
-    "lanes_has_speed_limit": ((LANE_COUNT, 1), np.dtype(np.bool_)),
-    "route_lanes": ((ROUTE_LANE_COUNT, LANE_POINTS, LANE_FEATURE_DIM), np.dtype(np.float32)),
-    "route_lanes_speed_limit": ((ROUTE_LANE_COUNT, 1), np.dtype(np.float32)),
-    "route_lanes_has_speed_limit": ((ROUTE_LANE_COUNT, 1), np.dtype(np.bool_)),
-}
+OBSERVATION_FIELDS = PLANNER_OBSERVATION_FIELDS
 
 _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
     "trace_status": TraceFieldSpec((), None, finite=False),

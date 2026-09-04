@@ -15,9 +15,7 @@ def comfort_score(config: ComfortRewardConfig, metrics: TransitionMetrics) -> fl
             abs(metrics.longitudinal_acceleration_mps2),
             config.longitudinal_acceleration_limit_mps2,
         ),
-        _component(
-            abs(metrics.lateral_acceleration_mps2), config.lateral_acceleration_limit_mps2
-        ),
+        _component(abs(metrics.lateral_acceleration_mps2), config.lateral_acceleration_limit_mps2),
         _component(metrics.jerk_mps3, config.jerk_limit_mps3),
         _component(abs(metrics.input.yaw_rate_radps), config.yaw_rate_limit_radps),
     )

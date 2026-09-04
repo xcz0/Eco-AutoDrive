@@ -6,19 +6,15 @@ import numpy as np
 import torch
 from tensordict import TensorDict, TensorDictBase
 
-from eco_planner.contracts import (
-    AGENT_COUNT,
-    AGENT_HISTORY_DIM,
-    STATIC_OBJECT_COUNT,
-    STATIC_OBJECT_DIM,
-    TRAFFIC_HISTORY_FRAMES,
-)
-
+from .arrays import MapObservationArrays
 from .history import TrafficHistory
-from .map import MapSnapshot
 from .scene import TrafficObservationAudit, TrafficSceneEncoder
+from .schema import PLANNER_OBSERVATION_FIELDS
 
-_EGO_CURRENT_STATE = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+_EGO_CURRENT_STATE = np.array(
+    [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    dtype=PLANNER_OBSERVATION_FIELDS["ego_current_state"][1],
+)
 
 
 class ObservationBuilder:
@@ -28,51 +24,33 @@ class ObservationBuilder:
         self._scene_encoder = scene_encoder
 
     def build(
-        self, history: TrafficHistory, map_snapshot: MapSnapshot
+        self, history: TrafficHistory, map_arrays: MapObservationArrays
     ) -> tuple[TensorDictBase, TrafficObservationAudit]:
         neighbors, static_objects, audit = self._scene_encoder.build(history)
-        return TensorDict(
-            {
-                "ego_current_state": torch.from_numpy(_EGO_CURRENT_STATE.copy()),
-                "neighbor_agents_past": torch.from_numpy(neighbors),
-                "static_objects": torch.from_numpy(static_objects),
-                "lanes": torch.from_numpy(map_snapshot.arrays["lanes"]),
-                "lanes_speed_limit": torch.from_numpy(map_snapshot.arrays["lanes_speed_limit"]),
-                "lanes_has_speed_limit": torch.from_numpy(
-                    map_snapshot.arrays["lanes_has_speed_limit"]
-                ),
-                "route_lanes": torch.from_numpy(map_snapshot.arrays["route_lanes"]),
-                "route_lanes_speed_limit": torch.from_numpy(
-                    map_snapshot.arrays["route_lanes_speed_limit"]
-                ),
-                "route_lanes_has_speed_limit": torch.from_numpy(
-                    map_snapshot.arrays["route_lanes_has_speed_limit"]
-                ),
-            },
-            batch_size=[],
-        ), audit
+        return self._assemble(map_arrays, neighbors, static_objects), audit
 
-    def build_empty_scene(self, map_snapshot: MapSnapshot) -> TensorDictBase:
+    def build_empty_scene(self, map_arrays: MapObservationArrays) -> TensorDictBase:
         """Build the no-traffic variant through the same TensorDict/map boundary."""
 
-        arrays = map_snapshot.arrays
+        return self._assemble(
+            map_arrays,
+            np.zeros(*PLANNER_OBSERVATION_FIELDS["neighbor_agents_past"]),
+            np.zeros(*PLANNER_OBSERVATION_FIELDS["static_objects"]),
+        )
+
+    @staticmethod
+    def _assemble(
+        map_arrays: MapObservationArrays,
+        neighbors: np.ndarray,
+        static_objects: np.ndarray,
+    ) -> TensorDictBase:
+        arrays = {
+            "ego_current_state": _EGO_CURRENT_STATE.copy(),
+            "neighbor_agents_past": neighbors,
+            "static_objects": static_objects,
+            **map_arrays,
+        }
         return TensorDict(
-            {
-                "ego_current_state": torch.from_numpy(_EGO_CURRENT_STATE.copy()),
-                "neighbor_agents_past": torch.zeros(
-                    (AGENT_COUNT, TRAFFIC_HISTORY_FRAMES, AGENT_HISTORY_DIM), dtype=torch.float32
-                ),
-                "static_objects": torch.zeros(
-                    (STATIC_OBJECT_COUNT, STATIC_OBJECT_DIM), dtype=torch.float32
-                ),
-                "lanes": torch.from_numpy(arrays["lanes"]),
-                "lanes_speed_limit": torch.from_numpy(arrays["lanes_speed_limit"]),
-                "lanes_has_speed_limit": torch.from_numpy(arrays["lanes_has_speed_limit"]),
-                "route_lanes": torch.from_numpy(arrays["route_lanes"]),
-                "route_lanes_speed_limit": torch.from_numpy(arrays["route_lanes_speed_limit"]),
-                "route_lanes_has_speed_limit": torch.from_numpy(
-                    arrays["route_lanes_has_speed_limit"]
-                ),
-            },
+            {name: torch.from_numpy(arrays[name]) for name in PLANNER_OBSERVATION_FIELDS},
             batch_size=[],
         )

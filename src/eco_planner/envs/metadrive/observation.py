@@ -1,74 +1,94 @@
-"""MetaDrive snapshot and map glue for the canonical observation pipeline."""
+"""MetaDrive sources for the canonical planner observation pipeline."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
-from metadrive.component.static_object.traffic_object import TrafficObject
-from metadrive.component.traffic_participants.base_traffic_participant import (
-    BaseTrafficParticipant,
-)
-from metadrive.component.vehicle.base_vehicle import BaseVehicle
+from tensordict import TensorDictBase
 
 from ..domain.traffic import TrafficFrame
-from ..observation import MapSnapshot, PlannerObservationSpec, TrafficHistory
+from ..observation.builder import ObservationBuilder
+from ..observation.history import TrafficHistory
+from ..observation.scene import TrafficObservationAudit, TrafficSceneEncoder
 from .map import MetaDriveMapAdapter
 
 
-class MetaDriveObservationSource:
-    """Adapt MetaDrive state into domain history and map snapshots without encoding features."""
+class MetaDriveObservationPipeline(Protocol):
+    """Common state and output boundary for traffic and no-traffic observations."""
 
-    def __init__(self, observation_spec: PlannerObservationSpec, query_radius_m: float) -> None:
+    def reset(self, env: Any, initial_frame: TrafficFrame) -> None: ...
+
+    def append_frames(self, frames: tuple[TrafficFrame, ...]) -> None: ...
+
+    def build(self, env: Any) -> tuple[TensorDictBase, TrafficObservationAudit | None]: ...
+
+
+class TrafficMetaDriveObservationPipeline:
+    """Build planner observations from traffic history and current local map state."""
+
+    def __init__(self, query_radius_m: float) -> None:
         self._history = TrafficHistory()
-        self._map_adapter = MetaDriveMapAdapter(observation_spec, query_radius_m)
-
-    @property
-    def history(self) -> TrafficHistory:
-        """Return the canonical traffic-history state machine."""
-
-        return self._history
+        self._map_adapter = MetaDriveMapAdapter(query_radius_m)
+        self._builder = ObservationBuilder(TrafficSceneEncoder(query_radius_m))
 
     def reset(self, env: Any, initial_frame: TrafficFrame) -> None:
-        """Seed immutable traffic history and capture reset-time map topology."""
-
         self._history.reset(initial_frame)
         self._map_adapter.reset(env)
 
     def append_frames(self, frames: tuple[TrafficFrame, ...]) -> None:
-        """Commit consecutive simulator snapshots from one executed trajectory prefix."""
-
         self._history.append(frames)
 
-    def map_snapshot(self, env: Any) -> MapSnapshot:
-        """Extract current local map arrays at the simulator/domain boundary."""
-
-        latest = self._history.latest
-        current_step = getattr(getattr(env, "engine", None), "episode_step", None)
-        if current_step != latest.simulator_step:
-            raise RuntimeError("latest traffic frame does not match the current simulator step")
-        return MapSnapshot(
-            self._map_adapter.build_arrays(env, allow_empty_route=env.is_out_of_road_terminal)
+    def build(self, env: Any) -> tuple[TensorDictBase, TrafficObservationAudit]:
+        self._validate_current_step(env, self._history.latest.simulator_step)
+        return self._builder.build(
+            self._history,
+            self._map_adapter.build_arrays(env, allow_empty_route=env.is_out_of_road_terminal),
         )
 
+    @staticmethod
+    def _validate_current_step(env: Any, expected_step: int) -> None:
+        current_step = getattr(getattr(env, "engine", None), "episode_step", None)
+        if current_step != expected_step:
+            raise RuntimeError("latest traffic frame does not match the current simulator step")
 
-class NoTrafficMetaDriveObservationSource:
-    """Extract map snapshots after proving the configured MetaDrive scene is empty."""
 
-    def __init__(self, observation_spec: PlannerObservationSpec, query_radius_m: float) -> None:
-        self._map_adapter = MetaDriveMapAdapter(observation_spec, query_radius_m)
+class NoTrafficMetaDriveObservationPipeline:
+    """Build empty-scene planner observations after validating captured frames."""
 
-    def reset(self, env: Any) -> None:
-        """Capture immutable map geometry for the reset no-traffic episode."""
+    def __init__(self, query_radius_m: float) -> None:
+        self._map_adapter = MetaDriveMapAdapter(query_radius_m)
+        self._builder = ObservationBuilder(TrafficSceneEncoder(query_radius_m))
+        self._simulator_step: int | None = None
 
+    def reset(self, env: Any, initial_frame: TrafficFrame) -> None:
+        self._validate_environment_config(env)
+        self._validate_empty_frame(initial_frame)
+        self._simulator_step = initial_frame.simulator_step
         self._map_adapter.reset(env)
 
-    def map_snapshot(self, env: Any) -> MapSnapshot:
-        """Validate no-traffic conditions and return local map arrays."""
+    def append_frames(self, frames: tuple[TrafficFrame, ...]) -> None:
+        if self._simulator_step is None:
+            raise RuntimeError("no-traffic observation pipeline is unavailable before reset")
+        expected_step = self._simulator_step
+        for frame in frames:
+            expected_step += 1
+            if frame.simulator_step != expected_step:
+                raise ValueError(
+                    "no-traffic simulator steps must be consecutive: "
+                    f"expected {expected_step}, got {frame.simulator_step}"
+                )
+            self._validate_empty_frame(frame)
+        self._simulator_step = expected_step
 
-        self._validate_environment_config(env)
-        self._validate_scene_is_empty(env)
-        return MapSnapshot(
-            self._map_adapter.build_arrays(env, allow_empty_route=env.is_out_of_road_terminal)
+    def build(self, env: Any) -> tuple[TensorDictBase, None]:
+        if self._simulator_step is None:
+            raise RuntimeError("no-traffic observation pipeline is unavailable before reset")
+        TrafficMetaDriveObservationPipeline._validate_current_step(env, self._simulator_step)
+        return (
+            self._builder.build_empty_scene(
+                self._map_adapter.build_arrays(env, allow_empty_route=env.is_out_of_road_terminal)
+            ),
+            None,
         )
 
     @staticmethod
@@ -90,22 +110,10 @@ class NoTrafficMetaDriveObservationSource:
                 raise ValueError(f"{name} must be explicitly configured as {expected!r}")
 
     @staticmethod
-    def _validate_scene_is_empty(env: Any) -> None:
-        ego = getattr(env, "agent", None)
-        engine = getattr(env, "engine", None)
-        if ego is None or engine is None:
-            raise RuntimeError("MetaDrive environment must be reset before building observations")
-        objects = engine.get_objects()
-        if not isinstance(objects, dict):
-            raise RuntimeError("MetaDrive engine objects must be exposed as a dictionary")
-        dynamic = [
-            name
-            for name, value in objects.items()
-            if value is not ego and isinstance(value, (BaseVehicle, BaseTrafficParticipant))
-        ]
-        static = [name for name, value in objects.items() if isinstance(value, TrafficObject)]
-        if dynamic or static:
+    def _validate_empty_frame(frame: TrafficFrame) -> None:
+        if frame.participants or frame.static_objects:
             raise RuntimeError(
                 "no-traffic observation received unsupported scene objects: "
-                f"dynamic={sorted(dynamic)}, static={sorted(static)}"
+                f"dynamic={[state.object_id for state in frame.participants]}, "
+                f"static={[state.object_id for state in frame.static_objects]}"
             )

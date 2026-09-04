@@ -7,28 +7,19 @@ from typing import Any
 
 import numpy as np
 
-from eco_planner.contracts import (
-    PLANNER_HORIZON,
-    SIMULATOR_STEP_S,
-    ExecutionMode,
-    validate_metadrive_timestep,
-)
+from eco_planner.contracts import SIMULATOR_STEP_S, ExecutionMode
 
-from ..array_types import (
+from ..domain.arrays import (
     ExecutionBooleanArray,
     ExecutionStateArray,
     TrajectoryArray,
     WorldVectorArray,
 )
-from ..domain import (
-    EnergyMetricProvider,
-    TrafficFrame,
-    TrajectoryExecutionRecord,
-    TrajectoryExecutionResult,
-    TransitionMetrics,
-    WorldTrajectory,
-    to_world_trajectory,
-)
+from ..domain.energy import EnergyMetricProvider
+from ..domain.execution import TrajectoryExecutionRecord, TrajectoryExecutionResult
+from ..domain.traffic import TrafficFrame
+from ..domain.trajectory import WorldTrajectory, to_world_trajectory
+from ..domain.transition import TransitionMetrics
 from .simulator import MetaDriveBackend, MetaDriveStepResult
 from .transition import TransitionExtractor
 
@@ -170,27 +161,3 @@ class TrajectoryExecutionRecorder:
             terminated=final_step.terminated,
             truncated=final_step.truncated,
         )
-
-
-def execution_steps_from_config(config: Any) -> int:
-    """Normalize the external execution-mode boundary to a fixed project contract."""
-
-    mode_value = config.get("execution_mode")
-    if mode_value is not None:
-        try:
-            return ExecutionMode(mode_value).steps
-        except ValueError as error:
-            raise ValueError("execution_mode must be 'rollout' or 'evaluation'") from error
-    horizon = _require_positive_int(config, "trajectory_horizon")
-    execution_steps = _require_positive_int(config, "trajectory_execution_steps")
-    if horizon != PLANNER_HORIZON or execution_steps not in {mode.steps for mode in ExecutionMode}:
-        raise ValueError("legacy trajectory configuration does not match the fixed project ABI")
-    validate_metadrive_timestep(config["physics_world_step_size"], config["decision_repeat"])
-    return execution_steps
-
-
-def _require_positive_int(config: Any, name: str) -> int:
-    value = config[name]
-    if type(value) is not int or value <= 0:
-        raise ValueError(f"{name} must be a positive integer")
-    return value

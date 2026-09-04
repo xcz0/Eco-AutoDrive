@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..array_types import (
+from .arrays import (
     ExecutionBooleanArray,
     ExecutionPointArray,
     ExecutionScalarArray,
@@ -13,8 +13,8 @@ from ..array_types import (
     WorldPointArray,
     WorldVectorArray,
 )
-from .metrics import TransitionMetrics
 from .traffic import TrafficFrame
+from .transition import TransitionMetrics
 
 
 @dataclass(frozen=True, slots=True)

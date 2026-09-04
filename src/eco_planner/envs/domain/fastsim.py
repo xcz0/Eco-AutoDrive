@@ -6,7 +6,7 @@ import math
 
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat
 
-from .metrics import EnergyMetrics, EnergyTrace
+from .energy import EnergyMetrics, EnergyTrace
 
 _FUEL_ENERGY_PATH = "veh.pt_type.Conv.fc.state.energy_fuel_joules"
 _DISTANCE_PATH = "veh.state.dist_meters"

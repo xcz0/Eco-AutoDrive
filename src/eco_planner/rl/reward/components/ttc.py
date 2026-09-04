@@ -15,8 +15,7 @@ def ttc_score(config: TTCRewardConfig, metrics: TransitionMetrics) -> tuple[floa
     min_ttc_s, has_candidate = _minimum_time_to_collision_s(config, metrics)
     score = float(
         np.clip(
-            (min_ttc_s - config.critical_ttc_s)
-            / (config.safe_ttc_s - config.critical_ttc_s),
+            (min_ttc_s - config.critical_ttc_s) / (config.safe_ttc_s - config.critical_ttc_s),
             0.0,
             1.0,
         )

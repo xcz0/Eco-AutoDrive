@@ -16,7 +16,7 @@ from pydantic import (
 )
 
 from eco_planner.configuration import ModelPathsConfig, ScenarioConfig, resolve_config_mapping
-from eco_planner.contracts import ROLLOUT_EXECUTION_STEPS, TRAFFIC_HISTORY_WARMUP_STEPS
+from eco_planner.contracts import TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.models import (
     OrthogonalPolicyGuidanceConfig,
     SamplerConfig,
@@ -169,11 +169,6 @@ def parse_training_config(config: DictConfig) -> TrainingJobConfig:
 def _validate_rollout_environment(
     env: dict[str, Any], history_warmup_steps: int, transition_count: int
 ) -> None:
-    mode = env.get("execution_mode")
-    if mode is not None and mode != "rollout":
-        raise ValueError("rollout requires env.execution_mode=rollout")
-    if mode is None and env.get("trajectory_execution_steps") != ROLLOUT_EXECUTION_STEPS:
-        raise ValueError("rollout requires env.execution_mode=rollout")
     horizon = env.get("horizon")
     required_horizon = history_warmup_steps + transition_count
     if type(horizon) is not int or horizon < required_horizon:

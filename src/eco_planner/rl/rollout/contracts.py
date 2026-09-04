@@ -348,9 +348,7 @@ def build_rollout_audit(
         "executed_fuel_proxy_ml_per_km": _float(
             execution.reward_result.diagnostics.executed_fuel_proxy_ml_per_km
         ),
-        "energy_distance_valid": _bool(
-            execution.reward_result.diagnostics.energy_distance_valid
-        ),
+        "energy_distance_valid": _bool(execution.reward_result.diagnostics.energy_distance_valid),
         "reward_diagnostic_collision_score": _float(
             execution.reward_result.diagnostics.collision_score
         ),

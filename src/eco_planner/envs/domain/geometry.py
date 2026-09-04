@@ -1,10 +1,10 @@
-"""Shared ego-frame geometry for MetaDrive boundaries."""
+"""Shared world- and ego-frame geometry operations."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from .array_types import Float64Array, WorldPointArray, WorldVectorArray
+from .arrays import Float64Array, WorldPointArray, WorldVectorArray
 
 
 def rear_axle_position(

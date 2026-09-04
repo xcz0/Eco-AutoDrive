@@ -19,9 +19,7 @@ def energy_score(
     fuel_ml_per_km = (
         measured_ml_per_km if distance_valid and measured_ml_per_km is not None else 0.0
     )
-    score = (
-        math.exp(-fuel_ml_per_km / config.reference_ml_per_km) if distance_valid else 0.0
-    )
+    score = math.exp(-fuel_ml_per_km / config.reference_ml_per_km) if distance_valid else 0.0
     return score, fuel_ml_per_km, distance_valid
 
 

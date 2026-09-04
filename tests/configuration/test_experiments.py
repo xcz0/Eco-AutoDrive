@@ -37,6 +37,8 @@ def test_experiment_manifests_are_strict_and_reference_composable_jobs(
             assert parsed.runtime.seed == 0
             assert parsed.sampler.name == "ddim5"
             assert parsed.env["random_agent_model"] is False
+
+
 def test_reward_sanity_config_covers_anti_hacking_and_gate_cases(config_root: Path) -> None:
     config = load_sanity_config(config_root / "experiments" / "reward" / "sanity.yaml")
 

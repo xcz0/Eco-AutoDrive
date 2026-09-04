@@ -13,7 +13,7 @@ from eco_planner.envs.domain import (
     TrafficParticipantState,
 )
 from eco_planner.envs.observation import (
-    PlannerObservationSpec,
+    PLANNER_OBSERVATION_FIELDS,
     TrafficHistory,
     TrafficSceneEncoder,
 )
@@ -52,10 +52,10 @@ def _observation(lane_value: float) -> TensorDict:
     )
 
 
-def test_planner_observation_dimensions_are_fixed_contracts() -> None:
-    assert PlannerObservationSpec().time_len == TRAFFIC_HISTORY_FRAMES
-    with pytest.raises(ValueError, match="fixed"):
-        PlannerObservationSpec(20, 11, 32, 10, 5, 20, 12, 70, 20, 12, 25)
+def test_planner_observation_schema_is_the_fixed_contract() -> None:
+    assert PLANNER_OBSERVATION_FIELDS["neighbor_agents_past"][0] == (32, 21, 11)
+    assert PLANNER_OBSERVATION_FIELDS["lanes"][0] == (70, 20, 12)
+    assert PLANNER_OBSERVATION_FIELDS["route_lanes"][0] == (25, 20, 12)
 
 
 def test_traffic_history_commits_only_consecutive_domain_frames() -> None:

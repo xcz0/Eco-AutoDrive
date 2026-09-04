@@ -122,15 +122,9 @@ def test_plannerrft_energy_reward_matches_the_worked_no_traffic_example() -> Non
     assert result.components.progress == 1.0
     assert result.components.comfort == 1.0
     assert result.components.speed == 1.0
-    assert result.diagnostics.executed_fuel_proxy_ml_per_km == pytest.approx(
-        32.5 * math.exp(0.36)
-    )
-    assert result.components.energy == pytest.approx(
-        math.exp(-(32.5 * math.exp(0.36)) / 50.0)
-    )
-    assert result.total == pytest.approx(
-        (5.0 + 5.0 + 2.0 + 4.0 + result.components.energy) / 17.0
-    )
+    assert result.diagnostics.executed_fuel_proxy_ml_per_km == pytest.approx(32.5 * math.exp(0.36))
+    assert result.components.energy == pytest.approx(math.exp(-(32.5 * math.exp(0.36)) / 50.0))
+    assert result.total == pytest.approx((5.0 + 5.0 + 2.0 + 4.0 + result.components.energy) / 17.0)
 
 
 def test_energy_score_does_not_reward_a_stationary_transition() -> None:

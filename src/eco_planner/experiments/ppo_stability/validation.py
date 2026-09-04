@@ -14,7 +14,6 @@ from tensordict import TensorDictBase
 
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import ScenarioConfig
-from eco_planner.contracts import EVALUATION_EXECUTION_STEPS
 from eco_planner.evaluation import (
     CompletedEpisodeSummary,
     EvaluationDecision,
@@ -212,8 +211,6 @@ def _evaluation_job_config(
     environment = dict(training.env)
     environment.update(
         {
-            "execution_mode": "evaluation",
-            "trajectory_execution_steps": EVALUATION_EXECUTION_STEPS,
             "horizon": training.training.history_warmup_steps + transitions_per_scenario,
         }
     )
