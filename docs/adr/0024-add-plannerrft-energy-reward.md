@@ -9,11 +9,12 @@ Issue #59 需要在现有 closed-loop PPO 上加入可配置、可审计的 Plan
 或 scorer parity。
 
 因此，RL reward 使用以 `name` 判别的严格配置联合。`metadrive_builtin_v1` 继续委托 MetaDrive
-原生 reward；`plannerrft_energy_v1` 由 `TrajectoryMetaDriveEnv` 在每个实际 10 Hz execution
-子步有状态计算。environment slot、TorchRL vector worker 和 serial path 显式接收同一个 typed
-profile。环境边界拥有前一 position、velocity 和 acceleration，并在 MetaDrive done/cost、当前
-traffic frame、route/reference lane 与 lane speed limit 都可用后生成不可变 reward audit。trainer、
-collector、summary 和 artifact writer 只传播或聚合该结果，不再实现 reward 公式。
+原生 reward；`plannerrft_energy_v1` 由 `MetaDriveEnvSlot` 在每个实际 10 Hz execution 子步的
+objective-neutral `TransitionMetrics` 上计算。environment slot、TorchRL vector worker 和 serial
+path 显式接收同一个 typed profile。transition extractor 拥有前一 position、velocity 和
+acceleration，并在 MetaDrive done/cost、当前 traffic frame、route/reference lane 与 lane speed
+limit 都可用后生成 metrics；RL collector 从 step result 生成不可变 reward audit。trainer、summary
+和 artifact writer 只传播或聚合该结果，不再实现 reward 公式。
 
 MetaDrive native `step_energy`/`episode_energy` 与实际 execution fuel proxy 是两个独立流。native
 值保留为 phase-boundary audit；E-019 已证明它在当前 kinematic execution 下恒为零，不能作为
@@ -28,8 +29,10 @@ step delta；comfort 使用实际 execution acceleration、jerk magnitude 和 ya
 lane limit；energy 使用 `exp(-ml_per_km/50)`，位移小于 0.01 m 时为零。阈值、权重、margin 和
 归一化尺度全部保存在 resolved reward profile，50 mL/km 仅是 E-019 支持的 smoke normalization。
 
-PPO TensorDict 只保存最终 scalar reward。CPU rollout audit、`TrajectoryExecutionRecord`、TorchRL
-remote result、NPZ 和 update summary 保留 profile-specific typed audit。builtin profile 保持既有
-dense/terminal artifact schema；energy profile 保存 gate、component、原始量、collision/termination
-和双能耗字段。该决定支持一次真实 PPO update 的链路验证，不构成 A/B、PlannerRFT parity、真实
-车辆舒适性或节能改善证据；在对应实验完成前不关闭 Issue #59。
+PPO TensorDict 只保存最终 scalar reward。`TrajectoryExecutionRecord` 只保存 target、actual、traffic
+和 termination 等执行事实；`EnvSlotStep` 独立携带 scalar/substep reward 与 objective-neutral
+metrics。CPU rollout audit、TorchRL remote result、NPZ 和 update summary 在各自边界保存
+profile-specific typed audit。builtin profile 保持既有 dense/terminal artifact schema；energy
+profile 保存 gate、component、原始量、collision/termination 和双能耗字段。该决定支持一次真实
+PPO update 的链路验证，不构成 A/B、PlannerRFT parity、真实车辆舒适性或节能改善证据；在对应
+实验完成前不关闭 Issue #59。

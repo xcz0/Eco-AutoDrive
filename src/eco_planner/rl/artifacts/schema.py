@@ -13,5 +13,4 @@ def rollout_artifact_fields(reward_profile: RewardProfileName) -> tuple[str, ...
     return (*rollout_audit_keys(reward_profile), *_ROLLOUT_METADATA_FIELDS)
 
 
-BUILTIN_ROLLOUT_ARTIFACT_FIELDS = rollout_artifact_fields("metadrive_builtin_v1")
 ENERGY_ROLLOUT_ARTIFACT_FIELDS = rollout_artifact_fields("plannerrft_energy_v1")

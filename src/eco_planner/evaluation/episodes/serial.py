@@ -3,19 +3,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import numpy as np
+from tensordict import TensorDictBase
 
+from eco_planner.configuration import ScenarioConfig
+from eco_planner.contracts import ExecutionMode, evaluation_plan_cycles
 from eco_planner.envs import (
     MetaDriveEnvSlot,
-    PlannerObservationSpec,
     TrajectoryExecutionRecord,
-    collate_observations,
 )
-from eco_planner.execution_contracts import evaluation_plan_cycles
 
 from ..artifacts import CompletedEpisodeSummary, FailedEpisodeSummary, FailurePhase
-from ..config import EvaluationJobConfig, ScenarioConfig
+from ..config import EvaluationJobConfig
 from ..inference import EvaluationAgent
 from .lifecycle import (
     EpisodeFailure,
@@ -50,7 +51,7 @@ def run_scenario(
         env_slot = MetaDriveEnvSlot(
             env_config,
             mode=mode,
-            observation_spec=PlannerObservationSpec.from_planner_config(agent.planner_config),
+            execution_mode=ExecutionMode.EVALUATION,
             map_query_radius_m=config.map_query_radius_m,
             history_warmup_steps=config.evaluation.history_warmup_steps,
         )
@@ -82,10 +83,11 @@ def run_scenario(
         )
         if mode == "traffic":
             try:
-                for execution in env_slot.warmup():
+                for step in reset.warmup_steps:
+                    execution = step.execution
                     traffic_frames = execution.traffic_frames
                     trace.append_warmup(
-                        execution,
+                        step,
                         np.asarray(
                             [len(frame.participants) for frame in traffic_frames], dtype=np.int64
                         ),
@@ -95,37 +97,39 @@ def run_scenario(
                     )
             except Exception as error:
                 raise EpisodeFailure(FailurePhase.WARMUP, error) from error
-            trace.replace_initial_state(env_slot.vehicle_state)
+            trace.replace_initial_state(reset.state.vehicle_state)
 
         terminated = False
         truncated = False
         final_execution: TrajectoryExecutionRecord | None = None
+        current_slot_state = reset.state
         while not terminated and not truncated:
-            slot_observation = env_slot.observe()
-            raw_observation = slot_observation.observation
-            traffic_audit = slot_observation.traffic_audit
+            raw_observation = current_slot_state.observation
+            traffic_audit = current_slot_state.traffic_audit
             inference = agent.decide_batch(
-                collate_observations([raw_observation]), (state.noise_generator,)
+                cast(TensorDictBase, TensorDictBase.stack([raw_observation])),
+                (state.noise_generator,),
             )
-            state.anchor = env_slot.vehicle_state
-            step = env_slot.step(np.asarray(inference.ego_trajectories)[0])
+            state.anchor = current_slot_state.vehicle_state
+            slot_step = env_slot.step(np.asarray(inference.ego_trajectories)[0])
+            step = slot_step.execution
             terminated = step.terminated
             truncated = step.truncated
             execution = step.execution
             cycle = state.record_cycle(
                 raw_observation,
                 audit_slot(inference.audit_result(), 0),
-                execution,
-                step.reward,
+                step,
                 traffic_audit,
             )
             if config.video.enabled:
                 frames.append(
                     render_cycle_frame(
-                        env_slot.env, execution, state.anchor[:2], config.video, cycle
+                        env_slot.backend, execution, state.anchor[:2], config.video, cycle
                     )
                 )
             final_execution = execution
+            current_slot_state = slot_step.state
         if final_execution is None:
             raise EpisodeFailure(
                 phase=FailurePhase.EXECUTION,
@@ -139,7 +143,6 @@ def run_scenario(
             final_execution,
             terminated,
             truncated,
-            state.total_reward,
             state.environment_map_audit,
             state.route_length_m,
             state.saw_traffic,

@@ -14,30 +14,29 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat
 from eco_planner._repository import CONFIG_ROOT, REPOSITORY_ROOT
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.envs.domain.traffic import (
+from eco_planner.envs import (
+    MetaDriveFuelProxyProvider,
     StaticTrafficObjectState,
     TrafficFrame,
     TrafficParticipantState,
+    TransitionMetricInput,
+    derive_transition_metrics,
 )
-from eco_planner.envs.metadrive.reward import (
-    PlannerRFTEnergyRewardConfig,
-    RewardStepInput,
-    score_plannerrft_energy_step,
-)
+from eco_planner.rl.reward import PlannerRFTEnergyRewardConfig, evaluate_plannerrft_energy_step
 
 DEFAULT_CONFIG = CONFIG_ROOT / "experiments" / "reward" / "sanity.yaml"
 _SCORE_FIELDS = (
-    "reward_total",
-    "reward_ungated",
-    "reward_gate",
-    "collision_score",
-    "drivable_score",
-    "wrong_direction_score",
-    "ttc_score",
-    "progress_score",
-    "comfort_score",
-    "speed_score",
-    "energy_score",
+    "total",
+    "base_total",
+    "safety_gate",
+    "diagnostics.collision_score",
+    "diagnostics.drivable_score",
+    "diagnostics.wrong_direction_score",
+    "components.ttc",
+    "components.progress",
+    "components.comfort",
+    "components.speed",
+    "components.energy",
 )
 
 
@@ -167,11 +166,13 @@ def evaluate_sanity(config: _SanityConfig) -> dict[str, object]:
             raise ValueError(f"duplicate reward sanity case {case.name!r}")
         values = config.base_input.model_dump(mode="python")
         values.update(case.overrides.model_dump(mode="python", exclude_none=True))
-        audit = score_plannerrft_energy_step(reward, _reward_input(values))
-        payload = asdict(audit)
+        metrics = derive_transition_metrics(_reward_input(values), MetaDriveFuelProxyProvider())
+        result = evaluate_plannerrft_energy_step(reward, metrics)
+        payload = asdict(result)
         cases[case.name] = payload
         scores_valid = all(
-            math.isfinite(float(payload[field])) and 0.0 <= float(payload[field]) <= 1.0
+            math.isfinite(_numeric_field(payload, field))
+            and 0.0 <= _numeric_field(payload, field) <= 1.0
             for field in _SCORE_FIELDS
         )
         checks.append({"name": f"{case.name}:scores_finite_unit_interval", "passed": scores_valid})
@@ -234,7 +235,7 @@ def run_sanity(config_path: Path, output_root: Path) -> int:
     return 0 if report["status"] == "passed" else 1
 
 
-def _reward_input(values: dict[str, object]) -> RewardStepInput:
+def _reward_input(values: dict[str, object]) -> TransitionMetricInput:
     parsed = _RewardInputConfig.model_validate(values)
     participants = tuple(
         TrafficParticipantState(
@@ -259,7 +260,7 @@ def _reward_input(values: dict[str, object]) -> RewardStepInput:
         )
         for item in parsed.static_objects
     )
-    return RewardStepInput(
+    return TransitionMetricInput(
         previous_position_xy_m=_point(parsed.previous_position_xy_m),
         position_xy_m=_point(parsed.position_xy_m),
         previous_velocity_xy_mps=_point(parsed.previous_velocity_xy_mps),
@@ -280,6 +281,8 @@ def _reward_input(values: dict[str, object]) -> RewardStepInput:
             participants=participants,
             static_objects=static_objects,
         ),
+        target_position_xy_m=_point(parsed.position_xy_m),
+        target_heading_rad=parsed.heading_rad,
         crash_vehicle=parsed.crash_vehicle,
         crash_object=parsed.crash_object,
         crash_building=parsed.crash_building,
@@ -297,16 +300,25 @@ def _point(values: list[StrictFloat]) -> tuple[float, float]:
 
 
 def _numeric_field(payload: dict[str, object], field: str) -> float:
-    value = payload.get(field)
+    value = _field(payload, field)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"reward audit field {field!r} is not numeric")
     return float(value)
 
 
 def _boolean_field(payload: dict[str, object], field: str) -> bool:
-    value = payload.get(field)
+    value = _field(payload, field)
     if not isinstance(value, bool):
         raise ValueError(f"reward audit field {field!r} is not boolean")
+    return value
+
+
+def _field(payload: dict[str, object], field: str) -> object:
+    value: object = payload
+    for part in field.split("."):
+        if not isinstance(value, dict) or part not in value:
+            raise ValueError(f"reward result does not contain field {field!r}")
+        value = value[part]
     return value
 
 

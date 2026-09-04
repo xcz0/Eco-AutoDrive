@@ -1,48 +1,86 @@
-"""Planner-facing MetaDrive interfaces."""
+"""Lazy planner-facing environment façade."""
 
-# ruff: noqa: I001
+from __future__ import annotations
 
-# Torch must load before MetaDrive/Panda3D on Windows to avoid DLL initialization failures.
-from eco_planner.envs.domain import ExecutionResult, ExecutionTrace, EpisodeStatus, WorldTrajectory
-from eco_planner.envs.observation import PlannerObservationSpec, collate_observations
-from eco_planner.envs.metadrive.observation import TrafficObservationAudit
-from eco_planner.envs.metadrive.execution import TrajectoryExecutionRecord
-from eco_planner.envs.metadrive.simulator import TrajectoryMetaDriveEnv
-from eco_planner.envs.metadrive.slot import (
-    EnvSlotObservation,
-    EnvSlotReset,
-    EnvSlotStep,
-    MetaDriveEnvSlot,
-)
-from eco_planner.envs.torchrl.adapter import TorchRLMetaDriveEnv
-from eco_planner.envs.runtime.vector import (
-    VectorEnvReset,
-    VectorEnvScenario,
-    VectorEnvStep,
-    VectorEnvTiming,
-    VectorMetaDriveEnv,
-    VectorMetaDriveWorkerError,
-)
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .domain import (
+        MetaDriveFuelProxyProvider,
+        StaticTrafficObjectState,
+        TrafficFrame,
+        TrafficParticipantState,
+        TrajectoryExecutionRecord,
+        TrajectoryExecutionResult,
+        TransitionMetricInput,
+        TransitionMetrics,
+        WorldTrajectory,
+        derive_transition_metrics,
+    )
+    from .metadrive import (
+        EnvSlotReset,
+        EnvSlotState,
+        EnvSlotStep,
+        EnvSlotTiming,
+        MetaDriveBackend,
+        MetaDriveEnvSlot,
+        ObservationMode,
+    )
+    from .observation import TrafficObservationAudit
+
+_EXPORTS = {
+    "MetaDriveFuelProxyProvider": (".domain", "MetaDriveFuelProxyProvider"),
+    "StaticTrafficObjectState": (".domain", "StaticTrafficObjectState"),
+    "TrafficFrame": (".domain", "TrafficFrame"),
+    "TrafficParticipantState": (".domain", "TrafficParticipantState"),
+    "TrajectoryExecutionRecord": (".domain", "TrajectoryExecutionRecord"),
+    "TrajectoryExecutionResult": (".domain", "TrajectoryExecutionResult"),
+    "TransitionMetricInput": (".domain", "TransitionMetricInput"),
+    "TransitionMetrics": (".domain", "TransitionMetrics"),
+    "WorldTrajectory": (".domain", "WorldTrajectory"),
+    "derive_transition_metrics": (".domain", "derive_transition_metrics"),
+    "EnvSlotReset": (".metadrive", "EnvSlotReset"),
+    "EnvSlotState": (".metadrive", "EnvSlotState"),
+    "EnvSlotStep": (".metadrive", "EnvSlotStep"),
+    "EnvSlotTiming": (".metadrive", "EnvSlotTiming"),
+    "MetaDriveBackend": (".metadrive", "MetaDriveBackend"),
+    "MetaDriveEnvSlot": (".metadrive", "MetaDriveEnvSlot"),
+    "ObservationMode": (".metadrive", "ObservationMode"),
+    "TrafficObservationAudit": (".observation", "TrafficObservationAudit"),
+}
 
 __all__ = [
-    "collate_observations",
-    "EpisodeStatus",
-    "ExecutionResult",
-    "ExecutionTrace",
-    "PlannerObservationSpec",
-    "TrafficObservationAudit",
-    "TrajectoryMetaDriveEnv",
-    "TrajectoryExecutionRecord",
-    "WorldTrajectory",
-    "EnvSlotObservation",
     "EnvSlotReset",
+    "EnvSlotState",
     "EnvSlotStep",
+    "EnvSlotTiming",
+    "MetaDriveBackend",
     "MetaDriveEnvSlot",
-    "TorchRLMetaDriveEnv",
-    "VectorEnvReset",
-    "VectorEnvScenario",
-    "VectorEnvStep",
-    "VectorEnvTiming",
-    "VectorMetaDriveEnv",
-    "VectorMetaDriveWorkerError",
+    "MetaDriveFuelProxyProvider",
+    "ObservationMode",
+    "StaticTrafficObjectState",
+    "TrafficFrame",
+    "TrafficObservationAudit",
+    "TrafficParticipantState",
+    "TrajectoryExecutionRecord",
+    "TrajectoryExecutionResult",
+    "TransitionMetricInput",
+    "TransitionMetrics",
+    "WorldTrajectory",
+    "derive_transition_metrics",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    target = _EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attribute = target
+    value = getattr(import_module(module_name, __name__), attribute)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

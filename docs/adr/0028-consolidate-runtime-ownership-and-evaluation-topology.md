@@ -29,10 +29,12 @@ slots, worker threads), configures the process, and chooses serial or vector exe
 inference runtime owns only model assembly, device placement, inference, and host-transfer behavior.
 
 Rollout decisions and profiling live in separate modules from the Fabric inference runtime. The
-permanently empty `guidance_action_check` benchmark field is removed. TorchRL worker implementation
-and remote-method result contracts live under `envs.torchrl`, while `VectorMetaDriveEnv` remains the
-parent-process façade. The unused generic `envs.runtime.slot` abstraction and its exports are
-deleted. This is a direct internal cutover without forwarding modules.
+permanently empty `guidance_action_check` benchmark field is removed. All environment-runtime
+infrastructure lives under `runtime.envs`: the TorchRL adapter, worker and remote-method result
+contracts, and the parent-process `VectorMetaDriveEnv` façade. `eco_planner.envs` owns only domain,
+observation and simulator-facing services and does not re-export runtime types. The unused generic
+slot abstraction and the old `envs.runtime` / `envs.torchrl` packages are deleted. This is a direct
+internal cutover without forwarding modules.
 
 A runtime-persistent CUDA audit stream was measured as a candidate. It did not show a consistent
 improvement across the fixed rollout shapes under the observed machine-state variation, so the

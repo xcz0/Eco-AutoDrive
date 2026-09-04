@@ -10,7 +10,6 @@ import numpy as np
 import torch
 from tensordict import TensorDictBase
 
-from eco_planner.envs.array_types import BatchObservation
 from eco_planner.models import (
     CheckpointLoadReport,
     GuidanceConfig,
@@ -58,7 +57,7 @@ class EvaluationAgent(Protocol):
     def noise_seed(self, scenario_index: int) -> int: ...
 
     def decide_batch(
-        self, observation: BatchObservation, generators: Sequence[torch.Generator]
+        self, observation: TensorDictBase, generators: Sequence[torch.Generator]
     ) -> EvaluationDecision: ...
 
 
@@ -99,7 +98,7 @@ class DiffusionEvaluationAgent:
         return self.runtime.report.seed
 
     def decide_batch(
-        self, observation: BatchObservation, generators: Sequence[torch.Generator]
+        self, observation: TensorDictBase, generators: Sequence[torch.Generator]
     ) -> InferenceDecision:
         if len(generators) == 1:
             return self.runtime.infer(observation, generators[0])

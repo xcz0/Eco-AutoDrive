@@ -11,10 +11,8 @@ from hydra.core.hydra_config import HydraConfig
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig
 
-from eco_planner.envs import (
-    MetaDriveEnvSlot,
-    PlannerObservationSpec,
-)
+from eco_planner.contracts import PLANNER_HORIZON, ExecutionMode
+from eco_planner.envs import MetaDriveEnvSlot
 from eco_planner.models import OfficialDiffusionPlannerConfig
 
 from .config import (
@@ -35,17 +33,15 @@ class BenchmarkAcceptanceError(ValueError):
 
 def run(config: DictConfig) -> None:
     parsed = parse_environment_job(config)
-    model_config = OfficialDiffusionPlannerConfig.from_json(
-        Path(to_absolute_path(parsed.model.args_path))
-    )
+    OfficialDiffusionPlannerConfig.from_json(Path(to_absolute_path(parsed.model.args_path)))
     report: dict[str, object] = {
         "provenance": {
             **benchmark_provenance(parsed.benchmark),
             **host_resource_provenance(),
         },
         "scenario": parsed.benchmark.model_dump(mode="json"),
-        "traffic": _measure(parsed, model_config, traffic=True),
-        "no_traffic": _measure(parsed, model_config, traffic=False),
+        "traffic": _measure(parsed, traffic=True),
+        "no_traffic": _measure(parsed, traffic=False),
     }
     _validate_baselines(report, parsed.benchmark)
     output_dir = Path(HydraConfig.get().runtime.output_dir)
@@ -55,17 +51,15 @@ def run(config: DictConfig) -> None:
 
 def _measure(
     job: EnvironmentBenchmarkJobConfig,
-    model_config: OfficialDiffusionPlannerConfig,
     *,
     traffic: bool,
 ) -> Measurement:
-    samples = [_run_once(job, model_config, traffic=traffic) for _ in range(job.benchmark.repeats)]
+    samples = [_run_once(job, traffic=traffic) for _ in range(job.benchmark.repeats)]
     return measurement(samples)
 
 
 def _run_once(
     job: EnvironmentBenchmarkJobConfig,
-    model_config: OfficialDiffusionPlannerConfig,
     *,
     traffic: bool,
 ) -> float:
@@ -78,14 +72,13 @@ def _run_once(
     env_slot = MetaDriveEnvSlot(
         env_config,
         mode="traffic" if traffic else "no_traffic",
-        observation_spec=PlannerObservationSpec.from_planner_config(model_config),
+        execution_mode=ExecutionMode.EVALUATION,
         map_query_radius_m=benchmark.map_query_radius_m,
         history_warmup_steps=benchmark.history_warmup_steps if traffic else 0,
     )
-    trajectory = _stationary_trajectory(model_config.future_len)
+    trajectory = _stationary_trajectory()
     try:
         env_slot.reset(map_name=benchmark.map, seed=benchmark.seed)
-        tuple(env_slot.warmup())
 
         for _ in range(benchmark.timing_warmup_cycles):
             _run_cycle(env_slot, trajectory)
@@ -103,14 +96,13 @@ def _run_cycle(
     env_slot: MetaDriveEnvSlot,
     trajectory: np.ndarray,
 ) -> None:
-    env_slot.observe()
-    step = env_slot.step(trajectory)
+    step = env_slot.step(trajectory).execution
     if step.terminated or step.truncated:
         raise RuntimeError("environment benchmark ended before measurement completed")
 
 
-def _stationary_trajectory(future_len: int) -> np.ndarray:
-    trajectory = np.zeros((future_len, 4), dtype=np.float32)
+def _stationary_trajectory() -> np.ndarray:
+    trajectory = np.zeros((PLANNER_HORIZON, 4), dtype=np.float32)
     trajectory[:, 2] = 1.0
     return trajectory
 

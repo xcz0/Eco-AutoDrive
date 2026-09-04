@@ -14,7 +14,7 @@ from hydra.core.hydra_config import HydraConfig
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig
 
-from eco_planner.evaluation import ScenarioConfig
+from eco_planner.configuration import ScenarioConfig
 from eco_planner.rl.config import TrainingJobConfig, parse_training_config
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater
 from eco_planner.rl.rollout import (
@@ -136,6 +136,7 @@ def _measure_batch_size(
                         map_query_radius_m=config.map_query_radius_m,
                         history_warmup_steps=benchmark.history_warmup_steps,
                         torch_threads_per_worker=resources.torch_threads_per_worker,
+                        reward_profile=config.reward,
                     )
                     worker_pool_startup_samples.append(perf_counter() - startup_started)
                 slots = vector_collector.collect(
@@ -255,6 +256,7 @@ def _collect_serial_slots(
                 policy_generator=policy_generators[slot],
                 noise_seed=noise_seeds[slot],
                 policy_action_seed=policy_seeds[slot],
+                reward_profile=config.reward,
             )
             episodes.append(episode)
             collected += episode.transition_count

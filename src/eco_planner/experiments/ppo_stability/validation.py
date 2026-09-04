@@ -10,15 +10,15 @@ from typing import Literal
 import numpy as np
 import torch
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
+from tensordict import TensorDictBase
 
 from eco_planner.artifacts import write_json
-from eco_planner.envs.array_types import BatchObservation
+from eco_planner.configuration import ScenarioConfig
 from eco_planner.evaluation import (
     CompletedEpisodeSummary,
     EvaluationDecision,
     EvaluationJobConfig,
     JobSummary,
-    ScenarioConfig,
     run_evaluation_agent,
 )
 from eco_planner.experiments.ppo_stability.config import (
@@ -83,7 +83,7 @@ class _PPOCheckpointEvaluationAgent:
 
     def decide_batch(
         self,
-        observation: BatchObservation,
+        observation: TensorDictBase,
         generators: Sequence[torch.Generator],
     ) -> EvaluationDecision:
         return self.runtime.decide_batch_mean(observation, tuple(generators))
@@ -211,8 +211,6 @@ def _evaluation_job_config(
     environment = dict(training.env)
     environment.update(
         {
-            "execution_mode": "evaluation",
-            "trajectory_execution_steps": 5,
             "horizon": training.training.history_warmup_steps + transitions_per_scenario,
         }
     )

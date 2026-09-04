@@ -30,14 +30,14 @@ cases:
   - name: cruise
     overrides: {}
     numeric_expectations:
-      - {field: reward_gate, value: 1.0, absolute_tolerance: 0.0}
-      - {field: ttc_score, value: 1.0, absolute_tolerance: 0.0}
-      - {field: progress_score, value: 1.0, absolute_tolerance: 0.0}
-      - {field: comfort_score, value: 1.0, absolute_tolerance: 0.0}
-      - {field: speed_score, value: 1.0, absolute_tolerance: 0.0}
+      - {field: safety_gate, value: 1.0, absolute_tolerance: 0.0}
+      - {field: components.ttc, value: 1.0, absolute_tolerance: 0.0}
+      - {field: components.progress, value: 1.0, absolute_tolerance: 0.0}
+      - {field: components.comfort, value: 1.0, absolute_tolerance: 0.0}
+      - {field: components.speed, value: 1.0, absolute_tolerance: 0.0}
     boolean_expectations:
-      - {field: energy_distance_valid, value: true}
-      - {field: has_ttc_candidate, value: false}
+      - {field: diagnostics.energy_distance_valid, value: true}
+      - {field: diagnostics.has_ttc_candidate, value: false}
 
   - name: stationary
     overrides:
@@ -46,10 +46,10 @@ cases:
       velocity_xy_mps: [0.0, 0.0]
       route_progress_delta_m: 0.0
     numeric_expectations:
-      - {field: progress_score, value: 0.0, absolute_tolerance: 0.0}
-      - {field: energy_score, value: 0.0, absolute_tolerance: 0.0}
+      - {field: components.progress, value: 0.0, absolute_tolerance: 0.0}
+      - {field: components.energy, value: 0.0, absolute_tolerance: 0.0}
     boolean_expectations:
-      - {field: energy_distance_valid, value: false}
+      - {field: diagnostics.energy_distance_valid, value: false}
 
   - name: extremely_low_speed
     overrides:
@@ -58,9 +58,9 @@ cases:
       velocity_xy_mps: [0.05, 0.0]
       route_progress_delta_m: 0.005
     numeric_expectations:
-      - {field: energy_score, value: 0.0, absolute_tolerance: 0.0}
+      - {field: components.energy, value: 0.0, absolute_tolerance: 0.0}
     boolean_expectations:
-      - {field: energy_distance_valid, value: false}
+      - {field: diagnostics.energy_distance_valid, value: false}
 
   - name: slower_progress
     overrides:
@@ -69,14 +69,14 @@ cases:
       velocity_xy_mps: [5.0, 0.0]
       route_progress_delta_m: 0.5
     numeric_expectations:
-      - {field: progress_score, value: 0.5, absolute_tolerance: 1.0e-12}
+      - {field: components.progress, value: 0.5, absolute_tolerance: 1.0e-12}
     boolean_expectations: []
 
   - name: low_route_progress
     overrides:
       route_progress_delta_m: 0.1
     numeric_expectations:
-      - {field: progress_score, value: 0.1, absolute_tolerance: 1.0e-12}
+      - {field: components.progress, value: 0.1, absolute_tolerance: 1.0e-12}
     boolean_expectations: []
 
   - name: overspeed
@@ -85,7 +85,7 @@ cases:
       previous_velocity_xy_mps: [18.88888888888889, 0.0]
       velocity_xy_mps: [18.88888888888889, 0.0]
     numeric_expectations:
-      - {field: speed_score, value: 0.0, absolute_tolerance: 1.0e-12}
+      - {field: components.speed, value: 0.0, absolute_tolerance: 1.0e-12}
     boolean_expectations: []
 
   - name: following_non_closing
@@ -99,10 +99,10 @@ cases:
           width_m: 2.0
           length_m: 4.0
     numeric_expectations:
-      - {field: ttc_score, value: 1.0, absolute_tolerance: 0.0}
-      - {field: min_ttc_s, value: 10.0, absolute_tolerance: 0.0}
+      - {field: components.ttc, value: 1.0, absolute_tolerance: 0.0}
+      - {field: diagnostics.min_ttc_s, value: 10.0, absolute_tolerance: 0.0}
     boolean_expectations:
-      - {field: has_ttc_candidate, value: false}
+      - {field: diagnostics.has_ttc_candidate, value: false}
 
   - name: approaching_collision
     overrides:
@@ -115,45 +115,45 @@ cases:
           width_m: 2.0
           length_m: 4.0
     numeric_expectations:
-      - {field: ttc_score, value: 0.0, absolute_tolerance: 0.0}
-      - {field: min_ttc_s, value: 0.5, absolute_tolerance: 1.0e-12}
+      - {field: components.ttc, value: 0.0, absolute_tolerance: 0.0}
+      - {field: diagnostics.min_ttc_s, value: 0.5, absolute_tolerance: 1.0e-12}
     boolean_expectations:
-      - {field: has_ttc_candidate, value: true}
+      - {field: diagnostics.has_ttc_candidate, value: true}
 
   - name: uncomfortable
     overrides:
       position_xy_m: [1.04, 0.0]
       velocity_xy_mps: [10.4, 0.0]
     numeric_expectations:
-      - {field: comfort_score, value: 0.0, absolute_tolerance: 0.0}
+      - {field: components.comfort, value: 0.0, absolute_tolerance: 0.0}
     boolean_expectations: []
 
   - name: collision
     overrides: {crash_vehicle: true}
     numeric_expectations:
-      - {field: collision_score, value: 0.0, absolute_tolerance: 0.0}
-      - {field: reward_total, value: 0.0, absolute_tolerance: 0.0}
+      - {field: diagnostics.collision_score, value: 0.0, absolute_tolerance: 0.0}
+      - {field: total, value: 0.0, absolute_tolerance: 0.0}
     boolean_expectations: []
 
   - name: out_of_road
     overrides: {out_of_road: true}
     numeric_expectations:
-      - {field: drivable_score, value: 0.0, absolute_tolerance: 0.0}
-      - {field: reward_total, value: 0.0, absolute_tolerance: 0.0}
+      - {field: diagnostics.drivable_score, value: 0.0, absolute_tolerance: 0.0}
+      - {field: total, value: 0.0, absolute_tolerance: 0.0}
     boolean_expectations: []
 
   - name: wrong_direction
     overrides: {heading_rad: 3.141592653589793}
     numeric_expectations:
-      - {field: wrong_direction_score, value: 0.0, absolute_tolerance: 0.0}
-      - {field: reward_total, value: 0.0, absolute_tolerance: 0.0}
+      - {field: diagnostics.wrong_direction_score, value: 0.0, absolute_tolerance: 0.0}
+      - {field: total, value: 0.0, absolute_tolerance: 0.0}
     boolean_expectations: []
 
 comparisons:
-  - {left_case: cruise, left_field: reward_total, relation: greater_than, right_case: stationary, right_field: reward_total, minimum_difference: 0.0}
-  - {left_case: cruise, left_field: reward_total, relation: greater_than, right_case: extremely_low_speed, right_field: reward_total, minimum_difference: 0.0}
-  - {left_case: cruise, left_field: reward_total, relation: greater_than, right_case: slower_progress, right_field: reward_total, minimum_difference: 0.0}
-  - {left_case: cruise, left_field: reward_total, relation: greater_than, right_case: low_route_progress, right_field: reward_total, minimum_difference: 0.0}
-  - {left_case: cruise, left_field: reward_total, relation: greater_than, right_case: overspeed, right_field: reward_total, minimum_difference: 0.0}
-  - {left_case: following_non_closing, left_field: ttc_score, relation: greater_than, right_case: approaching_collision, right_field: ttc_score, minimum_difference: 0.0}
-  - {left_case: cruise, left_field: comfort_score, relation: greater_than, right_case: uncomfortable, right_field: comfort_score, minimum_difference: 0.0}
+  - {left_case: cruise, left_field: total, relation: greater_than, right_case: stationary, right_field: total, minimum_difference: 0.0}
+  - {left_case: cruise, left_field: total, relation: greater_than, right_case: extremely_low_speed, right_field: total, minimum_difference: 0.0}
+  - {left_case: cruise, left_field: total, relation: greater_than, right_case: slower_progress, right_field: total, minimum_difference: 0.0}
+  - {left_case: cruise, left_field: total, relation: greater_than, right_case: low_route_progress, right_field: total, minimum_difference: 0.0}
+  - {left_case: cruise, left_field: total, relation: greater_than, right_case: overspeed, right_field: total, minimum_difference: 0.0}
+  - {left_case: following_non_closing, left_field: components.ttc, relation: greater_than, right_case: approaching_collision, right_field: components.ttc, minimum_difference: 0.0}
+  - {left_case: cruise, left_field: components.comfort, relation: greater_than, right_case: uncomfortable, right_field: components.comfort, minimum_difference: 0.0}

@@ -15,8 +15,8 @@ from pydantic import (
     model_validator,
 )
 
-from eco_planner.configuration import resolve_config_mapping
-from eco_planner.execution_contracts import EVALUATION_EXECUTION_STEPS, TRAFFIC_HISTORY_STEPS
+from eco_planner.configuration import ModelPathsConfig, ScenarioConfig, resolve_config_mapping
+from eco_planner.contracts import TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.models import (
     GuidanceConfig,
     SamplerConfig,
@@ -35,12 +35,6 @@ class _StrictModel(BaseModel):
         arbitrary_types_allowed=True,
         allow_inf_nan=False,
     )
-
-
-class ScenarioConfig(_StrictModel):
-    name: str = Field(min_length=1)
-    map: str = Field(min_length=1)
-    seed: StrictInt = Field(ge=0)
 
 
 class ExecutionConfig(_StrictModel):
@@ -76,11 +70,6 @@ class EvaluationConfig(_StrictModel):
     matrix: MatrixConfig | None = None
 
 
-class ModelPathsConfig(_StrictModel):
-    args_path: str = Field(min_length=1)
-    checkpoint_path: str = Field(min_length=1)
-
-
 class VideoConfig(_StrictModel):
     enabled: StrictBool
     fps: StrictInt = Field(gt=0)
@@ -107,14 +96,6 @@ class EvaluationJobConfig(_StrictModel):
     @model_validator(mode="after")
     def validate_job(self) -> EvaluationJobConfig:
         evaluation = self.evaluation
-        mode = self.env.get("execution_mode")
-        if mode is not None and mode != "evaluation":
-            raise ValueError("evaluation requires env.execution_mode=evaluation")
-        if (
-            mode is None
-            and self.env.get("trajectory_execution_steps") != EVALUATION_EXECUTION_STEPS
-        ):
-            raise ValueError("evaluation requires env.execution_mode=evaluation")
         horizon = self.env.get("horizon")
         if type(horizon) is not int:
             raise TypeError("env.horizon must be an integer")
@@ -136,9 +117,10 @@ class EvaluationJobConfig(_StrictModel):
         return self
 
     def _validate_traffic_environment(self) -> None:
-        if self.evaluation.history_warmup_steps != TRAFFIC_HISTORY_STEPS:
+        if self.evaluation.history_warmup_steps != TRAFFIC_HISTORY_WARMUP_STEPS:
             raise ValueError(
-                f"traffic evaluation requires exactly {TRAFFIC_HISTORY_STEPS} history warmup steps"
+                "traffic evaluation requires exactly "
+                f"{TRAFFIC_HISTORY_WARMUP_STEPS} history warmup steps"
             )
         required = {
             "traffic_mode": "trigger",

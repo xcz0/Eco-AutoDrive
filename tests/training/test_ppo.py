@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 import torch
 
-from eco_planner.envs.metadrive.reward import MetaDriveBuiltinRewardAudit
 from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater, compute_episode_gae
 from eco_planner.rl.policy import (
@@ -14,6 +13,7 @@ from eco_planner.rl.policy import (
     ExplorationPolicyConfig,
     ExplorationPolicyContext,
 )
+from eco_planner.rl.reward import RewardComponents, RewardDiagnostics, RewardResult
 from eco_planner.rl.rollout import (
     DecisionAudit,
     ExecutionTransitionAudit,
@@ -92,9 +92,34 @@ def _execution_audit(
     reward: float, *, terminated: bool, truncated: bool
 ) -> ExecutionTransitionAudit:
     return ExecutionTransitionAudit(
-        reward=reward,
-        dense_reward=reward,
-        terminal_override=0.0,
+        reward_result=RewardResult(
+            profile_name="plannerrft_energy_v1",
+            total=reward,
+            base_total=reward,
+            safety_gate=1.0,
+            components=RewardComponents(1.0, 0.5, 1.0, 1.0, 0.5),
+            diagnostics=RewardDiagnostics(
+                collision_score=1.0,
+                drivable_score=1.0,
+                wrong_direction_score=1.0,
+                has_ttc_candidate=False,
+                min_ttc_s=10.0,
+                route_progress_delta_m=1.0,
+                speed_mps=2.0,
+                speed_limit_mps=10.0,
+                overspeed_mps=0.0,
+                longitudinal_acceleration_mps2=0.0,
+                lateral_acceleration_mps2=0.0,
+                jerk_mps3=0.0,
+                yaw_rate_radps=0.0,
+                step_distance_m=1.0,
+                native_step_energy_ml=0.0,
+                native_episode_energy_ml=0.0,
+                executed_fuel_proxy_step_energy_ml=0.05,
+                executed_fuel_proxy_ml_per_km=50.0,
+                energy_distance_valid=True,
+            ),
+        ),
         route_completion_delta=0.1,
         distance_m=1.0,
         speed_mps=2.0,
@@ -110,18 +135,6 @@ def _execution_audit(
         crash_sidewalk=False,
         terminated=terminated,
         truncated=truncated,
-        reward_audit=MetaDriveBuiltinRewardAudit(
-            profile_name="metadrive_builtin_v1",
-            reward_total=reward,
-            dense_reward=reward,
-            terminal_override=0.0,
-            step_distance_m=1.0,
-            native_step_energy_ml=0.0,
-            native_episode_energy_ml=0.0,
-            executed_fuel_proxy_step_energy_ml=0.05,
-            executed_fuel_proxy_ml_per_km=50.0,
-            energy_distance_valid=True,
-        ),
     )
 
 
@@ -238,7 +251,7 @@ def test_ppo_update_changes_policy_and_reports_finite_training_summary() -> None
         assert summary.action_min[dim] <= summary.action_mean[dim]
         assert summary.action_mean[dim] <= summary.action_max[dim]
         assert summary.action_std[dim] >= 0.0
-    assert summary.reward_profile == "metadrive_builtin_v1"
+    assert summary.reward_profile == "plannerrft_energy_v1"
 
 
 def test_target_kl_stops_before_triggering_minibatch_optimizer_step_and_resumes_state() -> None:

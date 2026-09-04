@@ -4,7 +4,7 @@
 # Keeps the smoke PPO component defaults except the update-strength knobs
 # (lr / epochs / batch / minibatch / scheduler horizon) and expands the
 # per-update batch by adding independent scenarios rather than extending
-# single trajectories. Same reward profile (metadrive_builtin_v1) and same
+# single trajectories. Same PlannerRFT reward profile and same
 # map types (S, SC) as P0; only the PPO hyperparameters and scenario count
 # change, so any stability difference is attributable to update strength.
 

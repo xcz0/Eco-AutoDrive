@@ -11,8 +11,12 @@ import numpy as np
 import torch
 from tensordict import TensorDictBase
 
-from eco_planner.envs import TrafficObservationAudit, TrajectoryExecutionRecord
-from eco_planner.envs.array_types import SingleObservation
+from eco_planner.configuration import ScenarioConfig
+from eco_planner.envs import (
+    TrafficObservationAudit,
+    TrajectoryExecutionRecord,
+    TrajectoryExecutionResult,
+)
 
 from ..artifacts import (
     CompletedEpisodeSummary,
@@ -21,7 +25,7 @@ from ..artifacts import (
     write_episode_artifacts,
 )
 from ..artifacts.summary import build_episode_summary, build_failed_episode_summary
-from ..config import EvaluationJobConfig, ScenarioConfig
+from ..config import EvaluationJobConfig
 from ..inference import EvaluationAgent
 from .recorder import EpisodeTraceRecorder
 
@@ -38,7 +42,7 @@ class EpisodeFailure(RuntimeError):
 @dataclass
 class EpisodeState:
     spec: ScenarioConfig
-    observation: SingleObservation | None
+    observation: TensorDictBase | None
     traffic_audit: TrafficObservationAudit | None
     noise_generator: torch.Generator
     trace: EpisodeTraceRecorder
@@ -46,15 +50,13 @@ class EpisodeState:
     route_length_m: float
     environment_map_audit: dict[str, object]
     saw_traffic: bool = False
-    total_reward: float = 0.0
     plan_index: int = 0
 
     def record_cycle(
         self,
-        observation: SingleObservation,
+        observation: TensorDictBase,
         inference: TensorDictBase,
-        execution: TrajectoryExecutionRecord,
-        reward: float,
+        step: TrajectoryExecutionResult,
         traffic_audit: TrafficObservationAudit | None,
     ) -> int:
         cycle = self.plan_index
@@ -62,12 +64,11 @@ class EpisodeState:
             self.anchor,
             observation,
             inference,
-            execution,
+            step,
             cycle,
             traffic_audit,
         )
         self.saw_traffic = self.saw_traffic or has_traffic(traffic_audit)
-        self.total_reward += float(reward)
         self.plan_index += 1
         return cycle
 
@@ -78,7 +79,6 @@ def finalize_completed_episode(
     final_execution: TrajectoryExecutionRecord,
     terminated: bool,
     truncated: bool,
-    total_reward: float,
     environment_map_audit: dict[str, object],
     route_length_m: float,
     saw_traffic: bool,
@@ -102,7 +102,6 @@ def finalize_completed_episode(
         final_execution,
         terminated,
         truncated,
-        total_reward,
         agent.noise_seed(scenario_index),
         environment_map_audit,
         config.evaluation.mode,

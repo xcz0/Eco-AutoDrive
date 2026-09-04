@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,15 +10,23 @@ import numpy as np
 import pytest
 import torch
 from omegaconf import OmegaConf
-from tensordict import TensorDict
+from tensordict import TensorDict, TensorDictBase
 
 import eco_planner.evaluation.engine as engine
 import eco_planner.evaluation.episodes.serial as episode_engine
 from eco_planner.envs import (
-    EnvSlotObservation,
     EnvSlotReset,
+    EnvSlotState,
     EnvSlotStep,
+    EnvSlotTiming,
     TrajectoryExecutionRecord,
+    TrajectoryExecutionResult,
+)
+from eco_planner.envs.domain import (
+    EnergyMetrics,
+    TrafficFrame,
+    TransitionMetricInput,
+    TransitionMetrics,
 )
 from eco_planner.evaluation import (
     InferenceDecision,
@@ -110,31 +119,30 @@ class _ShortEpisodeSlot:
         self.env = SimpleNamespace()
         self._state = np.zeros(7, dtype=np.float64)
 
-    @property
-    def vehicle_state(self) -> np.ndarray:
-        return self._state.copy()
-
     def reset(self, *, map_name: str, seed: int) -> EnvSlotReset:
         assert (map_name, seed) == ("S", 3)
         return EnvSlotReset(
-            route_completion=0.0,
+            state=EnvSlotState(_observation(), None, self._state.copy(), 0.0),
             route_length_m=100.0,
-            warmup_initial_state=self.vehicle_state,
+            warmup_initial_state=self._state.copy(),
+            warmup_steps=(),
             programmatic_lane_speed_limit_audit={
                 "speed_limit_sentinel_replaced_count": 18,
                 "speed_limit_existing_preserved_count": 0,
                 "configured_programmatic_lane_speed_limit_kmh": 50.0,
                 "lane_speed_limit_kmh_counts": {"50": 18},
             },
+            timing=EnvSlotTiming(0.0, 0.0),
         )
-
-    def observe(self) -> EnvSlotObservation:
-        return EnvSlotObservation(_observation(), None)
 
     def step(self, trajectory: np.ndarray) -> EnvSlotStep:
         assert trajectory.shape == (80, 4)
         self._state = np.array([5.0, 0.0, 0.0, 10.0, 0.0, 10.0, 0.0])
-        return EnvSlotStep(5.0, True, False, _execution_record())
+        return EnvSlotStep(
+            state=EnvSlotState(_observation(), None, self._state.copy(), 0.5),
+            execution=_step_result(),
+            timing=EnvSlotTiming(0.0, 0.0),
+        )
 
     def close(self) -> None:
         pass
@@ -180,9 +188,7 @@ class _ShortEpisodeRuntime:
     def new_noise_generator(self) -> torch.Generator:
         return torch.Generator(device="cpu").manual_seed(self.report.seed)
 
-    def infer(
-        self, observation: dict[str, torch.Tensor], generator: torch.Generator
-    ) -> InferenceDecision:
+    def infer(self, observation: TensorDictBase, generator: torch.Generator) -> InferenceDecision:
         assert observation["ego_current_state"].shape == (1, 10)
         noise = torch.randn((1, 11, 80, 4), generator=generator)
         prediction = torch.zeros_like(noise)
@@ -205,7 +211,7 @@ def _config() -> object:
                     "deterministic": False,
                 },
             },
-            "env": {"traffic_density": 0.0, "trajectory_execution_steps": 5, "horizon": 5},
+            "env": {"traffic_density": 0.0, "horizon": 5},
             "map_query_radius_m": 100.0,
             "model": {"args_path": "args.json", "checkpoint_path": "model.pth"},
             "runtime": {"accelerator": "cpu", "precision": "32-true", "seed": 7},
@@ -225,18 +231,21 @@ def _config() -> object:
     )
 
 
-def _observation() -> dict[str, torch.Tensor]:
-    return {
-        "ego_current_state": torch.zeros(10),
-        "neighbor_agents_past": torch.zeros((32, 21, 11)),
-        "static_objects": torch.zeros((5, 10)),
-        "lanes": torch.zeros((70, 20, 12)),
-        "lanes_speed_limit": torch.full((70, 1), 50.0 / 3.6),
-        "lanes_has_speed_limit": torch.ones((70, 1), dtype=torch.bool),
-        "route_lanes": torch.zeros((25, 20, 12)),
-        "route_lanes_speed_limit": torch.full((25, 1), 50.0 / 3.6),
-        "route_lanes_has_speed_limit": torch.ones((25, 1), dtype=torch.bool),
-    }
+def _observation() -> TensorDictBase:
+    return TensorDict(
+        {
+            "ego_current_state": torch.zeros(10),
+            "neighbor_agents_past": torch.zeros((32, 21, 11)),
+            "static_objects": torch.zeros((5, 10)),
+            "lanes": torch.zeros((70, 20, 12)),
+            "lanes_speed_limit": torch.full((70, 1), 50.0 / 3.6),
+            "lanes_has_speed_limit": torch.ones((70, 1), dtype=torch.bool),
+            "route_lanes": torch.zeros((25, 20, 12)),
+            "route_lanes_speed_limit": torch.full((25, 1), 50.0 / 3.6),
+            "route_lanes_has_speed_limit": torch.ones((25, 1), dtype=torch.bool),
+        },
+        batch_size=[],
+    )
 
 
 def _execution_record() -> TrajectoryExecutionRecord:
@@ -252,14 +261,6 @@ def _execution_record() -> TrajectoryExecutionRecord:
         substep_states=states,
         target_centers=positions,
         target_headings=np.zeros(5),
-        position_errors_m=np.zeros(5),
-        heading_errors_rad=np.zeros(5),
-        substep_rewards=np.ones(5),
-        substep_dense_rewards=np.ones(5),
-        substep_native_energy_ml=np.full(5, 0.1),
-        substep_native_episode_energy_ml=np.arange(1, 6, dtype=np.float64) / 10.0,
-        substep_executed_fuel_proxy_energy_ml=np.full(5, 0.1),
-        substep_distance_m=np.ones(5),
         substep_terminated=np.array([False, False, False, False, True]),
         substep_truncated=np.zeros(5, dtype=np.bool_),
         traffic_frames=(),
@@ -271,4 +272,70 @@ def _execution_record() -> TrajectoryExecutionRecord:
         crash_building=False,
         crash_human=False,
         max_step=False,
+    )
+
+
+def _step_result() -> TrajectoryExecutionResult:
+    metrics = tuple(_transition_metrics(index) for index in range(5))
+    return TrajectoryExecutionResult(
+        metrics=metrics,
+        terminated=True,
+        truncated=False,
+        execution=_execution_record(),
+    )
+
+
+def _transition_metrics(index: int) -> TransitionMetrics:
+    position = (float(index + 1), 0.0)
+    transition_input = TransitionMetricInput(
+        previous_position_xy_m=(float(index), 0.0),
+        position_xy_m=position,
+        previous_velocity_xy_mps=(10.0, 0.0),
+        velocity_xy_mps=(10.0, 0.0),
+        previous_acceleration_xy_mps2=(0.0, 0.0),
+        heading_rad=0.0,
+        yaw_rate_radps=0.0,
+        route_progress_delta_m=1.0,
+        route_heading_rad=0.0,
+        speed_limit_mps=10.0,
+        ego_width_m=2.0,
+        ego_length_m=4.0,
+        traffic_frame=TrafficFrame(index + 1, position, 0.0, 1.0, (), ()),
+        target_position_xy_m=position,
+        target_heading_rad=0.0,
+        crash_vehicle=False,
+        crash_object=False,
+        crash_building=False,
+        crash_human=False,
+        crash_sidewalk=False,
+        out_of_road=False,
+        native_step_energy_ml=0.1,
+        native_episode_energy_ml=float(index + 1) / 10.0,
+        timestep_s=0.1,
+    )
+    return TransitionMetrics(
+        input=transition_input,
+        speed_mps=10.0,
+        longitudinal_acceleration_mps2=0.0,
+        lateral_acceleration_mps2=0.0,
+        jerk_mps3=0.0,
+        step_distance_m=1.0,
+        position_error_m=0.0,
+        heading_error_rad=0.0,
+        energy=EnergyMetrics("metadrive_fuel_proxy", 1.0, None, 0.1),
+    )
+
+
+def test_execution_record_contains_only_execution_facts() -> None:
+    names = {field.name for field in fields(TrajectoryExecutionRecord)}
+    assert names.isdisjoint(
+        {
+            "position_errors_m",
+            "heading_errors_rad",
+            "substep_native_energy_ml",
+            "substep_native_episode_energy_ml",
+            "substep_executed_fuel_proxy_energy_ml",
+            "substep_distance_m",
+            "substep_metrics",
+        }
     )

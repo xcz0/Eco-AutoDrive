@@ -12,12 +12,8 @@ from eco_planner.experiments.ppo_stability.config import TrialParameters, load_s
 from eco_planner.experiments.ppo_stability.monitor import StabilityMonitor
 from eco_planner.experiments.ppo_stability.report import rank_validation_configs
 from eco_planner.experiments.ppo_stability.search import compose_trial_training_config, create_study
-from eco_planner.experiments.reward_ab.config import load_ab_config
-from eco_planner.experiments.reward_ab.report import aggregate_pair_reports
-from eco_planner.experiments.reward_ab.runner import build_training_overrides
 from eco_planner.experiments.reward_sanity import evaluate_sanity, load_sanity_config
 from eco_planner.rl.artifacts import TrainingUpdateSummary
-from eco_planner.rl.config import TrainingJobConfig, parse_training_config
 
 ComposeConfig = Callable[[str, list[str] | None], DictConfig]
 
@@ -29,10 +25,6 @@ def test_experiment_manifests_are_strict_and_reference_composable_jobs(
 ) -> None:
     monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
     energy = load_energy_study(config_root / "experiments" / "energy" / "matrix.yaml")
-    reward_experiments = [
-        load_ab_config(config_root / "experiments" / "reward" / name)
-        for name in ("ppo_ab.yaml", "ppo_ab_long_term.yaml")
-    ]
 
     for job in energy.jobs:
         for guidance in energy.guidance_profiles:
@@ -45,68 +37,6 @@ def test_experiment_manifests_are_strict_and_reference_composable_jobs(
             assert parsed.runtime.seed == 0
             assert parsed.sampler.name == "ddim5"
             assert parsed.env["random_agent_model"] is False
-    for reward_ab in reward_experiments:
-        profile = reward_ab.profiles[0]
-        matched = reward_ab.matched_training
-        training = compose_config(
-            reward_ab.base_training_config,
-            [
-                f"components/reward={profile.reward_config}",
-                "runtime.seed=0",
-                "training.replay_id=0",
-                f"training.update_count={matched.update_count}",
-                f"training.transitions_per_environment={matched.transitions_per_environment}",
-                f"ppo.scheduler_total_optimizer_steps={matched.scheduler_total_optimizer_steps}",
-            ],
-        )
-        parsed = parse_training_config(training)
-        assert isinstance(parsed, TrainingJobConfig)
-        assert parsed.training.update_count == matched.update_count
-        assert parsed.ppo.scheduler_total_optimizer_steps == matched.scheduler_total_optimizer_steps
-
-
-def test_long_term_reward_ab_builds_explicit_duration_and_scheduler_overrides(
-    config_root: Path,
-) -> None:
-    config = load_ab_config(config_root / "experiments" / "reward" / "ppo_ab_long_term.yaml")
-    overrides = build_training_overrides(
-        config,
-        config.profiles[1],
-        training_seed=2,
-        replay_id=0,
-    )
-
-    assert config.matched_training.update_count == 20
-    assert config.matched_training.training_seeds == [0, 1, 2]
-    assert "training.update_count=20" in overrides
-    assert "ppo.scheduler_total_optimizer_steps=160" in overrides
-    assert all("scripts.training" not in item for item in overrides)
-
-
-def test_long_term_reward_ab_aggregates_one_effect_estimate_per_seed() -> None:
-    pairs = [
-        {
-            "training_seed": seed,
-            "replay_id": 0,
-            "changes": {"energy_intensity_change_fraction": value},
-            "review_flags": {"progress_regressed": seed == 2},
-        }
-        for seed, value in enumerate((-0.2, -0.1, 0.0))
-    ]
-
-    aggregate = aggregate_pair_reports(pairs)
-    statistics = aggregate["change_statistics"]
-
-    assert aggregate["pair_count"] == 3
-    assert aggregate["training_seed_count"] == 3
-    assert isinstance(statistics, dict)
-    assert statistics["energy_intensity_change_fraction"] == {
-        "mean": pytest.approx(-0.1),
-        "sample_standard_deviation": pytest.approx(0.1),
-        "minimum": pytest.approx(-0.2),
-        "maximum": pytest.approx(0.0),
-    }
-    assert aggregate["review_flag_counts"] == {"progress_regressed": 1}
 
 
 def test_reward_sanity_config_covers_anti_hacking_and_gate_cases(config_root: Path) -> None:

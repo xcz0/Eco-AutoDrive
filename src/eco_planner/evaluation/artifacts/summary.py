@@ -7,8 +7,9 @@ from typing import Any
 
 import numpy as np
 
+from eco_planner.contracts import SIMULATOR_STEP_S
 from eco_planner.envs import TrajectoryExecutionRecord
-from eco_planner.execution_contracts import SIMULATOR_STEP_S
+from eco_planner.envs.domain import EnergyMetrics
 
 from .models import (
     CompletedEpisodeSummary,
@@ -25,8 +26,6 @@ STOPPED_SPEED_THRESHOLD_MPS = 0.1
 def compute_episode_metrics(
     trace_arrays: Mapping[str, np.ndarray],
     final_execution: TrajectoryExecutionRecord,
-    *,
-    total_reward: float,
 ) -> EpisodeMetrics:
     """Compute one evaluation episode's common metrics from its execution trace."""
 
@@ -52,7 +51,6 @@ def compute_episode_metrics(
         stopped_fraction=float(np.mean(speeds < STOPPED_SPEED_THRESHOLD_MPS)),
         route_completion=final_execution.route_completion,
         energy=energy,
-        total_reward=total_reward,
         arrive_dest=final_execution.arrive_dest,
         collision=(
             final_execution.crash_vehicle
@@ -82,13 +80,19 @@ def compute_trace_energy(trace_arrays: Mapping[str, np.ndarray]) -> EnergySummar
     for name, value in values.items():
         if value.shape != expected_shape or not np.isfinite(value).all() or np.any(value < 0.0):
             raise ValueError(f"trace {name} must be finite, non-negative, and state-aligned")
-    total_ml = float(values["executed_fuel_proxy_step_energy_ml"].sum(dtype=np.float64))
-    distance_m = float(values["executed_step_distance_m"].sum(dtype=np.float64))
+    metrics = EnergyMetrics(
+        metric="metadrive_fuel_proxy",
+        distance_m=float(values["executed_step_distance_m"].sum(dtype=np.float64)),
+        energy_j=None,
+        fuel_ml=float(values["executed_fuel_proxy_step_energy_ml"].sum(dtype=np.float64)),
+    )
+    if metrics.fuel_ml is None:
+        raise RuntimeError("fuel-proxy aggregation did not produce a fuel-volume metric")
     return EnergySummary(
         metric="metadrive_fuel_proxy",
-        total_ml=total_ml,
-        distance_m=distance_m,
-        ml_per_km=None if distance_m == 0.0 else total_ml * 1_000.0 / distance_m,
+        total_ml=metrics.fuel_ml,
+        distance_m=metrics.distance_m,
+        ml_per_km=metrics.fuel_ml_per_km,
     )
 
 
@@ -136,7 +140,6 @@ def build_episode_summary(
     final_execution: TrajectoryExecutionRecord,
     terminated: bool,
     truncated: bool,
-    total_reward: float,
     noise_seed: int,
     environment_map_audit: dict[str, object],
     evaluation_mode: str,
@@ -147,7 +150,7 @@ def build_episode_summary(
 ) -> CompletedEpisodeSummary:
     """Build the stable per-episode summary JSON payload."""
 
-    metrics = compute_episode_metrics(trace_arrays, final_execution, total_reward=total_reward)
+    metrics = compute_episode_metrics(trace_arrays, final_execution)
     warmup_states = trace_arrays["warmup_states"]
     warmup_displacement = (
         np.linalg.norm(

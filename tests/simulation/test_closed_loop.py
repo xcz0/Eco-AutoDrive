@@ -11,24 +11,25 @@ from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 from pydantic import TypeAdapter
 
-from eco_planner.envs import (
-    MetaDriveEnvSlot,
-    PlannerObservationSpec,
-    TrajectoryMetaDriveEnv,
-    VectorEnvScenario,
-    VectorMetaDriveEnv,
-)
-from eco_planner.envs.geometry import rear_axle_position, world_points_to_local
-from eco_planner.envs.metadrive.observation import MetaDriveObservationAdapter
-from eco_planner.envs.metadrive.reward import (
-    MetaDriveBuiltinRewardConfig,
-    PlannerRFTEnergyRewardConfig,
-    RewardProfileConfig,
-)
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.contracts import ExecutionMode
+from eco_planner.envs import MetaDriveEnvSlot
+from eco_planner.envs.domain.geometry import rear_axle_position, world_points_to_local
+from eco_planner.envs.metadrive import MetaDriveBackend
 from eco_planner.rl.config import parse_rollout_config
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater
+from eco_planner.rl.reward import (
+    PlannerRFTEnergyRewardConfig,
+    RewardProfileConfig,
+    evaluate_plannerrft_energy_step,
+)
 from eco_planner.rl.rollout import collect_rollout_episode, create_fabric_rollout_runtime
+from eco_planner.runtime.envs import (
+    VectorEnvScenario,
+    VectorMetaDriveEnv,
+    WorkerResetResult,
+    WorkerStepResult,
+    operation_results,
+)
 
 
 @pytest.fixture(scope="module")
@@ -45,7 +46,6 @@ def _environment_config(
     map_sequence: str,
     *,
     traffic_density: float = 0.0,
-    trajectory_execution_steps: int = 5,
 ) -> dict[str, object]:
     return {
         "use_render": False,
@@ -56,8 +56,6 @@ def _environment_config(
         "random_spawn_lane_index": False,
         "physics_world_step_size": 0.02,
         "decision_repeat": 5,
-        "trajectory_horizon": 80,
-        "trajectory_execution_steps": trajectory_execution_steps,
         "programmatic_lane_speed_limit_kmh": 50.0,
     }
 
@@ -69,13 +67,7 @@ def _straight_trajectory(speed_mps: float = 5.0) -> np.ndarray:
     return trajectory
 
 
-def _stationary_trajectory() -> np.ndarray:
-    trajectory = np.zeros((80, 4), dtype=np.float32)
-    trajectory[:, 2] = 1.0
-    return trajectory
-
-
-def _off_route_trajectory(env: TrajectoryMetaDriveEnv, query_radius_m: float) -> np.ndarray:
+def _off_route_trajectory(env: MetaDriveBackend, query_radius_m: float) -> np.ndarray:
     route_roads = {
         (start, end)
         for start, end in zip(
@@ -116,13 +108,12 @@ def _off_route_trajectory(env: TrajectoryMetaDriveEnv, query_radius_m: float) ->
     return trajectory
 
 
-def _reward_profile(name: str) -> MetaDriveBuiltinRewardConfig | PlannerRFTEnergyRewardConfig:
+def _reward_profile(name: str) -> PlannerRFTEnergyRewardConfig:
     config_root = Path(__file__).resolve().parents[2] / "configs" / "components" / "reward"
     raw = OmegaConf.to_container(OmegaConf.load(config_root / f"{name}.yaml"), resolve=True)
     return TypeAdapter(RewardProfileConfig).validate_python(raw)
 
 
-_BUILTIN_REWARD = _reward_profile("metadrive_builtin_v1")
 _ENERGY_REWARD = _reward_profile("plannerrft_energy_v1")
 
 
@@ -150,40 +141,52 @@ def _ppo_config() -> PPOConfig:
 
 
 @pytest.mark.simulator
-def test_trajectory_environment_executes_evaluation_prefix_with_valid_audit() -> None:
-    env = TrajectoryMetaDriveEnv(_environment_config("S"))
-    try:
-        env.reset(seed=0)
-        _, reward, terminated, truncated, info = env.step(_straight_trajectory())
-        execution = info["trajectory_execution"]
+def test_environment_slot_executes_evaluation_prefix_with_valid_audit() -> None:
+    config = _environment_config("SSS")
+    config["programmatic_lane_speed_limit_profile_kmh"] = [50.0, 30.0, 50.0]
+    with MetaDriveEnvSlot(
+        config,
+        mode="no_traffic",
+        execution_mode=ExecutionMode.EVALUATION,
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+    ) as slot:
+        reset = slot.reset(map_name="SSS", seed=0)
+        result = slot.step(_straight_trajectory()).execution
+        execution = result.execution
+        speed_limit_audit = reset.programmatic_lane_speed_limit_audit
 
         assert execution.substep_states.shape == (5, 7)
         assert execution.substep_terminated.shape == (5,)
         assert execution.substep_truncated.shape == (5,)
-        assert isinstance(terminated, bool)
-        assert isinstance(truncated, bool)
-        assert np.isfinite(reward)
+        assert isinstance(result.terminated, bool)
+        assert isinstance(result.truncated, bool)
         assert np.isfinite(execution.substep_states).all()
-        assert np.isfinite(execution.substep_native_energy_ml).all()
-        assert np.isfinite(execution.substep_executed_fuel_proxy_energy_ml).all()
-        assert np.all(execution.substep_native_energy_ml >= 0.0)
-        assert np.all(execution.substep_executed_fuel_proxy_energy_ml >= 0.0)
-        np.testing.assert_allclose(
-            execution.substep_states[-1, :2], np.asarray(env.agent.position), atol=1e-3
+        native_energy = np.asarray(
+            [metrics.input.native_step_energy_ml for metrics in result.metrics]
         )
-    finally:
-        env.close()
+        proxy_energy = np.asarray([metrics.energy.fuel_ml for metrics in result.metrics])
+        assert np.isfinite(native_energy).all()
+        assert np.isfinite(proxy_energy).all()
+        assert np.all(native_energy >= 0.0)
+        assert np.all(proxy_energy >= 0.0)
+        assert speed_limit_audit["block_speed_limit_profile_kmh"] == (50.0, 30.0, 50.0)
+        assert speed_limit_audit["block_speed_limit_profile_applied_lane_count"] > 0
+        assert set(speed_limit_audit["lane_speed_limit_kmh_counts"]) == {"30", "50"}
+        np.testing.assert_allclose(
+            execution.substep_states[-1, :2],
+            np.asarray(slot.backend.agent.position),
+            atol=1e-3,
+        )
 
 
 @pytest.mark.simulator
-def test_same_scenario_reset_restores_spawn_after_trajectory_step(
-    official_model_config: OfficialDiffusionPlannerConfig,
-) -> None:
-    config = _environment_config("S", trajectory_execution_steps=1)
+def test_same_scenario_reset_restores_spawn_after_trajectory_step() -> None:
+    config = _environment_config("S")
     with MetaDriveEnvSlot(
         config,
         mode="no_traffic",
-        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=100.0,
         history_warmup_steps=0,
     ) as slot:
@@ -197,33 +200,35 @@ def test_same_scenario_reset_restores_spawn_after_trajectory_step(
         initial.warmup_initial_state,
         atol=1e-6,
     )
-    assert repeated.route_completion == pytest.approx(initial.route_completion, abs=1e-6)
+    assert repeated.state.route_completion == pytest.approx(
+        initial.state.route_completion, abs=1e-6
+    )
 
 
 @pytest.mark.simulator
-def test_traffic_history_enters_planner_observation(
-    official_model_config: OfficialDiffusionPlannerConfig,
-) -> None:
+def test_traffic_history_enters_planner_observation() -> None:
     config = _environment_config("SC", traffic_density=0.1)
     config["horizon"] = 30
-    env = TrajectoryMetaDriveEnv(config)
-    adapter = MetaDriveObservationAdapter(official_model_config, 100.0)
-    try:
-        env.reset(seed=0)
-        adapter.reset(env, env.initial_traffic_frame)
-        for _ in range(4):
-            _, _, terminated, truncated, info = env.step(_stationary_trajectory())
-            assert not terminated and not truncated
-            adapter.append_frames(info["trajectory_execution"].traffic_frames)
-        observation, audit = adapter.build(env)
-    finally:
-        env.close()
+    with MetaDriveEnvSlot(
+        config,
+        mode="traffic",
+        execution_mode=ExecutionMode.EVALUATION,
+        map_query_radius_m=100.0,
+        history_warmup_steps=20,
+    ) as slot:
+        reset = slot.reset(map_name="SC", seed=0)
+    warmup = reset.warmup_steps
+    observation = reset.state.observation
+    audit = reset.state.traffic_audit
 
+    assert sum(item.execution.substep_states.shape[0] for item in warmup) == 20
     assert observation["neighbor_agents_past"].shape == (32, 21, 11)
+    assert observation.batch_size == torch.Size([])
     assert observation["static_objects"].shape == (5, 10)
     assert observation["lanes"].shape == (70, 20, 12)
     assert observation["route_lanes"].shape == (25, 20, 12)
     assert torch.count_nonzero(observation["neighbor_agents_past"]).item() > 0
+    assert audit is not None
     assert audit.participant_count_in_radius > 0
     assert all(
         torch.isfinite(value).all() for value in observation.values() if value.is_floating_point()
@@ -231,78 +236,117 @@ def test_traffic_history_enters_planner_observation(
 
 
 @pytest.mark.simulator
-def test_two_slot_vector_rollout_executes_current_training_path(
-    official_model_config: OfficialDiffusionPlannerConfig,
-) -> None:
+def test_two_slot_vector_rollout_executes_current_training_path() -> None:
     scenarios = (
         VectorEnvScenario(name="slot-0", map="S", seed=0),
         VectorEnvScenario(name="slot-1", map="S", seed=1),
     )
     with VectorMetaDriveEnv(
-        [_environment_config("S", trajectory_execution_steps=1) for _ in scenarios],
+        [_environment_config("S") for _ in scenarios],
         mode="no_traffic",
-        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=100.0,
         history_warmup_steps=0,
         scenarios=scenarios,
     ) as envs:
         resets = envs.reset(scenarios)
         steps = envs.step([_straight_trajectory() for _ in scenarios])
+        reset_results = operation_results(resets, WorkerResetResult)
+        step_results = operation_results(steps, WorkerStepResult)
 
-    assert [item.slot for item in resets] == [0, 1]
-    assert [item.slot for item in steps] == [0, 1]
-    for reset, step in zip(resets, steps, strict=True):
-        assert reset.observation["ego_current_state"].shape == (10,)
-        assert step.execution.substep_states.shape == (1, 7)
-        assert isinstance(step.terminated, bool)
-        assert isinstance(step.truncated, bool)
-        assert np.isfinite(step.reward)
-        assert torch.count_nonzero(reset.observation["route_lanes"]).item() > 0
-        assert torch.count_nonzero(step.observation["route_lanes"]).item() > 0
+    assert resets.batch_size == torch.Size([2])
+    assert steps.batch_size == torch.Size([2])
+    for index, (_reset, step) in enumerate(zip(reset_results, step_results, strict=True)):
+        reset_observation = resets["observation"][index]
+        step_observation = steps["observation"][index]
+        assert reset_observation.batch_size == torch.Size([])
+        assert step_observation.batch_size == torch.Size([])
+        assert reset_observation["ego_current_state"].shape == (10,)
+        assert step.step.execution.substep_states.shape == (1, 7)
+        assert steps["terminated"][index].dtype is torch.bool
+        assert steps["truncated"][index].dtype is torch.bool
+        assert torch.isfinite(steps["reward"][index]).all()
+        assert torch.count_nonzero(reset_observation["route_lanes"]).item() > 0
+        assert torch.count_nonzero(step_observation["route_lanes"]).item() > 0
 
 
 @pytest.mark.simulator
-@pytest.mark.parametrize("reward_profile", (_BUILTIN_REWARD, _ENERGY_REWARD))
-def test_off_route_lane_is_terminal_with_padded_route_observation(
-    official_model_config: OfficialDiffusionPlannerConfig,
-    reward_profile: MetaDriveBuiltinRewardConfig | PlannerRFTEnergyRewardConfig,
-) -> None:
+def test_vector_partial_step_preserves_unselected_slot_and_requested_order() -> None:
+    scenarios = (
+        VectorEnvScenario(name="slot-0", map="S", seed=0),
+        VectorEnvScenario(name="slot-1", map="S", seed=1),
+    )
+    with VectorMetaDriveEnv(
+        [_environment_config("S") for _ in scenarios],
+        mode="no_traffic",
+        execution_mode=ExecutionMode.ROLLOUT,
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+        scenarios=scenarios,
+    ) as envs:
+        resets = envs.reset(scenarios)
+        reset_results = operation_results(resets, WorkerResetResult)
+        slot_one = envs.step((_straight_trajectory(),), slots=(1,))
+        preserved = slot_one.clone()
+        slot_zero = envs.step((_straight_trajectory(),), slots=(0,))
+
+    slot_one_result = operation_results(slot_one, WorkerStepResult)[0]
+    slot_zero_result = operation_results(slot_zero, WorkerStepResult)[0]
+    np.testing.assert_allclose(
+        slot_one_result.step.execution.start_center,
+        reset_results[1].initial_state[:2],
+    )
+    np.testing.assert_allclose(
+        slot_zero_result.step.execution.start_center,
+        reset_results[0].initial_state[:2],
+    )
+    torch.testing.assert_close(slot_one["observation"], preserved["observation"])
+    assert slot_one.batch_size == torch.Size([1])
+    assert slot_zero.batch_size == torch.Size([1])
+
+
+@pytest.mark.simulator
+def test_off_route_lane_is_terminal_with_padded_route_observation() -> None:
     query_radius_m = 5.0
-    config = _environment_config("SXS", trajectory_execution_steps=1)
+    config = _environment_config("SXS")
     scenario = VectorEnvScenario(name="off-route", map="SXS", seed=0)
-    with TrajectoryMetaDriveEnv(config) as source:
-        source.reset(seed=scenario.seed)
-        trajectory = _off_route_trajectory(source, query_radius_m)
+    with MetaDriveEnvSlot(
+        config,
+        mode="no_traffic",
+        execution_mode=ExecutionMode.ROLLOUT,
+        map_query_radius_m=query_radius_m,
+        history_warmup_steps=0,
+    ) as source:
+        source.reset(map_name=scenario.map, seed=scenario.seed)
+        trajectory = _off_route_trajectory(source.backend, query_radius_m)
 
     with VectorMetaDriveEnv(
         [config],
         mode="no_traffic",
-        observation_spec=PlannerObservationSpec.from_planner_config(official_model_config),
+        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=query_radius_m,
         history_warmup_steps=0,
         scenarios=(scenario,),
-        reward_profile=reward_profile,
     ) as envs:
         envs.reset((scenario,))
-        step = envs.step((trajectory,))[0]
+        step_batch = envs.step((trajectory,))
+        step = operation_results(step_batch, WorkerStepResult)[0]
+        observation = step_batch["observation"][0]
 
-    assert step.terminated is True
-    assert step.truncated is False
-    assert step.execution.out_of_road is True
-    assert step.execution.substep_terminated.tolist() == [True]
-    assert step.execution.substep_truncated.tolist() == [False]
-    assert np.isfinite(step.reward)
+    assert bool(step_batch["terminated"][0].item()) is True
+    assert bool(step_batch["truncated"][0].item()) is False
+    assert step.step.execution.out_of_road is True
+    assert step.step.execution.substep_terminated.tolist() == [True]
+    assert step.step.execution.substep_truncated.tolist() == [False]
+    assert torch.isfinite(step_batch["reward"][0]).all()
     assert all(
-        torch.isfinite(value).all()
-        for value in step.observation.values()
-        if value.is_floating_point()
+        torch.isfinite(value).all() for value in observation.values() if value.is_floating_point()
     )
-    assert torch.count_nonzero(step.observation["route_lanes"]).item() == 0
-    assert torch.count_nonzero(step.observation["route_lanes_speed_limit"]).item() == 0
-    assert not torch.any(step.observation["route_lanes_has_speed_limit"])
-    reward_audit = step.execution.substep_reward_audits[-1]
-    if isinstance(reward_profile, PlannerRFTEnergyRewardConfig):
-        assert reward_audit.reward_gate == 0.0
+    assert torch.count_nonzero(observation["route_lanes"]).item() == 0
+    assert torch.count_nonzero(observation["route_lanes_speed_limit"]).item() == 0
+    assert not torch.any(observation["route_lanes_has_speed_limit"])
+    assert len(step.step.metrics) == 1
+    assert evaluate_plannerrft_energy_step(_ENERGY_REWARD, step.step.metrics[-1]).safety_gate == 0.0
 
 
 @pytest.mark.simulator

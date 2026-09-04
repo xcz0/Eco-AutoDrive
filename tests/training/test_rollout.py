@@ -5,12 +5,12 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from eco_planner.envs.metadrive.reward import MetaDriveBuiltinRewardAudit
 from eco_planner.rl.artifacts import (
-    BUILTIN_ROLLOUT_ARTIFACT_FIELDS,
+    ENERGY_ROLLOUT_ARTIFACT_FIELDS,
     write_rollout_episode,
 )
 from eco_planner.rl.policy import ExplorationPolicyContext
+from eco_planner.rl.reward import RewardComponents, RewardDiagnostics, RewardResult
 from eco_planner.rl.rollout import (
     DecisionAudit,
     ExecutionTransitionAudit,
@@ -51,22 +51,35 @@ def _transition():
         diffusion_rng_state=torch.ones(5, dtype=torch.uint8),
         policy_rng_state=torch.ones(5, dtype=torch.uint8),
     )
-    reward_audit = MetaDriveBuiltinRewardAudit(
-        profile_name="metadrive_builtin_v1",
-        reward_total=0.25,
-        dense_reward=0.25,
-        terminal_override=0.0,
-        step_distance_m=1.0,
-        native_step_energy_ml=0.0,
-        native_episode_energy_ml=0.0,
-        executed_fuel_proxy_step_energy_ml=0.05,
-        executed_fuel_proxy_ml_per_km=50.0,
-        energy_distance_valid=True,
-    )
     execution_audit = ExecutionTransitionAudit(
-        reward=0.25,
-        dense_reward=0.25,
-        terminal_override=0.0,
+        reward_result=RewardResult(
+            profile_name="plannerrft_energy_v1",
+            total=0.25,
+            base_total=0.25,
+            safety_gate=1.0,
+            components=RewardComponents(1.0, 0.5, 1.0, 1.0, 0.5),
+            diagnostics=RewardDiagnostics(
+                collision_score=1.0,
+                drivable_score=1.0,
+                wrong_direction_score=1.0,
+                has_ttc_candidate=False,
+                min_ttc_s=10.0,
+                route_progress_delta_m=1.0,
+                speed_mps=2.0,
+                speed_limit_mps=10.0,
+                overspeed_mps=0.0,
+                longitudinal_acceleration_mps2=0.0,
+                lateral_acceleration_mps2=0.0,
+                jerk_mps3=0.0,
+                yaw_rate_radps=0.0,
+                step_distance_m=1.0,
+                native_step_energy_ml=0.0,
+                native_episode_energy_ml=0.0,
+                executed_fuel_proxy_step_energy_ml=0.05,
+                executed_fuel_proxy_ml_per_km=50.0,
+                energy_distance_valid=True,
+            ),
+        ),
         route_completion_delta=0.1,
         distance_m=1.0,
         speed_mps=2.0,
@@ -82,7 +95,6 @@ def _transition():
         crash_sidewalk=False,
         terminated=False,
         truncated=False,
-        reward_audit=reward_audit,
     )
     provenance = RolloutProvenance(0, 1, 2, 0)
     return training_decision, decision_audit, execution_audit, provenance
@@ -99,7 +111,7 @@ def test_rollout_links_next_values_and_uses_tail_bootstrap_only_at_boundary() ->
     assert episode.training["next", "state_value"].squeeze(-1).tolist() == [3.0, 5.0]
     assert episode.training["next", "done"].squeeze(-1).tolist() == [False, True]
     assert episode.transition_count == 2
-    assert episode.reward_profile == "metadrive_builtin_v1"
+    assert episode.reward_profile == "plannerrft_energy_v1"
 
 
 def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path) -> None:
@@ -111,5 +123,5 @@ def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path
     write_rollout_episode(artifact, episode)
 
     with np.load(artifact, allow_pickle=False) as arrays:
-        assert set(arrays.files) == set(BUILTIN_ROLLOUT_ARTIFACT_FIELDS)
-        assert str(arrays["reward_profile"]) == "metadrive_builtin_v1"
+        assert set(arrays.files) == set(ENERGY_ROLLOUT_ARTIFACT_FIELDS)
+        assert str(arrays["reward_profile"]) == "plannerrft_energy_v1"

@@ -250,7 +250,6 @@ class EpisodeMetrics(ArtifactModel):
     stopped_fraction: StrictFloat = Field(ge=0.0, le=1.0)
     route_completion: StrictFloat
     energy: EnergySummary
-    total_reward: StrictFloat
     arrive_dest: StrictBool
     collision: StrictBool
     out_of_road: StrictBool

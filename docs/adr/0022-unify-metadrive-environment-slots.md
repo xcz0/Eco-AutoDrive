@@ -8,11 +8,12 @@ environment、observation adapter、traffic history，并各自实现 reset、st
 observation build、trajectory step、vehicle state 与 route-length 读取。这些路径表达同一仿真
 生命周期，但重复实现会使交通历史、换图和失败语义逐渐分叉。
 
-因此，使用 `MetaDriveEnvSlot` 作为单个物理环境的共同所有者。slot 持有
-`TrajectoryMetaDriveEnv`、严格 traffic/no-traffic adapter 和地图缓存，提供 reset、warmup、
-observe 与 step 边界。Serial evaluation 和 rollout 直接使用 slot；vector worker 在独立进程中
-持有同一对象，IPC client 只负责命令调度、transport timing 和错误传播。Evaluation trace、
-artifact failure classification、RL reward/GAE/PPO 仍由各自调用方拥有，不下沉到环境层。
+因此，使用 `MetaDriveEnvSlot` 作为单个物理环境的共同所有者。slot 组合只负责原生仿真生命周期的
+`MetaDriveBackend`、trajectory executor、严格 traffic/no-traffic observation source 和地图缓存，
+提供 reset、warmup、observe 与 step 边界。Serial evaluation 和 rollout 直接使用 slot；
+`runtime/envs` 下的 TorchRL worker 在独立进程中持有同一对象，`ParallelEnv` 负责进程、共享 buffer
+和 partial mask。Evaluation trace、artifact failure classification、RL reward/GAE/PPO 仍由各自
+调用方拥有，不下沉到环境层。
 
 环境适配器只接收 `PlannerObservationSpec` 中实际使用的 observation shape 字段，不再依赖或在
 worker 中重建完整 `OfficialDiffusionPlannerConfig`。Windows spawn payload 保持为仅含普通 Python

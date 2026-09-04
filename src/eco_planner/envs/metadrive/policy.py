@@ -10,8 +10,9 @@ import numpy as np
 from metadrive.policy.base_policy import BasePolicy
 from metadrive.policy.replay_policy import ReplayTrafficParticipantPolicy
 
-from eco_planner.envs.contracts import PLANNER_HORIZON, ExecutionMode
-from eco_planner.envs.domain.trajectory import WorldTrajectory
+from eco_planner.contracts import PLANNER_HORIZON
+
+from ..domain.trajectory import WorldTrajectory
 
 
 class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
@@ -19,9 +20,6 @@ class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
 
     def __init__(self, obj: Any, seed: int) -> None:
         BasePolicy.__init__(self, control_object=obj, random_seed=seed)
-        engine = cast(Any, self.engine)
-        config = cast(Mapping[str, object], engine.global_config)
-        self._execution_steps = ExecutionMode(config["execution_mode"]).steps
         self._trajectory: WorldTrajectory | None = None
         self._cache_last_update: int | None = None
 
@@ -47,10 +45,6 @@ class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
             raise RuntimeError(f"MetaDrive did not provide an external action for {agent_id!r}")
         action = actions[agent_id]
         if action is not None:
-            if self._trajectory is not None:
-                raise RuntimeError(
-                    "a new trajectory was supplied before the cached prefix finished"
-                )
             self._trajectory = action
             self._cache_last_update = engine.episode_step
         elif self._trajectory is None or self._cache_last_update is None:
@@ -59,8 +53,8 @@ class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
             raise RuntimeError("trajectory continuation requested without a cached trajectory")
         assert self._trajectory is not None and self._cache_last_update is not None
         index = engine.episode_step - self._cache_last_update
-        if not 0 <= index < self._execution_steps:
-            raise RuntimeError("trajectory cache index is outside the execution prefix")
+        if not 0 <= index < PLANNER_HORIZON:
+            raise RuntimeError("trajectory cache index is outside the planner horizon")
         trajectory = self._trajectory
         control_object = cast(Any, self.control_object)
         control_object.set_position(trajectory.centers[index + 1])
@@ -70,7 +64,4 @@ class KinematicTrajectoryPolicy(ReplayTrafficParticipantPolicy):
         self.action_info["trajectory_index"] = index
         self.action_info["trajectory_target_position"] = trajectory.centers[index + 1].copy()
         self.action_info["trajectory_target_heading"] = float(trajectory.headings[index + 1])
-        if index == self._execution_steps - 1:
-            self._trajectory = None
-            self._cache_last_update = None
         return None

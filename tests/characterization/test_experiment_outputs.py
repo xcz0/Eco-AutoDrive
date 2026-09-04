@@ -31,9 +31,6 @@ from eco_planner.experiments.ppo_stability.validation import (
     PolicyEvaluationSummary,
     compare_policy_evaluations,
 )
-from eco_planner.experiments.reward_ab import artifacts as reward_ab_artifacts
-from eco_planner.experiments.reward_ab import report as reward_ab_analysis
-from eco_planner.experiments.reward_ab.config import PPORewardABConfig
 from eco_planner.rl.artifacts import PolicyProbeSummary, TrainingRunSummary, TrainingUpdateSummary
 
 
@@ -69,7 +66,6 @@ def _episode(*, seed: int, distance_m: float, energy_ml: float) -> CompletedEpis
             speed_mps=SpeedSummary(minimum=5.0, mean=6.0 + seed, maximum=7.0),
             stopped_fraction=0.0,
             route_completion=0.4 + 0.1 * seed,
-            total_reward=10.0 + seed,
             arrive_dest=seed == 1,
             collision=False,
             out_of_road=False,
@@ -171,7 +167,6 @@ def test_evaluation_matrix_summary_schema_and_statistics_are_stable(
             "energy_ml_per_km": 100.0,
             "route_completion": 0.4,
             "mean_speed_mps": 6.0,
-            "total_reward": 10.0,
         },
         {
             "scenario": "traffic",
@@ -186,7 +181,6 @@ def test_evaluation_matrix_summary_schema_and_statistics_are_stable(
             "energy_ml_per_km": 150.0,
             "route_completion": 0.5,
             "mean_speed_mps": 7.0,
-            "total_reward": 11.0,
         },
     ]
     statistics = report["statistics"]
@@ -338,134 +332,8 @@ def _training_summary(
         probe_before=probe_before,
         probe_after=probe_after,
         updates=(_update(0, 1.0), post_update or _update(1, 2.0)),
-        reward_profile="metadrive_builtin_v1",
+        reward_profile="plannerrft_energy_v1",
     )
-
-
-def _ab_config() -> PPORewardABConfig:
-    return PPORewardABConfig.model_validate(
-        {
-            "version": 2,
-            "base_training_config": "fixture",
-            "profiles": [
-                {"id": "builtin", "reward_config": "metadrive_builtin_v1"},
-                {"id": "energy", "reward_config": "plannerrft_energy_v1"},
-            ],
-            "matched_training": {
-                "update_count": 2,
-                "transitions_per_environment": 2,
-                "scheduler_total_optimizer_steps": 2,
-                "training_seeds": [1],
-                "replay_ids": [2],
-            },
-            "review_thresholds": {
-                "longitudinal_action_mean_deadband": 0.01,
-                "energy_intensity_deadband_fraction": 0.01,
-                "maximum_progress_drop_fraction": 0.2,
-                "maximum_mean_speed_drop_fraction": 0.2,
-                "maximum_collision_count_increase": 0,
-                "maximum_out_of_road_count_increase": 0,
-            },
-        }
-    )
-
-
-def _rollout(
-    action: float,
-    fuel: float,
-    progress: float,
-    speed: float,
-    collision: bool,
-    out: bool,
-) -> dict[str, np.ndarray]:
-    return {
-        "guidance_action": np.asarray([[0.0, action], [0.0, action]]),
-        "route_completion_delta": np.asarray([progress, progress]),
-        "speed_mps": np.asarray([speed, speed]),
-        "stopped": np.asarray([False, False]),
-        "crash_vehicle": np.asarray([collision, False]),
-        "crash_object": np.asarray([False, False]),
-        "crash_building": np.asarray([False, False]),
-        "crash_human": np.asarray([False, False]),
-        "crash_sidewalk": np.asarray([False, False]),
-        "out_of_road": np.asarray([out, False]),
-        "step_distance_m": np.asarray([10.0, 10.0]),
-        "native_step_energy_ml": np.asarray([1.0, 1.0]),
-        "executed_fuel_proxy_step_energy_ml": np.asarray([fuel, fuel]),
-    }
-
-
-def test_ppo_reward_ab_report_schema_and_effect_window_metrics_are_stable(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config = _ab_config()
-    common_initial = _rollout(0.0, 1.0, 1.0, 5.0, False, False)
-    builtin = reward_ab_artifacts.RewardABRunArtifacts(
-        tmp_path / "builtin",
-        _training_summary(
-            1,
-            2,
-            post_update=_update(1, 2.0, action=0.1, fuel=4.0, progress=4.0, speed=10.0),
-        ),
-        common_initial,
-    )
-    energy = reward_ab_artifacts.RewardABRunArtifacts(
-        tmp_path / "energy",
-        _training_summary(
-            1,
-            2,
-            post_update=_update(
-                1,
-                2.0,
-                action=0.3,
-                fuel=3.0,
-                progress=2.0,
-                speed=9.0,
-                collision=1,
-                out_of_road=1,
-            ),
-        ).model_copy(update={"reward_profile": "plannerrft_energy_v1"}),
-        common_initial,
-    )
-    monkeypatch.setattr(reward_ab_analysis, "load_ab_config", lambda _path: config)
-    monkeypatch.setattr(
-        reward_ab_analysis,
-        "load_run",
-        lambda path, _profile: builtin if path.name == "builtin" else energy,
-    )
-
-    report = reward_ab_analysis.summarize_ab(tmp_path)
-
-    assert report["mechanical_status"] == "passed"
-    assert report["review_status"] == "pending_human_review"
-    assert set(report) == {
-        "mechanical_status",
-        "review_status",
-        "pairs",
-        "cross_seed_summary",
-        "mechanical_checks",
-        "review_questions",
-    }
-    pair = report["pairs"][0]
-    assert pair["effect_window"] == "updates 1..N-1; update 0 is the matched pre-update collection"
-    assert pair["changes"] == {
-        "longitudinal_action_mean_delta": pytest.approx(0.2),
-        "energy_intensity_change_fraction": pytest.approx(-0.25),
-        "progress_change_fraction": pytest.approx(-0.5),
-        "mean_speed_change_fraction": pytest.approx(-0.1),
-        "collision_count_delta": 1,
-        "out_of_road_count_delta": 1,
-    }
-    assert pair["review_flags"] == {
-        "longitudinal_action_changed": True,
-        "energy_intensity_changed": True,
-        "progress_regressed": True,
-        "mean_speed_regressed": False,
-        "collision_regressed": True,
-        "out_of_road_regressed": True,
-        "energy_drop_confounded_by_progress_drop": True,
-    }
-    assert report["cross_seed_summary"]["aggregation_unit"] == "matched training seed/replay pair"
 
 
 def _policy_summary(

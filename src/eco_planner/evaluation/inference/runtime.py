@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from time import perf_counter
-from typing import cast
 
 import torch
 from lightning.fabric import Fabric
+from tensordict import TensorDictBase
 from torch import nn
 
-from eco_planner.envs.array_types import BatchObservation
 from eco_planner.models import (
     CheckpointLoadReport,
     GuidanceConfig,
@@ -83,7 +82,7 @@ class FabricInferenceRuntime:
 
     def infer(
         self,
-        observation: BatchObservation | Mapping[str, torch.Tensor],
+        observation: TensorDictBase,
         generator: torch.Generator,
     ) -> InferenceDecision:
         """Run one planner pass through the shared batched inference path."""
@@ -92,7 +91,7 @@ class FabricInferenceRuntime:
 
     def infer_batch(
         self,
-        observation: BatchObservation | Mapping[str, torch.Tensor],
+        observation: TensorDictBase,
         standard_normal_noise: torch.Tensor,
         transition_generators: Sequence[torch.Generator | None],
         *,
@@ -100,8 +99,7 @@ class FabricInferenceRuntime:
     ) -> InferenceDecision:
         """Run a batch with independently owned per-slot diffusion RNG streams."""
 
-        raw_observation = cast(dict[str, torch.Tensor], dict(observation))
-        batch = validate_artifact_observation_fields(raw_observation, self.planner_config)
+        batch = validate_artifact_observation_fields(observation, self.planner_config)
         config = self.planner_config
         expected_shape = (batch, 1 + config.predicted_neighbor_num, config.future_len, 4)
         if tuple(standard_normal_noise.shape) != expected_shape:
@@ -118,15 +116,12 @@ class FabricInferenceRuntime:
             raise ValueError("transition_generators must contain one generator per batch item")
 
         h2d_started = perf_counter() if profile else 0.0
-        moved = self._fabric.to_device(raw_observation)
+        moved = self._fabric.to_device(observation)
         synchronize_if_cuda(self.device, profile)
         host_to_device_s = perf_counter() - h2d_started if profile else 0.0
-        if not isinstance(moved, dict) or not all(
-            isinstance(name, str) and isinstance(value, torch.Tensor)
-            for name, value in moved.items()
-        ):
-            raise TypeError("Fabric must return a string-to-tensor observation mapping")
-        device_observation = cast(dict[str, torch.Tensor], moved)
+        if not isinstance(moved, TensorDictBase):
+            raise TypeError("Fabric must preserve the TensorDict observation container")
+        device_observation = moved
         execution_started = perf_counter() if profile else 0.0
         if isinstance(self.guidance_config, NoGuidanceConfig):
             with torch.inference_mode():

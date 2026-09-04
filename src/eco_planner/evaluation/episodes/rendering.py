@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 from metadrive.utils.doc_utils import generate_gif
 
-from eco_planner.envs import TrajectoryExecutionRecord, TrajectoryMetaDriveEnv
+from eco_planner.envs import MetaDriveBackend, TrajectoryExecutionRecord
 
 from ..config import VideoConfig
 
@@ -39,7 +39,7 @@ def draw_world_polyline(
 
 
 def render_cycle_frame(
-    env: TrajectoryMetaDriveEnv,
+    env: MetaDriveBackend,
     execution: TrajectoryExecutionRecord,
     anchor_position: np.ndarray,
     video_config: VideoConfig,

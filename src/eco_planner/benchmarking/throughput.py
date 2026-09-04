@@ -3,31 +3,31 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
 from time import perf_counter
+from typing import cast
 
 import numpy as np
 import torch
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
+from tensordict import TensorDictBase
 
-from eco_planner.envs import (
-    PlannerObservationSpec,
-    VectorEnvScenario,
-    VectorEnvStep,
-    VectorMetaDriveEnv,
-    collate_observations,
-)
-from eco_planner.envs.array_types import SingleObservation
+from eco_planner.contracts import PLANNER_HORIZON, ExecutionMode
 from eco_planner.evaluation import (
     EvaluationJobConfig,
     FabricInferenceRuntime,
     create_fabric_inference_runtime,
     parse_evaluation_config,
 )
-from eco_planner.models import OfficialDiffusionPlannerConfig
+from eco_planner.runtime.envs import (
+    VectorEnvScenario,
+    VectorMetaDriveEnv,
+    WorkerStepResult,
+    operation_results,
+)
 from eco_planner.runtime.resources import require_resource_profile
 
 from .config import (
@@ -64,7 +64,6 @@ def run(config: DictConfig) -> None:
         "environment": benchmark_vector_environment_scaling(
             env_config,
             mode=parsed.evaluation.mode,
-            model_config=runtime.planner_config,
             map_query_radius_m=parsed.map_query_radius_m,
             history_warmup_steps=parsed.evaluation.history_warmup_steps,
             benchmark=benchmark,
@@ -76,7 +75,7 @@ def run(config: DictConfig) -> None:
 
 def benchmark_planner_batch_scaling(
     runtime: FabricInferenceRuntime,
-    observation: SingleObservation,
+    observation: TensorDictBase,
     *,
     benchmark: ScalingBenchmarkConfig,
 ) -> list[dict[str, object]]:
@@ -84,7 +83,7 @@ def benchmark_planner_batch_scaling(
 
     results: list[dict[str, object]] = []
     for batch_size in benchmark.batch_sizes:
-        batched_observation = collate_observations([observation] * batch_size)
+        batched_observation = cast(TensorDictBase, TensorDictBase.stack([observation] * batch_size))
         generators = tuple(
             torch.Generator(device=runtime.device).manual_seed(runtime.report.seed + index)
             for index in range(batch_size)
@@ -150,7 +149,6 @@ def benchmark_vector_environment_scaling(
     env_config: Mapping[str, object],
     *,
     mode: str,
-    model_config: OfficialDiffusionPlannerConfig,
     map_query_radius_m: float,
     history_warmup_steps: int,
     benchmark: ScalingBenchmarkConfig,
@@ -159,7 +157,7 @@ def benchmark_vector_environment_scaling(
 
     if mode not in {"traffic", "no_traffic"}:
         raise ValueError("mode must be 'traffic' or 'no_traffic'")
-    trajectory = _stationary_trajectory(model_config.future_len)
+    trajectory = _stationary_trajectory()
     results: list[dict[str, object]] = []
     for worker_count in benchmark.worker_counts:
         steps_per_second: list[float] = []
@@ -178,7 +176,7 @@ def benchmark_vector_environment_scaling(
             with VectorMetaDriveEnv(
                 configs,
                 mode=mode,  # type: ignore[arg-type]
-                observation_spec=PlannerObservationSpec.from_planner_config(model_config),
+                execution_mode=ExecutionMode.EVALUATION,
                 map_query_radius_m=map_query_radius_m,
                 history_warmup_steps=history_warmup_steps,
                 scenarios=scenarios,
@@ -197,9 +195,13 @@ def benchmark_vector_environment_scaling(
                     batch_wall = perf_counter() - started
                     elapsed += batch_wall
                     _require_active_steps(steps)
-                    busy = [step.timing.environment_s + step.timing.observation_s for step in steps]
-                    worker_environment += sum(step.timing.environment_s for step in steps)
-                    worker_observation += sum(step.timing.observation_s for step in steps)
+                    step_results = operation_results(steps, WorkerStepResult)
+                    busy = [
+                        step.timing.environment_s + step.timing.observation_s
+                        for step in step_results
+                    ]
+                    worker_environment += sum(step.timing.environment_s for step in step_results)
+                    worker_observation += sum(step.timing.observation_s for step in step_results)
                     transport_sync += max(0.0, batch_wall - max(busy))
                     imbalance += sum(max(busy) - value for value in busy)
                 total_steps = worker_count * benchmark.measured_cycles
@@ -227,35 +229,34 @@ def benchmark_vector_environment_scaling(
     return results
 
 
-def _stationary_trajectory(future_len: int) -> np.ndarray:
-    trajectory = np.zeros((future_len, 4), dtype=np.float32)
+def _stationary_trajectory() -> np.ndarray:
+    trajectory = np.zeros((PLANNER_HORIZON, 4), dtype=np.float32)
     trajectory[:, 2] = 1.0
     return trajectory
 
 
-def _require_active_steps(steps: Sequence[VectorEnvStep]) -> None:
-    for step in steps:
-        if step.terminated or step.truncated:
-            raise RuntimeError("benchmark environment ended before measurement completed")
+def _require_active_steps(steps: TensorDictBase) -> None:
+    if bool(steps["done"].any()):
+        raise RuntimeError("benchmark environment ended before measurement completed")
 
 
 def _representative_observation(
     runtime: FabricInferenceRuntime,
     config: EvaluationJobConfig,
     env_config: dict[str, object],
-) -> SingleObservation:
+) -> TensorDictBase:
     with VectorMetaDriveEnv(
         (env_config,),
         mode=config.evaluation.mode,
-        observation_spec=PlannerObservationSpec.from_planner_config(runtime.planner_config),
+        execution_mode=ExecutionMode.EVALUATION,
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.evaluation.history_warmup_steps,
         scenarios=(VectorEnvScenario("benchmark-observation", str(env_config["map"]), 0),),
     ) as environments:
         reset = environments.reset(
             (VectorEnvScenario("benchmark-observation", str(env_config["map"]), 0),)
-        )[0]
-    return reset.observation
+        )
+    return cast(TensorDictBase, cast(TensorDictBase, reset["observation"])[0])
 
 
 def _provenance(

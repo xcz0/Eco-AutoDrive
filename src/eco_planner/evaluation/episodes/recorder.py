@@ -11,8 +11,11 @@ from tensordict import TensorDictBase
 from ..artifacts.trace import EXECUTION_PREFIX_STEPS, OBSERVATION_FIELDS, allocate_trace_arrays
 
 if TYPE_CHECKING:
-    from eco_planner.envs import TrafficObservationAudit, TrajectoryExecutionRecord
-    from eco_planner.envs.array_types import SingleObservation
+    from eco_planner.envs import (
+        TrafficObservationAudit,
+        TrajectoryExecutionRecord,
+        TrajectoryExecutionResult,
+    )
 
 
 class EpisodeTraceRecorder:
@@ -90,7 +93,7 @@ class EpisodeTraceRecorder:
 
     def append_warmup(
         self,
-        execution: TrajectoryExecutionRecord,
+        step: TrajectoryExecutionResult,
         participant_counts: np.ndarray,
         static_object_counts: np.ndarray,
     ) -> None:
@@ -99,14 +102,14 @@ class EpisodeTraceRecorder:
         self._require_open()
         participants = np.asarray(participant_counts, dtype=np.int64)
         static_objects = np.asarray(static_object_counts, dtype=np.int64)
-        steps = execution.substep_states.shape[0]
+        steps = step.execution.substep_states.shape[0]
         if participants.shape != (steps,) or static_objects.shape != (steps,):
             raise ValueError("warmup traffic counts must align with execution substeps")
         end = self._warmup_steps + steps
         if end > self._max_warmup_steps:
             raise RuntimeError("warmup trace capacity exceeded")
         target = slice(self._warmup_steps, end)
-        for name, value in _execution_arrays(execution).items():
+        for name, value in _execution_arrays(step).items():
             self._arrays[f"warmup_{name}"][target] = value
         self._arrays["warmup_participant_counts"][target] = participants
         self._arrays["warmup_static_object_counts"][target] = static_objects
@@ -115,15 +118,16 @@ class EpisodeTraceRecorder:
     def append_cycle(
         self,
         anchor: np.ndarray,
-        observation: SingleObservation,
+        observation: TensorDictBase,
         inference: TensorDictBase,
-        execution: TrajectoryExecutionRecord,
+        step: TrajectoryExecutionResult,
         plan_index: int,
         traffic_audit: TrafficObservationAudit | None,
     ) -> None:
         """Append one planning cycle and its executed simulator prefix."""
 
         self._require_open()
+        execution = step.execution
         substep_count = execution.substep_states.shape[0]
         if plan_index != self._plan_cycles:
             raise ValueError("planning indices must be contiguous")
@@ -146,13 +150,17 @@ class EpisodeTraceRecorder:
             self._arrays[f"observation_{name}"][cycle] = value
         self._arrays["ego_predictions_world"][cycle] = _world_prediction(execution)
         target = slice(self._simulator_steps, end)
-        for name, value in _execution_arrays(execution).items():
+        for name, value in _execution_arrays(step).items():
             self._arrays[f"executed_{name}"][target] = value
         self._arrays["executed_plan_indices"][target] = plan_index
         self._arrays["trajectory_target_centers"][target] = execution.target_centers
         self._arrays["trajectory_target_headings"][target] = execution.target_headings
-        self._arrays["trajectory_position_errors_m"][target] = execution.position_errors_m
-        self._arrays["trajectory_heading_errors_rad"][target] = execution.heading_errors_rad
+        self._arrays["trajectory_position_errors_m"][target] = np.asarray(
+            [metrics.position_error_m for metrics in step.metrics], dtype=np.float64
+        )
+        self._arrays["trajectory_heading_errors_rad"][target] = np.asarray(
+            [metrics.heading_error_rad for metrics in step.metrics], dtype=np.float64
+        )
         _write_traffic_audit(self._arrays, cycle, traffic_audit)
         self._write_guidance(cycle, inference)
         self._plan_cycles += 1
@@ -228,14 +236,23 @@ _GUIDANCE_DIAGNOSTIC_NAMES = {
 }
 
 
-def _execution_arrays(execution: TrajectoryExecutionRecord) -> dict[str, np.ndarray]:
+def _execution_arrays(step: TrajectoryExecutionResult) -> dict[str, np.ndarray]:
+    execution = step.execution
+    fuel_ml = [metrics.energy.fuel_ml for metrics in step.metrics]
+    if any(value is None for value in fuel_ml):
+        raise RuntimeError("evaluation trace requires a fuel-volume energy metric")
     return {
         "states": execution.substep_states,
-        "rewards": execution.substep_rewards,
-        "native_step_energy_ml": execution.substep_native_energy_ml,
-        "native_episode_energy_ml": execution.substep_native_episode_energy_ml,
-        "fuel_proxy_step_energy_ml": execution.substep_executed_fuel_proxy_energy_ml,
-        "step_distance_m": execution.substep_distance_m,
+        "native_step_energy_ml": np.asarray(
+            [metrics.input.native_step_energy_ml for metrics in step.metrics], dtype=np.float64
+        ),
+        "native_episode_energy_ml": np.asarray(
+            [metrics.input.native_episode_energy_ml for metrics in step.metrics], dtype=np.float64
+        ),
+        "fuel_proxy_step_energy_ml": np.asarray(fuel_ml, dtype=np.float64),
+        "step_distance_m": np.asarray(
+            [metrics.step_distance_m for metrics in step.metrics], dtype=np.float64
+        ),
         "terminated": execution.substep_terminated,
         "truncated": execution.substep_truncated,
     }
@@ -268,7 +285,7 @@ def _write_traffic_audit(
     arrays["traffic_has_nearest"][cycle] = nearest is not None
 
 
-def _raw_observation_for_trace(observation: SingleObservation) -> dict[str, np.ndarray]:
+def _raw_observation_for_trace(observation: TensorDictBase) -> dict[str, np.ndarray]:
     return {name: observation[name].detach().numpy() for name in OBSERVATION_FIELDS}
 
 

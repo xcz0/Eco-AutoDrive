@@ -7,10 +7,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from eco_planner.execution_contracts import EVALUATION_EXECUTION_STEPS, PLANNER_FUTURE_STEPS
+from eco_planner.contracts import (
+    AGENT_COUNT,
+    EVALUATION_EXECUTION_STEPS,
+    PLANNER_ACTOR_COUNT,
+    PLANNER_HORIZON,
+    PLANNER_STATE_DIM,
+)
+from eco_planner.envs.observation import PLANNER_OBSERVATION_FIELDS
 
-PLANNER_ACTOR_COUNT = 11
-PLANNER_STATE_DIM = 4
 EXECUTION_PREFIX_STEPS = EVALUATION_EXECUTION_STEPS
 
 _PLAN = "plan"
@@ -28,17 +33,7 @@ class TraceFieldSpec:
     finite: bool = True
 
 
-OBSERVATION_FIELDS: dict[str, tuple[tuple[int, ...], np.dtype]] = {
-    "ego_current_state": ((10,), np.dtype(np.float32)),
-    "neighbor_agents_past": ((32, 21, 11), np.dtype(np.float32)),
-    "static_objects": ((5, 10), np.dtype(np.float32)),
-    "lanes": ((70, 20, 12), np.dtype(np.float32)),
-    "lanes_speed_limit": ((70, 1), np.dtype(np.float32)),
-    "lanes_has_speed_limit": ((70, 1), np.dtype(np.bool_)),
-    "route_lanes": ((25, 20, 12), np.dtype(np.float32)),
-    "route_lanes_speed_limit": ((25, 1), np.dtype(np.float32)),
-    "route_lanes_has_speed_limit": ((25, 1), np.dtype(np.bool_)),
-}
+OBSERVATION_FIELDS = PLANNER_OBSERVATION_FIELDS
 
 _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
     "trace_status": TraceFieldSpec((), None, finite=False),
@@ -47,7 +42,6 @@ _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
     "initial_state": TraceFieldSpec((7,), np.dtype(np.float64)),
     "initial_state_valid": TraceFieldSpec((), np.dtype(np.bool_), finite=False),
     "warmup_states": TraceFieldSpec((_WARMUP, 7), np.dtype(np.float64)),
-    "warmup_rewards": TraceFieldSpec((_WARMUP,), np.dtype(np.float64)),
     "warmup_native_step_energy_ml": TraceFieldSpec((_WARMUP,), np.dtype(np.float64)),
     "warmup_native_episode_energy_ml": TraceFieldSpec((_WARMUP,), np.dtype(np.float64)),
     "warmup_fuel_proxy_step_energy_ml": TraceFieldSpec((_WARMUP,), np.dtype(np.float64)),
@@ -58,18 +52,17 @@ _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
     "warmup_static_object_counts": TraceFieldSpec((_WARMUP,), np.dtype(np.int64), finite=False),
     "planning_anchors": TraceFieldSpec((_PLAN, 7), np.dtype(np.float64)),
     "initial_noise": TraceFieldSpec(
-        (_PLAN, PLANNER_ACTOR_COUNT, PLANNER_FUTURE_STEPS, PLANNER_STATE_DIM),
+        (_PLAN, PLANNER_ACTOR_COUNT, PLANNER_HORIZON, PLANNER_STATE_DIM),
         np.dtype(np.float32),
     ),
     "predictions_local": TraceFieldSpec(
-        (_PLAN, PLANNER_ACTOR_COUNT, PLANNER_FUTURE_STEPS, PLANNER_STATE_DIM),
+        (_PLAN, PLANNER_ACTOR_COUNT, PLANNER_HORIZON, PLANNER_STATE_DIM),
         np.dtype(np.float32),
     ),
     "ego_predictions_world": TraceFieldSpec(
-        (_PLAN, PLANNER_FUTURE_STEPS, PLANNER_STATE_DIM), np.dtype(np.float64)
+        (_PLAN, PLANNER_HORIZON, PLANNER_STATE_DIM), np.dtype(np.float64)
     ),
     "executed_states": TraceFieldSpec((_SIMULATOR, 7), np.dtype(np.float64)),
-    "executed_rewards": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "executed_native_step_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "executed_native_episode_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "executed_fuel_proxy_step_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
@@ -81,7 +74,7 @@ _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
     "trajectory_target_headings": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "trajectory_position_errors_m": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "trajectory_heading_errors_rad": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
-    "traffic_selected_ids": TraceFieldSpec((_PLAN, 32), np.dtype("<U64"), finite=False),
+    "traffic_selected_ids": TraceFieldSpec((_PLAN, AGENT_COUNT), np.dtype("<U64"), finite=False),
     "traffic_participant_counts": TraceFieldSpec((_PLAN,), np.dtype(np.int64), finite=False),
     "traffic_static_object_counts": TraceFieldSpec((_PLAN,), np.dtype(np.int64), finite=False),
     "traffic_nearest_distance_m": TraceFieldSpec((_PLAN,), np.dtype(np.float64)),
@@ -90,7 +83,7 @@ _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
 
 _GUIDANCE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
     "reference_predictions_local": TraceFieldSpec(
-        (_PLAN, PLANNER_ACTOR_COUNT, PLANNER_FUTURE_STEPS, PLANNER_STATE_DIM),
+        (_PLAN, PLANNER_ACTOR_COUNT, PLANNER_HORIZON, PLANNER_STATE_DIM),
         np.dtype(np.float32),
         guided_only=True,
     ),
@@ -102,7 +95,7 @@ _GUIDANCE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
         (_PLAN,), np.dtype(np.float32), guided_only=True
     ),
     "guidance_longitudinal_target_speed_delta_mps": TraceFieldSpec(
-        (_PLAN, PLANNER_FUTURE_STEPS), np.dtype(np.float32), guided_only=True
+        (_PLAN, PLANNER_HORIZON), np.dtype(np.float32), guided_only=True
     ),
     "guidance_lateral_objective_delta": TraceFieldSpec(
         (_PLAN, 5), np.dtype(np.float32), guided_only=True
