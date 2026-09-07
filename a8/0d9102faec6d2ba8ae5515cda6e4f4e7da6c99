@@ -1,0 +1,23 @@
+docs/experiments/records/e-029-issue81-a0-frozen-baseline.md
+  s_6f9ad6976df66c::t_efe4c5e2eb818d 61-62
+  s_6f9ad6976df66c::t_9db0c5cc737efc 1-52,54-60,63-79
+  s_6f9ad6976df66c::t_33fa8caec2d441 53
+docs/experiments/README.md
+  s_6f9ad6976df66c::t_f0da1ecdd0b2fb 70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "a80d9102faec6d2ba8ae5515cda6e4f4e7da6c99",
+  "prompts": {},
+  "sessions": {
+    "s_6f9ad6976df66c": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f85c1651bffe3IsYTsWAQ5Yk9C",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
