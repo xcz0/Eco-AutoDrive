@@ -1,0 +1,72 @@
+src/eco_planner/rl/reward/result.py
+  s_cf39e3215f38ec::t_bcfd03f6f0910d 51,59
+  s_cf39e3215f38ec::t_049e3b954ea569 8-9
+src/eco_planner/rl/reward/__init__.py
+  s_cf39e3215f38ec::t_7b791ca21d7f70 9-14,25-26,36,44
+src/eco_planner/rl/reward/objectives/plannerrft.py
+  s_cf39e3215f38ec::t_ad2d53f46fa433 115,132
+  s_cf39e3215f38ec::t_96a1727f94c332 72,79
+  s_cf39e3215f38ec::t_c7b62aec91fd1b 18-22,31-34,47-71,73-77,84,96,100-114,116-131,133-138
+  s_cf39e3215f38ec::t_96938d075a350b 23-28
+src/eco_planner/rl/artifacts/__init__.py
+  s_cf39e3215f38ec::t_74b145aaf01ba6 15-19,23
+tests/training/test_reward.py
+  s_cf39e3215f38ec::t_ad2d53f46fa433 288,308,339
+  s_cf39e3215f38ec::t_398aa3f0285d9b 261
+  s_cf39e3215f38ec::t_ad1bb8a153623e 4,7,17-22
+  s_cf39e3215f38ec::t_1e880876a40c52 65-77
+  s_cf39e3215f38ec::t_5c295152a8c8e0 78-79
+  s_cf39e3215f38ec::t_84e96036e983aa 237-260,262-287,289-307,309-338,340-359
+configs/experiments/reward/sanity_no_energy.yaml
+  s_cf39e3215f38ec::t_82d207c5c305ce 1-160
+docs/agents/system-contract.md
+  s_cf39e3215f38ec::t_c4f1f8718275be 217
+  s_cf39e3215f38ec::t_c1929e04fc99f3 248
+  s_cf39e3215f38ec::t_cd4ba15e8d6021 253
+tests/configuration/test_experiments.py
+  s_cf39e3215f38ec::t_ad2d53f46fa433 75
+  s_cf39e3215f38ec::t_39c99f8c68ad6e 72-74,76-82
+  s_cf39e3215f38ec::t_d6b6bce84a29f9 69-71
+src/eco_planner/rl/rollout/contracts.py
+  s_cf39e3215f38ec::t_3aa30961d0dd73 18
+  s_cf39e3215f38ec::t_ec21575d672661 431-433
+src/eco_planner/rl/artifacts/schema.py
+  s_cf39e3215f38ec::t_0fb84b8291c8de 17
+tests/simulation/test_closed_loop.py
+  s_cf39e3215f38ec::t_1b49aabc848222 110
+tests/training/test_rollout.py
+  s_cf39e3215f38ec::t_9194aa969b233d 10
+  s_cf39e3215f38ec::t_219b5f757fe52a 129-132
+src/eco_planner/experiments/reward_sanity.py
+  s_cf39e3215f38ec::t_ebbcfadddd3b87 12
+  s_cf39e3215f38ec::t_e73ce742b53d7c 25
+  s_cf39e3215f38ec::t_3428a1f780ba8a 161-162,171
+src/eco_planner/rl/artifacts/io.py
+  s_cf39e3215f38ec::t_94d43cb291243e 147
+  s_cf39e3215f38ec::t_37b5235d2d127c 117
+src/eco_planner/rl/reward/config.py
+  s_cf39e3215f38ec::t_86b142b9bc05f0 102-114,116-117,121,123,126
+  s_cf39e3215f38ec::t_ad2d53f46fa433 115
+  s_cf39e3215f38ec::t_79342f8df9fde1 27-37
+  s_cf39e3215f38ec::t_1d87ea143581ea 6
+configs/components/reward/plannerrft_no_energy_v1.yaml
+  s_cf39e3215f38ec::t_cabe30d366a8e7 1-47
+src/eco_planner/rl/reward/objectives/__init__.py
+  s_cf39e3215f38ec::t_b7ebb23c848570 3,5-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "fa7379eedd00fa688da55edd5f9bfe5d840585c3",
+  "prompts": {},
+  "sessions": {
+    "s_cf39e3215f38ec": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f945aca54ffedtiu7u2ZwvKySx",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
