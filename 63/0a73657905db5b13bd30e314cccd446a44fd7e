@@ -1,0 +1,39 @@
+src/eco_planner/experiments/scalar_reward/config.py
+  s_e57dda57498b7c::t_d85d26f0e2a18a 24
+docs/experiments/records/e-031-issue82-task-a-r0-multiseed-anchor.md
+  s_e57dda57498b7c::t_99beaffb2989d9 1-131
+docs/agents/system-contract.md
+  s_e57dda57498b7c::t_cfdf0390455e8d 233
+src/eco_planner/experiments/scalar_reward/runner.py
+  s_e57dda57498b7c::t_84c7cf63d0459b 172-173
+  s_e57dda57498b7c::t_8a6bf7052a8ac4 169,171,176-177
+  s_e57dda57498b7c::t_87195d5f09c33f 94,114-116,122
+  s_e57dda57498b7c::t_ebbb7212a22672 39,45-46,50,57
+  s_e57dda57498b7c::t_1470d975bcec6b 78
+configs/experiments/scalar_reward/protocol.yaml
+  s_e57dda57498b7c::t_f3f910e24ecdc0 15-16
+scripts/experiments/scalar_reward.py
+  s_e57dda57498b7c::t_4a1b5f0bfdf6db 22,29-30,40
+docs/experiments/README.md
+  s_e57dda57498b7c::t_b60b012dcd092f 72
+tests/configuration/test_scalar_reward.py
+  s_e57dda57498b7c::t_c16eca25b1896c 104-105
+  s_e57dda57498b7c::t_5f7e7aea264a36 92-103,111-113,122,124,126-128
+  s_e57dda57498b7c::t_068665018597d7 133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "630a73657905db5b13bd30e314cccd446a44fd7e",
+  "prompts": {},
+  "sessions": {
+    "s_e57dda57498b7c": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f85121169ffekibQ58yEzRPQg5",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
