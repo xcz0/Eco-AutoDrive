@@ -14,3 +14,4 @@ def rollout_artifact_fields(reward_profile: RewardProfileName) -> tuple[str, ...
 
 
 ENERGY_ROLLOUT_ARTIFACT_FIELDS = rollout_artifact_fields("plannerrft_energy_v1")
+NO_ENERGY_ROLLOUT_ARTIFACT_FIELDS = rollout_artifact_fields("plannerrft_no_energy_v1")

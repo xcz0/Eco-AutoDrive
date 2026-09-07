@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, model_validator
 
@@ -22,6 +22,17 @@ class RewardWeightsConfig(_StrictRewardModel):
     @property
     def total(self) -> float:
         return self.ttc + self.progress + self.comfort + self.speed + self.energy
+
+
+class NoEnergyRewardWeightsConfig(_StrictRewardModel):
+    ttc: StrictFloat = Field(gt=0.0)
+    progress: StrictFloat = Field(gt=0.0)
+    comfort: StrictFloat = Field(gt=0.0)
+    speed: StrictFloat = Field(gt=0.0)
+
+    @property
+    def total(self) -> float:
+        return self.ttc + self.progress + self.comfort + self.speed
 
 
 class RewardGatesConfig(_StrictRewardModel):
@@ -88,12 +99,31 @@ class PlannerRFTEnergyRewardConfig(_StrictRewardModel):
     energy: EnergyRewardConfig
 
 
+class PlannerRFTNoEnergyRewardConfig(_StrictRewardModel):
+    """No-energy R0 objective; `energy` only normalizes the audited diagnostic score."""
+
+    name: Literal["plannerrft_no_energy_v1"]
+    weights: NoEnergyRewardWeightsConfig
+    gates: RewardGatesConfig
+    ttc: TTCRewardConfig
+    progress: ProgressRewardConfig
+    comfort: ComfortRewardConfig
+    speed: SpeedRewardConfig
+    energy: EnergyRewardConfig
+
+
+RewardProfileConfig: TypeAlias = PlannerRFTEnergyRewardConfig | PlannerRFTNoEnergyRewardConfig
+
+
 __all__ = [
     "ComfortRewardConfig",
     "EnergyRewardConfig",
+    "NoEnergyRewardWeightsConfig",
     "PlannerRFTEnergyRewardConfig",
+    "PlannerRFTNoEnergyRewardConfig",
     "ProgressRewardConfig",
     "RewardGatesConfig",
+    "RewardProfileConfig",
     "RewardWeightsConfig",
     "SpeedRewardConfig",
     "TTCRewardConfig",

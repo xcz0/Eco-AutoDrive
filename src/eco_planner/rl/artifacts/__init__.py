@@ -12,10 +12,15 @@ from eco_planner.rl.artifacts.io import (
     write_rollout_episode,
     write_training_runtime_metadata,
 )
-from eco_planner.rl.artifacts.schema import ENERGY_ROLLOUT_ARTIFACT_FIELDS, rollout_artifact_fields
+from eco_planner.rl.artifacts.schema import (
+    ENERGY_ROLLOUT_ARTIFACT_FIELDS,
+    NO_ENERGY_ROLLOUT_ARTIFACT_FIELDS,
+    rollout_artifact_fields,
+)
 
 __all__ = [
     "ENERGY_ROLLOUT_ARTIFACT_FIELDS",
+    "NO_ENERGY_ROLLOUT_ARTIFACT_FIELDS",
     "PolicyProbeSummary",
     "PPOGradientDiagnosticsSummary",
     "RewardComponentMeans",

@@ -7,6 +7,7 @@ import torch
 
 from eco_planner.rl.artifacts import (
     ENERGY_ROLLOUT_ARTIFACT_FIELDS,
+    NO_ENERGY_ROLLOUT_ARTIFACT_FIELDS,
     write_rollout_episode,
 )
 from eco_planner.rl.policy import ExplorationPolicyContext
@@ -125,3 +126,7 @@ def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path
     with np.load(artifact, allow_pickle=False) as arrays:
         assert set(arrays.files) == set(ENERGY_ROLLOUT_ARTIFACT_FIELDS)
         assert str(arrays["reward_profile"]) == "plannerrft_energy_v1"
+
+
+def test_both_reward_profiles_share_one_rollout_audit_schema() -> None:
+    assert NO_ENERGY_ROLLOUT_ARTIFACT_FIELDS == ENERGY_ROLLOUT_ARTIFACT_FIELDS

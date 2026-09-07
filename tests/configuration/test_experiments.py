@@ -69,6 +69,20 @@ def test_reward_sanity_report_requires_every_declared_check_to_pass(config_root:
     assert all(item["passed"] for item in report["checks"])
 
 
+def test_no_energy_reward_sanity_report_passes_and_pins_the_r0_cruise_total(
+    config_root: Path,
+) -> None:
+    config = load_sanity_config(config_root / "experiments" / "reward" / "sanity_no_energy.yaml")
+
+    report = evaluate_sanity(config)
+
+    assert "plannerrft_no_energy_v1.yaml" in config.reward_config
+    assert report["reward_profile"] == "plannerrft_no_energy_v1"
+    assert report["status"] == "passed"
+    assert report["case_count"] == 12
+    assert all(item["passed"] for item in report["checks"])
+
+
 def test_ppo_stability_manifest_composes_balanced_independent_scenarios(
     monkeypatch: pytest.MonkeyPatch,
     config_root: Path,

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from omegaconf import OmegaConf
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, TypeAdapter
 
 from eco_planner._repository import CONFIG_ROOT, REPOSITORY_ROOT
 from eco_planner.artifacts import write_json
@@ -22,7 +22,7 @@ from eco_planner.envs import (
     TransitionMetricInput,
     derive_transition_metrics,
 )
-from eco_planner.rl.reward import PlannerRFTEnergyRewardConfig, evaluate_plannerrft_energy_step
+from eco_planner.rl.reward import RewardEvaluator, RewardProfileConfig
 
 DEFAULT_CONFIG = CONFIG_ROOT / "experiments" / "reward" / "sanity.yaml"
 _SCORE_FIELDS = (
@@ -158,7 +158,8 @@ def load_sanity_config(path: Path) -> _SanityConfig:
 def evaluate_sanity(config: _SanityConfig) -> dict[str, object]:
     reward_path = (REPOSITORY_ROOT / config.reward_config).resolve()
     reward_raw = load_resolved_yaml_mapping(reward_path)
-    reward = PlannerRFTEnergyRewardConfig.model_validate(reward_raw)
+    reward = TypeAdapter(RewardProfileConfig).validate_python(reward_raw)
+    evaluator = RewardEvaluator(reward)
     cases: dict[str, dict[str, object]] = {}
     checks: list[dict[str, object]] = []
     for case in config.cases:
@@ -167,7 +168,7 @@ def evaluate_sanity(config: _SanityConfig) -> dict[str, object]:
         values = config.base_input.model_dump(mode="python")
         values.update(case.overrides.model_dump(mode="python", exclude_none=True))
         metrics = derive_transition_metrics(_reward_input(values), MetaDriveFuelProxyProvider())
-        result = evaluate_plannerrft_energy_step(reward, metrics)
+        result = evaluator(metrics)
         payload = asdict(result)
         cases[case.name] = payload
         scores_valid = all(

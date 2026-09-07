@@ -18,7 +18,6 @@ from eco_planner.envs.metadrive import MetaDriveBackend
 from eco_planner.rl.config import parse_rollout_config
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater
 from eco_planner.rl.reward import (
-    PlannerRFTEnergyRewardConfig,
     RewardProfileConfig,
     evaluate_plannerrft_energy_step,
 )
@@ -108,7 +107,7 @@ def _off_route_trajectory(env: MetaDriveBackend, query_radius_m: float) -> np.nd
     return trajectory
 
 
-def _reward_profile(name: str) -> PlannerRFTEnergyRewardConfig:
+def _reward_profile(name: str) -> RewardProfileConfig:
     config_root = Path(__file__).resolve().parents[2] / "configs" / "components" / "reward"
     raw = OmegaConf.to_container(OmegaConf.load(config_root / f"{name}.yaml"), resolve=True)
     return TypeAdapter(RewardProfileConfig).validate_python(raw)
