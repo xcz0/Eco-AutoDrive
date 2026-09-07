@@ -67,6 +67,7 @@
 | [E-027](records/e-027-issue74-rollout-hotpath-optimization.md) | 2026-08-28 | 本机优化验证 | Issue #74 的局部 DiT 编译、同步与 DDIM allocation 优化 | 编译因 Windows 无可用 Triton 未过门槛，保持 eager 默认；两项等价微优化落地，不主张全局吞吐改善 |
 | [E-028](records/e-028-runtime-ownership-refactor.md) | 2026-09-01 | 本机实现验证与诊断复测 | runtime ownership、evaluation topology、rollout/worker 分层与 CUDA audit stream 候选 | 正确性验证通过；性能受机器状态影响，不作加速结论；最终不复用 audit stream |
 | [E-028](records/e-028-issue76-ppo-stability-search.md) | 2026-09-01 | 远程训练机正式搜索 | Issue #76 reset 修复后的 P0/P1 复验与 Optuna Stage A/B/C 分层稳定超参数搜索 | P0/P1 修复后均稳定（E-026 式退化归因 reset bug）；config-0001（batch=128、epochs=1、lr=1.63e-5）为唯一 3 seeds × 100 updates 稳定候选；主要失败模式为 epochs=3 × 高 lr 的 Beta 边界塌缩 |
+| [E-029](records/e-029-issue81-a0-frozen-baseline.md) | 2026-09-07 | 正式基线 | Issue #81 matched 协议下当前 commit 的 A0 frozen planner held-out 基线（S/SC seeds 16–23） | A0 baseline 可复现：13/16 arrive、无失败终止；供 A1/A2 matched 对照，不构成节能结论 |
 
 ## 服务器训练与正式实验登记模板
 
