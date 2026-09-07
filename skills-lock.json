@@ -7,6 +7,12 @@
       "skillPath": "skills/engineering/code-review/SKILL.md",
       "computedHash": "b4f17857c85ca60af1df7d0b623dd03c2a48419f6123e714f3d9748ca744a1bf"
     },
+    "d2-diagram": {
+      "source": "vadbosh/d2-diagram",
+      "sourceType": "github",
+      "skillPath": "skill/SKILL.md",
+      "computedHash": "499bb5255a2165292c12c1b934cbd5d6386f865c6a20b754e0e5eae509061216"
+    },
     "diagnosing-bugs": {
       "source": "mattpocock/skills",
       "sourceType": "github",
@@ -18,6 +24,13 @@
       "sourceType": "github",
       "skillPath": "skills/productivity/handoff/SKILL.md",
       "computedHash": "9ea2a5de5ca2d717f913356de982fdc4fe27d28a300c16598cd43a4865491008"
+    },
+    "likec4-dsl": {
+      "source": "likec4.dev",
+      "sourceUrl": "https://likec4.dev/",
+      "sourceType": "well-known",
+      "computedHash": "36172ada5f58598a5ddca61dc2e8c28995453b88673a73f99eadd283ff59507b",
+      "wellKnownDigest": "sha256:6104361d9b1966a1f0ba193460574e0b4f10bd4766483dbd2c2b3c41647e3174"
     },
     "research": {
       "source": "mattpocock/skills",
