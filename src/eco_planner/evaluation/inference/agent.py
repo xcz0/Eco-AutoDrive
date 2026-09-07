@@ -16,8 +16,10 @@ from eco_planner.models import (
     OfficialDiffusionPlannerConfig,
     SamplerReport,
 )
+from eco_planner.rl.rollout import FabricRolloutRuntime
 from eco_planner.runtime.fabric import InferenceRuntimeReport
 
+from ..artifacts.models import PolicyCheckpointProvenance
 from .decision import InferenceDecision
 from .runtime import FabricInferenceRuntime
 
@@ -48,6 +50,9 @@ class EvaluationAgent(Protocol):
 
     @property
     def guidance_config(self) -> GuidanceConfig: ...
+
+    @property
+    def policy_checkpoint(self) -> PolicyCheckpointProvenance | None: ...
 
     @property
     def guided(self) -> bool: ...
@@ -88,6 +93,10 @@ class DiffusionEvaluationAgent:
         return self.runtime.guidance_config
 
     @property
+    def policy_checkpoint(self) -> PolicyCheckpointProvenance | None:
+        return None
+
+    @property
     def guided(self) -> bool:
         return self.runtime.guidance_config.name != "none"
 
@@ -104,3 +113,51 @@ class DiffusionEvaluationAgent:
             return self.runtime.infer(observation, generators[0])
         noise = self.runtime.sample_noise(generators)
         return self.runtime.infer_batch(observation, noise, generators)
+
+
+@dataclass(frozen=True)
+class PolicyCheckpointEvaluationAgent:
+    """Adapt one exploration-policy checkpoint to the generic evaluation engine."""
+
+    runtime: FabricRolloutRuntime
+    noise_seeds: tuple[int, ...]
+    policy_checkpoint: PolicyCheckpointProvenance
+
+    @property
+    def planner_config(self) -> OfficialDiffusionPlannerConfig:
+        return self.runtime.planner_config
+
+    @property
+    def report(self) -> InferenceRuntimeReport:
+        return self.runtime.report
+
+    @property
+    def checkpoint_report(self) -> CheckpointLoadReport:
+        return self.runtime.checkpoint_report
+
+    @property
+    def sampler_report(self) -> SamplerReport:
+        return self.runtime.sampler_report
+
+    @property
+    def guidance_config(self) -> GuidanceConfig:
+        return self.runtime.guidance_config
+
+    @property
+    def guided(self) -> bool:
+        return True
+
+    def new_noise_generator(self, scenario_index: int) -> torch.Generator:
+        return self.runtime.new_noise_generator(self.noise_seed(scenario_index))
+
+    def noise_seed(self, scenario_index: int) -> int:
+        return self.noise_seeds[scenario_index]
+
+    def decide_batch(
+        self,
+        observation: TensorDictBase,
+        generators: Sequence[torch.Generator],
+    ) -> EvaluationDecision:
+        """Evaluate deterministic Beta-mean actions without consuming policy RNG."""
+
+        return self.runtime.decide_batch_mean(observation, tuple(generators))

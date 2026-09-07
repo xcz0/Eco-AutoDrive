@@ -18,10 +18,16 @@ from pydantic import (
 from eco_planner.configuration import ModelPathsConfig, ScenarioConfig, resolve_config_mapping
 from eco_planner.contracts import TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.models import (
+    Ddim5SamplerConfig,
     GuidanceConfig,
+    OrthogonalPolicyGuidanceConfig,
     SamplerConfig,
     parse_guidance_config,
     parse_sampler_config,
+)
+from eco_planner.rl.policy.config import (
+    ExplorationPolicyConfig,
+    parse_exploration_policy_config,
 )
 from eco_planner.runtime.config import RuntimeConfig
 from eco_planner.runtime.resources import ResourceProfileConfig
@@ -80,6 +86,13 @@ class VideoConfig(_StrictModel):
     scaling: StrictFloat = Field(gt=0.0)
 
 
+class PolicyCheckpointConfig(_StrictModel):
+    """One exploration-policy checkpoint driving a policy evaluation job."""
+
+    label: str = Field(min_length=1)
+    path: str = Field(min_length=1)
+
+
 class EvaluationJobConfig(_StrictModel):
     name: str = Field(min_length=1)
     map_query_radius_m: StrictFloat = Field(gt=0.0)
@@ -89,6 +102,8 @@ class EvaluationJobConfig(_StrictModel):
     runtime: RuntimeConfig
     sampler: SamplerConfig
     guidance: GuidanceConfig
+    policy: ExplorationPolicyConfig | None = None
+    policy_checkpoint: PolicyCheckpointConfig | None = None
     resources: ResourceProfileConfig | None = None
     scenarios: tuple[ScenarioConfig, ...]
     video: VideoConfig
@@ -111,10 +126,25 @@ class EvaluationJobConfig(_StrictModel):
                 raise ValueError("no-traffic evaluation requires zero history warmup steps")
         else:
             self._validate_traffic_environment()
+        self._validate_policy_checkpoint()
         execution = evaluation.execution
         if execution.topology in {"vector", "job_parallel"} and self.video.enabled:
             raise ValueError(f"{execution.topology} execution requires video.enabled=false")
         return self
+
+    def _validate_policy_checkpoint(self) -> None:
+        if self.policy_checkpoint is None:
+            if self.policy is not None:
+                raise ValueError("policy component requires evaluation.policy_checkpoint")
+            return
+        if self.policy is None:
+            raise ValueError("policy-checkpoint evaluation requires the policy component")
+        if not isinstance(self.guidance, OrthogonalPolicyGuidanceConfig):
+            raise ValueError("policy-checkpoint evaluation requires guidance=orthogonal_policy")
+        if not isinstance(self.sampler, Ddim5SamplerConfig):
+            raise ValueError("policy-checkpoint evaluation requires the ddim5 sampler")
+        if self.sampler.ddim_stochasticity != 0.0:
+            raise ValueError("policy-checkpoint evaluation requires ddim_stochasticity=0.0")
 
     def _validate_traffic_environment(self) -> None:
         if self.evaluation.history_warmup_steps != TRAFFIC_HISTORY_WARMUP_STEPS:
@@ -143,17 +173,23 @@ def parse_evaluation_config(config: DictConfig) -> EvaluationJobConfig:
     payload = resolve_config_mapping(config)
     payload["sampler"] = parse_sampler_config(config["sampler"])
     payload["guidance"] = parse_guidance_config(config["guidance"])
+    if payload.get("policy") is not None:
+        payload["policy"] = parse_exploration_policy_config(config["policy"])
     scenarios = payload.get("scenarios")
     if isinstance(scenarios, list):
         payload["scenarios"] = tuple(scenarios)
     evaluation = payload.get("evaluation")
-    if isinstance(evaluation, dict) and isinstance(evaluation.get("matrix"), dict):
-        matrix = dict(evaluation["matrix"])
-        for name in ("seeds", "traffic_densities"):
-            if isinstance(matrix.get(name), list):
-                matrix[name] = tuple(matrix[name])
+    if isinstance(evaluation, dict):
         evaluation = dict(evaluation)
-        evaluation["matrix"] = matrix
+        checkpoint = evaluation.pop("policy_checkpoint", None)
+        if checkpoint is not None:
+            payload["policy_checkpoint"] = checkpoint
+        if isinstance(evaluation.get("matrix"), dict):
+            matrix = dict(evaluation["matrix"])
+            for name in ("seeds", "traffic_densities"):
+                if isinstance(matrix.get(name), list):
+                    matrix[name] = tuple(matrix[name])
+            evaluation["matrix"] = matrix
         payload["evaluation"] = evaluation
     result = EvaluationJobConfig.model_validate(payload)
     return result

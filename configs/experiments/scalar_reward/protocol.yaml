@@ -1,0 +1,36 @@
+# Issue #81 Task B: matched train/eval protocol for the scalar-reward study.
+# A0 (frozen Diffusion Planner), A1 (PPO + PlannerRFT R0), and A2 (PPO +
+# PlannerRFT R with lambda=1) share one held-out evaluation protocol; the
+# training scenario pool (S/SC seeds 0-7) and the held-out pool (S/SC seeds
+# 16-23) must stay disjoint. update-0 checkpoint evaluation is retained as a
+# diagnostic artifact, not a fourth primary arm.
+
+version: 1
+study_name: issue81_scalar_reward_matched_protocol
+
+training:
+  base_job: jobs/training/ppo_conservative
+  maps: [S, SC]
+  map_seeds: [0, 1, 2, 3, 4, 5, 6, 7]
+  seed: 0
+
+arms:
+  a0:
+    label: frozen_diffusion_planner
+  a1:
+    label: ppo_plannerrft_r0
+    reward_profile: plannerrft_no_energy_v1
+  a2:
+    label: ppo_plannerrft_energy_lam1
+    reward_profile: plannerrft_energy_v1
+
+evaluation:
+  job: jobs/evaluation/no_traffic_heldout
+  policy_job: jobs/evaluation/no_traffic_heldout_policy
+  maps: [S, SC]
+  map_seeds: [16, 17, 18, 19, 20, 21, 22, 23]
+  seed: 760025
+  horizon_steps: 300
+  sampler: ddim5
+
+update0_evaluation: diagnostic

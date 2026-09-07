@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -21,6 +22,9 @@ from .models import (
 )
 
 STOPPED_SPEED_THRESHOLD_MPS = 0.1
+# Matches the PlannerRFT reward safety gate's wrong-direction heading threshold
+# (pi/2 against the route forward tangent); evaluation only records the metric.
+WRONG_DIRECTION_MAX_HEADING_ERROR_RAD = math.pi / 2.0
 
 
 def compute_episode_metrics(
@@ -40,6 +44,15 @@ def compute_episode_metrics(
     energy = compute_trace_energy(trace_arrays)
     if energy is None:
         raise ValueError("completed evaluation metrics require execution energy arrays")
+    route_heading_errors = trace_arrays["executed_route_heading_errors_rad"]
+    if route_heading_errors.shape != (states.shape[0],) or not (
+        np.isfinite(route_heading_errors).all() and np.all(route_heading_errors >= 0.0)
+    ):
+        raise ValueError(
+            "completed evaluation metrics require non-negative state-aligned "
+            "executed route heading errors"
+        )
+    wrong_direction_steps = route_heading_errors > WRONG_DIRECTION_MAX_HEADING_ERROR_RAD
     return EpisodeMetrics(
         simulated_seconds=float(states.shape[0] * SIMULATOR_STEP_S),
         distance_m=distance_m,
@@ -60,6 +73,8 @@ def compute_episode_metrics(
             or final_execution.crash_sidewalk
         ),
         out_of_road=final_execution.out_of_road,
+        wrong_direction=bool(wrong_direction_steps.any()),
+        wrong_direction_fraction=float(wrong_direction_steps.mean()),
     )
 
 

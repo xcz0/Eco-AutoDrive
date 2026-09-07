@@ -69,6 +69,8 @@ def _episode(*, seed: int, distance_m: float, energy_ml: float) -> CompletedEpis
             arrive_dest=seed == 1,
             collision=False,
             out_of_road=False,
+            wrong_direction=False,
+            wrong_direction_fraction=0.0,
         ),
         crash_vehicle=False,
         crash_object=False,
@@ -167,6 +169,7 @@ def test_evaluation_matrix_summary_schema_and_statistics_are_stable(
             "energy_ml_per_km": 100.0,
             "route_completion": 0.4,
             "mean_speed_mps": 6.0,
+            "wrong_direction": False,
         },
         {
             "scenario": "traffic",
@@ -181,12 +184,14 @@ def test_evaluation_matrix_summary_schema_and_statistics_are_stable(
             "energy_ml_per_km": 150.0,
             "route_completion": 0.5,
             "mean_speed_mps": 7.0,
+            "wrong_direction": False,
         },
     ]
     statistics = report["statistics"]
     assert statistics["traffic/density_0.20"]["metrics"]["distance_m"]["mean"] == 150.0
     assert statistics["traffic/density_0.20"]["metrics"]["energy_total_ml"]["median"] == 20.0
     assert statistics["traffic/density_0.20"]["arrive_rate"] == 0.5
+    assert statistics["traffic/density_0.20"]["wrong_direction_rate"] == 0.0
 
 
 def test_energy_study_run_record_schema_preserves_episode_and_traffic_context(

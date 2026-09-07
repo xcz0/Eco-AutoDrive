@@ -72,6 +72,7 @@ def _build_report(validated: ValidatedMatrix) -> dict[str, Any]:
                 "energy_ml_per_km": None if metrics is None else metrics.energy.ml_per_km,
                 "route_completion": None if metrics is None else metrics.route_completion,
                 "mean_speed_mps": None if metrics is None else metrics.speed_mps.mean,
+                "wrong_direction": None if metrics is None else metrics.wrong_direction,
             }
         )
     return {
@@ -264,6 +265,7 @@ def build_matrix_statistics(episodes: Sequence[EpisodeSummary]) -> dict[str, Any
             "arrive_rate": float(np.mean([item.arrive_dest for item in metrics])),
             "collision_rate": float(np.mean([item.collision for item in metrics])),
             "out_of_road_rate": float(np.mean([item.out_of_road for item in metrics])),
+            "wrong_direction_rate": float(np.mean([item.wrong_direction for item in metrics])),
         }
     return statistics
 

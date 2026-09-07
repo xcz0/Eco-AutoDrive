@@ -2,23 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
 import numpy as np
-import torch
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
-from tensordict import TensorDictBase
 
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import ScenarioConfig
 from eco_planner.evaluation import (
     CompletedEpisodeSummary,
-    EvaluationDecision,
     EvaluationJobConfig,
     JobSummary,
+    PolicyCheckpointEvaluationAgent,
+    PolicyCheckpointProvenance,
     run_evaluation_agent,
 )
 from eco_planner.experiments.ppo_stability.config import (
@@ -29,64 +27,12 @@ from eco_planner.experiments.ppo_stability.config import (
 from eco_planner.experiments.ppo_stability.monitor import StabilityMonitor, StabilityViolation
 from eco_planner.experiments.ppo_stability.search import compose_trial_training_config
 from eco_planner.jobs import run_training_job
-from eco_planner.models import (
-    CheckpointLoadReport,
-    GuidanceConfig,
-    OfficialDiffusionPlannerConfig,
-    SamplerReport,
-)
 from eco_planner.rl.artifacts import TrainingUpdateSummary, policy_state_hash
 from eco_planner.rl.config import TrainingJobConfig
 from eco_planner.rl.optimization import load_exploration_policy_checkpoint
-from eco_planner.rl.rollout import FabricRolloutRuntime, create_fabric_rollout_runtime
-from eco_planner.runtime.fabric import InferenceRuntimeReport
+from eco_planner.rl.rollout import create_fabric_rollout_runtime
 
 _EVALUATION_SEED_NAMESPACE = 7_602_024
-
-
-@dataclass(frozen=True)
-class _PPOCheckpointEvaluationAgent:
-    """Adapt one PPO guidance checkpoint to the generic evaluation engine."""
-
-    runtime: FabricRolloutRuntime
-    noise_seeds: tuple[int, ...]
-
-    @property
-    def planner_config(self) -> OfficialDiffusionPlannerConfig:
-        return self.runtime.planner_config
-
-    @property
-    def report(self) -> InferenceRuntimeReport:
-        return self.runtime.report
-
-    @property
-    def checkpoint_report(self) -> CheckpointLoadReport:
-        return self.runtime.checkpoint_report
-
-    @property
-    def sampler_report(self) -> SamplerReport:
-        return self.runtime.sampler_report
-
-    @property
-    def guidance_config(self) -> GuidanceConfig:
-        return self.runtime.guidance_config
-
-    @property
-    def guided(self) -> bool:
-        return True
-
-    def new_noise_generator(self, scenario_index: int) -> torch.Generator:
-        return self.runtime.new_noise_generator(self.noise_seed(scenario_index))
-
-    def noise_seed(self, scenario_index: int) -> int:
-        return self.noise_seeds[scenario_index]
-
-    def decide_batch(
-        self,
-        observation: TensorDictBase,
-        generators: Sequence[torch.Generator],
-    ) -> EvaluationDecision:
-        return self.runtime.decide_batch_mean(observation, tuple(generators))
 
 
 class _ArtifactModel(BaseModel):
@@ -151,10 +97,19 @@ def evaluate_policy_checkpoint(
         planner_compile_mode=config.training.planner_compile_mode,
     )
     load_exploration_policy_checkpoint(checkpoint_path, runtime.policy)
+    agent = PolicyCheckpointEvaluationAgent(
+        runtime=runtime,
+        noise_seeds=noise_seeds,
+        policy_checkpoint=PolicyCheckpointProvenance(
+            label=label,
+            path=str(checkpoint_path),
+            policy_hash=policy_state_hash(runtime.policy),
+        ),
+    )
     job = run_evaluation_agent(
         _evaluation_job_config(config, scenarios, transitions_per_scenario),
         output_dir,
-        _PPOCheckpointEvaluationAgent(runtime, noise_seeds),
+        agent,
     )
     return _summary_from_job(
         job,

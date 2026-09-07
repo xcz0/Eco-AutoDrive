@@ -100,3 +100,9 @@ reward-sanity action *arguments:
 ppo-stability action *arguments:
     & {{ python }} -m scripts.experiments.ppo_stability {{ action }} {{ arguments }}
     exit $LASTEXITCODE
+
+# Run A0 evaluation, A1/A2 training, or checkpoint evaluation under the matched protocol.
+[group('experiments')]
+scalar-reward action *arguments:
+    & {{ python }} -m scripts.experiments.scalar_reward {{ action }} {{ arguments }}
+    exit $LASTEXITCODE

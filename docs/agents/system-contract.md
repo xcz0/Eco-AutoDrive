@@ -228,7 +228,9 @@ TorchRL `GAE` 产生未标准化 advantage 与 value target。多个 episode 仅
 
 RL 训练输出与 evaluation 输出使用各自独立的数据边界。训练 episode NPZ 显式保存 `reward_total`、`reward_base_total`、`reward_safety_gate`、五个 `reward_component_*` 与独立命名的 `reward_diagnostic_*`，不再复用 `dense_reward` / `terminal_override` 表达不同 objective 的含义。它同时保存 policy context、Beta 参数、base/guidance action、old log-prob/value、initial noise、两条 RNG state、episode status、五类 collision、native MetaDrive energy、execution fuel proxy、step distance、mL/km、denominator-valid 和 seeds；不保存 DDIM denoise chain。evaluation trace 和 episode summary 不保存或聚合训练 reward，只报告稳定的执行、安全、进度、速度、误差和能耗指标。每次训练运行保存 resolved config、runtime metadata、tracked diff、policy export checkpoints、training-state checkpoint 和严格 summary。`configs/components/resources/` 的版本化 profile 是 host scheduling 的唯一配置层，不得覆盖 PPO、reward、sampler 或 guidance 字段。rollout 内部错误直接终止训练，不保存 partial trajectory。
 
-PPO stability checkpoint evaluation 通过 `evaluation.inference.agent.EvaluationAgent` 适配器进入与 base diffusion planner、fixed-reference guidance 相同的 closed-loop evaluation engine；engine 统一拥有环境执行、trace、episode termination 与 `evaluation.artifacts.summary.compute_episode_metrics`。PPO adapter 固定 policy action 为 Beta mean，因而不消费 policy RNG；它仍使用普通 evaluation 的 0.5 s execution，而非训练 rollout 的 0.1 s transition。评测使用独立于 training seed 的显式 evaluation seed；初始与最终 checkpoint、不同训练 seed 和候选配置必须使用相同 scenario、map seed 和 diffusion seed。初始和最终运行分别是标准 evaluation artifact；PPO stability 的 `validation.py` 只从其 typed episode metrics 应用最小 episode-length/route-progress retention 及 collision/out-of-road non-regression，不读取或比较 reward。
+Exploration-policy checkpoint evaluation 进入与 base diffusion planner、fixed-reference guidance 相同的 closed-loop evaluation engine：通用 evaluation job 通过 `policy` 组件 + `guidance=orthogonal_policy` + `evaluation.policy_checkpoint.{label,path}` 声明一次 checkpoint 评测，`parse_evaluation_config` 在该模式下强制 ddim5 且 `ddim_stochasticity=0`，不允许没有 checkpoint 的悬空 policy 组件。`evaluation.inference.agent.PolicyCheckpointEvaluationAgent` 是 public adapter，固定 policy action 为 Beta mean，因而不消费 policy RNG；它仍使用普通 evaluation 的 0.5 s execution，而非训练 rollout 的 0.1 s transition。checkpoint provenance（label、path、policy state hash）写入 job summary；每个 scenario 的 diffusion noise seed 都取自 job 的 runtime seed，与 frozen-planner agent 的单一 generator 流 matched。评测使用独立于 training seed 的显式 evaluation seed；不同 checkpoint、arm 或候选配置必须使用相同 scenario、map seed 和 diffusion seed。PPO stability 的 `validation.py` 复用同一 agent 与 artifact，只从其 typed episode metrics 应用最小 episode-length/route-progress retention 及 collision/out-of-road non-regression，不读取或比较 reward。
+
+scalar reward 因果研究的 matched protocol 由 `configs/experiments/scalar_reward/protocol.yaml` 的 typed manifest 与 `eco_planner.experiments.scalar_reward` runner 承载：三臂 A0（frozen Diffusion Planner，guidance=none）、A1（PPO + PlannerRFT R0 `plannerrft_no_energy_v1`）、A2（PPO + PlannerRFT Rλ=1 `plannerrft_energy_v1`）共用同一 held-out evaluation 作业语义——S/SC map seeds 16–23、no-traffic、300 步 horizon、DDIM5、runtime seed 760025、`env.num_scenarios=24`。训练场景池为 S/SC seeds 0–7（job `jobs/training/ppo_conservative`）、training seed 0、`replay_id=0`；manifest 校验训练池与 held-out 池的 (map, seed) 集合不相交，runner 在组合后校验 reward profile、seed、sampler、scenario 集合（训练为协议池子集、评测为全集）与 `env.num_scenarios` 覆盖。update-0（initial checkpoint）evaluation 是诊断 artifact，不构成第四个主实验组。
 
 ## 轨迹执行
 
@@ -257,7 +259,7 @@ PPO stability checkpoint evaluation 通过 `evaluation.inference.agent.Evaluatio
 
 每个评测作业必须保存 resolved config、Hydra overrides、runtime Git metadata、tracked diff、地图/场景 seed、噪声 seed、Fabric 请求与解析后的 accelerator/precision、实际设备、依赖环境和场景特征。`tracked_diff.patch` 必须存在，但干净工作区时允许为空。
 
-每个回合至少保存 `summary.json` 和 `trace.npz`；开启视频时保存闭环 GIF。trace 必须包含 raw observation、初始噪声、完整联合预测、规划锚点、目标与实际状态、逐点误差、奖励、逐子步 native MetaDrive energy、execution-recomputed fuel proxy、实际 distance 和终止标志；交通回合还保存预热、对象 ID、交通数量、最近交通距离和历史有效性。
+每个回合至少保存 `summary.json` 和 `trace.npz`；开启视频时保存闭环 GIF。trace 必须包含 raw observation、初始噪声、完整联合预测、规划锚点、目标与实际状态、逐点误差、逐子步 wrapped route heading error、逐子步 native MetaDrive energy、execution-recomputed fuel proxy、实际 distance 和终止标志；交通回合还保存预热、对象 ID、交通数量、最近交通距离和历史有效性。
 
 `evaluation.artifacts.summary.compute_episode_metrics` 是通用 closed-loop metric 的唯一计算路径：它从
 完整 execution trace 与最终 typed execution record 生成一个 `evaluation_episode` 聚合单位的
@@ -265,8 +267,12 @@ PPO stability checkpoint evaluation 通过 `evaluation.inference.agent.Evaluatio
 mean speed 与 stopped fraction 分别是 simulator steps 上的算术平均和速度小于 `0.1 m/s` 的比例；
 route completion 是最终 execution record 的值；arrival、collision 与 out-of-road 是最终 terminal
 outcome；total energy、energy distance 与 energy intensity 只从 execution-recomputed fuel-proxy
-trace 流聚合。summary、matrix 与实验报告消费这些 typed episode/training summaries，不得另从
-trace array 或 resolved config 重算同名通用指标。
+trace 流聚合。wrong-direction 指标从 trace 的 `executed_route_heading_errors_rad`（每个执行子步
+相对 route forward tangent 的 wrapped heading error，与 reward safety gate 同源）计算：任何子步
+误差严格大于 π/2 即 `wrong_direction=true`，`wrong_direction_fraction` 为该子步比例；该指标只
+记录，不改变 termination。summary、matrix 与实验报告消费这些 typed episode/training
+summaries，不得另从 trace array 或 resolved config 重算同名通用指标。matrix report 的 episode
+行包含 `wrong_direction`，scenario 统计包含 `wrong_direction_rate`。
 
 trace recorder 必须在回合开始时按最大 planning/warmup 容量，根据当前 trace field contract 预分配数组并直接写入槽位；`finalize()` 只暴露已记录切片。`trace.npz` 使用标准未压缩 NPZ，以降低长程写盘墙钟。
 

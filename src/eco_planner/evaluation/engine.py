@@ -12,13 +12,25 @@ from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import collect_repository_metadata, write_json, write_tracked_diff
-from eco_planner.models import GuidanceConfig, SamplerReport
+from eco_planner.models import (
+    GuidanceConfig,
+    OrthogonalPolicyGuidanceConfig,
+    SamplerReport,
+)
+from eco_planner.rl.artifacts import policy_state_hash
+from eco_planner.rl.optimization import load_exploration_policy_checkpoint
+from eco_planner.rl.rollout import create_fabric_rollout_runtime
 from eco_planner.runtime.fabric import InferenceRuntimeReport, resolve_runtime_settings
 
-from .artifacts import JobSummary, RuntimeMetadata
+from .artifacts import JobSummary, PolicyCheckpointProvenance, RuntimeMetadata
 from .config import EvaluationJobConfig
 from .episodes import run_scenario, run_vector_scenarios
-from .inference import DiffusionEvaluationAgent, EvaluationAgent, create_fabric_inference_runtime
+from .inference import (
+    DiffusionEvaluationAgent,
+    EvaluationAgent,
+    PolicyCheckpointEvaluationAgent,
+    create_fabric_inference_runtime,
+)
 
 
 @dataclass(frozen=True)
@@ -42,14 +54,54 @@ def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
 
     args_path = Path(to_absolute_path(config.model.args_path))
     checkpoint_path = Path(to_absolute_path(config.model.checkpoint_path))
-    runtime = create_fabric_inference_runtime(
+    if config.policy_checkpoint is None:
+        runtime = create_fabric_inference_runtime(
+            config.runtime,
+            config.sampler,
+            config.guidance,
+            args_path,
+            checkpoint_path,
+        )
+        return run_evaluation_agent(config, output_dir, DiffusionEvaluationAgent(runtime))
+    return run_evaluation_agent(
+        config, output_dir, _create_policy_checkpoint_agent(config, args_path, checkpoint_path)
+    )
+
+
+def _create_policy_checkpoint_agent(
+    config: EvaluationJobConfig, args_path: Path, checkpoint_path: Path
+) -> PolicyCheckpointEvaluationAgent:
+    """Load one exploration-policy checkpoint behind the generic agent contract."""
+
+    guidance = config.guidance
+    if not isinstance(guidance, OrthogonalPolicyGuidanceConfig):
+        raise ValueError("policy-checkpoint evaluation requires guidance=orthogonal_policy")
+    if config.policy is None or config.policy_checkpoint is None:
+        raise RuntimeError("policy-checkpoint evaluation is incompletely configured")
+    runtime = create_fabric_rollout_runtime(
         config.runtime,
         config.sampler,
-        config.guidance,
+        guidance,
+        config.policy,
         args_path,
         checkpoint_path,
+        config.runtime.seed,
+        planner_compile_mode="eager",
     )
-    return run_evaluation_agent(config, output_dir, DiffusionEvaluationAgent(runtime))
+    policy_checkpoint_path = Path(to_absolute_path(config.policy_checkpoint.path))
+    load_exploration_policy_checkpoint(policy_checkpoint_path, runtime.policy)
+    provenance = PolicyCheckpointProvenance(
+        label=config.policy_checkpoint.label,
+        path=str(policy_checkpoint_path),
+        policy_hash=policy_state_hash(runtime.policy),
+    )
+    return PolicyCheckpointEvaluationAgent(
+        runtime=runtime,
+        # Matched with the frozen-planner agent: every scenario draws from one
+        # generator stream seeded by the job's runtime seed.
+        noise_seeds=tuple(config.runtime.seed for _ in config.scenarios),
+        policy_checkpoint=provenance,
+    )
 
 
 def run_evaluation_agent(
@@ -92,6 +144,11 @@ def run_evaluation_agent(
             "checkpoint": asdict(agent.checkpoint_report),
             "sampler": asdict(agent.sampler_report),
             "guidance": asdict(agent.guidance_config),
+            "policy_checkpoint": (
+                None
+                if agent.policy_checkpoint is None
+                else agent.policy_checkpoint.model_dump(mode="python")
+            ),
             "workload": {
                 "mode": config.evaluation.mode,
                 "profile": config.evaluation.profile,
