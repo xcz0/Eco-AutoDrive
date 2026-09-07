@@ -1,0 +1,21 @@
+docs/experiments/records/e-030-issue81-ppo-transfer-gate.md
+  s_f887c47e4d3493::t_170428f5975274 1-108
+docs/experiments/README.md
+  s_f887c47e4d3493::t_f2d1505474f5b0 71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "b1c8079255d5b71c7df674870d25147fbf7fb38a",
+  "prompts": {},
+  "sessions": {
+    "s_f887c47e4d3493": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f853a4b15ffeOvBQaai1d1ei2j",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
