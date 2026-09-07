@@ -242,7 +242,7 @@ def build_training_decision(
         "navigation_padding_mask": policy_context.navigation_padding_mask,
         "reference_trajectory": policy_context.reference_trajectory,
         "guidance_action": guidance_action,
-        "old_joint_guidance_log_prob": old_joint_guidance_log_prob.reshape(-1, 1),
+        "old_joint_guidance_log_prob": old_joint_guidance_log_prob.reshape(-1),
         "state_value": state_value.reshape(-1, 1),
     }
     batch = policy_context.reference_trajectory.shape[0]
@@ -411,7 +411,10 @@ def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
         raise ValueError("PPO training guidance_action must have shape [T, 2]")
     if torch.any((guidance_action <= -1.0) | (guidance_action >= 1.0)):
         raise ValueError("PPO training guidance_action must be strictly inside (-1, 1)")
-    for key in ("old_joint_guidance_log_prob", "state_value", "reward"):
+    old_log_prob = _tensor(trajectory, "old_joint_guidance_log_prob")
+    if old_log_prob.ndim != 1:
+        raise ValueError("PPO training old_joint_guidance_log_prob must have shape [T]")
+    for key in ("state_value", "reward"):
         value = _tensor(trajectory, ("next", key) if key == "reward" else key)
         if tuple(value.shape[1:]) != (1,):
             raise ValueError(f"PPO training {key} must have shape [T, 1]")

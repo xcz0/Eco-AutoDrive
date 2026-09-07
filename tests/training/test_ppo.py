@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -12,6 +13,7 @@ from eco_planner.rl.policy import (
     ExplorationPolicy,
     ExplorationPolicyConfig,
     ExplorationPolicyContext,
+    policy_context_tensordict,
 )
 from eco_planner.rl.reward import RewardComponents, RewardDiagnostics, RewardResult
 from eco_planner.rl.rollout import (
@@ -157,6 +159,39 @@ def _episode(*, reward: float, terminated: bool, truncated: bool, bootstrap: flo
     return builder.finish(tail_kind, torch.tensor([bootstrap]))
 
 
+def _behavior_policy_episode(
+    policy: ExplorationPolicy, guidance_action: torch.Tensor, reward: float
+):
+    context = _context()
+    with torch.no_grad():
+        outputs = policy.forward_tensordict(policy_context_tensordict(context))
+        distribution = policy.output_from_tensordict(outputs).distribution
+        old_log_prob = distribution.log_prob(guidance_action)
+    decision = build_training_decision(
+        context,
+        guidance_action,
+        old_log_prob,
+        outputs["state_value"],
+    )
+    decision_audit = replace(
+        _decision_audit(),
+        base_action=(guidance_action + 1.0) / 2.0,
+        guidance_action=guidance_action,
+        old_joint_guidance_log_prob=old_log_prob,
+        old_value=outputs["state_value"].reshape(-1),
+        beta_alpha=outputs["alpha"],
+        beta_beta=outputs["beta"],
+    )
+    builder = RolloutEpisodeBuilder()
+    builder.append(
+        decision,
+        decision_audit,
+        _execution_audit(reward, terminated=True, truncated=False),
+        RolloutProvenance(0, 1, 2, 0),
+    )
+    return builder.finish("terminated", torch.zeros(1))
+
+
 def test_gae_uses_terminal_and_truncated_bootstrap_semantics() -> None:
     config = _ppo_config()
     terminal = compute_episode_gae(
@@ -252,6 +287,21 @@ def test_ppo_update_changes_policy_and_reports_finite_training_summary() -> None
         assert summary.action_mean[dim] <= summary.action_max[dim]
         assert summary.action_std[dim] >= 0.0
     assert summary.reward_profile == "plannerrft_energy_v1"
+
+
+def test_ppo_pairs_each_action_with_its_behavior_log_probability() -> None:
+    with torch.random.fork_rng():
+        torch.manual_seed(0)
+        policy = ExplorationPolicy(_policy_config())
+    episodes = (
+        _behavior_policy_episode(policy, torch.tensor([[0.0, 0.0]]), reward=0.25),
+        _behavior_policy_episode(policy, torch.tensor([[0.98, -0.98]]), reward=2.0),
+    )
+
+    report = PPOUpdater(policy, _ppo_config()).update(episodes)
+
+    assert report.mean_clip_fraction == 0.0
+    assert report.mean_approximate_kl == pytest.approx(0.0, abs=1e-7)
 
 
 def test_target_kl_stops_before_triggering_minibatch_optimizer_step_and_resumes_state() -> None:

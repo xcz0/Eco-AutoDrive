@@ -111,6 +111,7 @@ def test_rollout_links_next_values_and_uses_tail_bootstrap_only_at_boundary() ->
 
     assert episode.training["next", "state_value"].squeeze(-1).tolist() == [3.0, 5.0]
     assert episode.training["next", "done"].squeeze(-1).tolist() == [False, True]
+    assert episode.training["old_joint_guidance_log_prob"].shape == torch.Size([2])
     assert episode.transition_count == 2
     assert episode.reward_profile == "plannerrft_energy_v1"
 
