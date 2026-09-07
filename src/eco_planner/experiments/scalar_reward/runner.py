@@ -36,22 +36,25 @@ def compose_a0_evaluation_config(
 def compose_arm_training_config(
     protocol: ScalarRewardProtocolConfig,
     arm: ArmName,
+    seed: int,
     overrides: Sequence[str] = (),
 ) -> tuple[DictConfig, TrainingJobConfig]:
     """Compose one trained arm's PPO job with its pinned matched-protocol values."""
 
     arm_config = _arm_config(protocol, arm)
+    if any(override.startswith("runtime.seed") for override in overrides):
+        raise ValueError("runtime.seed is selected by the seed argument, not overrides")
     config = compose_job_config(
         protocol.training.base_job,
         [
-            f"runtime.seed={protocol.training.seed}",
+            f"runtime.seed={seed}",
             "training.replay_id=0",
             f"components/reward={arm_config.reward_profile}",
             *overrides,
         ],
     )
     parsed = parse_training_config(config)
-    _require_training_protocol(protocol, arm_config, parsed)
+    _require_training_protocol(protocol, arm_config, parsed, seed)
     return config, parsed
 
 
@@ -72,7 +75,7 @@ def compose_policy_evaluation_config(
     )
     parsed = parse_evaluation_config(config)
     _require_evaluation_protocol(protocol, parsed)
-    _, training = compose_arm_training_config(protocol, arm)
+    _, training = compose_arm_training_config(protocol, arm, protocol.training.seeds[0])
     if parsed.policy != training.policy:
         raise ValueError("policy evaluation must use the training policy architecture")
     if parsed.model != training.model:
@@ -88,6 +91,7 @@ def run_command(
     output_dir: Path,
     *,
     arm: ArmName | None = None,
+    training_seed: int | None = None,
     checkpoint_label: CheckpointLabel | None = None,
     checkpoint_path: Path | None = None,
     overrides: Sequence[str] = (),
@@ -107,12 +111,15 @@ def run_command(
     if arm is None:
         raise ValueError(f"{action} requires --arm a1 or a2")
     if action == "train":
-        config, _ = compose_arm_training_config(protocol, arm, overrides)
+        if training_seed is None:
+            raise ValueError("train requires --training-seed")
+        config, _ = compose_arm_training_config(protocol, arm, training_seed, overrides)
         summary = run_training_job(config, output_dir)
         return {
             "action": action,
             "arm": arm,
             "reward_profile": _arm_config(protocol, arm).reward_profile,
+            "training_seed": training_seed,
             "status": summary.status,
             "output_dir": str(output_dir),
         }
@@ -159,11 +166,15 @@ def _require_training_protocol(
     protocol: ScalarRewardProtocolConfig,
     arm_config: TrainedPolicyArmConfig,
     parsed: TrainingJobConfig,
+    seed: int,
 ) -> None:
+    if seed not in protocol.training.seeds:
+        namespace = sorted(protocol.training.seeds)
+        raise ValueError(f"training seed {seed} is outside the protocol namespace {namespace}")
     if parsed.reward.name != arm_config.reward_profile:
         raise ValueError(f"trained arm must use reward profile {arm_config.reward_profile}")
-    if parsed.runtime.seed != protocol.training.seed:
-        raise ValueError(f"matched training requires runtime.seed={protocol.training.seed}")
+    if parsed.runtime.seed != seed:
+        raise ValueError(f"matched training requires runtime.seed={seed}")
     if parsed.training.replay_id != 0:
         raise ValueError("matched training pins training.replay_id=0")
     if not isinstance(parsed.sampler, Ddim5SamplerConfig):

@@ -21,7 +21,7 @@ class TrainingProtocolConfig(_StrictModel):
     base_job: str = Field(min_length=1)
     maps: list[str] = Field(min_length=1)
     map_seeds: list[StrictInt] = Field(min_length=1)
-    seed: StrictInt = Field(ge=0)
+    seeds: list[StrictInt] = Field(min_length=1)
 
 
 class EvaluationProtocolConfig(_StrictModel):
