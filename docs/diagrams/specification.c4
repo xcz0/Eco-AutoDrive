@@ -1,0 +1,7 @@
+specification {
+  element module { style { shape rectangle; color blue } }
+  element frozen { style { shape rectangle; color slate } }
+  element trainable { style { shape rectangle; color amber } }
+  element simulation { style { shape rectangle; color green } }
+  element data { style { shape storage; color sky } }
+}
