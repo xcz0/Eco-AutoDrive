@@ -19,12 +19,15 @@ def main() -> None:
     parser.add_argument("--config", type=Path, default=DEFAULT_PROTOCOL)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--arm", choices=("a1", "a2"))
+    parser.add_argument("--training-seed", type=int)
     parser.add_argument("--checkpoint", choices=("initial", "final"))
     parser.add_argument("--checkpoint-path", type=Path)
     parser.add_argument("--override", action="append", default=[])
     args = parser.parse_args()
     if args.action == "train" and args.arm is None:
         parser.error("train requires --arm")
+    if args.action == "train" and args.training_seed is None:
+        parser.error("train requires --training-seed")
     if args.action == "evaluate-policy" and (
         args.arm is None or args.checkpoint is None or args.checkpoint_path is None
     ):
@@ -34,6 +37,7 @@ def main() -> None:
         args.config.resolve(),
         args.output_dir.resolve(),
         arm=args.arm,
+        training_seed=args.training_seed,
         checkpoint_label=args.checkpoint,
         checkpoint_path=None if args.checkpoint_path is None else args.checkpoint_path.resolve(),
         overrides=args.override,

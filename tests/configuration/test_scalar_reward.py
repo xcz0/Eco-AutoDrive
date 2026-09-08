@@ -89,26 +89,29 @@ def test_a0_runner_rejects_seed_mismatch_against_the_composed_job() -> None:
 def test_arm_training_composition_pins_the_matched_protocol() -> None:
     protocol = load_scalar_reward_protocol(PROTOCOL_PATH)
 
-    _, a1 = compose_arm_training_config(protocol, "a1")
-    _, a2 = compose_arm_training_config(protocol, "a2")
+    assert protocol.training.seeds == [0, 1, 2]
+    for seed in protocol.training.seeds:
+        _, a1 = compose_arm_training_config(protocol, "a1", seed)
+        _, a2 = compose_arm_training_config(protocol, "a2", seed)
 
-    assert a1.reward.name == "plannerrft_no_energy_v1"
-    assert a2.reward.name == "plannerrft_energy_v1"
-    assert a1.tracking.tags["arm"] == "A1"
-    assert a2.tracking.tags["arm"] == "A2"
-    assert a1.tracking.tags["protocol"] == protocol.study_name
-    for training in (a1, a2):
-        assert isinstance(training, TrainingJobConfig)
-        assert training.runtime.seed == 0
-        assert training.training.replay_id == 0
-        assert isinstance(training.sampler, Ddim5SamplerConfig)
-        assert {(item.map, item.seed) for item in training.scenarios} == (protocol.training_pairs())
+        assert a1.reward.name == "plannerrft_no_energy_v1"
+        assert a2.reward.name == "plannerrft_energy_v1"
+        assert a1.tracking.tags["arm"] == "A1"
+        assert a2.tracking.tags["arm"] == "A2"
+        assert a1.tracking.tags["protocol"] == protocol.study_name
+        for training in (a1, a2):
+            assert isinstance(training, TrainingJobConfig)
+            assert training.runtime.seed == seed
+            assert training.training.replay_id == 0
+            assert isinstance(training.sampler, Ddim5SamplerConfig)
+            pairs = {(item.map, item.seed) for item in training.scenarios}
+            assert pairs == protocol.training_pairs()
 
 
 def test_arm_training_composition_passes_through_ppo_overrides() -> None:
     protocol = load_scalar_reward_protocol(PROTOCOL_PATH)
 
-    _, training = compose_arm_training_config(protocol, "a1", ["ppo.learning_rate=1.6301e-5"])
+    _, training = compose_arm_training_config(protocol, "a1", 0, ["ppo.learning_rate=1.6301e-5"])
 
     assert training.ppo.learning_rate == pytest.approx(1.6301e-5)
 
@@ -117,16 +120,18 @@ def test_arm_training_composition_rejects_protocol_violations() -> None:
     protocol = load_scalar_reward_protocol(PROTOCOL_PATH)
 
     with pytest.raises(ValueError, match="reward profile"):
-        compose_arm_training_config(protocol, "a1", ["components/reward=plannerrft_energy_v1"])
+        compose_arm_training_config(protocol, "a1", 0, ["components/reward=plannerrft_energy_v1"])
     with pytest.raises(ValueError, match="runtime.seed"):
-        compose_arm_training_config(protocol, "a2", ["runtime.seed=1"])
+        compose_arm_training_config(protocol, "a2", 0, ["runtime.seed=1"])
     with pytest.raises(ValueError, match="num_scenarios"):
-        compose_arm_training_config(protocol, "a1", ["env.num_scenarios=4"])
+        compose_arm_training_config(protocol, "a1", 0, ["env.num_scenarios=4"])
+    with pytest.raises(ValueError, match="training seed"):
+        compose_arm_training_config(protocol, "a1", 7)
 
 
 def test_policy_evaluation_composition_matches_the_training_arm() -> None:
     protocol = load_scalar_reward_protocol(PROTOCOL_PATH)
-    _, training = compose_arm_training_config(protocol, "a1")
+    _, training = compose_arm_training_config(protocol, "a1", 0)
 
     _, policy_job = compose_policy_evaluation_config(
         protocol, "a1", "initial", Path("runs/a1/policy-initial.pt")
