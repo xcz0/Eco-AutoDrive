@@ -232,6 +232,51 @@ Exploration-policy checkpoint evaluation 进入与 base diffusion planner、fixe
 
 scalar reward 因果研究的 matched protocol 由 `configs/experiments/scalar_reward/protocol.yaml` 的 typed manifest 与 `eco_planner.experiments.scalar_reward` runner 承载：三臂 A0（frozen Diffusion Planner，guidance=none）、A1（PPO + PlannerRFT R0 `plannerrft_no_energy_v1`）、A2（PPO + PlannerRFT Rλ=1 `plannerrft_energy_v1`）共用同一 held-out evaluation 作业语义——S/SC map seeds 16–23、no-traffic、300 步 horizon、DDIM5、runtime seed 760025、`env.num_scenarios=24`。训练场景池为 S/SC seeds 0–7（job `jobs/training/ppo_conservative`）、training seed 0、`replay_id=0`；manifest 校验训练池与 held-out 池的 (map, seed) 集合不相交，runner 在组合后校验 reward profile、seed、sampler、scenario 集合（训练为协议池子集、评测为全集）与 `env.num_scenarios` 覆盖。update-0（initial checkpoint）evaluation 是诊断 artifact，不构成第四个主实验组。
 
+### 训练实验跟踪
+
+PPO training 默认通过 `tracking` Hydra 组件启用 MLflow。SQLite URI 和本地 artifact
+location 的相对路径以仓库根目录解析，默认分别为 `outputs/mlflow/mlflow.db` 和
+`outputs/mlflow/artifacts`；HTTP(S) tracking URI 支持远程服务。远程服务应显式设置
+`artifact_location=null`，让服务选择存储。关闭 tracking 不建立数据库或 Run。
+
+训练编排的 adapter 将 `TrainingUpdateSummary` 转为有限标量，经已有 runtime 的
+`Fabric.log_dict` 和 Lightning `MLFlowLogger` 同步发送；collector、reward evaluator 和
+TorchRL PPO 数学实现不调用 MLflow。现有 `update_observer` 每个成功记录的 update 调用一次，
+异常继续传播。所有 update 曲线使用从零开始的绝对 `update_index`，不在恢复后重置。
+
+`reward/total_sum`、`reward/base_sum` 保留 transition reward 总和，`*_mean` 除以
+`sample_count`；collision/out-of-road 的 `transition_count` 和 `transition_fraction`
+是标记 transition 的计数和占比，不是 episode failure rate。energy 保留 native 和
+executed fuel proxy 的独立名称与单位；mL/km 为总 proxy mL 除以总距离 km，零距离时不发送该
+可选指标，不填零。二维 Beta/action 统计按 `dim_0`、`dim_1` 展开。分组 gradient diagnostics
+和 KL trigger 仅在存在时发送。`policy/probe_before/*` 与 `policy/probe_after/*` 使用已有
+固定上下文 probe，按 scenario 和维度记录，包括 boundary mass；不是逐 update 新增采样。
+
+通用 rollout mean/sum/max 由 TorchMetrics 聚合同一份拼接 audit，保持原 dtype，均值按
+transition 而非 episode 加权。PPO loss/KL/entropy 等使用 float64 状态，对 evaluated
+minibatch 求均值，包括触发 KL early stop 的 minibatch；pre-clip gradient 最大值仅更新于
+实际 optimizer step，零 step 时保持零。聚合状态每个 update 重建，不消费随机流，NaN 报错。
+分组梯度诊断、policy ratio、标准差、GAE 和 reward/energy 领域计算保持原实现。
+
+全新训练独立建 Run；training checkpoint 的 loop state 可含 `tracking={run_id,
+tracking_uri}`，恢复时沿用该身份。关闭跟踪仍保留继承身份，并写入 runtime metadata。
+同一 Run 固定 model、sampler、guidance、policy、reward、PPO、runtime、scenarios、env、
+map query radius 及其余 training 参数；允许变化的是 job name、resources、tracking、
+目标 update 数与 resume 路径。scheduler horizon 仍属于固定 PPO 参数。
+
+Run 参数展平为 `config.*`，每次调用的执行参数与 artifacts 按独立 invocation 保存。
+原始 resolved config 缺失的旧 checkpoint 使用 `continuation_config.*` 标记从本次恢复起
+已知的配置，并明确标记历史参数未记录；原始配置存在时先校验一致，再关联历史配置。
+不以恢复配置冒充历史 provenance。恢复先检查已有 metric history，只补录 checkpoint
+summaries 中缺失的 metric/step；已有点超出 checkpoint 或同一步数值冲突时拒绝续写。
+Run 缺失或 tracking URI 不匹配同样报错，不自动创建替代 Run。
+
+resolved config、runtime metadata、tracked diff、initial/final policy、按显式间隔选取的
+update policy 和最新 training-state checkpoint 上传为 invocation artifacts，正式 rollout
+NPZ 保留在原输出目录。正常完成并上传成功后 Run 为 `FINISHED`，异常为 `FAILED`，用户中断为
+`KILLED`；终结日志自身失败不得替换原训练异常。MLflow 不接管已有 research artifact schema，
+不混入 held-out evaluation reward，也不代表训练结果已有科研结论。
+
 ## 轨迹执行
 
 运动学接口的静态契约是有限的 `float32 [80,4]` ego 后轴局部轨迹。混合精度 forward 的 ego trajectory 必须在 evaluation/rollout host producer 中原值转换为 `float32`；完整 prediction 在 audit result 边界转换并保存 trace。shape、dtype、有限性和非零 heading 由 producer 测试保证，执行路径不做运行时重复校验；环境与运动学 policy 共享同一份已准备的世界轨迹。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。

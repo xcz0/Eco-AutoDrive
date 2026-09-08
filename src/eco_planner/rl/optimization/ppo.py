@@ -21,6 +21,7 @@ from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 
 from eco_planner.rl.optimization.config import PPOConfig
+from eco_planner.rl.optimization.metrics import PPOMetrics
 from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.policy.distribution import AffineBeta
 from eco_planner.rl.policy.model import POLICY_CONTEXT_KEYS
@@ -262,10 +263,7 @@ class PPOUpdater:
         self._minibatch_replay_buffer.extend(batch)
         batch = batch.to(self.device)
         frozen_inputs = {key: batch[key].clone() for key in _PPO_IMMUTABLE_KEYS}
-        metric_totals = torch.zeros(
-            len(_PPO_UPDATE_METRIC_NAMES), device=self.device, dtype=torch.float64
-        )
-        maximum_gradient_norm = torch.zeros((), device=self.device, dtype=torch.float64)
+        metrics = PPOMetrics(len(_PPO_UPDATE_METRIC_NAMES), self.device)
         gradient_totals = torch.zeros(6, device=self.device, dtype=torch.float64)
         evaluated_minibatches = 0
         optimizer_steps = 0
@@ -290,8 +288,7 @@ class PPOUpdater:
                 )
                 for name, value in zip(_PPO_UPDATE_METRIC_NAMES, metric_tensors, strict=True):
                     _require_finite_scalar(value, name)
-                scalar_metrics = tuple(value.detach().mean() for value in metric_tensors)
-                metric_totals.add_(torch.stack(scalar_metrics, dim=0).to(dtype=torch.float64))
+                metrics.update(metric_tensors)
                 evaluated_minibatches += 1
                 approximate_kl = float(losses["kl_approx"].detach())
                 if (
@@ -317,20 +314,13 @@ class PPOUpdater:
                 self.scheduler.step()
                 self._completed_optimizer_steps += 1
                 optimizer_steps += 1
-                maximum_gradient_norm = torch.maximum(
-                    maximum_gradient_norm, gradient_norm.detach().to(dtype=torch.float64)
-                )
+                metrics.gradient(gradient_norm)
             if early_stop_trigger is not None:
                 break
         for key, expected in frozen_inputs.items():
             if not torch.equal(batch[key], expected):
                 raise RuntimeError(f"PPO update mutated frozen batch field {key!r}")
-        host_metrics = torch.cat(
-            (
-                metric_totals.div(evaluated_minibatches),
-                maximum_gradient_norm.unsqueeze(0),
-            )
-        ).cpu()
+        host_metrics = metrics.compute().cpu()
         if not torch.isfinite(host_metrics).all():
             raise FloatingPointError("PPO update diagnostics must be finite")
         metric_values = tuple(float(value) for value in host_metrics)

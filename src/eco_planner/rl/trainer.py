@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -9,6 +10,7 @@ from typing import Any, cast
 import numpy as np
 import torch
 from hydra.utils import to_absolute_path
+from omegaconf import OmegaConf
 
 from eco_planner.artifacts import write_json
 from eco_planner.rl.artifacts import (
@@ -35,6 +37,7 @@ from eco_planner.rl.rollout import (
     VectorRolloutCollector,
     create_fabric_rollout_runtime,
 )
+from eco_planner.rl.tracking import TrackingIdentity, TrainingTracking
 from eco_planner.runtime.resources import ResourceProfileConfig
 
 _SEED_NAMESPACE = 6_002_024
@@ -52,6 +55,21 @@ def train(
     output_dir.mkdir(parents=True, exist_ok=True)
     if (output_dir / "summary.json").exists():
         raise FileExistsError(f"training output already contains a summary: {output_dir}")
+    if not (output_dir / "resolved_config.yaml").exists():
+        OmegaConf.save(
+            OmegaConf.create(config.model_dump(mode="json")), output_dir / "resolved_config.yaml"
+        )
+    with TrainingTracking(config, output_dir) as tracking:
+        tracking.start_new()
+        return _train(config, output_dir, tracking, update_observer)
+
+
+def _train(
+    config: TrainingJobConfig,
+    output_dir: Path,
+    tracking: TrainingTracking,
+    update_observer: TrainingUpdateObserver | None,
+) -> TrainingRunSummary:
     if config.training.deterministic:
         torch.use_deterministic_algorithms(True)
     torch.set_float32_matmul_precision("high")
@@ -76,13 +94,18 @@ def train(
         probe_before,
         probe_contexts,
         resumed_initial_policy_hash,
+        tracking_identity,
     ) = _resume_state(config, runtime, updater)
+    tracking.attach(runtime.fabric, update_summaries, tracking_identity)
+    write_training_runtime_metadata(output_dir / "runtime_metadata.json", runtime, resources)
+    tracking.runtime_metadata()
     diffusion_generators = tuple(runtime.new_noise_generator(seed) for seed in noise_seeds)
     policy_generators = tuple(runtime.new_policy_generator(seed) for seed in policy_seeds)
     planner_hash_before = runtime.frozen_planner_hash()
     initial_policy_hash = resumed_initial_policy_hash or policy_state_hash(runtime.policy)
     if start_update == 0:
         save_exploration_policy_checkpoint(output_dir / "policy-initial.pt", runtime.policy)
+        tracking.artifact("policy-initial.pt")
 
     with VectorRolloutCollector(
         config.scenarios,
@@ -143,6 +166,7 @@ def train(
                     config.training.boundary_distance,
                     config.training.diagnostic_seed,
                 )
+                tracking.probe("before", probe_before, update_index)
             report = updater.update(tuple(update_episodes))
             update_summary = build_update_summary(update_index, tuple(update_episodes), report)
             update_summaries.append(update_summary)
@@ -161,8 +185,10 @@ def train(
                     probe_before,
                     probe_contexts,
                     initial_policy_hash,
+                    tracking.identity,
                 ),
             )
+            tracking.update(update_summary)
             if update_observer is not None:
                 update_observer(update_summary)
 
@@ -202,7 +228,26 @@ def train(
         reward_profile=config.reward.name,
     )
     write_json(output_dir / "summary.json", summary)
-    write_training_runtime_metadata(output_dir / "runtime_metadata.json", runtime, resources)
+    if start_update == config.training.update_count:
+        save_training_checkpoint(
+            output_dir / "training-state.ckpt",
+            runtime.fabric,
+            runtime.policy,
+            updater,
+            _loop_state(
+                start_update,
+                total_transitions,
+                update_summaries,
+                probe_before,
+                probe_contexts,
+                initial_policy_hash,
+                tracking.identity,
+            ),
+        )
+    tracking.probe("after", probe_after, config.training.update_count - 1)
+    tracking.artifact("summary.json")
+    tracking.artifact("policy-final.pt")
+    tracking.artifact("training-state.ckpt")
     return summary
 
 
@@ -215,10 +260,11 @@ def _resume_state(
     PolicyProbeSummary | None,
     tuple[ExplorationPolicyContext, ...] | None,
     str | None,
+    TrackingIdentity | None,
 ]:
     path = config.training.resume_checkpoint_path
     if path is None:
-        return 0, 0, [], None, None, None
+        return 0, 0, [], None, None, None, None
     checkpoint_path = Path(to_absolute_path(path))
     report, loop = load_training_checkpoint(
         checkpoint_path, runtime.fabric, runtime.policy, updater
@@ -228,12 +274,18 @@ def _resume_state(
     summaries_payload = loop["update_summaries"]
     if not isinstance(summaries_payload, (list, tuple)):
         raise TypeError("resume checkpoint has invalid update summaries")
-    summaries = [TrainingUpdateSummary.model_validate(item) for item in summaries_payload]
+    summaries = [
+        TrainingUpdateSummary.model_validate_json(json.dumps(item)) for item in summaries_payload
+    ]
     if len(summaries) != report.completed_updates:
         raise ValueError("resume checkpoint update summaries disagree with its update count")
     probe_payload = loop["probe_before"]
     contexts_payload = loop["probe_contexts"]
-    probe = PolicyProbeSummary.model_validate(probe_payload) if probe_payload is not None else None
+    probe = (
+        PolicyProbeSummary.model_validate_json(json.dumps(probe_payload))
+        if probe_payload is not None
+        else None
+    )
     if contexts_payload is not None and not isinstance(contexts_payload, (list, tuple)):
         raise TypeError("resume checkpoint has invalid policy probe contexts")
     contexts = (
@@ -249,7 +301,16 @@ def _resume_state(
     initial_policy_hash = loop["initial_policy_hash"]
     if not isinstance(initial_policy_hash, str) or len(initial_policy_hash) != 64:
         raise ValueError("resume checkpoint has an invalid initial policy hash")
-    return report.completed_updates, total, summaries, probe, contexts, initial_policy_hash
+    identity = TrackingIdentity.model_validate(loop["tracking"]) if loop.get("tracking") else None
+    return (
+        report.completed_updates,
+        total,
+        summaries,
+        probe,
+        contexts,
+        initial_policy_hash,
+        identity,
+    )
 
 
 def _loop_state(
@@ -259,8 +320,10 @@ def _loop_state(
     probe_before: PolicyProbeSummary | None,
     probe_contexts: tuple[ExplorationPolicyContext, ...] | None,
     initial_policy_hash: str,
+    tracking: TrackingIdentity | None,
 ) -> dict[str, object]:
     return {
+        "tracking": tracking.model_dump() if tracking is not None else None,
         "completed_updates": completed_updates,
         "initial_policy_hash": initial_policy_hash,
         "total_transitions": total_transitions,

@@ -50,6 +50,11 @@ def compose_arm_training_config(
             *overrides,
         ],
     )
+    config.tracking.tags = {
+        **config.tracking.tags,
+        "arm": arm.upper(),
+        "protocol": protocol.study_name,
+    }
     parsed = parse_training_config(config)
     _require_training_protocol(protocol, arm_config, parsed)
     return config, parsed

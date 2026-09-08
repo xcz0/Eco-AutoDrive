@@ -80,6 +80,12 @@ evaluation action *arguments:
 training action *arguments:
     if ("{{ action }}" -eq "run") { & {{ python }} -m scripts.training {{ arguments }}; exit $LASTEXITCODE } elseif ("{{ action }}" -eq "reproducibility-report") { & {{ python }} -m scripts.experiments.ppo_reproducibility {{ arguments }}; exit $LASTEXITCODE } else { throw "training action must be run or reproducibility-report" }
 
+# Forward MLflow CLI commands for tracking and the local UI.
+[group('training')]
+mlflow action *arguments:
+    & .venv/Scripts/mlflow.exe {{ action }} {{ arguments }}
+    exit $LASTEXITCODE
+
 # Run a configured benchmark or consolidate evaluation-backend measurements.
 [group('benchmark')]
 benchmark action *arguments:

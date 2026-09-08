@@ -16,6 +16,8 @@ dependencies = [
     "hydra-core",
     "hydra-joblib-launcher",
     "lightning",
+    "mlflow>=2.8",
+    "torchmetrics",
     "metadrive-simulator",
     "numpy",
     "omegaconf",

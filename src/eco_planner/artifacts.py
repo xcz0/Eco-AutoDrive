@@ -37,6 +37,7 @@ def collect_repository_metadata(repository_root: Path) -> dict[str, object]:
 
     return {
         "git_head": _git_output(repository_root, "rev-parse", "HEAD").strip(),
+        "git_branch": _git_output(repository_root, "rev-parse", "--abbrev-ref", "HEAD").strip(),
         "git_status_short": tuple(_git_output(repository_root, "status", "--short").splitlines()),
         "platform": platform.platform(),
         "python": sys.version,

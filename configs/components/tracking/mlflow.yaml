@@ -1,0 +1,9 @@
+# @package tracking
+
+enabled: true
+tracking_uri: sqlite:///outputs/mlflow/mlflow.db
+artifact_location: outputs/mlflow/artifacts
+experiment_name: eco-autodrive-ppo
+run_name: null
+tags: {}
+checkpoint_interval: 1

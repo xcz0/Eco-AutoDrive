@@ -12,6 +12,7 @@ from pydantic import (
     StrictBool,
     StrictFloat,
     StrictInt,
+    field_validator,
     model_validator,
 )
 
@@ -112,6 +113,28 @@ class TrainingLoopConfig(_StrictModel):
         return self
 
 
+class TrainingTrackingConfig(_StrictModel):
+    enabled: StrictBool
+    tracking_uri: str = Field(min_length=1)
+    artifact_location: str | None
+    experiment_name: str = Field(min_length=1)
+    run_name: str | None
+    tags: dict[str, str]
+    checkpoint_interval: StrictInt = Field(gt=0)
+
+    @field_validator("tracking_uri")
+    @classmethod
+    def validate_tracking_uri(cls, value: str) -> str:
+        from urllib.parse import urlsplit
+
+        if value.startswith("sqlite:///") and value.removeprefix("sqlite:///"):
+            return value
+        parsed = urlsplit(value)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            return value
+        raise ValueError("tracking_uri requires sqlite:///path or an HTTP(S) server URL")
+
+
 class TrainingJobConfig(_StrictModel):
     name: str = Field(min_length=1)
     map_query_radius_m: StrictFloat = Field(gt=0.0)
@@ -124,6 +147,7 @@ class TrainingJobConfig(_StrictModel):
     policy: ExplorationPolicyConfig
     reward: RewardProfileConfig
     ppo: PPOConfig
+    tracking: TrainingTrackingConfig
     resources: ResourceProfileConfig | None = None
     scenarios: tuple[ScenarioConfig, ...]
 

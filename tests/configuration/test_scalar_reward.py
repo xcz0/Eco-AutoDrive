@@ -94,6 +94,9 @@ def test_arm_training_composition_pins_the_matched_protocol() -> None:
 
     assert a1.reward.name == "plannerrft_no_energy_v1"
     assert a2.reward.name == "plannerrft_energy_v1"
+    assert a1.tracking.tags["arm"] == "A1"
+    assert a2.tracking.tags["arm"] == "A2"
+    assert a1.tracking.tags["protocol"] == protocol.study_name
     for training in (a1, a2):
         assert isinstance(training, TrainingJobConfig)
         assert training.runtime.seed == 0

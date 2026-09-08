@@ -19,6 +19,7 @@ from eco_planner.artifacts import (
     write_npz,
     write_tracked_diff,
 )
+from eco_planner.rl.artifacts.metrics import RolloutMetrics
 from eco_planner.rl.artifacts.schema import rollout_artifact_fields
 from eco_planner.rl.optimization.ppo import PPOUpdateReport
 from eco_planner.rl.policy import ExplorationPolicy
@@ -186,6 +187,7 @@ def build_update_summary(
         raise ValueError("training update cannot mix rollout reward profiles")
     reward_profile = reward_profiles.pop()
     trajectory = concatenate_tensordicts([episode.audit for episode in episodes])
+    metrics = RolloutMetrics(trajectory)
     sample_count = trajectory.batch_size[0]
     episode_count = len(episodes)
     mean_episode_length = sample_count / episode_count
@@ -205,17 +207,17 @@ def build_update_summary(
         "sample_count": sample_count,
         "episode_count": episode_count,
         "mean_episode_length": float(mean_episode_length),
-        "total_reward": float(_tensor(trajectory, "reward_total").sum()),
-        "base_reward": float(_tensor(trajectory, "reward_base_total").sum()),
-        "mean_safety_gate": float(_tensor(trajectory, "reward_safety_gate").mean()),
-        "route_completion_delta": float(_tensor(trajectory, "route_completion_delta").sum()),
-        "distance_m": float(_tensor(trajectory, "distance_m").sum()),
-        "mean_speed_mps": float(_tensor(trajectory, "speed_mps").mean()),
-        "stopped_fraction": float(_tensor(trajectory, "stopped").float().mean()),
+        "total_reward": metrics.sum("reward_total"),
+        "base_reward": metrics.sum("reward_base_total"),
+        "mean_safety_gate": metrics.mean("reward_safety_gate"),
+        "route_completion_delta": metrics.sum("route_completion_delta"),
+        "distance_m": metrics.sum("distance_m"),
+        "mean_speed_mps": metrics.mean("speed_mps"),
+        "stopped_fraction": metrics.stopped_fraction(),
         "collision_count": int(collision.sum()),
         "out_of_road_count": int(_tensor(trajectory, "out_of_road").sum()),
-        "maximum_position_error_m": float(_tensor(trajectory, "position_error_m").max()),
-        "maximum_heading_error_rad": float(_tensor(trajectory, "heading_error_rad").max()),
+        "maximum_position_error_m": metrics.maximum("position_error_m"),
+        "maximum_heading_error_rad": metrics.maximum("heading_error_rad"),
         "beta_alpha_mean": tuple(float(value) for value in beta_alpha.mean(dim=0)),
         "beta_alpha_min": tuple(float(value) for value in beta_alpha.min(dim=0).values),
         "beta_alpha_max": tuple(float(value) for value in beta_alpha.max(dim=0).values),
@@ -229,25 +231,23 @@ def build_update_summary(
         "mean_state_value": float(state_value.mean()),
         "std_state_value": float(state_value.std(correction=0)),
     }
-    proxy_total = float(_tensor(trajectory, "executed_fuel_proxy_step_energy_ml").sum())
-    distance_total = float(_tensor(trajectory, "step_distance_m").sum())
+    proxy_total = metrics.sum("executed_fuel_proxy_step_energy_ml")
+    distance_total = metrics.sum("step_distance_m")
     payload.update(
         {
             "reward_profile": reward_profile,
-            "native_step_energy_total_ml": float(
-                _tensor(trajectory, "native_step_energy_ml").sum()
-            ),
+            "native_step_energy_total_ml": metrics.sum("native_step_energy_ml"),
             "executed_fuel_proxy_total_ml": proxy_total,
             "executed_fuel_proxy_distance_m": distance_total,
             "executed_fuel_proxy_ml_per_km": (
                 proxy_total * 1000.0 / distance_total if distance_total > 0.0 else None
             ),
             "reward_component_means": {
-                name: float(_tensor(trajectory, f"reward_component_{name}").mean())
+                name: metrics.mean(f"reward_component_{name}")
                 for name in ("ttc", "progress", "comfort", "speed", "energy")
             },
             "reward_diagnostic_means": {
-                name: float(_tensor(trajectory, f"reward_diagnostic_{name}").mean())
+                name: metrics.mean(f"reward_diagnostic_{name}")
                 for name in ("collision_score", "drivable_score", "wrong_direction_score")
             },
         }
