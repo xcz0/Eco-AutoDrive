@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from eco_planner.artifacts import write_json
-from eco_planner.rl.artifacts.io import TrainingRunSummary
+from eco_planner.rl.artifacts import TrainingRunSummary
 
 
 def summarize_training_runs(root: Path) -> dict[str, object]:

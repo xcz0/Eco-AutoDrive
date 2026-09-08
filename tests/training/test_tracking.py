@@ -25,7 +25,7 @@ from eco_planner.rl.optimization.metrics import PPOMetrics
 from eco_planner.rl.optimization.ppo import PPOUpdateReport
 from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.tracking import TrackingIdentity, TrainingTracking, update_metrics
-from eco_planner.rl.trainer import _loop_state, _resume_state
+from eco_planner.rl.training_state import TrainingLoopState, resume_training_state
 from tests.training.test_ppo import _context, _episode, _policy_config, _ppo_config
 
 
@@ -335,17 +335,29 @@ def test_training_loop_restores_json_mode_summary_and_probe_from_checkpoint(
         if tracked
         else None
     )
-    loop = _loop_state(1, summary.sample_count, [summary], probe, (_context(),), "a" * 64, identity)
+    loop = TrainingLoopState(
+        completed_updates=1,
+        total_transitions=summary.sample_count,
+        update_summaries=[summary],
+        probe_before=probe,
+        probe_contexts=(_context(),),
+        initial_policy_hash="a" * 64,
+        tracking=identity,
+    ).checkpoint_payload()
     assert isinstance(loop["update_summaries"][0]["action_mean"], list)
     checkpoint = tmp_path / "training-state.ckpt"
     save_training_checkpoint(checkpoint, fabric, policy, updater, loop)
     config = _config(tmp_path, enabled=False, resume=str(checkpoint))
-    restored = _resume_state(config, SimpleNamespace(fabric=fabric, policy=policy), updater)
-    assert restored[0] == 1
-    assert restored[2] == [summary]
-    assert restored[3] == probe
-    assert restored[6] == identity
-    assert torch.equal(restored[4][0].reference_trajectory, _context().reference_trajectory)
+    restored = resume_training_state(config, SimpleNamespace(fabric=fabric, policy=policy), updater)
+    assert restored.completed_updates == 1
+    assert restored.total_transitions == summary.sample_count
+    assert restored.initial_policy_hash == "a" * 64
+    assert restored.update_summaries == [summary]
+    assert restored.probe_before == probe
+    assert restored.tracking == identity
+    assert torch.equal(
+        restored.probe_contexts[0].reference_trajectory, _context().reference_trajectory
+    )
     with TrainingTracking(config, tmp_path) as tracking:
-        tracking.attach(fabric, restored[2], restored[6])
+        tracking.attach(fabric, restored.update_summaries, restored.tracking)
         assert tracking.identity == identity
