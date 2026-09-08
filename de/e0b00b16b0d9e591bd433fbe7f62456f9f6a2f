@@ -1,0 +1,21 @@
+docs/experiments/README.md
+  s_5fc1984a71f869::t_4c274810b4ef61 73
+docs/experiments/records/e-032-issue82-task-b-lam-sweep.md
+  s_5fc1984a71f869::t_19ded30302559c 1-146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "dee0b00b16b0d9e591bd433fbe7f62456f9f6a2f",
+  "prompts": {},
+  "sessions": {
+    "s_5fc1984a71f869": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f84bd5814ffegvSzIvBRplC60I",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
