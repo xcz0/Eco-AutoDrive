@@ -70,6 +70,7 @@
 | [E-029](records/e-029-issue81-a0-frozen-baseline.md) | 2026-09-07 | 正式基线 | Issue #81 matched 协议下当前 commit 的 A0 frozen planner held-out 基线（S/SC seeds 16–23） | A0 baseline 可复现：13/16 arrive、无失败终止；供 A1/A2 matched 对照，不构成节能结论 |
 | [E-030](records/e-030-issue81-ppo-transfer-gate.md) | 2026-09-07 | transfer gate | Issue #81 Task D：PPO 广播修复后 E-028 config-0001 迁移到 R0 / Rλ=1 各 1 seed × 20 updates | 两臂机械有效性与短程稳定性全部通过（clip frac=0 与 ratio≈1 自洽）；不支持 energy improvement 结论 |
 | [E-031](records/e-031-issue82-task-a-r0-multiseed-anchor.md) | 2026-09-07 | 正式运行 | Issue #82 Task A：R0 多 seed anchor，A1 = PPO + `plannerrft_no_energy_v1`，3 seeds × 100 updates + final checkpoint matched held-out evaluation | A1 anchor 成立（机械健康、可复现）；A1 vs A0 在该预算下无 measurable learned behavioral effect（聚合差异 ≤ 0.1%）；Task B 的 λ 主效应可测性存在真实风险 |
+| [E-032](records/e-032-issue82-task-b-lam-sweep.md) | 2026-09-07 | 正式运行（coarse sweep） | Issue #82 Task B：energy weight λ ∈ {1,2,4,8}，1 seed × 50 updates + final checkpoint matched held-out evaluation | sweep artifact 成立（匹配协议逐项满足、机械健康）；该预算下所有 λ 与 R0 及彼此不可区分（`no measurable energy-term effect`），Task C 候选筛选依据本 artifact |
 
 ## 服务器训练与正式实验登记模板
 
