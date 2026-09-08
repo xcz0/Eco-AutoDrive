@@ -52,6 +52,7 @@ flowchart TD
 - [Information and representation study](information-representation.md)
 - [Ablation plan](ablation-plan.md)
 - [PlannerRFT PPO-only method notes](plannerrft-ppo/README.md)
+- [Long-horizon RL for diffusion policies / planners survey](diffusion-policy-long-horizon-rl-survey.md)
 - [RL-based energy management survey notes](rl-ems-survey-notes.md)
 
 ## 当前实验基础
