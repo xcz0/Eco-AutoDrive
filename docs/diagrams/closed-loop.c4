@@ -1,0 +1,40 @@
+model {
+  sim_state = simulation '仿真真实状态' {
+    description 'MetaDriveEnvSlot\n自车 · 交通 · 地图 / 路线'
+  }
+  observation = module '观测构建' {
+    description 'ego-local · CPU TensorDict\n历史邻车 · lanes · route_lanes'
+  }
+  inference = frozen '冻结规划器推理' {
+    description 'Fabric · EMA Planner\nbase / fixed / policy agent'
+  }
+  prediction = data '8 s 联合预测' {
+    description '10 Hz · 提取 ego [80,4]\nx, y, cos(h), sin(h)'
+  }
+  execution = simulation '运动学轨迹执行' {
+    description '局部后轴 → 世界车辆中心\n每点 0.1 s · 写入位姿与速度'
+  }
+  trace = data '评测记录与指标' {
+    description 'trace.npz · summary.json\n实际执行 · 安全 · 进度 · fuel proxy'
+  }
+  sim_state -> observation '实际状态与历史'
+  observation -> inference 'raw observation → runtime device'
+  inference -> prediction '联合轨迹'
+  prediction -> execution 'ego 前 5 点 / 0.5 s'
+  execution -> sim_state '实际状态反馈 · 下一轮重规划'
+  execution -> trace '执行事实与终止标志'
+  prediction -> trace '完整预测 · 噪声 / guidance 审计'
+}
+
+views {
+  view closed_loop {
+    title '02 · 闭环仿真（evaluation）'
+    description '每轮预测 8 s，执行前 5 点 / 0.5 s 后重新观测；提前终止时只保留已执行前缀。policy checkpoint 评测同样执行 0.5 s。'
+    include sim_state, observation, inference, prediction, execution, trace
+    rank same { sim_state, trace }
+    rank same { observation, execution }
+    rank same { inference, prediction }
+    autoLayout LeftRight 55 35
+  }
+}
+

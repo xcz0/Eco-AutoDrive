@@ -52,6 +52,8 @@ flowchart TD
 - [Information and representation study](information-representation.md)
 - [Ablation plan](ablation-plan.md)
 - [PlannerRFT PPO-only method notes](plannerrft-ppo/README.md)
+- [Long-horizon RL for diffusion policies / planners survey](diffusion-policy-long-horizon-rl-survey.md)
+- [RL-based energy management survey notes](rl-ems-survey-notes.md)
 
 ## 当前实验基础
 
@@ -68,7 +70,7 @@ flowchart TD
 
 - [`E-019 MetaDrive native energy proxy comparison`](../experiments/records/e-019-metadrive-native-energy-proxy-comparison.md)
 - [`E-026 PPO reward A/B short trend`](../experiments/records/e-026-issue59-stage-b-ppo-reward-ab-short-trend.md)
-- [`E-028 PPO stability search`](../experiments/records/e-028-issue76-ppo-stability-search.md)
+- [`E-028 PPO stability search`](../experiments/records/e-028-ppo-stability-search.md)
 
 ## 当前研究阶段
 

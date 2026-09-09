@@ -1,0 +1,52 @@
+// Presentation projection of the implemented system; authoritative contracts remain in
+// ../agents/system-contract.md and the linked repository modules.
+model {
+  config = data '配置与运行入口' {
+    description 'configs · Hydra jobs\nscripts · 薄 CLI'
+  }
+  jobs = module '作业组合与类型边界' {
+    description 'jobs.py · configuration.py\nresolved config → typed config'
+  }
+  evaluation = module '闭环评测' {
+    description 'evaluation\n统一 engine · episode 生命周期'
+  }
+  training = trainable '策略训练' {
+    description 'rl\nrollout · reward · GAE / PPO'
+  }
+  runtime = module '共享运行时' {
+    description 'runtime · Lightning Fabric\n批推理 · 随机流 · host transfer'
+  }
+  planner = frozen '冻结 Diffusion Planner' {
+    description 'models\n官方 EMA · 编码 · 采样 / guidance'
+  }
+  environment = simulation 'MetaDrive 环境适配' {
+    description 'envs · runtime.envs\n观测构建 · 轨迹执行 · vector pool'
+  }
+  artifacts = data '运行产物' {
+    description 'config · trace · metrics\npolicy / training checkpoints'
+  }
+  analysis = module '实验与分析' {
+    description 'experiments · benchmarking\n实验编排 · 报告 · 性能测量'
+  }
+
+  config -> jobs '组合与解析'
+  jobs -> evaluation 'evaluation job'
+  jobs -> training 'training job'
+  evaluation -> runtime '评测 agent'
+  training -> runtime '策略 rollout'
+  runtime -> planner '设备与 forward'
+  runtime -> environment 'reset / step'
+  evaluation -> artifacts '评测事实'
+  training -> artifacts '训练事实'
+  artifacts -> analysis '读取与汇总'
+}
+
+views {
+  view index {
+    title '01 · 项目架构'
+    description '配置与入口 → 作业编排 → 共享运行时与实现；运行产物进入实验分析。箭头表示主要调用或数据依赖。'
+    include config, jobs, evaluation, training, runtime, planner, environment, artifacts, analysis
+    rank same { config, jobs }
+    autoLayout LeftRight 65 35
+  }
+}

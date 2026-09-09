@@ -1,0 +1,58 @@
+model {
+  collection = simulation '在线 rollout' {
+    description '固定 MetaDrive worker pool\n每个 transition 仅执行 0.1 s'
+  }
+  context = frozen '冻结 context 与 reference' {
+    description 'scene / route tokens + masks\nDDIM reference [B,80,4] · detach'
+  }
+  policy = trainable 'Exploration Policy' {
+    description '共享 trunk · Beta actor · value\nu ∈ (0,1)² → g = 2u − 1'
+  }
+  guided = frozen 'Guided DDIM-5' {
+    description '复用 reference 的编码与随机流\n仅引导 ego future · planner 冻结'
+  }
+  transitions = data '按 episode 收集' {
+    description 'context · action · old log-prob / V\nreward · done flags · next V'
+  }
+  reward = module 'RewardEvaluator' {
+    description '父进程消费 TransitionMetrics\nsafety gate × 加权分量'
+  }
+  gae = module 'GAE 与训练 batch' {
+    description '逐 episode → advantage / target\n拼接后全 batch 标准化 advantage'
+  }
+  update = trainable 'PPO 更新' {
+    description 'ClipPPOLoss · Adam · cosine\n仅更新 policy trunk / actor / value'
+  }
+  audit = data 'CPU rollout 审计' {
+    description 'episode NPZ · reward 分量\ncontext · actions · seeds'
+  }
+  policy_checkpoint = data '策略与训练状态' {
+    description 'policy export · training state\ncheckpoint · update summary'
+  }
+  collection -> context '下一轮观测' { style { line dashed; color slate } }
+  context -> policy '冻结特征与预测 reference'
+  policy -> guided 'guidance action g'
+  guided -> collection '执行 ego 第 1 点 / 0.1 s'
+  collection -> reward '实际 transition metrics'
+  reward -> transitions '唯一 scalar reward'
+  policy -> transitions '策略采样记录'
+  transitions -> gae 'next V 链接 / tail bootstrap'
+  gae -> update '紧凑 batch · minibatches'
+  update -> policy '更新策略参数' { style { line dashed; color amber } }
+  transitions -> audit 'CPU audit 单独保存'
+  update -> policy_checkpoint '保存训练状态'
+}
+
+views {
+  view training_data {
+    title '03 · 训练数据流程（online PPO）'
+    description '在线交互生成训练数据；reference 为冻结模型当前预测。terminal 不 bootstrap；truncation / rollout tail bootstrap，GAE 不跨 episode。'
+    include collection, context, policy, guided, transitions, reward, gae, update, audit, policy_checkpoint
+    rank source { context, update, policy_checkpoint }
+    rank same { policy, gae }
+    rank same { guided, transitions, audit }
+    rank max { collection, reward }
+    autoLayout LeftRight 55 50
+  }
+}
+
