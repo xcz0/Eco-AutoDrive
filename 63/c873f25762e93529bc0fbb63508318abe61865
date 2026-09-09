@@ -1,0 +1,52 @@
+scripts/experiments/critic_gae_ablation.py
+  s_dcb14fc1edaf21::t_e77291e719f382 1-43
+docs/agents/system-contract.md
+  s_dcb14fc1edaf21::t_9ef1bd8a6d7879 328-343
+src/eco_planner/experiments/objective_decomposition_runner.py
+  s_dcb14fc1edaf21::t_e5a8aebf018eb9 54-60,62
+  s_dcb14fc1edaf21::t_91c8569df015e3 9
+  s_dcb14fc1edaf21::t_b4bb25b7ac08d7 25,27
+configs/experiments/scalar_reward/critic_gae_ablation.yaml
+  s_dcb14fc1edaf21::t_0789a9f3b066a7 1-27
+justfile
+  s_dcb14fc1edaf21::t_e6aa87593bba1b 130-134
+tests/training/test_critic_gae_ablation.py
+  s_dcb14fc1edaf21::t_8e7ad978e02445 89
+  s_dcb14fc1edaf21::t_a1f1b0b86b569a 18
+  s_dcb14fc1edaf21::t_570b3619aabe76 1-17,19-88,90-319
+src/eco_planner/experiments/critic_gae_ablation_runner.py
+  s_dcb14fc1edaf21::t_9c9e3534fc0822 105-107
+  s_dcb14fc1edaf21::t_3f71d6c7b023ff 43-49
+  s_dcb14fc1edaf21::t_5f53b2b6720066 1-28,30-42,50-52,54-59,64-67,70-81,84-91,93-104,108-205
+  s_dcb14fc1edaf21::t_75416998d79d51 29
+  s_dcb14fc1edaf21::t_6f328a3422daaf 60-63
+  s_dcb14fc1edaf21::t_0fb4f0581dba14 82-83,92
+  s_dcb14fc1edaf21::t_ca115b82066446 53,68-69
+src/eco_planner/experiments/critic_gae_ablation.py
+  s_dcb14fc1edaf21::t_5391133b58bb7c 82
+  s_dcb14fc1edaf21::t_279abd1f21a324 352-353
+  s_dcb14fc1edaf21::t_be5bda3c15590a 12
+  s_dcb14fc1edaf21::t_58b04a52068fd2 21,31
+  s_dcb14fc1edaf21::t_af306d0ae93200 1-11,13-20,22-30,32-81,83-100,102-351,354-410
+  s_dcb14fc1edaf21::t_e74eb371ada779 101
+docs/experiments/records/e-036-issue94-task-c4-critic-gae-common-term-ablation.md
+  s_dcb14fc1edaf21::t_482f22a656675c 1-147
+docs/experiments/README.md
+  s_dcb14fc1edaf21::t_c2aef95bc817c7 78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "63c873f25762e93529bc0fbb63508318abe61865",
+  "prompts": {},
+  "sessions": {
+    "s_dcb14fc1edaf21": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f7b089c69ffe0BVmZMHCaiW381",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
