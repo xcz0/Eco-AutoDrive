@@ -325,6 +325,22 @@ normalized-advantage RMSE/sign-flip，阈值为 Issue #94 的工程 gate，不�
 mathematical 恒等式（Pearson 跨形式不变、center 与 z cosine 相等、λ 插值下 gradient
 线性组合）由测试逐元素核验。结果只提供该 batch 的裁定，不代表 learned behavior。
 
+`just critic-gae-ablation --source-dir <Task-A-artifacts> --reference-dir <E-035-output>
+--output-dir <new-directory>` 是 Issue #94 Task C4 的离线归因入口。源 batch 恢复、校准与
+溯源守卫与 Task C 相同；`--reference-dir` 指向 E-035 decomposition 产物，其 standard-GAE
+arm（r0 与 Energy-only 的 value/advantage 数组及全部梯度向量）必须与本次逐位一致
+（默认 rtol=1e-5 / atol=1e-6），作为同 batch 同链路的 provenance 守卫。arms 为校准 R0 与
+Energy-only endpoint；三种 temporal-credit 形式共享同一 reward/动作/log-prob/episode
+boundary，只改变 credit 计算：standard GAE（原 critic V）、reward-only GAE（V(s)=V(s')=0，
+置零 next value 同时消融 tail bootstrap，保持 gamma/gae-lambda/boundary）、discounted
+reward-to-go（逐 episode 反向递推，无 critic 无 bootstrap，仅诊断）。每 arm × credit form
+在 raw/center/z 三种 advantage 形式下各做一次 backward-only `loss_objective`；C4 归因
+（`critic_gae_common_term_dominated` / `temporal_credit_structure_sensitivity` /
+`reward_batch_collinearity`）按 z 形式 endpoint 可分性判定，复用 Gate C endpoint 阈值。
+该入口不修改 PPO 训练定义、不重新 rollout、不执行 optimizer step。共享 critic 下
+between-arm advantage 差分与 V 无关的抵消恒等式、V=0 GAE 等于 (γλ)-discounted return
+与 reward-to-go 递推均由测试逐元素核验。
+
 ## 轨迹执行
 
 运动学接口的静态契约是有限的 `float32 [80,4]` ego 后轴局部轨迹。混合精度 forward 的 ego trajectory 必须在 evaluation/rollout host producer 中原值转换为 `float32`；完整 prediction 在 audit result 边界转换并保存 trace。shape、dtype、有限性和非零 heading 由 producer 测试保证，执行路径不做运行时重复校验；环境与运动学 policy 共享同一份已准备的世界轨迹。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。

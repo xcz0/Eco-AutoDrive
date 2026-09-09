@@ -127,3 +127,8 @@ reward-calibration *arguments:
 objective-decomposition *arguments:
     & {{ python }} -m scripts.experiments.objective_decomposition {{ arguments }}
     exit $LASTEXITCODE
+
+[group('experiments')]
+critic-gae-ablation *arguments:
+    & {{ python }} -m scripts.experiments.critic_gae_ablation {{ arguments }}
+    exit $LASTEXITCODE

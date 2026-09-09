@@ -1,0 +1,27 @@
+# Issue #94 Task C4: critic / GAE common-term ablation on the restored E-035 fixed batch.
+# Arms: calibrated R0 vs Energy-only endpoint; credit forms: standard GAE, reward-only GAE
+# (V=0, bootstrap removed), discounted reward-to-go (critic-free diagnostic).
+quantiles: [0.0, 0.05, 0.25, 0.5, 0.75, 0.9, 0.95, 1.0]
+progress_target_score: 0.6
+comfort_target_score: 0.6
+calibration_match_tolerance:
+  rtol: 0.05
+  atol: 0.0
+# E-034 frozen calibration values; a coarser provenance guard for the re-collected source
+# batch (rollout float noise shifts raw kinematic medians by up to ~0.5%), while the
+# calibration itself is recomputed on this batch by the frozen E-034 rule.
+expected_calibration:
+  full_score_delta_m: 1.7813475926717124
+  longitudinal_acceleration_limit_mps2: 4.157548461641585
+  lateral_acceleration_limit_mps2: 3.0
+  jerk_limit_mps3: 111.70486995152065
+  yaw_rate_limit_radps: 0.5
+# Cross-check tolerance for the standard-GAE arms against the recorded E-035 arrays.
+reference_match_tolerance:
+  rtol: 1.0e-5
+  atol: 1.0e-6
+# Issue #94 Gate C endpoint thresholds reused by the C4 attribution rules.
+gate:
+  endpoint_max_actor_head_cosine: 0.99
+  min_normalized_advantage_rmse: 0.10
+  min_sign_flip_fraction: 0.05

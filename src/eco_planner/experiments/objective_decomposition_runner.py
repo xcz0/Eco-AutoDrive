@@ -6,7 +6,7 @@ import json
 import math
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 import torch
@@ -22,7 +22,9 @@ from eco_planner.artifacts import (
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.experiments.objective_decomposition import (
     ADVANTAGE_FORMS,
+    CalibrationMatchTolerance,
     DecompositionConfig,
+    ExpectedCalibration,
     analyze_decomposition,
     render_decomposition_report,
 )
@@ -49,8 +51,15 @@ _EXPECTED_CALIBRATION_FIELDS = (
 )
 
 
+class CalibrationGuardSource(Protocol):
+    """Study configs carrying the E-034 frozen calibration provenance fields."""
+
+    expected_calibration: ExpectedCalibration
+    calibration_match_tolerance: CalibrationMatchTolerance
+
+
 def verify_expected_calibration(
-    calibrated: PlannerRFTNoEnergyRewardConfig, study: DecompositionConfig
+    calibrated: PlannerRFTNoEnergyRewardConfig, study: CalibrationGuardSource
 ) -> dict[str, Any]:
     """Guard the source-batch provenance against the E-034 frozen calibration values.
 
