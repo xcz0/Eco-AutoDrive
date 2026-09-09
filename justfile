@@ -112,3 +112,8 @@ ppo-stability action *arguments:
 scalar-reward action *arguments:
     & {{ python }} -m scripts.experiments.scalar_reward {{ action }} {{ arguments }}
     exit $LASTEXITCODE
+
+[group('experiments')]
+lambda-identifiability *arguments:
+    & {{ python }} -m scripts.experiments.lambda_identifiability {{ arguments }}
+    exit $LASTEXITCODE

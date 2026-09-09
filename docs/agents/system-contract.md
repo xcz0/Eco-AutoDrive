@@ -277,6 +277,21 @@ NPZ 保留在原输出目录。正常完成并上传成功后 Run 为 `FINISHED`
 `KILLED`；终结日志自身失败不得替换原训练异常。MLflow 不接管已有 research artifact schema，
 不混入 held-out evaluation reward，也不代表训练结果已有科研结论。
 
+## 固定批次 λ 可辨识性诊断
+
+`just lambda-identifiability` 是 repository-internal 实验入口。它按显式配置只采集一次
+initial-policy rollout，所有 λ 共用 transitions、policy context、old log-prob、critic
+value/next value 与 episode boundary。离线从已保存的 component scores 和 safety gate
+重组各 profile 的 reward，复用训练的 episode GAE、full-batch sample-std normalization
+和 `ClipPPOLoss`，只反传 `loss_objective`；不混入 critic/entropy 梯度，不做 clipping、
+optimizer 或 scheduler step。统计用 float64，GAE/backward 保持训练 dtype/device 语义。
+
+产物保存原 training TensorDict、episode audit NPZ、initial checkpoint、样本索引、全部
+λ 对的 advantage/gradient 诊断与逐 scenario/transition 差异。梯度按 actor head、共享
+trunk 及 lateral/longitudinal head 行分组；零 norm 的 cosine 和零分母 norm ratio 为
+`null`，不得解释为方向相同。当前零初始化 actor head 会阻断 update-0 的 trunk actor
+梯度。该入口仅提供连续诊断，不内置可辨识性阈值，不代表 learned behavioral effect。
+
 ## 轨迹执行
 
 运动学接口的静态契约是有限的 `float32 [80,4]` ego 后轴局部轨迹。混合精度 forward 的 ego trajectory 必须在 evaluation/rollout host producer 中原值转换为 `float32`；完整 prediction 在 audit result 边界转换并保存 trace。shape、dtype、有限性和非零 heading 由 producer 测试保证，执行路径不做运行时重复校验；环境与运动学 policy 共享同一份已准备的世界轨迹。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。

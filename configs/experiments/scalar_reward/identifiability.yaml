@@ -1,0 +1,13 @@
+protocol: configs/experiments/scalar_reward/protocol.yaml
+training_seed: 0
+lambdas: [0.0, 1.0, 2.0, 4.0, 8.0, 16.0]
+quantiles: [0.0, 0.05, 0.25, 0.5, 0.75, 0.95, 1.0]
+overrides:
+  - components/resources=rtx_a4000
+  - ppo.learning_rate=1.6301e-05
+  - ppo.target_kl=0.006
+  - ppo.batch_size=128
+  - training.transitions_per_environment=8
+  - training.update_count=50
+  - ppo.scheduler_total_optimizer_steps=50
+# Training horizon is retained as provenance only. No update/optimizer step is run.
