@@ -117,3 +117,8 @@ scalar-reward action *arguments:
 lambda-identifiability *arguments:
     & {{ python }} -m scripts.experiments.lambda_identifiability {{ arguments }}
     exit $LASTEXITCODE
+
+[group('experiments')]
+reward-calibration *arguments:
+    & {{ python }} -m scripts.experiments.reward_calibration {{ arguments }}
+    exit $LASTEXITCODE

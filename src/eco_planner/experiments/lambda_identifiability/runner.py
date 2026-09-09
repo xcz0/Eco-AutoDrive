@@ -186,11 +186,11 @@ def run(config_path: Path, output_dir: Path) -> dict[str, Any]:
     }
 
 
-def render_report(summary: dict[str, Any]) -> str:
+def render_report(summary: dict[str, Any], *, batch_origin: str = "New batch") -> str:
     lines = [
         "# Lambda identifiability: fixed update-0 batch",
         "",
-        "New batch; actor objective only; no optimizer steps. No automatic gate threshold.",
+        f"{batch_origin}; actor objective only; no optimizer steps. No automatic gate threshold.",
         "",
         summary["undefined_reason"],
         "",

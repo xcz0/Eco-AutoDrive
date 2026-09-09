@@ -292,6 +292,23 @@ trunk 及 lateral/longitudinal head 行分组；零 norm 的 cosine 和零分母
 `null`，不得解释为方向相同。当前零初始化 actor head 会阻断 update-0 的 trunk actor
 梯度。该入口仅提供连续诊断，不内置可辨识性阈值，不代表 learned behavioral effect。
 
+`just reward-calibration --source-dir <Task-A-artifacts> --output-dir <new-directory>`
+是 Task B 的离线入口。它按 sample index 恢复原 episode audit、training TensorDict 和
+initial policy，核对动作、log-prob、value、reward 和 episode boundary 的配对关系；
+不实例化 planner 或 simulator。原配置重放须与源 Task A 数组在 `rtol=1e-5, atol=1e-6`
+内一致。校准组只从原始量重算 Progress/Comfort，复用同一 Task A GAE/backward 路径。
+
+研究专用 `configs/experiments/scalar_reward/calibration.yaml` 显式指定目标分数与诊断轴。
+Progress 使用完整批次正向 delta 的中位数除以目标分数；Comfort 仅对有零分样本的子项
+使用 `max(原 limit, P50(abs(metric))/(2-target_score))`，保留现有分段线性评分及四项
+取最小值。全部 transition（含启动阶段）保留，未失活子项与 Energy/TTC/Speed/Safety
+保持原配置。实际尺度分别保存于两组 resolved config，六个 λ 共用相同校准。
+
+校准后的 Comfort 只表示该运动学执行分布中的相对平顺性，不重新定义物理舒适标准。
+独立 audit 保存原始有符号量、评分用绝对值统计、原 limit 超限率、子项零分/满分率、
+包含并列项的最小值归因，以及逐 scenario、逐 planning-cycle 和逐 transition 数据。
+全局 reward 默认值不受该入口影响。结果只提供连续证据，由用户决定是否进入 Task C。
+
 ## 轨迹执行
 
 运动学接口的静态契约是有限的 `float32 [80,4]` ego 后轴局部轨迹。混合精度 forward 的 ego trajectory 必须在 evaluation/rollout host producer 中原值转换为 `float32`；完整 prediction 在 audit result 边界转换并保存 trace。shape、dtype、有限性和非零 heading 由 producer 测试保证，执行路径不做运行时重复校验；环境与运动学 policy 共享同一份已准备的世界轨迹。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。
