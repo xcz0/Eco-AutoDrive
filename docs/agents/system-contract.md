@@ -309,6 +309,22 @@ Progress 使用完整批次正向 delta 的中位数除以目标分数；Comfort
 包含并列项的最小值归因，以及逐 scenario、逐 planning-cycle 和逐 transition 数据。
 全局 reward 默认值不受该入口影响。结果只提供连续证据，由用户决定是否进入 Task C。
 
+`just objective-decomposition --source-dir <Task-A-artifacts> --output-dir <new-directory>`
+是 Issue #94 Task C 的离线入口。源 batch 必须是 Task A 结构的 update-0 采集；入口按
+sample index 恢复 episode 与 initial policy 并核对配对，不实例化 planner 或 simulator。
+校准由 Task B 冻结规则在本 batch 上重新执行，配置中的 E-034 冻结值以显式容差作为源
+batch 溯源守卫（防误用 batch/协议漂移，不要求逐位复现）。arms 为校准 R0、正 λ（分母
+16+λ）与 Energy-only endpoint（`safety_gate × reward_component_energy`，仅诊断用，不是
+训练 profile，不进入全局 reward 配置）。每个 arm 在 raw、center-only、z 三种 advantage
+形式下各做一次 full-batch `loss_objective` backward；z 形式复用训练路径的
+`_normalize_full_batch_advantage`，center-only 仅减 full-batch 均值。梯度按 actor
+head/shared trunk/lateral/longitudinal 分组，Gate C 使用 actor-head cosine 与
+normalized-advantage RMSE/sign-flip，阈值为 Issue #94 的工程 gate，不声明为一般理论
+阈值；归因标签（`objective_batch_collinearity` / `normalization_suppressed_identifiability`
+/ `relative_scale_lambda_parameterization_too_weak`）由三种形式的 endpoint 可分性决定。
+mathematical 恒等式（Pearson 跨形式不变、center 与 z cosine 相等、λ 插值下 gradient
+线性组合）由测试逐元素核验。结果只提供该 batch 的裁定，不代表 learned behavior。
+
 ## 轨迹执行
 
 运动学接口的静态契约是有限的 `float32 [80,4]` ego 后轴局部轨迹。混合精度 forward 的 ego trajectory 必须在 evaluation/rollout host producer 中原值转换为 `float32`；完整 prediction 在 audit result 边界转换并保存 trace。shape、dtype、有限性和非零 heading 由 producer 测试保证，执行路径不做运行时重复校验；环境与运动学 policy 共享同一份已准备的世界轨迹。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。

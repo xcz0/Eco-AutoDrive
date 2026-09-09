@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Protocol
 
 import numpy as np
 import torch
@@ -20,6 +21,13 @@ MOTION_LIMITS = {
     "jerk_mps3": "jerk_limit_mps3",
     "yaw_rate_radps": "yaw_rate_limit_radps",
 }
+
+
+class CalibrationTargets(Protocol):
+    """Distribution target scores consumed by the fixed calibration rule."""
+
+    progress_target_score: float
+    comfort_target_score: float
 
 
 class CalibrationConfig(BaseModel):
@@ -72,7 +80,7 @@ def scored_arrays(
 def calibrate(
     raw: dict[str, np.ndarray],
     base: PlannerRFTNoEnergyRewardConfig,
-    study: CalibrationConfig,
+    study: CalibrationTargets,
 ) -> PlannerRFTNoEnergyRewardConfig:
     for value in raw.values():
         if value.size == 0 or not np.isfinite(value).all():

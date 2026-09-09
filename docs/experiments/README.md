@@ -74,6 +74,7 @@
 | [E-032](records/e-032-issue82-task-b-lam-sweep.md) | 2026-09-07 | 正式运行（coarse sweep） | Issue #82 Task B：energy weight λ ∈ {1,2,4,8}，1 seed × 50 updates + final checkpoint matched held-out evaluation | sweep artifact 成立（匹配协议逐项满足、机械健康）；该预算下所有 λ 与 R0 及彼此不可区分（`no measurable energy-term effect`），Task C 候选筛选依据本 artifact |
 | [E-033](records/e-033-issue94-task-a-lambda-identifiability.md) | 2026-09-09 | 正式固定批次诊断 | Issue #94 Task A：同一新采集 update-0 batch 上离线比较 λ={0,1,2,4,8,16} 的 reward、normalized advantage 与 actor gradient | λ0→16 无 sign flip，Pearson 0.999952、actor-head cosine 0.999975；差异很小且与“不易辨识”模式一致，连续诊断不自动裁定 Task B/C |
 | [E-034](records/e-034-issue94-task-b-reward-calibration.md) | 2026-09-09 | 正式离线固定批次诊断 | Issue #94 Task B：复用 E-033 审计并校准 Progress/Comfort，配对重跑 Task A | Progress/Comfort 恢复方差；λ0→16 仍无 sign flip，actor-head cosine 0.999973，norm ratio 0.970824；未观察到明显方向分离，Task C 由用户裁定 |
+| [E-035](records/e-035-issue94-task-c-objective-decomposition.md) | 2026-09-09 | 正式离线固定批次诊断 | Issue #94 Task C：同协议重采源 batch（hash 与 E-033 一致）上比较校准 R0 / λ={16,64,256} / Energy-only，三种 advantage 形式归因 + Gate C | R0 vs Energy-only 在 raw/center/z 下均共线（head cosine ≥0.997），λ stress 单调且达 endpoint 分离的 31–88%；Gate C FAILED，归因 `objective/batch collinearity`（共享 value/GAE 结构主导，非 normalization 压缩） |
 
 ## 服务器训练与正式实验登记模板
 

@@ -122,3 +122,8 @@ lambda-identifiability *arguments:
 reward-calibration *arguments:
     & {{ python }} -m scripts.experiments.reward_calibration {{ arguments }}
     exit $LASTEXITCODE
+
+[group('experiments')]
+objective-decomposition *arguments:
+    & {{ python }} -m scripts.experiments.objective_decomposition {{ arguments }}
+    exit $LASTEXITCODE
