@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
+from eco_planner.analysis.runner import publish
 from eco_planner.artifacts import write_json
 from eco_planner.rl.artifacts import TrainingRunSummary
 
@@ -63,11 +64,12 @@ def summarize_training_runs(root: Path) -> dict[str, object]:
     }
 
 
-def summarize_and_write_training_runs(root: Path) -> dict[str, object]:
+def summarize_and_write_training_runs(root: Path, *, figures: bool = True) -> dict[str, object]:
     """Write the pre-registered PPO reproducibility acceptance report."""
 
     report = summarize_training_runs(root)
     write_json(root / "training_report.json", report)
+    publish("ppo-reproducibility", root, root, figures=figures)
     return report
 
 

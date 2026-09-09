@@ -12,6 +12,7 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner._repository import REPOSITORY_ROOT
+from eco_planner.analysis.runner import publish
 from eco_planner.artifacts import (
     collect_repository_metadata,
     write_json,
@@ -24,7 +25,6 @@ from eco_planner.experiments.critic_gae_ablation import (
     CREDIT_FORMS,
     AblationConfig,
     analyze_critic_gae_ablation,
-    render_ablation_report,
 )
 from eco_planner.experiments.objective_decomposition import _GRADIENT_GROUPS
 from eco_planner.experiments.objective_decomposition_runner import verify_expected_calibration
@@ -69,9 +69,7 @@ def verify_against_e035(
                     atol=study.reference_match_tolerance.atol,
                     err_msg=f"{label}/{key}",
                 )
-                errors[f"{label}/{key}"] = float(
-                    np.max(np.abs(ours.astype(np.float64) - theirs))
-                )
+                errors[f"{label}/{key}"] = float(np.max(np.abs(ours.astype(np.float64) - theirs)))
             for advantage_form in ADVANTAGE_FORMS:
                 for group in _GRADIENT_GROUPS:
                     ours = arrays[f"arm_{label}__standard_gae__gradient_{advantage_form}_{group}"]
@@ -93,7 +91,9 @@ def verify_against_e035(
     }
 
 
-def run(source: Path, reference: Path, config_path: Path, output: Path) -> dict:
+def run(
+    source: Path, reference: Path, config_path: Path, output: Path, *, figures: bool = True
+) -> dict:
     study = AblationConfig.model_validate(load_resolved_yaml_mapping(config_path))
     config = load_resolved_yaml_mapping(source / "resolved_config.yaml")
     source_summary = json.loads((source / "summary.json").read_text(encoding="utf-8"))
@@ -192,7 +192,7 @@ def run(source: Path, reference: Path, config_path: Path, output: Path) -> dict:
         }
     )
     write_json(output / "summary.json", summary)
-    (output / "report.md").write_text(render_ablation_report(summary), encoding="utf-8")
+    publish("critic-gae-ablation", output, output, figures=figures)
     return {
         "status": "completed",
         "output_dir": str(output),

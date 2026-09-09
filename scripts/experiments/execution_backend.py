@@ -16,6 +16,7 @@ def main() -> None:
     parser.add_argument("--job-level-wall-s", type=float, required=True)
     parser.add_argument("--vector-wall-s", type=float, required=True)
     parser.add_argument("--output", type=Path, default=Path("evaluation_modes.json"))
+    parser.add_argument("--no-figures", action="store_true")
     args = parser.parse_args()
     try:
         report = write_report(
@@ -26,6 +27,7 @@ def main() -> None:
             job_level_wall_s=args.job_level_wall_s,
             vector_wall_s=args.vector_wall_s,
             output=args.output,
+            figures=not args.no_figures,
         )
     except ValueError as error:
         parser.error(str(error))

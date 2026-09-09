@@ -99,6 +99,19 @@ just reward-sanity run --output-root outputs/reward_sanity/manual-run
 
 运行产物默认写入 `outputs/`。
 
+实验入口默认生成 Markdown 报告与 SVG/PNG 图，`--no-figures` 可关闭出图。
+已有产物可通过统一入口重算描述统计并重绘，不重新运行环境、GAE 或训练：
+
+```powershell
+just analyze lambda-identifiability --source-dir outputs/my-batch --output-dir outputs/my-report
+just analyze reward-calibration --source-dir outputs/my-calibration --output-dir outputs/calibration-report
+just analyze ppo-stability --source-dir outputs/my-study --output-dir outputs/study-report
+just analyze scalar-reward --source-dir outputs/my-protocol --comparison-config outputs/my-protocol/comparison.yaml --output-dir outputs/protocol-report
+```
+
+源目录与离线输出目录必须独立，不能相同或互相嵌套。实验类型、输入文件和比较配置见
+[离线分析与报告契约](docs/agents/system-contract.md#实验离线分析与报告)。
+
 ## 文档导航
 
 | 文件 | 职责 |

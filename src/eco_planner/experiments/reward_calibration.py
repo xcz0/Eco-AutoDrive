@@ -9,7 +9,8 @@ import numpy as np
 import torch
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, model_validator
 
-from eco_planner.experiments.lambda_identifiability.diagnostics import reweight, statistics
+from eco_planner.analysis.statistics import statistics
+from eco_planner.experiments.lambda_identifiability.diagnostics import reweight
 from eco_planner.rl.reward.components.comfort import component_score
 from eco_planner.rl.reward.components.progress import score_delta
 from eco_planner.rl.reward.config import PlannerRFTNoEnergyRewardConfig

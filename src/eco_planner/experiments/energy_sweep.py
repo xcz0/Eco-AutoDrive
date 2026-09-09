@@ -9,6 +9,7 @@ from omegaconf import OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, field_validator
 
 from eco_planner._repository import CONFIG_ROOT
+from eco_planner.analysis.runner import publish
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation import load_job_summary
@@ -122,7 +123,7 @@ def _traffic_condition(mode: str, traffic_density: float) -> str:
     return f"low_density_trigger_{traffic_density:g}"
 
 
-def run_study(study_path: Path, output_root: Path) -> int:
+def run_study(study_path: Path, output_root: Path, *, figures: bool = True) -> int:
     study = load_energy_study(study_path)
     output_root.mkdir(parents=True, exist_ok=False)
     OmegaConf.save(OmegaConf.load(study_path), output_root / "study_manifest.yaml", resolve=True)
@@ -141,4 +142,5 @@ def run_study(study_path: Path, output_root: Path) -> int:
             records.append(record)
             write_json(output_root / "matrix_summary.json", {"runs": records})
             failed = failed or returncode != 0 or record["status"] != "completed"
+    publish("energy-sweep", output_root, output_root, figures=figures)
     return 1 if failed else 0

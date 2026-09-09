@@ -8,6 +8,7 @@ from typing import Literal
 
 from omegaconf import DictConfig
 
+from eco_planner.analysis.runner import publish_scalar_run
 from eco_planner.evaluation import EvaluationJobConfig, parse_evaluation_config
 from eco_planner.experiments.scalar_reward.config import (
     ScalarRewardProtocolConfig,
@@ -100,6 +101,7 @@ def run_command(
     checkpoint_label: CheckpointLabel | None = None,
     checkpoint_path: Path | None = None,
     overrides: Sequence[str] = (),
+    figures: bool = True,
 ) -> dict[str, object]:
     """Dispatch one matched-protocol CLI action."""
 
@@ -107,6 +109,7 @@ def run_command(
     if action == "evaluate-a0":
         config, _ = compose_a0_evaluation_config(protocol)
         summary = run_evaluation_job(config, output_dir)
+        publish_scalar_run(output_dir, training=False, figures=figures)
         return {
             "action": action,
             "arm": "a0",
@@ -120,6 +123,7 @@ def run_command(
             raise ValueError("train requires --training-seed")
         config, _ = compose_arm_training_config(protocol, arm, training_seed, overrides)
         summary = run_training_job(config, output_dir)
+        publish_scalar_run(output_dir, training=True, figures=figures)
         return {
             "action": action,
             "arm": arm,
@@ -132,6 +136,7 @@ def run_command(
         raise ValueError("evaluate-policy requires --checkpoint and --checkpoint-path")
     config, _ = compose_policy_evaluation_config(protocol, arm, checkpoint_label, checkpoint_path)
     summary = run_evaluation_job(config, output_dir)
+    publish_scalar_run(output_dir, training=False, figures=figures)
     return {
         "action": action,
         "arm": arm,

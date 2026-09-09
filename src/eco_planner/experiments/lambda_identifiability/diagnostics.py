@@ -10,6 +10,12 @@ from typing import Any, cast
 import numpy as np
 import torch
 
+from eco_planner.analysis.statistics import (
+    advantage_comparison,
+    cosine,
+    paired_difference,
+    statistics,
+)
 from eco_planner.rl.optimization.ppo import (
     PPOUpdater,
     _batch_trajectories,
@@ -55,42 +61,6 @@ def reweight(episode: RolloutEpisode, profile: RewardProfileConfig) -> RolloutEp
     training = episode.training.clone()
     training["next", "reward"] = total.to(training["next", "reward"])
     return replace(episode, training=training, audit=audit, reward_profile=profile.name)
-
-
-def statistics(value: np.ndarray, quantiles: Sequence[float], *, ddof: int = 0) -> dict:
-    x = np.asarray(value, dtype=np.float64).reshape(-1)
-    if x.size <= ddof or not np.isfinite(x).all():
-        raise ValueError("statistics require enough finite samples")
-    return {
-        "mean": float(x.mean()),
-        "std": float(x.std(ddof=ddof)),
-        "quantiles": {
-            str(q): float(v) for q, v in zip(quantiles, np.quantile(x, quantiles), strict=True)
-        },
-    }
-
-
-def _ranks(x: np.ndarray) -> np.ndarray:
-    _, inverse, counts = np.unique(x, return_inverse=True, return_counts=True)
-    return (np.cumsum(counts) - (counts - 1) / 2)[inverse]
-
-
-def cosine(x: np.ndarray, y: np.ndarray) -> float | None:
-    x, y = x.astype(np.float64), y.astype(np.float64)
-    denominator = np.linalg.norm(x) * np.linalg.norm(y)
-    return None if denominator == 0 else float(np.dot(x, y) / denominator)
-
-
-def advantage_comparison(x: np.ndarray, y: np.ndarray) -> dict:
-    x, y = x.astype(np.float64).reshape(-1), y.astype(np.float64).reshape(-1)
-    rx, ry = _ranks(x), _ranks(y)
-    return {
-        "pearson": cosine(x - x.mean(), y - y.mean()),
-        "spearman": cosine(rx - rx.mean(), ry - ry.mean()),
-        "sign_flip_fraction": float(np.mean(x * y < 0)),
-        "zero_fraction_i": float(np.mean(x == 0)),
-        "zero_fraction_j": float(np.mean(y == 0)),
-    }
 
 
 def actor_gradients(policy: ExplorationPolicy) -> tuple[dict[str, np.ndarray], list[dict]]:
@@ -223,15 +193,11 @@ def analyze(
                 else float(np.linalg.norm(y.astype(np.float64)) / nx),
             }
         for key in ("reward", "raw_advantage", "normalized_advantage"):
-            delta = arrays[f"arm_{j}_{key}"].astype(np.float64) - arrays[f"arm_{i}_{key}"]
+            difference, delta = paired_difference(
+                arrays[f"arm_{i}_{key}"], arrays[f"arm_{j}_{key}"], scenario_ids, quantiles
+            )
             arrays[f"pair_{i}_{j}_{key}_delta"] = delta
-            pair["matched_differences"][key] = {
-                "all": statistics(delta, quantiles),
-                "per_scenario": {
-                    str(slot): statistics(delta[scenario_ids == slot], quantiles)
-                    for slot in np.unique(scenario_ids)
-                },
-            }
+            pair["matched_differences"][key] = difference
         summary["pairs"].append(pair)
     if updater.completed_optimizer_steps != 0:
         raise RuntimeError("diagnostic performed an optimizer step")

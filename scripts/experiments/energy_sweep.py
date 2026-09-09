@@ -13,8 +13,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=DEFAULT_STUDY)
     parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument("--no-figures", action="store_true")
     args = parser.parse_args()
-    raise SystemExit(run_study(args.config.resolve(), args.output_root.resolve()))
+    raise SystemExit(
+        run_study(args.config.resolve(), args.output_root.resolve(), figures=not args.no_figures)
+    )
 
 
 if __name__ == "__main__":

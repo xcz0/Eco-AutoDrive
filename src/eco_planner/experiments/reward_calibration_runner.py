@@ -14,6 +14,8 @@ from omegaconf import OmegaConf
 from tensordict import TensorDict
 
 from eco_planner._repository import REPOSITORY_ROOT
+from eco_planner.analysis.reporting.fixed import render_report
+from eco_planner.analysis.runner import publish
 from eco_planner.artifacts import (
     collect_repository_metadata,
     write_json,
@@ -22,7 +24,6 @@ from eco_planner.artifacts import (
 )
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.experiments.lambda_identifiability.diagnostics import analyze
-from eco_planner.experiments.lambda_identifiability.runner import render_report
 from eco_planner.experiments.reward_calibration import (
     CalibrationConfig,
     calibrate,
@@ -102,7 +103,7 @@ def verify_original_components(
             torch.testing.assert_close(rebuilt.audit[key], episode.audit[key], rtol=1e-6, atol=1e-7)
 
 
-def run(source: Path, config_path: Path, output: Path) -> dict:
+def run(source: Path, config_path: Path, output: Path, *, figures: bool = True) -> dict:
     study = CalibrationConfig.model_validate(load_resolved_yaml_mapping(config_path))
     config = load_resolved_yaml_mapping(source / "resolved_config.yaml")
     source_summary = json.loads((source / "summary.json").read_text(encoding="utf-8"))
@@ -179,7 +180,10 @@ def run(source: Path, config_path: Path, output: Path) -> dict:
         write_json(destination / "summary.json", summary)
         write_npz(destination / "diagnostics.npz", arrays)
         (destination / "report.md").write_text(
-            render_report(summary, batch_origin="Reused fixed source batch"), encoding="utf-8"
+            render_report(summary, batch_origin="Reused fixed source batch").replace(
+                "(sample_index.json)", "(../sample_index.json)"
+            ),
+            encoding="utf-8",
         )
         results[label] = summary
     if policy_state_hash(policy) != initial_hash or updater.completed_optimizer_steps != 0:
@@ -197,32 +201,5 @@ def run(source: Path, config_path: Path, output: Path) -> dict:
         "comparisons": {label: result["pairs"] for label, result in results.items()},
     }
     write_json(output / "summary.json", summary)
-    lines = [
-        "# Task B: fixed-batch reward calibration",
-        "",
-        summary["decision"],
-        "",
-        "| Calibration | Lambda | Pearson | Spearman | Sign flip | Head cosine | Head norm ratio |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
-    ]
-    for label, result in results.items():
-        for pair in result["pairs"]:
-            if pair["lambda_i"] == 0 and pair["lambda_j"] in (8, 16):
-                g = pair["gradients"]["actor_head"]
-                lines.append(
-                    f"| {label} | 0 → {pair['lambda_j']:g} | {pair['pearson']:.9g} | "
-                    f"{pair['spearman']:.9g} | {pair['sign_flip_fraction']:.9g} | "
-                    f"{g['cosine']:.9g} | {g['norm_ratio_j_over_i']:.9g} |"
-                )
-    lines += [
-        "",
-        "Distribution-relative comfort only; original physical-threshold exceedances and all "
-        "startup transitions remain in [audit.json](audit.json) and [audit.npz](audit.npz).",
-        "",
-        "Original and calibrated directories contain full Task A reports, arrays and resolved "
-        "configs. No optimizer steps or simulator recollection; "
-        "no conclusion about learned behavior.",
-        "",
-    ]
-    (output / "report.md").write_text("\n".join(lines), encoding="utf-8")
+    publish("reward-calibration", output, output, figures=figures)
     return {"status": "completed", "output_dir": str(output), "sample_count": len(samples)}

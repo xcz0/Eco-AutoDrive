@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--config", type=Path, default=DEFAULT_STUDY)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--diagnostic", choices=("gradient", "guidance"))
+    parser.add_argument("--no-figures", action="store_true")
     args = parser.parse_args()
     if args.command == "diagnose" and args.diagnostic is None:
         parser.error("diagnose requires --diagnostic")
@@ -29,6 +30,7 @@ def main() -> None:
         args.config.resolve(),
         args.output_root.resolve(),
         args.diagnostic,
+        figures=not args.no_figures,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
 

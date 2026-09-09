@@ -11,8 +11,10 @@ from typing import cast
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
+from eco_planner.analysis.runner import publish
+from eco_planner.analysis.simple import mode_report as _mode_report
 from eco_planner.artifacts import collect_repository_metadata
-from eco_planner.benchmarking.config import measurement, write_benchmark_artifacts
+from eco_planner.benchmarking.config import write_benchmark_artifacts
 from eco_planner.evaluation import JobSummary, load_job_summary, load_runtime_metadata
 
 
@@ -25,6 +27,7 @@ def write_report(
     job_level_wall_s: float,
     vector_wall_s: float,
     output: Path,
+    figures: bool = True,
 ) -> dict[str, object]:
     wall_times = (serial_wall_s, job_level_wall_s, vector_wall_s)
     if any(not isfinite(value) or value <= 0.0 for value in wall_times):
@@ -52,6 +55,7 @@ def write_report(
         output.name,
         report,
     )
+    publish("execution-backend", output.parent, output.parent, figures=figures, source_file=output)
     return report
 
 
@@ -91,19 +95,6 @@ def build_report(
         "evaluation_modes": {
             name: _mode_report(jobs, walls[name]) for name, jobs in groups.items()
         },
-    }
-
-
-def _mode_report(jobs: list[dict[str, object]], outer_wall_s: float) -> dict[str, object]:
-    elapsed = [
-        _number(_mapping(job.get("metadata"), "job metadata"), "elapsed_seconds") for job in jobs
-    ]
-    return {
-        "job_count": len(jobs),
-        "outer_wall_s": measurement([outer_wall_s]),
-        "job_elapsed_s": measurement(elapsed),
-        "summed_job_elapsed_s": measurement([sum(elapsed)]),
-        "jobs": jobs,
     }
 
 
@@ -219,10 +210,3 @@ def _mapping(value: object, context: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ValueError(f"{context} must be a mapping")
     return cast(dict[str, object], value)
-
-
-def _number(mapping: dict[str, object], field: str) -> float:
-    value = mapping.get(field)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{field} must be numeric")
-    return float(value)

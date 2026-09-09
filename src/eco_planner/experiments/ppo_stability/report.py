@@ -5,9 +5,9 @@ from __future__ import annotations
 import math
 
 import optuna
-from optuna.importance import get_param_importances
 from optuna.trial import FrozenTrial, TrialState
 
+from eco_planner.analysis.stability import importance
 from eco_planner.experiments.ppo_stability.config import PPOStabilityStudyConfig
 
 
@@ -18,13 +18,7 @@ def summarize_stage_a(study: optuna.Study, config: PPOStabilityStudyConfig) -> d
         (trial for trial in study.trials if trial.state == TrialState.COMPLETE),
         key=lambda item: (-(item.value or -math.inf), item.number),
     )
-    importances: dict[str, float] | None = None
-    importance_error: str | None = None
-    if len(completed) >= 2:
-        try:
-            importances = get_param_importances(study)
-        except (ValueError, ImportError) as error:
-            importance_error = str(error)
+    importances, importance_error = importance(study, config.sampler_seed)
     counts = {
         state.name.lower(): sum(trial.state == state for trial in study.trials)
         for state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)

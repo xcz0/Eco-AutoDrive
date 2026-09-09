@@ -20,8 +20,14 @@ def main() -> None:
         default=CONFIG_ROOT / "experiments/scalar_reward/identifiability.yaml",
     )
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--no-figures", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(run(args.config.resolve(), args.output_dir.resolve()), indent=2))
+    print(
+        json.dumps(
+            run(args.config.resolve(), args.output_dir.resolve(), figures=not args.no_figures),
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

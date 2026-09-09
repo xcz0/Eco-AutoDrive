@@ -11,12 +11,8 @@ import torch
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, model_validator
 from tensordict import TensorDictBase
 
-from eco_planner.experiments.lambda_identifiability.diagnostics import (
-    actor_gradients,
-    advantage_comparison,
-    reweight,
-    statistics,
-)
+from eco_planner.analysis.statistics import advantage_comparison, statistics
+from eco_planner.experiments.lambda_identifiability.diagnostics import actor_gradients, reweight
 from eco_planner.experiments.objective_decomposition import (
     _GRADIENT_GROUPS,
     ADVANTAGE_FORMS,
@@ -77,9 +73,7 @@ def zero_critic_values(episode: RolloutEpisode) -> RolloutEpisode:
     return replace(episode, training=training)
 
 
-def discounted_return_batch(
-    episodes: Sequence[RolloutEpisode], gamma: float
-) -> TensorDictBase:
+def discounted_return_batch(episodes: Sequence[RolloutEpisode], gamma: float) -> TensorDictBase:
     """Critic-free diagnostic: per-episode R_t = r_t + gamma * R_{t+1}, no bootstrap."""
     trajectories = []
     for episode in episodes:
@@ -96,9 +90,7 @@ def discounted_return_batch(
     return concatenate_tensordicts(trajectories).select(*_PPO_BATCH_KEYS)
 
 
-def credit_batch(
-    episodes: Sequence[RolloutEpisode], config: Any, form: str
-) -> TensorDictBase:
+def credit_batch(episodes: Sequence[RolloutEpisode], config: Any, form: str) -> TensorDictBase:
     """Build the full PPO batch for one temporal-credit form; episode boundaries shared."""
     if form == "standard_gae":
         return _batch_trajectories(episodes, config)
@@ -298,113 +290,3 @@ def evaluate_attribution(
         "decision": "attribution only; Task D (guidance control authority) follows regardless "
         "of the branch, and this ablation never modifies the PPO training definition",
     }
-
-
-def render_ablation_report(summary: dict[str, Any]) -> str:
-    attribution = summary["attribution"]
-    lines = [
-        "# Task C4: critic / GAE common-term ablation",
-        "",
-        "Reused the fixed E-035 source batch, initial policy, actions, old log-probs and "
-        "episode boundaries. R0 vs Energy-only under three temporal-credit forms; actor "
-        "objective only; no optimizer steps. Primary comparisons use the full-batch "
-        "z-normalized signal; raw / center-only rows are attribution aids only.",
-        "",
-        summary["undefined_reason"],
-        "",
-        "Advantage std uses sample variance.",
-        "",
-        "| Arm | Credit form | Raw A mean | Raw A std | Z A std | Head grad norm (z) |",
-        "| --- | --- | ---: | ---: | ---: | ---: |",
-    ]
-    for arm in summary["arms"]:
-        for form, entry in arm["credit_forms"].items():
-            lines.append(
-                f"| {arm['label']} | {form} | {entry['raw_advantage']['mean']:.9g} | "
-                f"{entry['raw_advantage']['std']:.9g} | "
-                f"{entry['normalized_advantage']['std']:.9g} | "
-                f"{entry['gradient_norms']['z']['actor_head']:.9g} |"
-            )
-    lines += [
-        "",
-        "## Endpoint signal: R0 vs Energy-only (z-normalized)",
-        "",
-        "| Credit form | Pearson | Spearman | Sign flip | Z-adv RMSE |",
-        "| --- | ---: | ---: | ---: | ---: |",
-    ]
-    for pair in summary["pairs"]:
-        lines.append(
-            f"| {pair['credit_form']} | {pair['pearson']:.9g} | {pair['spearman']:.9g} | "
-            f"{pair['sign_flip_fraction']:.9g} | "
-            f"{pair['normalized_advantage_rmse']:.9g} |"
-        )
-    lines += [
-        "",
-        "## Endpoint actor gradients (z-normalized)",
-        "",
-        "| Credit form | Head cosine | Head norm ratio | Lateral cosine | "
-        "Longitudinal cosine | Trunk cosine |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for pair in summary["pairs"]:
-        gradients = pair["gradients"]
-
-        def cell(group: str, key: str, values: dict = gradients) -> str:
-            value = values[group][key]
-            return "undefined" if value is None else f"{value:.9g}"
-
-        lines.append(
-            f"| {pair['credit_form']} | {cell('actor_head', 'cosine')} | "
-            f"{cell('actor_head', 'norm_ratio_j_over_i')} | {cell('lateral', 'cosine')} | "
-            f"{cell('longitudinal', 'cosine')} | {cell('shared_trunk', 'cosine')} |"
-        )
-    lines += [
-        "",
-        "## Attribution aids: raw / center-only advantage forms",
-        "",
-        "| Credit form | Advantage form | Pearson | Spearman | Sign flip | RMSE | Head cosine |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for pair in summary["pairs"]:
-        for advantage_form, entry in pair["advantage_forms"].items():
-            head = entry["gradients"]["actor_head"]["cosine"]
-            lines.append(
-                f"| {pair['credit_form']} | {advantage_form} | {entry['pearson']:.9g} | "
-                f"{entry['spearman']:.9g} | {entry['sign_flip_fraction']:.9g} | "
-                f"{entry['advantage_rmse']:.9g} | "
-                f"{'undefined' if head is None else f'{head:.9g}'} |"
-            )
-    verdict = (
-        "PASSED"
-        if attribution["gate_c_endpoint_identifiable_under_standard_gae"]
-        else "FAILED"
-    )
-    lines += [
-        "",
-        "## C4 attribution",
-        "",
-        f"Standard-GAE endpoint identifiability (Gate C endpoint thresholds): **{verdict}**.",
-        "",
-        f"C4 attribution: `{attribution['attribution'] or 'none'}`.",
-        "",
-    ]
-    for form in CREDIT_FORMS:
-        entry = attribution["endpoint"][form]
-        lines.append(
-            f"- {form}: head cosine {entry['actor_head_cosine']:.9g}, "
-            f"z-adv RMSE {entry['normalized_advantage_rmse']:.9g}, "
-            f"sign flip {entry['sign_flip_fraction']:.9g}, "
-            f"identifiable = {entry['identifiable']}."
-        )
-    lines += [
-        "",
-        "Full arm and pair statistics with per-form gradients: [summary.json](summary.json). "
-        "Per-transition values and all gradient vectors: [diagnostics.npz](diagnostics.npz), "
-        "indexed by [sample_index.json](sample_index.json).",
-        "",
-        "This is a pure offline attribution of the E-035 Gate C failure. It does not modify "
-        "the PPO training definition, does not establish learned behavior, and Task D "
-        "(guidance control authority) follows regardless of the attribution branch.",
-        "",
-    ]
-    return "\n".join(lines)

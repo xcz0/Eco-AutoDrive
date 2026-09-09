@@ -25,6 +25,7 @@ def main() -> None:
         type=Path,
         default=CONFIG_ROOT / "experiments/scalar_reward/critic_gae_ablation.yaml",
     )
+    parser.add_argument("--no-figures", action="store_true")
     args = parser.parse_args()
     print(
         json.dumps(
@@ -33,6 +34,7 @@ def main() -> None:
                 args.reference_dir.resolve(),
                 args.config.resolve(),
                 args.output_dir.resolve(),
+                figures=not args.no_figures,
             ),
             indent=2,
         )

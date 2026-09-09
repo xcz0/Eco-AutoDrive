@@ -4,11 +4,8 @@ from __future__ import annotations
 
 import os
 import platform
-import statistics
-from collections.abc import Sequence
-from math import isfinite
 from pathlib import Path
-from typing import Any, Literal, TypedDict, TypeVar
+from typing import Any, Literal, TypeVar
 
 import torch
 from hydra.utils import to_absolute_path
@@ -23,6 +20,8 @@ from pydantic import (
     model_validator,
 )
 
+from eco_planner.analysis.statistics import Measurement as Measurement
+from eco_planner.analysis.statistics import measurement as measurement
 from eco_planner.artifacts import (
     collect_repository_metadata,
     write_json,
@@ -120,30 +119,7 @@ class EnvironmentBenchmarkJobConfig(StrictBenchmarkModel):
     resources: ResourceProfileConfig | None = None
 
 
-class Measurement(TypedDict):
-    samples: list[float]
-    median: float
-    minimum: float
-    maximum: float
-
-
 BenchmarkConfigT = TypeVar("BenchmarkConfigT", bound=StrictBenchmarkModel)
-
-
-def measurement(samples: Sequence[float]) -> Measurement:
-    values = [float(value) for value in samples]
-    if not values:
-        raise ValueError("benchmark measurement requires at least one sample")
-    if not all(isfinite(value) for value in values):
-        raise ValueError("benchmark measurement samples must be finite")
-    if any(value < 0.0 for value in values):
-        raise ValueError("benchmark measurement samples must be non-negative")
-    return {
-        "samples": values,
-        "median": statistics.median(values),
-        "minimum": min(values),
-        "maximum": max(values),
-    }
 
 
 def split_benchmark_config(

@@ -132,3 +132,9 @@ objective-decomposition *arguments:
 critic-gae-ablation *arguments:
     & {{ python }} -m scripts.experiments.critic_gae_ablation {{ arguments }}
     exit $LASTEXITCODE
+
+# Recompute descriptive evidence and static reports from saved experiment artifacts.
+[group('experiments')]
+analyze experiment *arguments:
+    & {{ python }} -m scripts.experiments.analyze {{ experiment }} {{ arguments }}
+    exit $LASTEXITCODE

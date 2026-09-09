@@ -10,6 +10,8 @@ from typing import Literal
 import optuna
 from optuna.trial import FrozenTrial, TrialState
 
+from eco_planner.analysis.runner import publish
+from eco_planner.analysis.stability import load_study
 from eco_planner.artifacts import write_json
 from eco_planner.experiments.ppo_stability.config import (
     TrialParameters,
@@ -135,23 +137,34 @@ def run_command(
     study_path: Path,
     output_root: Path,
     diagnostic: Literal["gradient", "guidance"] | None = None,
+    *,
+    figures: bool = True,
 ) -> dict[str, object]:
     """Dispatch the CLI command to one explicit experiment operation."""
 
     if command == "stage-a":
-        return run_stage_a(study_path, output_root)
+        payload = run_stage_a(study_path, output_root)
+        publish("ppo-stability", output_root, output_root, figures=figures)
+        return payload
     if command == "stage-b":
-        return run_validation_stage(study_path, output_root, "b")
+        payload = run_validation_stage(study_path, output_root, "b")
+        publish("ppo-stability", output_root, output_root, figures=figures)
+        return payload
     if command == "stage-c":
-        return run_validation_stage(study_path, output_root, "c")
+        payload = run_validation_stage(study_path, output_root, "c")
+        publish("ppo-stability", output_root, output_root, figures=figures)
+        return payload
     if command == "diagnose":
         if diagnostic is None:
             raise ValueError("diagnose requires a diagnostic")
-        return run_diagnostics(study_path, output_root, diagnostic)
+        payload = run_diagnostics(study_path, output_root, diagnostic)
+        publish("ppo-stability", output_root, output_root, figures=figures)
+        return payload
     if command == "summarize":
         config = load_stability_config(study_path)
-        payload = summarize_stage_a(create_study(config, output_root), config)
+        payload = summarize_stage_a(load_study(output_root, config.study_name), config)
         write_json(output_root / "stage-a-summary.json", payload)
+        publish("ppo-stability", output_root, output_root, figures=figures)
         return payload
     raise ValueError(f"unsupported study command {command!r}")
 

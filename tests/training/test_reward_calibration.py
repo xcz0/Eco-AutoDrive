@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 import torch
 
+from eco_planner.analysis.reporting.fixed import render_report
 from eco_planner.experiments.lambda_identifiability.diagnostics import reward_profile
-from eco_planner.experiments.lambda_identifiability.runner import render_report
 from eco_planner.experiments.reward_calibration import (
     CalibrationConfig,
     calibrate,

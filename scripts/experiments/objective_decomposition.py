@@ -19,10 +19,16 @@ def main() -> None:
         type=Path,
         default=CONFIG_ROOT / "experiments/scalar_reward/objective_decomposition.yaml",
     )
+    parser.add_argument("--no-figures", action="store_true")
     args = parser.parse_args()
     print(
         json.dumps(
-            run(args.source_dir.resolve(), args.config.resolve(), args.output_dir.resolve()),
+            run(
+                args.source_dir.resolve(),
+                args.config.resolve(),
+                args.output_dir.resolve(),
+                figures=not args.no_figures,
+            ),
             indent=2,
         )
     )

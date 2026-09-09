@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import torch
 
+from eco_planner.analysis.reporting.fixed import render_ablation_report
 from eco_planner.experiments.critic_gae_ablation import (
     CREDIT_FORMS,
     AblationConfig,
@@ -11,7 +12,6 @@ from eco_planner.experiments.critic_gae_ablation import (
     credit_batch,
     discounted_return_batch,
     evaluate_attribution,
-    render_ablation_report,
     zero_critic_values,
 )
 from eco_planner.rl.optimization import PPOUpdater, compute_episode_gae
@@ -56,9 +56,7 @@ def _study(**overrides: object) -> AblationConfig:
     return AblationConfig.model_validate(values)
 
 
-def _multi_step_episode(
-    rewards: list[float], next_values: list[float], bootstrap: float
-):
+def _multi_step_episode(rewards: list[float], next_values: list[float], bootstrap: float):
     context = _context()
     builder = RolloutEpisodeBuilder()
     for reward, next_value in zip(rewards, next_values, strict=True):
@@ -87,9 +85,7 @@ def test_zero_critic_values_removes_values_and_bootstrap_only():
     assert (zeroed.training["next", "state_value"] == 0).all()
     for key in episode.training.keys(include_nested=True, leaves_only=True):
         if key not in {"state_value", ("next", "state_value")}:
-            torch.testing.assert_close(
-                zeroed.training[key], episode.training[key], rtol=0, atol=0
-            )
+            torch.testing.assert_close(zeroed.training[key], episode.training[key], rtol=0, atol=0)
     assert (episode.training["state_value"] == 1.0).all()
     assert (episode.training["next", "state_value"] != 0).all()
 
@@ -105,18 +101,14 @@ def test_reward_only_gae_matches_gamma_lambda_return_without_bootstrap():
     for step in reversed(range(len(rewards))):
         running = rewards[step] + gamma_lambda * running
         expected[step] = running
-    np.testing.assert_allclose(
-        reward_only["advantage"].reshape(-1), expected, rtol=1e-5, atol=1e-7
-    )
+    np.testing.assert_allclose(reward_only["advantage"].reshape(-1), expected, rtol=1e-5, atol=1e-7)
     np.testing.assert_allclose(
         reward_only["value_target"].reshape(-1), expected, rtol=1e-5, atol=1e-7
     )
     standard = compute_episode_gae(episode, config)
     values = [1.0] * len(rewards)
     next_values = [0.7, -0.2, 0.4]
-    delta = [
-        rewards[t] + config.gamma * next_values[t] - values[t] for t in range(len(rewards))
-    ]
+    delta = [rewards[t] + config.gamma * next_values[t] - values[t] for t in range(len(rewards))]
     standard_expected = [0.0] * len(rewards)
     running = 0.0
     for step in reversed(range(len(rewards))):
@@ -135,9 +127,7 @@ def test_discounted_return_batch_matches_recursive_returns():
     ]
     batch = discounted_return_batch(episodes, config.gamma)
     assert batch.batch_size[0] == 5
-    np.testing.assert_allclose(
-        batch["value_target"], batch["advantage"], rtol=0, atol=0
-    )
+    np.testing.assert_allclose(batch["value_target"], batch["advantage"], rtol=0, atol=0)
     expected = []
     for episode in episodes:
         rewards = episode.training["next", "reward"].reshape(-1).tolist()
@@ -147,9 +137,7 @@ def test_discounted_return_batch_matches_recursive_returns():
             running = rewards[step] + config.gamma * running
             returns[step] = running
         expected.extend(returns)
-    np.testing.assert_allclose(
-        batch["advantage"].reshape(-1), expected, rtol=1e-5, atol=1e-7
-    )
+    np.testing.assert_allclose(batch["advantage"].reshape(-1), expected, rtol=1e-5, atol=1e-7)
     # The critic-free return discounts by gamma, not gamma * gae_lambda.
     reward_only = credit_batch(episodes, config, "reward_only_gae")["advantage"].reshape(-1)
     with pytest.raises(AssertionError):
@@ -173,9 +161,7 @@ def test_ablation_structures_and_identities(monkeypatch):
         episode.audit["reward_safety_gate"].fill_(gates[i])
     snapshots = [(e.training.clone(), e.audit.clone()) for e in episodes]
     parameters = {k: v.clone() for k, v in policy.state_dict().items()}
-    state_values = np.concatenate(
-        [e.training["state_value"].numpy().reshape(-1) for e in episodes]
-    )
+    state_values = np.concatenate([e.training["state_value"].numpy().reshape(-1) for e in episodes])
 
     def forbidden(*args, **kwargs):
         pytest.fail("optimizer/scheduler step is forbidden")
@@ -202,9 +188,7 @@ def test_ablation_structures_and_identities(monkeypatch):
             normalized = arrays[f"arm_{arm_label}__{form}__normalized_advantage"]
             np.testing.assert_allclose(centered, raw - raw.mean(), rtol=1e-6, atol=1e-9)
             sigma = raw.std(ddof=1)
-            np.testing.assert_allclose(
-                normalized, centered / sigma, rtol=1e-5, atol=1e-8
-            )
+            np.testing.assert_allclose(normalized, centered / sigma, rtol=1e-5, atol=1e-8)
             np.testing.assert_allclose(
                 arrays[f"arm_{arm_label}__{form}__gradient_z_actor_head"],
                 arrays[f"arm_{arm_label}__{form}__gradient_center_actor_head"] / sigma,

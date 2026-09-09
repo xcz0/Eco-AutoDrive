@@ -14,6 +14,7 @@ from omegaconf import OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 
 from eco_planner._repository import REPOSITORY_ROOT
+from eco_planner.analysis.runner import publish
 from eco_planner.artifacts import write_json, write_npz
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.experiments.lambda_identifiability.diagnostics import analyze
@@ -51,7 +52,7 @@ class IdentifiabilityConfig(BaseModel):
         return self
 
 
-def run(config_path: Path, output_dir: Path) -> dict[str, Any]:
+def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[str, Any]:
     study = IdentifiabilityConfig.model_validate(load_resolved_yaml_mapping(config_path))
     protocol = load_scalar_reward_protocol(Path(to_absolute_path(study.protocol)))
     resolved, config = compose_arm_training_config(
@@ -177,66 +178,10 @@ def run(config_path: Path, output_dir: Path) -> dict[str, Any]:
     )
     write_npz(output_dir / "diagnostics.npz", arrays)
     write_json(output_dir / "summary.json", summary)
-    (output_dir / "report.md").write_text(render_report(summary), encoding="utf-8")
+    publish("lambda-identifiability", output_dir, output_dir, figures=figures)
     return {
         "status": "completed",
         "output_dir": str(output_dir),
         "sample_count": len(sample_index),
         "optimizer_steps": 0,
     }
-
-
-def render_report(summary: dict[str, Any], *, batch_origin: str = "New batch") -> str:
-    lines = [
-        "# Lambda identifiability: fixed update-0 batch",
-        "",
-        f"{batch_origin}; actor objective only; no optimizer steps. No automatic gate threshold.",
-        "",
-        summary["undefined_reason"],
-        "",
-        "Component std uses population variance; advantage std uses sample variance.",
-        "",
-        "| Component | Mean | Std | Quantiles |",
-        "| --- | ---: | ---: | --- |",
-    ]
-    for name, stats in summary["components"].items():
-        lines.append(
-            f"| {name} | {stats['mean']:.9g} | {stats['std']:.9g} | {stats['quantiles']} |"
-        )
-    lines += [
-        "",
-        "| Lambda | Raw A mean | Raw A std | Norm A std | Head norm | Trunk norm |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for arm in summary["arms"]:
-        lines.append(
-            f"| {arm['lambda']:g} | {arm['raw_advantage']['mean']:.9g} | "
-            f"{arm['raw_advantage']['std']:.9g} | "
-            f"{arm['normalized_advantage']['std']:.9g} | "
-            f"{arm['gradient_norms']['actor_head']:.9g} | "
-            f"{arm['gradient_norms']['shared_trunk']:.9g} |"
-        )
-    lines += [
-        "",
-        "| Lambda i → j | Pearson | Spearman | Sign flip | Head cosine | Norm j/i |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for pair in summary["pairs"]:
-        grad = pair["gradients"]["actor_head"]
-        lines.append(
-            f"| {pair['lambda_i']:g} → {pair['lambda_j']:g} | {pair['pearson']} | "
-            f"{pair['spearman']} | {pair['sign_flip_fraction']} | "
-            f"{grad['cosine']} | {grad['norm_ratio_j_over_i']} |"
-        )
-    lines += [
-        "",
-        "Full arm statistics, dimension-specific gradients and per-scenario matched "
-        "differences: [summary.json](summary.json). Per-transition values and all gradient "
-        "vectors: [diagnostics.npz](diagnostics.npz), indexed by "
-        "[sample_index.json](sample_index.json).",
-        "",
-        "These measurements concern this batch and initial policy only. They do not "
-        "establish learned behavioral separation or select Task B/C.",
-        "",
-    ]
-    return "\n".join(lines)

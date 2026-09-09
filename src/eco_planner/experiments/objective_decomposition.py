@@ -11,14 +11,14 @@ import numpy as np
 import torch
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, model_validator
 
+from eco_planner.analysis.statistics import advantage_comparison, paired_difference, statistics
+from eco_planner.analysis.statistics import gradient_comparison as _gradient_comparison
+from eco_planner.analysis.statistics import rmse as _rmse
 from eco_planner.experiments.lambda_identifiability.diagnostics import (
     COMPONENTS,
     actor_gradients,
-    advantage_comparison,
-    cosine,
     reward_profile,
     reweight,
-    statistics,
 )
 from eco_planner.rl.optimization.ppo import (
     PPOUpdater,
@@ -102,22 +102,8 @@ def _arm_label(kind: str, weight: float | None) -> str:
     return f"lambda_{cast(float, weight):g}"
 
 
-def _rmse(x: np.ndarray, y: np.ndarray) -> float:
-    delta = x.astype(np.float64) - y.astype(np.float64)
-    return float(np.sqrt(np.mean(np.square(delta))))
-
-
 def _angular_separation(cosine_value: float) -> float:
     return float(np.arccos(np.clip(cosine_value, -1.0, 1.0)))
-
-
-def _gradient_comparison(x: np.ndarray, y: np.ndarray) -> dict[str, float | None]:
-    norm_x = np.linalg.norm(x.astype(np.float64))
-    norm_y = np.linalg.norm(y.astype(np.float64))
-    return {
-        "cosine": cosine(x, y),
-        "norm_ratio_j_over_i": None if norm_x == 0 else float(norm_y / norm_x),
-    }
 
 
 def _arm_episodes(
@@ -142,14 +128,9 @@ def _pair_difference(
     j: int,
     key: str,
 ) -> tuple[dict, np.ndarray]:
-    delta = arrays[f"arm_{j}_{key}"].astype(np.float64) - arrays[f"arm_{i}_{key}"]
-    return {
-        "all": statistics(delta, quantiles),
-        "per_scenario": {
-            str(slot): statistics(delta[scenario_ids == slot], quantiles)
-            for slot in np.unique(scenario_ids)
-        },
-    }, delta
+    return paired_difference(
+        arrays[f"arm_{i}_{key}"], arrays[f"arm_{j}_{key}"], scenario_ids, quantiles
+    )
 
 
 def analyze_decomposition(
@@ -313,105 +294,6 @@ def analyze_decomposition(
     if updater.completed_optimizer_steps != 0:
         raise RuntimeError("diagnostic performed an optimizer step")
     return summary, arrays
-
-
-def render_decomposition_report(summary: dict[str, Any]) -> str:
-    gate = summary["gate"]
-    lines = [
-        "# Task C: objective decomposition + normalization attribution",
-        "",
-        "Reused fixed source batch; actor objective only; no optimizer steps. "
-        "Endpoint and stress comparisons use the actor-head gradient.",
-        "",
-        summary["undefined_reason"],
-        "",
-        "Component std uses population variance; advantage std uses sample variance.",
-        "",
-        "| Arm | Reward mean | Reward std | Raw A mean | Raw A std | Z A std | "
-        "Head grad norm raw / center / z |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
-    ]
-    for arm in summary["arms"]:
-        norms = arm["gradient_norms"]
-        lines.append(
-            f"| {arm['label']} | {arm['reward']['mean']:.9g} | {arm['reward']['std']:.9g} | "
-            f"{arm['raw_advantage']['mean']:.9g} | {arm['raw_advantage']['std']:.9g} | "
-            f"{arm['normalized_advantage']['std']:.9g} | "
-            f"{norms['raw']['actor_head']:.9g} / {norms['center']['actor_head']:.9g} / "
-            f"{norms['z']['actor_head']:.9g} |"
-        )
-    endpoint = next(
-        pair
-        for pair in summary["pairs"]
-        if pair["arm_i"] == "r0" and pair["arm_j"] == "energy_only"
-    )
-    lines += [
-        "",
-        "## Endpoint attribution: R0 vs Energy-only",
-        "",
-        "| Advantage form | Pearson | Spearman | Sign flip | Advantage RMSE | "
-        "Head cosine | Head norm ratio |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for form, entry in (
-        ("z (current preprocessing)", endpoint),
-        ("raw", summary["endpoint_forms"]["raw"]),
-        ("center-only", summary["endpoint_forms"]["center"]),
-    ):
-        head = entry["gradients"]["actor_head"]
-        rmse = entry.get("normalized_advantage_rmse", entry.get("advantage_rmse"))
-        lines.append(
-            f"| {form} | {entry['pearson']} | {entry['spearman']} | "
-            f"{entry['sign_flip_fraction']} | {rmse:.9g} | {head['cosine']} | "
-            f"{head['norm_ratio_j_over_i']} |"
-        )
-    lines += [
-        "",
-        "## Stress trajectory: R0 -> finite lambda -> Energy-only",
-        "",
-        "| Lambda | Head cosine vs R0 | Angular separation (rad) | "
-        "Fraction of endpoint separation | Head norm ratio |",
-        "| ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for entry in gate["stress"]:
-        lines.append(
-            f"| {entry['lambda']:g} | {entry['actor_head_cosine']:.9g} | "
-            f"{entry['angular_separation_rad']:.9g} | "
-            f"{entry['fraction_of_endpoint_separation']:.9g} | "
-            f"{entry['norm_ratio_j_over_i']:.9g} |"
-        )
-    verdict = "PASSED" if gate["gate_c_passed"] else "FAILED"
-    attribution = gate["attribution"] or "none"
-    lines += [
-        "",
-        "## Gate C",
-        "",
-        f"Verdict: **{verdict}**; attribution: `{attribution}`.",
-        "",
-        f"Endpoint actor-head cosine: {gate['endpoint']['actor_head_cosine']:.9g} "
-        f"(threshold {gate['thresholds']['endpoint_max_actor_head_cosine']}); "
-        f"normalized-advantage RMSE: {gate['endpoint']['normalized_advantage_rmse']:.9g} "
-        f"(threshold {gate['thresholds']['min_normalized_advantage_rmse']}); "
-        f"sign-flip fraction: {gate['endpoint']['sign_flip_fraction']:.9g} "
-        f"(threshold {gate['thresholds']['min_sign_flip_fraction']}).",
-        "",
-    ]
-    if gate["failure_reasons"]:
-        lines.append("Failure reasons:")
-        lines.extend(f"- {reason}" for reason in gate["failure_reasons"])
-        lines.append("")
-    lines += [
-        "Full arm and pair statistics, per-form gradients and per-scenario matched "
-        "differences: [summary.json](summary.json). Per-transition values and all gradient "
-        "vectors: [diagnostics.npz](diagnostics.npz), indexed by "
-        "[sample_index.json](sample_index.json).",
-        "",
-        "These measurements concern this batch and initial policy only. They do not "
-        "establish learned behavioral separation, do not select a training reward, and do "
-        "not run any optimizer step.",
-        "",
-    ]
-    return "\n".join(lines)
 
 
 def evaluate_gate(

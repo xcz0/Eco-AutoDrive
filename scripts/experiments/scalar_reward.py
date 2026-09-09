@@ -23,6 +23,7 @@ def main() -> None:
     parser.add_argument("--checkpoint", choices=("initial", "final"))
     parser.add_argument("--checkpoint-path", type=Path)
     parser.add_argument("--override", action="append", default=[])
+    parser.add_argument("--no-figures", action="store_true")
     args = parser.parse_args()
     if args.action == "train" and args.arm is None:
         parser.error("train requires --arm")
@@ -41,6 +42,7 @@ def main() -> None:
         checkpoint_label=args.checkpoint,
         checkpoint_path=None if args.checkpoint_path is None else args.checkpoint_path.resolve(),
         overrides=args.override,
+        figures=not args.no_figures,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
 

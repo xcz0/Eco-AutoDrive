@@ -4,12 +4,12 @@ import numpy as np
 import pytest
 import torch
 
+from eco_planner.analysis.reporting.fixed import render_decomposition_report
 from eco_planner.experiments.objective_decomposition import (
     DecompositionConfig,
     analyze_decomposition,
     energy_only_reward,
     evaluate_gate,
-    render_decomposition_report,
 )
 from eco_planner.experiments.objective_decomposition_runner import verify_expected_calibration
 from eco_planner.rl.optimization import PPOUpdater

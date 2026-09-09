@@ -341,6 +341,73 @@ reward-to-go（逐 episode 反向递推，无 critic 无 bootstrap，仅诊断�
 between-arm advantage 差分与 V 无关的抵消恒等式、V=0 GAE 等于 (γλ)-discounted return
 与 reward-to-go 递推均由测试逐元素核验。
 
+## 实验离线分析与报告
+
+`experiments` 拥有采集、reward/校准、GAE/backward、gate、候选晋级和 correctness guards。
+读取旧 batch 的 backward-only 实验仍属于实验执行，不属于描述统计。
+`analysis` 对已保存的 JSON/NPZ、typed evaluation/training summaries 和 Optuna study
+重算统计与比较；`analysis.reporting` 仅负责 Markdown 和 Matplotlib 静态图。
+分析入口、training summary models 和 evaluation artifact readers 的导入不加载 Torch、
+MetaDrive、Panda3D、planner 或训练执行器。两层复用 float64 分布统计、相关性、cosine、
+RMSE、梯度向量比较和逐 scenario 配对差值；benchmark measurement 的原字段与算法保持不变。
+
+`just analyze <experiment> --source-dir <source> --output-dir <output>` 是显式离线入口。
+source/output 不能相同或互相嵌套；分析不写回源数据。已有实验运行/汇总入口在原始产物和
+守卫完成后复用报告流程，默认写入本次运行目录。两种入口均支持 `--no-figures`。
+派生输出为 `analysis.json`、`report.md`、`figures/*.svg` 与 `figures/*.png`；原有 summary、
+diagnostics、sample index、study database 等文件名称与字段保持不变，不建立版本迁移层。
+JSON 保存完整分析证据和图路径，Markdown 保留实验裁定、未定义说明和源产物链接。
+
+| experiment | 离线输入 |
+| --- | --- |
+| `lambda-identifiability` / `objective-decomposition` / `critic-gae-ablation` | `summary.json`、`diagnostics.npz`、`sample_index.json` |
+| `reward-calibration` | 根目录 summary/sample index/audit JSON 与 NPZ，original/calibrated 子目录的 summary/diagnostics |
+| `energy-sweep` | `matrix_summary.json` 与按 job/guidance 保存的 evaluation summaries |
+| `scalar-reward` | `--comparison-config` 显式列出的 protocol、training summaries 和 evaluation 目录 |
+| `ppo-stability` | `study_manifest.yaml`、`study.db`，以及已存在的 stage/diagnostic summaries |
+| `reward-sanity` | `sanity_report.json`，含原 case 结果与 checks |
+| `ppo-reproducibility` | `training_report.json` 和对应 seed/replay 的 training summaries |
+| `execution-backend` | 已通过 workload 验证的 `evaluation_modes.json`；自定义文件名通过 `--source-file` 指定 |
+
+固定批次统计从各 arm 的已保存数组重算，严格核对 sample index 的长度、重复项与 scenario
+顺序。quantiles 使用原 summary 声明的数值轴；保留原 ddof（包括 ablation 的 value target
+使用 sample std）、并列 rank 与差值方向。缺少原始数组报错，不能使用旧 summary 冒充重算。
+报告只引用原 gate、校准、exact replay 等实验裁定，不重新执行或修改这些结论。
+calibration 的 audit 原文保留；新增 distributions 从 audit NPZ 重算有符号原始量和保存的
+score 分布，按 scenario/planning cycle 分组，不重定义原物理限值。
+
+评测比较要求相同 workload、sampler、runtime seed，并按 scenario/map/map seed/noise seed、
+evaluation mode 与 traffic density 精确配对；重复或缺失配对报错。差值为 comparison − reference。
+失败运行、失败原因与不可用配对数显式保留；可用配对的统计明确给出分母，不为失败样本补零。
+正常终止的碰撞/越界 episode 保留有效指标。跨 training seed 的 scalar reward 汇总以每 seed
+的可用 matched-episode mean 为单位，保存实际 seed 列表，属于描述统计而非统计推断。
+
+Scalar reward 比较配置的路径均相对该 YAML 所在目录解析，最小结构如下：
+
+```yaml
+protocol: protocol.yaml
+a0_evaluation_dir: a0/evaluation
+runs:
+  - arm: a2
+    training_summary: a2/seed-0/summary.json
+    checkpoint_label: final
+    evaluation_dir: a2/seed-0/evaluation-final
+```
+
+`arm` 为 a1/a2；`checkpoint_label` 为现有 CLI 的 initial/final（initial 即 update-0 诊断）。
+seed/reward profile 来自 typed training summary，须属于 protocol；evaluation 的 checkpoint
+hash 必须匹配该 training summary 中相应的 initial/final hash。A0 的 held-out pool、seed、
+horizon 与 sampler 对照 protocol 核验。只运行单个 scalar reward job 时报告该 job；跨 arm
+与 seed 的比较由用户显式列出源运行，不从目录名推断，也不选择最佳 seed。
+
+静态图使用 Agg 后端，提供数值标注、单位和独立指标色标。零范数 cosine 和零分母 ratio 为
+`null`，图上显示 undefined；近共线诊断同时提供 cosine 和 `1 − cosine`，不裁剪原数值。
+PPO stability 直接调用 Optuna Matplotlib 的 history、parallel coordinate、importance、contour。
+参数重要性使用 manifest 的 sampler_seed 作为显式 evaluator seed；不改变搜索 sampler 或
+候选晋级规则。离线 study 通过 SQLite read-only mode 打开，不创建数据库或 study。
+不足 completed trials、无变化参数或 objective 等导致图不可用时，报告保存具体原因；不伪造图。
+生成报告不需要交互 HTML、图形 UI、模型 checkpoint 或新训练运行。
+
 ## 轨迹执行
 
 运动学接口的静态契约是有限的 `float32 [80,4]` ego 后轴局部轨迹。混合精度 forward 的 ego trajectory 必须在 evaluation/rollout host producer 中原值转换为 `float32`；完整 prediction 在 audit result 边界转换并保存 trace。shape、dtype、有限性和非零 heading 由 producer 测试保证，执行路径不做运行时重复校验；环境与运动学 policy 共享同一份已准备的世界轨迹。每个 0.1 s 子步将 vehicle center、heading、由相邻 center 有限差分得到的 velocity，以及由最短 heading 角差得到的 angular velocity 写入 MetaDrive；下一规划周期以最后实际状态为锚点。
