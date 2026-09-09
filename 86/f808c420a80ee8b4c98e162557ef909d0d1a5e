@@ -1,0 +1,55 @@
+scripts/experiments/objective_decomposition.py
+  s_ce38b677084419::t_c088af20c382f8 1-32
+docs/experiments/records/e-035-issue94-task-c-objective-decomposition.md
+  s_ce38b677084419::t_b21856c4c19c00 1-158
+tests/training/test_objective_decomposition.py
+  s_ce38b677084419::t_1e9a51a442c601 1-8,10-16,23-108,115-162,166,168-220,222-265,267-273
+  s_ce38b677084419::t_64ef8dc0bec456 163
+  s_ce38b677084419::t_76ef402fe0b37b 17-22
+  s_ce38b677084419::t_a9a15143abdece 9,109-114,167,221
+  s_ce38b677084419::t_9753c804ef43e9 164-165
+  s_ce38b677084419::t_6e2d589218cd22 266
+configs/experiments/scalar_reward/objective_decomposition.yaml
+  s_ce38b677084419::t_849d2d8f2b3412 8-12
+  s_ce38b677084419::t_c87fa1a5513db4 1-7,13-24
+justfile
+  s_ce38b677084419::t_e21c7f71397bac 125-129
+src/eco_planner/experiments/reward_calibration.py
+  s_ce38b677084419::t_784a35de7385c9 26-32
+  s_ce38b677084419::t_9854d68c645be7 83
+  s_ce38b677084419::t_56ef66fe9315e9 6
+src/eco_planner/experiments/objective_decomposition_runner.py
+  s_ce38b677084419::t_9ca6f48583e923 9
+  s_ce38b677084419::t_183e3793e7cd4c 135
+  s_ce38b677084419::t_a9a15143abdece 165
+  s_ce38b677084419::t_481b9cd87e4c9e 73
+  s_ce38b677084419::t_c4bed54109daeb 24
+  s_ce38b677084419::t_41b9b8636c9e0b 77
+  s_ce38b677084419::t_23afeb761423e4 54
+  s_ce38b677084419::t_6e9d4fad3b8a1f 55-60
+  s_ce38b677084419::t_3a7482bb82586c 1-8,10-23,25-53,61-72,74-76,78-134,136-164,166-173
+docs/agents/system-contract.md
+  s_ce38b677084419::t_2ce9b029325be1 312-327
+src/eco_planner/experiments/objective_decomposition.py
+  s_ce38b677084419::t_0387ebd27fdefe 318-343,347-416
+  s_ce38b677084419::t_a9a15143abdece 114,275,290,344-346,434-436,475
+  s_ce38b677084419::t_083f0e75305912 1-113,115-274,276-289,291-317,417-433,437-474,476-505
+docs/experiments/README.md
+  s_ce38b677084419::t_a4e3b3ea997f94 77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "86f808c420a80ee8b4c98e162557ef909d0d1a5e",
+  "prompts": {},
+  "sessions": {
+    "s_ce38b677084419": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f7b7ed315ffeM1UXEQLjPLsYQX",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
