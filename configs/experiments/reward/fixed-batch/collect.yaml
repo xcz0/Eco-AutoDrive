@@ -1,0 +1,10 @@
+protocol: configs/experiments/reward/scalar/protocol.yaml
+training_seed: 0
+overrides:
+- components/resources=rtx_a4000
+- ppo.learning_rate=1.6301e-05
+- ppo.target_kl=0.006
+- ppo.batch_size=128
+- training.transitions_per_environment=8
+- training.update_count=50
+- ppo.scheduler_total_optimizer_steps=50

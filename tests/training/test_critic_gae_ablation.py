@@ -5,8 +5,8 @@ import pytest
 import torch
 
 from eco_planner.analysis.reporting.fixed import render_ablation_report
-from eco_planner.experiments.critic_gae_ablation.config import AblationConfig
-from eco_planner.experiments.critic_gae_ablation.diagnostics import (
+from eco_planner.experiments.reward.critic_gae_ablation.config import AblationConfig
+from eco_planner.experiments.reward.critic_gae_ablation.diagnostics import (
     CREDIT_FORMS,
     analyze_critic_gae_ablation,
     credit_batch,

@@ -1,219 +1,259 @@
-"""Unified CLI adapters; experiment execution lives in eco_planner.experiments."""
+"""Thin, lazy command adapters for the three research domains."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import os
+from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 from eco_planner._repository import CONFIG_ROOT, LOCAL_ENVIRONMENT_PATH
 
 
+@dataclass(frozen=True)
+class Command:
+    evidence: str
+    module: str
+    function: str
+    actions: tuple[str, ...]
+    config: str | None = None
+    source: bool = False
+    reference: bool = False
+    cuda: bool = False
+    environment: bool = False
+
+
+COMMANDS = {
+    ("reward", "scalar"): Command(
+        "scalar-reward",
+        "reward.scalar.runner",
+        "run_command",
+        ("run", "analyze"),
+        "protocol.yaml",
+        cuda=True,
+        environment=True,
+    ),
+    ("reward", "fixed-batch"): Command(
+        "fixed-batch",
+        "reward.fixed_batch.collection",
+        "collect",
+        ("collect",),
+        "collect.yaml",
+        cuda=True,
+        environment=True,
+    ),
+    ("reward", "lambda-identifiability"): Command(
+        "lambda-identifiability",
+        "reward.lambda_identifiability.runner",
+        "run",
+        ("run", "analyze"),
+        "diagnostic.yaml",
+        source=True,
+        cuda=True,
+    ),
+    ("reward", "calibration"): Command(
+        "reward-calibration",
+        "reward.calibration.runner",
+        "run",
+        ("run", "analyze"),
+        "calibration.yaml",
+        source=True,
+        reference=True,
+        cuda=True,
+    ),
+    ("reward", "objective-decomposition"): Command(
+        "objective-decomposition",
+        "reward.objective_decomposition.runner",
+        "run",
+        ("run", "analyze"),
+        "diagnostic.yaml",
+        source=True,
+        cuda=True,
+    ),
+    ("reward", "critic-gae-ablation"): Command(
+        "critic-gae-ablation",
+        "reward.critic_gae_ablation.runner",
+        "run",
+        ("run", "analyze"),
+        "diagnostic.yaml",
+        source=True,
+        reference=True,
+        cuda=True,
+    ),
+    ("guidance", "energy-sweep"): Command(
+        "energy-sweep",
+        "guidance.energy_sweep.runner",
+        "run_study",
+        ("run", "analyze"),
+        "matrix.yaml",
+        environment=True,
+    ),
+    ("guidance", "control-authority"): Command(
+        "guidance-control-authority",
+        "guidance.control_authority.runner",
+        "run",
+        ("run", "analyze"),
+        "intervention.yaml",
+        cuda=True,
+        environment=True,
+    ),
+    ("training", "stability"): Command(
+        "ppo-stability",
+        "training.stability.runner",
+        "run_command",
+        ("run", "analyze"),
+        "study.yaml",
+        cuda=True,
+        environment=True,
+    ),
+    ("training", "reproducibility"): Command(
+        "ppo-reproducibility",
+        "training.reproducibility",
+        "summarize_and_write_training_runs",
+        ("validate", "analyze"),
+        source=True,
+    ),
+}
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run or analyze repository experiments")
-    experiments = parser.add_subparsers(dest="experiment", required=True)
-    actions = {
-        "guidance-control-authority": ("run", "analyze"),
-        "fixed-batch": ("collect",),
-        "lambda-identifiability": ("run", "analyze"),
-        "reward-calibration": ("run", "analyze"),
-        "objective-decomposition": ("run", "analyze"),
-        "critic-gae-ablation": ("run", "analyze"),
-        "energy-sweep": ("run", "analyze"),
-        "reward-sanity": ("run", "analyze"),
-        "scalar-reward": ("evaluate-a0", "train", "evaluate-policy", "analyze"),
-        "ppo-stability": ("stage-a", "stage-b", "stage-c", "diagnose", "summarize", "analyze"),
-        "ppo-reproducibility": ("report", "analyze"),
-        "execution-backend": ("report", "analyze"),
-    }
-    defaults = {
-        "guidance-control-authority": "intervention.yaml",
-        "fixed-batch": "collect.yaml",
-        "lambda-identifiability": "diagnostic.yaml",
-        "reward-calibration": "calibration.yaml",
-        "objective-decomposition": "diagnostic.yaml",
-        "critic-gae-ablation": "diagnostic.yaml",
-        "energy-sweep": "matrix.yaml",
-        "reward-sanity": "sanity.yaml",
-        "scalar-reward": "protocol.yaml",
-        "ppo-stability": "study.yaml",
-    }
-    for name, choices in actions.items():
-        commands = experiments.add_parser(name).add_subparsers(dest="action", required=True)
-        for action in choices:
-            command = commands.add_parser(action)
-            command.add_argument("--output-dir", type=Path, required=True)
-            if action != "collect":
-                command.add_argument("--no-figures", action="store_true")
-            if action == "analyze":
-                command.add_argument("--source-dir", type=Path, required=True)
-                if name == "scalar-reward":
-                    command.add_argument(
-                        "--config", type=Path, required=True, help="Cross-arm comparison config"
-                    )
+    parser = argparse.ArgumentParser(description="Run or analyze repository research studies")
+    domains = parser.add_subparsers(dest="domain", required=True)
+    for domain in ("reward", "guidance", "training"):
+        studies = domains.add_parser(domain).add_subparsers(dest="study", required=True)
+        for (owner, name), spec in COMMANDS.items():
+            if owner != domain:
                 continue
-            if name in defaults:
-                command.add_argument(
-                    "--config",
-                    type=Path,
-                    default=CONFIG_ROOT / "experiments" / name / defaults[name],
-                )
-            if name in (
-                "lambda-identifiability",
-                "reward-calibration",
-                "objective-decomposition",
-                "critic-gae-ablation",
-                "ppo-reproducibility",
-            ):
-                command.add_argument("--source-dir", type=Path, required=True)
-            if name in ("reward-calibration", "critic-gae-ablation"):
-                command.add_argument("--reference-dir", type=Path, required=True)
-            if name == "scalar-reward":
-                if action in ("train", "evaluate-policy"):
-                    command.add_argument("--arm", choices=("a1", "a2"), required=True)
-                if action == "train":
-                    command.add_argument("--training-seed", type=int, required=True)
-                    command.add_argument("--override", action="append", default=[])
-                if action == "evaluate-policy":
+            actions = studies.add_parser(name).add_subparsers(dest="action", required=True)
+            for action in spec.actions:
+                command = actions.add_parser(action)
+                command.set_defaults(command=spec)
+                command.add_argument("--output-dir", type=Path, required=True)
+                if action != "collect":
+                    command.add_argument("--no-figures", action="store_true")
+                if action == "analyze":
+                    command.add_argument("--source-dir", type=Path, required=True)
+                    if spec.evidence == "scalar-reward":
+                        command.add_argument("--config", type=Path, required=True)
+                    continue
+                if spec.config:
                     command.add_argument(
-                        "--checkpoint", choices=("initial", "final"), required=True
+                        "--config",
+                        type=Path,
+                        default=CONFIG_ROOT / "experiments" / domain / name / spec.config,
                     )
-                    command.add_argument("--checkpoint-path", type=Path, required=True)
-            if name == "ppo-stability" and action == "diagnose":
-                command.add_argument(
-                    "--diagnostic", choices=("gradient", "guidance"), required=True
-                )
-            if name == "execution-backend":
-                for mode in ("serial", "job-level", "vector"):
-                    command.add_argument(f"--{mode}-dir", type=Path, required=True)
-                    command.add_argument(f"--{mode}-wall-s", type=float, required=True)
+                if spec.source:
+                    command.add_argument("--source-dir", type=Path, required=True)
+                if spec.reference:
+                    command.add_argument("--reference-dir", type=Path, required=True)
+                if spec.evidence == "scalar-reward":
+                    command.add_argument(
+                        "--operation", choices=("train", "evaluate"), required=True
+                    )
+                    command.add_argument("--arm", choices=("a0", "a1", "a2"), required=True)
+                    command.add_argument("--training-seed", type=int)
+                    command.add_argument("--override", action="append", default=[])
+                    command.add_argument("--checkpoint", choices=("initial", "final"))
+                    command.add_argument("--checkpoint-path", type=Path)
+                if spec.evidence == "ppo-stability":
+                    command.add_argument(
+                        "--operation",
+                        choices=("search", "confirm", "held-out", "diagnostic"),
+                        required=True,
+                    )
+                    command.add_argument("--diagnostic", choices=("gradient", "guidance"))
     return parser
 
 
-def bootstrap(args: argparse.Namespace) -> None:
-    if args.action in ("analyze", "report", "summarize"):
+def validate_arguments(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if args.action != "run":
         return
-    if args.experiment in (
-        "guidance-control-authority",
-        "fixed-batch",
-        "lambda-identifiability",
-        "reward-calibration",
-        "objective-decomposition",
-        "critic-gae-ablation",
-        "scalar-reward",
-        "ppo-stability",
-    ):
+    if args.command.evidence == "scalar-reward":
+        if args.operation == "train":
+            if args.arm == "a0" or args.training_seed is None:
+                parser.error("train requires --arm a1/a2 and --training-seed")
+            if args.checkpoint is not None or args.checkpoint_path is not None:
+                parser.error("train does not accept checkpoint arguments")
+        else:
+            if args.training_seed is not None or args.override:
+                parser.error("evaluate does not accept training arguments")
+            if args.arm == "a0":
+                if args.checkpoint is not None or args.checkpoint_path is not None:
+                    parser.error("a0 does not accept checkpoint arguments")
+            elif args.checkpoint is None or args.checkpoint_path is None:
+                parser.error("a1/a2 evaluation requires --checkpoint and --checkpoint-path")
+    if args.command.evidence == "ppo-stability":
+        if (args.operation == "diagnostic") != (args.diagnostic is not None):
+            parser.error("--diagnostic is required only for --operation diagnostic")
+
+
+def bootstrap(args: argparse.Namespace) -> None:
+    if args.action in ("analyze", "validate"):
+        return
+    if args.command.cuda:
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-    if args.experiment in (
-        "guidance-control-authority",
-        "fixed-batch",
-        "energy-sweep",
-        "scalar-reward",
-        "ppo-stability",
-    ):
+    if args.command.environment:
         from eco_planner.configuration import load_local_environment
 
         load_local_environment(LOCAL_ENVIRONMENT_PATH)
 
 
 def dispatch(args: argparse.Namespace) -> dict[str, Any] | int:
+    spec = args.command
     figures = not getattr(args, "no_figures", False)
-    name = args.experiment
-    if name == "guidance-control-authority" and args.action == "run":
-        from eco_planner.experiments.guidance_control_authority.runner import run
-
-        return run(args.config, args.output_dir, figures=figures)
     if args.action == "analyze":
         from eco_planner.analysis.runner import analyze
 
+        comparison = None
+        if spec.evidence == "scalar-reward":
+            from eco_planner.experiments.reward.scalar.comparison import load_comparison
+
+            comparison = load_comparison(args.config)
         return analyze(
-            name,
+            spec.evidence,
             args.source_dir,
             args.output_dir,
             figures=figures,
-            comparison_config=getattr(args, "config", None),
+            scalar_comparison=comparison,
         )
-    if name == "fixed-batch":
-        from eco_planner.experiments.fixed_batch.collection import collect
-
-        return collect(args.config, args.output_dir)
-    if name == "lambda-identifiability":
-        from eco_planner.experiments.lambda_identifiability.runner import run
-
-        return run(args.source_dir, args.config, args.output_dir, figures=figures)
-    if name == "reward-calibration":
-        from eco_planner.experiments.reward_calibration.runner import run
-
-        return run(
-            args.source_dir, args.reference_dir, args.config, args.output_dir, figures=figures
-        )
-    if name == "objective-decomposition":
-        from eco_planner.experiments.objective_decomposition.runner import run
-
-        return run(args.source_dir, args.config, args.output_dir, figures=figures)
-    if name == "critic-gae-ablation":
-        from eco_planner.experiments.critic_gae_ablation.runner import run
-
-        return run(
-            args.source_dir, args.reference_dir, args.config, args.output_dir, figures=figures
-        )
-    if name == "energy-sweep":
-        from eco_planner.experiments.energy_sweep.runner import run_study
-
-        return run_study(args.config, args.output_dir, figures=figures)
-    if name == "reward-sanity":
-        from eco_planner.experiments.reward_sanity.runner import run_sanity
-
-        return run_sanity(args.config, args.output_dir, figures=figures)
-    if name == "scalar-reward":
-        from eco_planner.experiments.scalar_reward.runner import run_command
-
-        return run_command(
-            args.action,
+    function = getattr(import_module("eco_planner.experiments." + spec.module), spec.function)
+    if spec.evidence == "scalar-reward":
+        return function(
+            args.operation,
             args.config,
             args.output_dir,
             figures=figures,
-            arm=getattr(args, "arm", None),
-            training_seed=getattr(args, "training_seed", None),
-            checkpoint_label=getattr(args, "checkpoint", None),
-            checkpoint_path=getattr(args, "checkpoint_path", None),
-            overrides=getattr(args, "override", ()),
+            arm=args.arm,
+            training_seed=args.training_seed,
+            checkpoint_label=args.checkpoint,
+            checkpoint_path=args.checkpoint_path,
+            overrides=args.override,
         )
-    if name == "ppo-stability":
-        from eco_planner.experiments.ppo_stability.runner import run_command
-
-        return run_command(
-            args.action,
+    if spec.evidence == "ppo-stability":
+        return function(
+            args.operation,
             args.config,
             args.output_dir,
-            getattr(args, "diagnostic", None),
+            args.diagnostic,
             figures=figures,
         )
-    if name == "ppo-reproducibility":
-        from eco_planner.experiments.ppo_reproducibility import summarize_and_write_training_runs
-
-        return summarize_and_write_training_runs(args.source_dir, args.output_dir, figures=figures)
-    if name == "execution-backend":
-        from eco_planner.experiments.execution_backend.report import write_report
-
-        return write_report(
-            args.serial_dir,
-            args.job_level_dir,
-            args.vector_dir,
-            serial_wall_s=args.serial_wall_s,
-            job_level_wall_s=args.job_level_wall_s,
-            vector_wall_s=args.vector_wall_s,
-            output=args.output_dir / "evaluation_modes.json",
-            figures=figures,
-        )
-    raise ValueError(f"unsupported experiment: {name}")
+    if args.action == "collect":
+        return function(args.config, args.output_dir)
+    if args.action == "validate":
+        return function(args.source_dir, args.output_dir, figures=figures)
+    inputs = [args.source_dir] if spec.source else []
+    if spec.reference:
+        inputs.append(args.reference_dir)
+    return function(*inputs, args.config, args.output_dir, figures=figures)
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    validate_arguments(parser, args)
     for name, value in vars(args).items():
         if isinstance(value, Path):
             setattr(args, name, value.resolve())

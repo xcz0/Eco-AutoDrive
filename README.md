@@ -80,41 +80,69 @@ just mlflow ui --backend-store-uri sqlite:///outputs/mlflow/mlflow.db --host 127
 just benchmark run
 just benchmark run --config-name jobs/benchmark/throughput_traffic
 just benchmark run --config-name jobs/benchmark/rollout
-just experiment energy-sweep run --output-dir outputs/energy_matrix/manual-run
+just experiment guidance energy-sweep run --output-dir outputs/energy_matrix/manual-run
 ```
 
 PlannerRFT reward sanity：
 
 ```powershell
-just experiment reward-sanity run --output-dir outputs/reward_sanity/manual-run
+just validation reward run --output-dir outputs/reward_sanity/manual-run
 ```
 
 该命令只计算配置中声明的固定合成 reward case，不运行 PPO。
 
-实验统一使用 `just experiment <experiment> <action>`，对应
-`python -m scripts.experiments`。各实验的配置位于 `configs/experiments/<experiment>/`，
-可用 `--config` 指定；`just experiment <experiment> <action> --help` 查看参数。
+实验统一使用 `just experiment <domain> <study> <action>`，对应
+`python -m scripts.experiments`。各实验的配置位于 `configs/experiments/<domain>/<study>/`，
+可用 `--config` 指定；`just experiment <domain> <study> <action> --help` 查看参数。
 
 固定批次采集与诊断分开运行。先采集一次，再显式复用同一批次：
 
 ```powershell
-just experiment fixed-batch collect --output-dir outputs/fixed-batch
-just experiment lambda-identifiability run --source-dir outputs/fixed-batch --output-dir outputs/lambda
-just experiment reward-calibration run --source-dir outputs/fixed-batch --reference-dir outputs/lambda --output-dir outputs/calibration
-just experiment objective-decomposition run --source-dir outputs/fixed-batch --output-dir outputs/decomposition
-just experiment critic-gae-ablation run --source-dir outputs/fixed-batch --reference-dir outputs/decomposition --output-dir outputs/ablation
+just experiment reward fixed-batch collect --output-dir outputs/fixed-batch
+just experiment reward lambda-identifiability run --source-dir outputs/fixed-batch --output-dir outputs/lambda
+just experiment reward calibration run --source-dir outputs/fixed-batch --reference-dir outputs/lambda --output-dir outputs/calibration
+just experiment reward objective-decomposition run --source-dir outputs/fixed-batch --output-dir outputs/decomposition
+just experiment reward critic-gae-ablation run --source-dir outputs/fixed-batch --reference-dir outputs/decomposition --output-dir outputs/ablation
 ```
 
 采集配置拥有 protocol、training seed 和 overrides；诊断配置拥有诊断轴、校准目标和阈值。
 分解/消融配置中的 expected calibration 是显式的来源校验值，应与所研究批次对应。
 参考目录必须来自同一批次、相同初始策略与样本顺序。
 
-其他实验动作：`scalar-reward` 支持 `evaluate-a0`、`train`、`evaluate-policy`；
-`ppo-stability` 支持 `stage-a`、`stage-b`、`stage-c`、`diagnose`、`summarize`；
-`ppo-reproducibility report` 使用 `--source-dir` 与 `--output-dir`；
-`execution-backend report` 使用 `--serial-dir`、`--job-level-dir`、`--vector-dir`、
-对应的 `--*-wall-s` 和 `--output-dir`。原独立实验入口已移除，历史记录保留原命令，
-当前实现不提供历史产物兼容或迁移。
+代码与实验配置按 reward、guidance、training 三域组织。四类 reward diagnostics 保留独立
+协议并共享固定批次原语；软件验证与后端比较分别使用 validation 和 benchmark 入口。
+
+| 研究入口 | 可用动作 |
+| --- | --- |
+| reward scalar | run --operation train/evaluate；analyze |
+| reward fixed-batch | collect |
+| reward lambda-identifiability / calibration / objective-decomposition / critic-gae-ablation | run；analyze |
+| guidance energy-sweep / control-authority | run；analyze |
+| training stability | run --operation search/confirm/held-out/diagnostic；analyze |
+| training reproducibility | validate；analyze |
+
+每次 run 只执行显式选择的操作，不自动串联整个研究流程。例如：
+
+```powershell
+just experiment reward scalar run --operation evaluate --arm a0 --output-dir outputs/a0
+just experiment reward scalar run --operation train --arm a1 --training-seed 0 --output-dir outputs/a1
+just experiment reward scalar run --operation evaluate --arm a1 --checkpoint final --checkpoint-path outputs/a1/policy-final.pt --output-dir outputs/a1-evaluation
+just experiment training stability run --operation search --output-dir outputs/my-study
+just experiment training stability run --operation confirm --output-dir outputs/my-study
+just experiment training stability run --operation held-out --output-dir outputs/my-study
+just experiment training stability run --operation diagnostic --diagnostic gradient --output-dir outputs/my-study
+just experiment training reproducibility validate --source-dir outputs/training-runs --output-dir outputs/reproducibility
+just validation reward analyze --source-dir outputs/reward_sanity/manual-run --output-dir outputs/sanity-report
+just benchmark execution report --serial-dir outputs/serial --job-level-dir outputs/job --vector-dir outputs/vector --serial-wall-s 100 --job-level-wall-s 50 --vector-wall-s 40 --output-dir outputs/backend-comparison
+just benchmark execution analyze --source-dir outputs/backend-comparison --output-dir outputs/backend-report
+```
+
+scalar train 要求 a1/a2 和显式 training seed，可重复传入 `--override`；evaluate 的 a1/a2
+要求 initial/final checkpoint 标签和实际文件路径，a0 不接受 checkpoint 参数。
+stability 的 search/confirm/held-out 沿用原 A/B/C 预算和产物前置条件，只有 diagnostic
+接受 `--diagnostic`。analyze 将搜索汇总和报告写到独立目录，不修改源 study。
+软件验证配置位于 `configs/validation/reward/`。旧 CLI 与 Python 导入路径不提供别名；
+历史记录保留原命令，当前实现不提供历史产物兼容或迁移。
 
 机器资源通过版本化 profile 选择，例如 `components/resources=rtx_a4000`；它只改变 worker、slot 和线程预算。CLI 与 study bootstrap 会按需读取仓库根目录的可选 `.env`，并以 `MACHINE_NAME` 自动选择同名的 `configs/components/resources/<机器名>.yaml`。进程中已有的 `MACHINE_NAME` 优先于 `.env`，显式 Hydra `components/resources=...` override 又优先于两者；可用值见该目录，`.env.example` 给出格式。
 
@@ -129,10 +157,10 @@ just experiment critic-gae-ablation run --source-dir outputs/fixed-batch --refer
 已有产物可通过统一入口重算描述统计并重绘，不重新运行环境、GAE 或训练：
 
 ```powershell
-just experiment lambda-identifiability analyze --source-dir outputs/lambda --output-dir outputs/lambda-report
-just experiment reward-calibration analyze --source-dir outputs/calibration --output-dir outputs/calibration-report
-just experiment ppo-stability analyze --source-dir outputs/my-study --output-dir outputs/study-report
-just experiment scalar-reward analyze --source-dir outputs/my-protocol --config outputs/my-protocol/comparison.yaml --output-dir outputs/protocol-report
+just experiment reward lambda-identifiability analyze --source-dir outputs/lambda --output-dir outputs/lambda-report
+just experiment reward calibration analyze --source-dir outputs/calibration --output-dir outputs/calibration-report
+just experiment training stability analyze --source-dir outputs/my-study --output-dir outputs/study-report
+just experiment reward scalar analyze --source-dir outputs/my-protocol --config outputs/my-protocol/comparison.yaml --output-dir outputs/protocol-report
 ```
 
 源目录与离线输出目录必须独立，不能相同或互相嵌套。实验类型、输入文件和比较配置见

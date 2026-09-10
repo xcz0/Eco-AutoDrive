@@ -21,6 +21,7 @@ dependencies = [
     "torchmetrics",
     "metadrive-simulator",
     "numpy",
+    "scipy",
     "omegaconf",
     "pydantic",
     "shapely",

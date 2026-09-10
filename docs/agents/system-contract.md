@@ -230,7 +230,7 @@ RL 训练输出与 evaluation 输出使用各自独立的数据边界。训练 e
 
 Exploration-policy checkpoint evaluation 进入与 base diffusion planner、fixed-reference guidance 相同的 closed-loop evaluation engine：通用 evaluation job 通过 `policy` 组件 + `guidance=orthogonal_policy` + `evaluation.policy_checkpoint.{label,path}` 声明一次 checkpoint 评测，`parse_evaluation_config` 在该模式下强制 ddim5 且 `ddim_stochasticity=0`，不允许没有 checkpoint 的悬空 policy 组件。`evaluation.inference.agent.PolicyCheckpointEvaluationAgent` 是 public adapter，固定 policy action 为 Beta mean，因而不消费 policy RNG；它仍使用普通 evaluation 的 0.5 s execution，而非训练 rollout 的 0.1 s transition。checkpoint provenance（label、path、policy state hash）写入 job summary；每个 scenario 的 diffusion noise seed 都取自 job 的 runtime seed，与 frozen-planner agent 的单一 generator 流 matched。评测使用独立于 training seed 的显式 evaluation seed；不同 checkpoint、arm 或候选配置必须使用相同 scenario、map seed 和 diffusion seed。PPO stability 的 `validation.py` 复用同一 agent 与 artifact，只从其 typed episode metrics 应用最小 episode-length/route-progress retention 及 collision/out-of-road non-regression，不读取或比较 reward。
 
-scalar reward 因果研究的 matched protocol 由 `configs/experiments/scalar-reward/protocol.yaml` 的 typed manifest 与 `eco_planner.experiments.scalar_reward` runner 承载：三臂 A0（frozen Diffusion Planner，guidance=none）、A1（PPO + PlannerRFT R0 `plannerrft_no_energy_v1`）、A2（PPO + PlannerRFT Rλ=1 `plannerrft_energy_v1`）共用同一 held-out evaluation 作业语义——S/SC map seeds 16–23、no-traffic、300 步 horizon、DDIM5、runtime seed 760025、`env.num_scenarios=24`。训练场景池为 S/SC seeds 0–7（job `jobs/training/ppo_conservative`）、training seed namespace `{0,1,2}`（每次运行经 `--training-seed` 显式选择其一）、`replay_id=0`；manifest 校验训练池与 held-out 池的 (map, seed) 集合不相交，runner 在组合后校验 reward profile、seed（属于 namespace 且未被 override 改写）、sampler、scenario 集合（训练为协议池子集、评测为全集）与 `env.num_scenarios` 覆盖。update-0（initial checkpoint）evaluation 是诊断 artifact，不构成第四个主实验组。
+scalar reward 因果研究的 matched protocol 由 `configs/experiments/reward/scalar/protocol.yaml` 的 typed manifest 与 `eco_planner.experiments.reward.scalar` runner 承载：三臂 A0（frozen Diffusion Planner，guidance=none）、A1（PPO + PlannerRFT R0 `plannerrft_no_energy_v1`）、A2（PPO + PlannerRFT Rλ=1 `plannerrft_energy_v1`）共用同一 held-out evaluation 作业语义——S/SC map seeds 16–23、no-traffic、300 步 horizon、DDIM5、runtime seed 760025、`env.num_scenarios=24`。训练场景池为 S/SC seeds 0–7（job `jobs/training/ppo_conservative`）、training seed namespace `{0,1,2}`（每次运行经 `--training-seed` 显式选择其一）、`replay_id=0`；manifest 校验训练池与 held-out 池的 (map, seed) 集合不相交，runner 在组合后校验 reward profile、seed（属于 namespace 且未被 override 改写）、sampler、scenario 集合（训练为协议池子集、评测为全集）与 `env.num_scenarios` 覆盖。update-0（initial checkpoint）evaluation 是诊断 artifact，不构成第四个主实验组。
 
 ### 训练实验跟踪
 
@@ -279,7 +279,7 @@ NPZ 保留在原输出目录。正常完成并上传成功后 Run 为 `FINISHED`
 
 ## 固定批次 λ 可辨识性诊断
 
-`experiments.fixed_batch` 拥有共享批次读写、奖励变换/校准、策略恢复和 actor backward。
+`experiments.reward.fixed_batch` 拥有共享批次读写、奖励变换/校准、策略恢复和 actor backward。
 `FixedBatch` 承载 episodes、sample index、解析后的训练配置、resolved config 与采集元数据，
 scenario 顺序从 sample index 派生。四个诊断各自划分 config、diagnostics 与 runner；runner
 不相互导入，诊断计算不读写文件或创建模拟器。scalar reward 与 PPO stability 的配置组合
@@ -287,11 +287,11 @@ scenario 顺序从 sample index 派生。四个诊断各自划分 config、diagn
 训练和诊断共用 `rl.optimization` 的 `build_ppo_batch`、`normalize_full_batch_advantage` 与
 `PPO_BATCH_KEYS`；随机流派生由 `rl.rollout.seeds.derive_rollout_seeds` 拥有。
 
-`just experiment fixed-batch collect --output-dir <batch-directory>` 按显式配置只采集一次
+`just experiment reward fixed-batch collect --output-dir <batch-directory>` 按显式配置只采集一次
 initial-policy rollout。采集配置拥有 protocol、training seed 和 overrides，采集目录保存
 resolved/collection config、初始策略、runtime metadata、training TensorDict、episode audit
 NPZ、sample index 和采集 summary，不保存诊断 arms 或 diagnostics。
-`just experiment lambda-identifiability run --source-dir <batch-directory> --output-dir <diagnostic-directory>`
+`just experiment reward lambda-identifiability run --source-dir <batch-directory> --output-dir <diagnostic-directory>`
 恢复该批次和初始策略；配置只拥有 lambdas 与 quantiles。所有 λ 共用 transitions、policy context、old log-prob、critic
 value/next value 与 episode boundary。离线从已保存的 component scores 和 safety gate
 重组各 profile 的 reward，复用训练的 episode GAE、full-batch sample-std normalization
@@ -304,14 +304,14 @@ trunk 及 lateral/longitudinal head 行分组；零 norm 的 cosine 和零分母
 `null`，不得解释为方向相同。当前零初始化 actor head 会阻断 update-0 的 trunk actor
 梯度。该入口仅提供连续诊断，不内置可辨识性阈值，不代表 learned behavioral effect。
 
-`just experiment reward-calibration run --source-dir <batch-directory> --reference-dir <lambda-diagnostic-directory> --output-dir <new-directory>`
+`just experiment reward calibration run --source-dir <batch-directory> --reference-dir <lambda-diagnostic-directory> --output-dir <new-directory>`
 是 Task B 的离线入口。它按 sample index 恢复原 episode audit、training TensorDict 和
 initial policy，核对动作、log-prob、value、reward 和 episode boundary 的配对关系；
 参考诊断必须与采集目录、初始策略 hash、完整样本索引和 λ 轴匹配。
 不实例化 planner 或 simulator。原配置重放须与参考 λ 诊断数组在 `rtol=1e-5, atol=1e-6`
 内一致。校准组只从原始量重算 Progress/Comfort，复用同一 Task A GAE/backward 路径。
 
-研究专用 `configs/experiments/reward-calibration/calibration.yaml` 显式指定目标分数与诊断轴。
+研究专用 `configs/experiments/reward/calibration/calibration.yaml` 显式指定目标分数与诊断轴。
 Progress 使用完整批次正向 delta 的中位数除以目标分数；Comfort 仅对有零分样本的子项
 使用 `max(原 limit, P50(abs(metric))/(2-target_score))`，保留现有分段线性评分及四项
 取最小值。全部 transition（含启动阶段）保留，未失活子项与 Energy/TTC/Speed/Safety
@@ -322,7 +322,7 @@ Progress 使用完整批次正向 delta 的中位数除以目标分数；Comfort
 包含并列项的最小值归因，以及逐 scenario、逐 planning-cycle 和逐 transition 数据。
 全局 reward 默认值不受该入口影响。结果只提供连续证据，由用户决定是否进入 Task C。
 
-`just experiment objective-decomposition run --source-dir <batch-directory> --output-dir <new-directory>`
+`just experiment reward objective-decomposition run --source-dir <batch-directory> --output-dir <new-directory>`
 是 Issue #94 Task C 的离线入口。源 batch 必须是独立采集入口的 update-0 产物；入口按
 sample index 恢复 episode 与 initial policy 并核对配对，不实例化 planner 或 simulator。
 校准由 Task B 冻结规则在本 batch 上重新执行，配置中的 E-034 冻结值以显式容差作为源
@@ -338,7 +338,7 @@ normalized-advantage RMSE/sign-flip，阈值为 Issue #94 的工程 gate，不�
 mathematical 恒等式（Pearson 跨形式不变、center 与 z cosine 相等、λ 插值下 gradient
 线性组合）由测试逐元素核验。结果只提供该 batch 的裁定，不代表 learned behavior。
 
-`just experiment critic-gae-ablation run --source-dir <batch-directory> --reference-dir <decomposition-directory>
+`just experiment reward critic-gae-ablation run --source-dir <batch-directory> --reference-dir <decomposition-directory>
 --output-dir <new-directory>` 是 Issue #94 Task C4 的离线归因入口。源 batch 恢复、校准与
 溯源守卫与 Task C 相同；`--reference-dir` 指向同批次的新 decomposition 产物，并核对
 source batch、初始策略和样本顺序。reference endpoint 由 arm 标签及记录的 index 定位，
@@ -357,8 +357,8 @@ between-arm advantage 差分与 V 无关的抵消恒等式、V=0 GAE 等于 (γ�
 
 ### Guidance control-authority intervention
 
-`just experiment guidance-control-authority run --output-dir <new-directory>` 是 Issue #94
-Task D 的人工干预入口；配置位于 `configs/experiments/guidance-control-authority/`。
+`just experiment guidance control-authority run --output-dir <new-directory>` 是 Issue #94
+Task D 的人工干预入口；配置位于 `configs/experiments/guidance/control-authority/`。
 复用 scalar-reward protocol 的训练场景池和模型/仿真配置，但不构造 Exploration Policy、
 critic 或 optimizer。Fabric inference runtime 的可选 `guidance_action` 接收设备上的
 有限 `float32 [B,2]`，范围为闭区间 `[-1,1]`，只用于 `orthogonal_policy`；因此 ±1 是
@@ -383,6 +383,27 @@ repeat 均值的 Spearman、配对 ±1 endpoint 差，以及五个 arm 内 repea
 
 ## 实验离线分析与报告
 
+研究实现按 `experiments.reward/guidance/training` 组织；CLI 使用
+`just experiment <domain> <study> <action>`，配置位于相同三域的
+`configs/experiments/<domain>/<study>/`。CLI 静态命令表只负责参数与延迟分派，
+分析及核心模块不导入实验模块。scalar run 显式选择 train/evaluate；stability run
+显式选择 search/confirm/held-out/diagnostic，沿用内部 stage A/B/C 和已有预算、
+晋升与目录要求，不自动运行下一步。参数组合在 bootstrap 前核验。
+
+reward sanity 的配置与计算由 `rl.reward.validation` 拥有，应用入口负责保存原检查
+产物；execution backend workload 核验由 `benchmarking.execution` 拥有。
+它们分别使用 `just validation reward` 和 `just benchmark execution`，不属于研究域。
+
+guidance 的描述统计由 `analysis.guidance` 拥有，场景/指标阈值、方向计数和 Gate D
+由实验层裁定，并保存至 `decisions.json`。离线报告重算描述统计，原样读取保存的
+逐场景 passed、指标 passed/方向计数和完整 gate_d；缺少判定文件或字段明确报错，
+不从重算统计推导替代判定。summary/report 的原有数值与字段含义保持不变。
+
+scalar 比较 YAML 和协议由 reward scalar 实验层加载并核验，向 analysis 传入已解析、
+已核验的 baseline 与带 arm/checkpoint 标签的训练/评测记录；analysis 不解析研究协议。
+stability analyze 只读 study.db 和 manifest，将重新生成的 `stage-a-summary.json`
+与其他分析产物写到独立输出目录，不更新源 study、原 gate 或候选晋升结果。
+
 `experiments` 拥有采集、reward/校准、GAE/backward、gate、候选晋级和 correctness guards。
 读取已采集 batch 的 backward-only 实验仍属于实验执行，不属于描述统计。
 `analysis` 对已保存的 JSON/NPZ、typed evaluation/training summaries 和 Optuna study
@@ -393,7 +414,8 @@ RMSE、梯度向量比较和逐 scenario 配对差值；benchmark measurement �
 `eco_planner.rl` 根包的现有导出按需加载；访问纯 training summary 不触发 artifact I/O、
 policy 或 rollout 初始化，访问执行类时才加载所属模块。其符号与原所属模块保持同一对象。
 
-`just experiment <experiment> analyze --source-dir <source> --output-dir <output>` 是显式离线入口。
+`just experiment <domain> <study> analyze --source-dir <source> --output-dir <output>`
+是研究实验的显式离线入口。
 source/output 不能相同或互相嵌套；分析不写回源数据。已有实验运行/汇总入口在原始产物和
 守卫完成后复用报告流程，默认写入本次运行目录。两种入口均支持 `--no-figures`。
 派生输出为 `analysis.json`、`report.md`、`figures/*.svg` 与 `figures/*.png`；原有 summary、
@@ -406,7 +428,7 @@ JSON 保存完整分析证据和图路径，Markdown 保留实验裁定、未定
 | `lambda-identifiability` / `objective-decomposition` / `critic-gae-ablation` | `summary.json`、`diagnostics.npz`、`sample_index.json` |
 | `reward-calibration` | 根目录 summary/sample index/audit JSON 与 NPZ，original/calibrated 子目录的 summary/diagnostics |
 | `energy-sweep` | `matrix_summary.json` 与按 job/guidance 保存的 evaluation summaries |
-| `guidance-control-authority` | `episodes.json` 每步原始指标、`intervention_config.json`、`scenarios.json` |
+| `guidance-control-authority` | `episodes.json` 每步原始指标、`intervention_config.json`、`scenarios.json`、`decisions.json` |
 | `scalar-reward` | `--config` 显式列出的 protocol、training summaries 和 evaluation 目录 |
 | `ppo-stability` | `study_manifest.yaml`、`study.db`，以及已存在的 stage/diagnostic summaries |
 | `reward-sanity` | `sanity_report.json`，含原 case 结果与 checks |

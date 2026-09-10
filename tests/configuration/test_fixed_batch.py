@@ -8,19 +8,19 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import write_json
-from eco_planner.experiments.critic_gae_ablation.runner import run as run_ablation
-from eco_planner.experiments.fixed_batch.artifacts import (
+from eco_planner.experiments.reward.calibration.runner import run as run_calibration
+from eco_planner.experiments.reward.critic_gae_ablation.runner import run as run_ablation
+from eco_planner.experiments.reward.fixed_batch.artifacts import (
     load_batch,
     load_fixed_batch,
     verify_reference,
     write_batch,
 )
-from eco_planner.experiments.fixed_batch.calibration import calibrate, raw_arrays, rescore
-from eco_planner.experiments.fixed_batch.rewards import reweight
-from eco_planner.experiments.fixed_batch.runtime import restore_runtime
-from eco_planner.experiments.lambda_identifiability.runner import run as run_lambda
-from eco_planner.experiments.objective_decomposition.runner import run as run_decomposition
-from eco_planner.experiments.reward_calibration.runner import run as run_calibration
+from eco_planner.experiments.reward.fixed_batch.calibration import calibrate, raw_arrays, rescore
+from eco_planner.experiments.reward.fixed_batch.rewards import reweight
+from eco_planner.experiments.reward.fixed_batch.runtime import restore_runtime
+from eco_planner.experiments.reward.lambda_identifiability.runner import run as run_lambda
+from eco_planner.experiments.reward.objective_decomposition.runner import run as run_decomposition
 from eco_planner.rl.artifacts import policy_state_hash
 from eco_planner.rl.config import parse_training_config
 from eco_planner.rl.optimization import save_exploration_policy_checkpoint

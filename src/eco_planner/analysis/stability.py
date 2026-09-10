@@ -1,12 +1,13 @@
 """Read-only Optuna study evidence and native static visualizations."""
 
+import math
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import optuna
 from optuna.importance import FanovaImportanceEvaluator, get_param_importances
-from optuna.trial import TrialState
+from optuna.trial import FrozenTrial, TrialState
 
 from .io import read_json
 
@@ -39,7 +40,7 @@ def analyze(source: Path) -> tuple[dict[str, Any], optuna.Study, int]:
     config = OmegaConf.load(source / "study_manifest.yaml")
     seed = int(config.sampler_seed)
     study = load_study(source, str(config.study_name))
-    importances, reason = importance(study, seed)
+    search_summary = summarize_search(study, seed, int(config.stage_b.top_config_count))
     data: dict[str, Any] = {
         "study_name": study.study_name,
         "importance_seed": seed,
@@ -53,8 +54,9 @@ def analyze(source: Path) -> tuple[dict[str, Any], optuna.Study, int]:
             }
             for t in study.trials
         ],
-        "parameter_importances": importances,
-        "parameter_importance_error": reason,
+        "parameter_importances": search_summary["parameter_importances"],
+        "parameter_importance_error": search_summary["parameter_importance_error"],
+        "search_summary": search_summary,
         "stages": {},
         "diagnostics": {},
     }
@@ -123,3 +125,38 @@ def figures(data: dict, study: optuna.Study, seed: int, output: Path) -> list[st
     else:
         unavailable["contour"] = "requires at least two varying shared parameters"
     return files
+
+
+def summarize_search(study: optuna.Study, seed: int, top_config_count: int) -> dict[str, object]:
+    completed = sorted(
+        (trial for trial in study.trials if trial.state == TrialState.COMPLETE),
+        key=lambda item: (-(item.value or -math.inf), item.number),
+    )
+    importances, importance_error = importance(study, seed)
+    counts = {
+        state.name.lower(): sum(trial.state == state for trial in study.trials)
+        for state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)
+    }
+    return {
+        "study_name": study.study_name,
+        "trial_count": len(study.trials),
+        "state_counts": counts,
+        "stability_counts": {
+            "stable": counts["complete"],
+            "unstable": counts["pruned"] + counts["fail"],
+        },
+        "top_configs": [trial_payload(item) for item in completed[:top_config_count]],
+        "parameter_importances": importances,
+        "parameter_importance_error": importance_error,
+        "stability_region": [trial_payload(item) for item in study.trials],
+    }
+
+
+def trial_payload(trial: FrozenTrial) -> dict[str, object]:
+    return {
+        "trial_number": trial.number,
+        "state": trial.state.name.lower(),
+        "value": trial.value,
+        "parameters": dict(trial.params),
+        "user_attributes": dict(trial.user_attrs),
+    }

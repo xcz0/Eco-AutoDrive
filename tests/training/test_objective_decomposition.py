@@ -5,10 +5,10 @@ import pytest
 import torch
 
 from eco_planner.analysis.reporting.fixed import render_decomposition_report
-from eco_planner.experiments.fixed_batch.calibration import verify_expected_calibration
-from eco_planner.experiments.fixed_batch.rewards import energy_only_reward
-from eco_planner.experiments.objective_decomposition.config import DecompositionConfig
-from eco_planner.experiments.objective_decomposition.diagnostics import (
+from eco_planner.experiments.reward.fixed_batch.calibration import verify_expected_calibration
+from eco_planner.experiments.reward.fixed_batch.rewards import energy_only_reward
+from eco_planner.experiments.reward.objective_decomposition.config import DecompositionConfig
+from eco_planner.experiments.reward.objective_decomposition.diagnostics import (
     analyze_decomposition,
     evaluate_gate,
 )

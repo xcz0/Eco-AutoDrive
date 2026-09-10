@@ -89,10 +89,16 @@ mlflow action *arguments:
 # Run a configured benchmark.
 [group('benchmark')]
 benchmark action *arguments:
-    if ("{{ action }}" -ne "run") { throw "benchmark action must be run" } else { & {{ python }} -m scripts.benchmark {{ arguments }}; exit $LASTEXITCODE }
+    if ("{{ action }}" -eq "run") { & {{ python }} -m scripts.benchmark {{ arguments }}; exit $LASTEXITCODE } elseif ("{{ action }}" -eq "execution") { & {{ python }} -m scripts.benchmark_execution {{ arguments }}; exit $LASTEXITCODE } else { throw "benchmark action must be run or execution" }
 
 # Forward experiment selection, actions and options to the unified CLI.
 [group('experiments')]
-experiment experiment action *arguments:
-    & {{ python }} -m scripts.experiments {{ experiment }} {{ action }} {{ arguments }}
+experiment domain study action *arguments:
+    & {{ python }} -m scripts.experiments {{ domain }} {{ study }} {{ action }} {{ arguments }}
+    exit $LASTEXITCODE
+
+# Run software correctness checks or regenerate their report.
+[group('validation')]
+validation target action *arguments:
+    & {{ python }} -m scripts.validation {{ target }} {{ action }} {{ arguments }}
     exit $LASTEXITCODE

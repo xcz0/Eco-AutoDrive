@@ -53,9 +53,15 @@ def assert_report(output: Path, *, figures: bool) -> None:
 
 @pytest.fixture(scope="module")
 def batches():
-    from eco_planner.experiments.critic_gae_ablation.diagnostics import analyze_critic_gae_ablation
-    from eco_planner.experiments.lambda_identifiability.diagnostics import analyze as diagnose
-    from eco_planner.experiments.objective_decomposition.diagnostics import analyze_decomposition
+    from eco_planner.experiments.reward.critic_gae_ablation.diagnostics import (
+        analyze_critic_gae_ablation,
+    )
+    from eco_planner.experiments.reward.lambda_identifiability.diagnostics import (
+        analyze as diagnose,
+    )
+    from eco_planner.experiments.reward.objective_decomposition.diagnostics import (
+        analyze_decomposition,
+    )
     from eco_planner.rl.optimization import PPOUpdater
     from eco_planner.rl.policy import ExplorationPolicy
     from tests.training.test_critic_gae_ablation import _study as ablation_study
@@ -275,7 +281,8 @@ def training_summary():
 
 
 def test_scalar_explicit_grouping_and_checkpoint_validation(tmp_path, training_summary):
-    from eco_planner.experiments.scalar_reward.config import DEFAULT_PROTOCOL
+    from eco_planner.experiments.reward.scalar.comparison import load_comparison
+    from eco_planner.experiments.reward.scalar.config import DEFAULT_PROTOCOL
 
     source = tmp_path / "source"
     source.mkdir()
@@ -314,10 +321,31 @@ def test_scalar_explicit_grouping_and_checkpoint_validation(tmp_path, training_s
     }
     OmegaConf.save(OmegaConf.create(config), source / "comparison.yaml")
     result = analyze(
-        "scalar-reward", source, tmp_path / "report", comparison_config=source / "comparison.yaml"
+        "scalar-reward",
+        source,
+        tmp_path / "report",
+        scalar_comparison=load_comparison(source / "comparison.yaml"),
     )
     assert result["evidence"]["runs"][0]["comparison"]["statistics"]["energy_ml"]["mean"] == -1.0
     assert_report(tmp_path / "report", figures=True)
+    for field, invalid, reason in (
+        ("training_seed", 99, "seed absent"),
+        ("reward_profile", "plannerrft_no_energy_v1", "reward differs"),
+        ("final_policy_hash", "f" * 64, "declared training"),
+    ):
+        write_json(
+            source / "training.json",
+            training_summary.model_copy(update={field: invalid}).model_dump(mode="json"),
+        )
+        with pytest.raises(ValueError, match=reason):
+            load_comparison(source / "comparison.yaml")
+    write_json(source / "training.json", training_summary.model_dump(mode="json"))
+    protocol.evaluation.seed = 99
+    OmegaConf.save(protocol, source / "protocol.yaml")
+    with pytest.raises(ValueError, match="checkpoint/seed differs"):
+        load_comparison(source / "comparison.yaml")
+    protocol.evaluation.seed = 0
+    OmegaConf.save(protocol, source / "protocol.yaml")
     config["runs"] *= 2
     OmegaConf.save(OmegaConf.create(config), source / "comparison.yaml")
     with pytest.raises(ValueError, match="duplicate"):
@@ -325,7 +353,7 @@ def test_scalar_explicit_grouping_and_checkpoint_validation(tmp_path, training_s
             "scalar-reward",
             source,
             tmp_path / "report",
-            comparison_config=source / "comparison.yaml",
+            scalar_comparison=load_comparison(source / "comparison.yaml"),
         )
 
 
@@ -423,12 +451,18 @@ def test_optuna_read_only_native_plots_and_unavailable_trials(tmp_path, count, t
             },
         )
     OmegaConf.save(
-        OmegaConf.create({"study_name": "fixture", "sampler_seed": 3}),
+        OmegaConf.create(
+            {"study_name": "fixture", "sampler_seed": 3, "stage_b": {"top_config_count": 2}}
+        ),
         source / "study_manifest.yaml",
     )
     before = (source / "study.db").read_bytes()
     result = analyze("ppo-stability", source, tmp_path / "report")
     assert (source / "study.db").read_bytes() == before
+    assert not (source / "stage-a-summary.json").exists()
+    search_summary = json.loads((tmp_path / "report/stage-a-summary.json").read_text())
+    assert search_summary == result["evidence"]["search_summary"]
+    assert search_summary["trial_count"] == count + 1
     assert result["evidence"]["trials"][-1]["state"] == "FAIL"
     if count:
         assert_report(tmp_path / "report", figures=True)
@@ -465,7 +499,7 @@ import scripts.experiments.__main__
 import eco_planner.analysis.evaluation
 import eco_planner.analysis.simple
 import eco_planner.analysis.stability
-import eco_planner.experiments.guidance_control_authority.report
+import eco_planner.analysis.reporting.guidance
 from eco_planner.rl.artifacts import TrainingRunSummary
 for root in ('torch', 'metadrive', 'panda3d', 'eco_planner.rl.trainer', 'eco_planner.models'):
     assert not any(k == root or k.startswith(root + '.') for k in sys.modules), root
@@ -501,81 +535,3 @@ def test_rl_lazy_exports_keep_execution_symbols():
     assert rl.TrainingRunSummary is TrainingRunSummary
     with pytest.raises(AttributeError):
         _ = rl.not_an_export
-
-
-@pytest.mark.parametrize(
-    "module,function,args",
-    [
-        ("lambda_identifiability", "run", ["--source-dir", "in", "--output-dir", "out"]),
-        ("objective_decomposition", "run", ["--source-dir", "in", "--output-dir", "out"]),
-        (
-            "critic_gae_ablation",
-            "run",
-            ["--source-dir", "in", "--reference-dir", "ref", "--output-dir", "out"],
-        ),
-        (
-            "reward_calibration",
-            "run",
-            ["--source-dir", "in", "--reference-dir", "ref", "--output-dir", "out"],
-        ),
-        ("energy_sweep", "run_study", ["--output-dir", "out"]),
-        ("reward_sanity", "run_sanity", ["--output-dir", "out"]),
-        ("scalar_reward", "run_command", ["evaluate-a0", "--output-dir", "out"]),
-        ("ppo_stability", "run_command", ["summarize", "--output-dir", "out"]),
-        (
-            "ppo_reproducibility",
-            "summarize_and_write_training_runs",
-            ["--source-dir", "in", "--output-dir", "out"],
-        ),
-        (
-            "execution_backend",
-            "write_report",
-            [
-                "--serial-dir",
-                "serial",
-                "--job-level-dir",
-                "job",
-                "--vector-dir",
-                "vector",
-                "--output-dir",
-                "out",
-                "--serial-wall-s",
-                "1",
-                "--job-level-wall-s",
-                "1",
-                "--vector-wall-s",
-                "1",
-            ],
-        ),
-    ],
-)
-def test_unified_cli_forwards_no_figures(monkeypatch, module, function, args):
-    from importlib import import_module
-
-    adapter = import_module("scripts.experiments.__main__")
-    suffix = (
-        ""
-        if module == "ppo_reproducibility"
-        else (".report" if module == "execution_backend" else ".runner")
-    )
-    implementation = import_module("eco_planner.experiments." + module + suffix)
-    captured = {}
-
-    def fake(*args, **kwargs):
-        captured.update(kwargs)
-        return 0 if module in ("energy_sweep", "reward_sanity") else {}
-
-    monkeypatch.setattr(implementation, function, fake)
-    monkeypatch.setattr(adapter, "bootstrap", lambda *_: None)
-    command = (
-        []
-        if module in ("scalar_reward", "ppo_stability")
-        else ["report" if module in ("ppo_reproducibility", "execution_backend") else "run"]
-    )
-    monkeypatch.setattr(
-        sys, "argv", ["experiment", module.replace("_", "-"), *command, *args, "--no-figures"]
-    )
-    with pytest.raises(SystemExit) as exc:
-        adapter.main()
-    assert exc.value.code == 0
-    assert captured["figures"] is False

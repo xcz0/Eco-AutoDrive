@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 import torch
 
-from eco_planner.experiments.fixed_batch.gradients import actor_gradients
-from eco_planner.experiments.fixed_batch.rewards import COMPONENTS, reward_profile, reweight
-from eco_planner.experiments.lambda_identifiability.diagnostics import (
+from eco_planner.experiments.reward.fixed_batch.gradients import actor_gradients
+from eco_planner.experiments.reward.fixed_batch.rewards import COMPONENTS, reward_profile, reweight
+from eco_planner.experiments.reward.lambda_identifiability.diagnostics import (
     advantage_comparison,
     analyze,
     cosine,

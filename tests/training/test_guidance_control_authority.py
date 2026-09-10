@@ -11,17 +11,17 @@ from omegaconf import OmegaConf
 from tensordict import TensorDict
 
 from eco_planner._repository import CONFIG_ROOT
+from eco_planner.analysis.guidance import aggregate
 from eco_planner.evaluation.inference.runtime import (
     FabricInferenceRuntime,
     validate_manual_guidance,
 )
-from eco_planner.experiments.guidance_control_authority.config import InterventionConfig
-from eco_planner.experiments.guidance_control_authority.diagnostics import (
-    aggregate,
+from eco_planner.experiments.guidance.control_authority.config import InterventionConfig
+from eco_planner.experiments.guidance.control_authority.diagnostics import (
     analyze_episodes,
     matched_statistics,
 )
-from eco_planner.experiments.guidance_control_authority.runner import collect_group
+from eco_planner.experiments.guidance.control_authority.runner import collect_group, save_decisions
 from eco_planner.models import PlannerInferenceResult, parse_guidance_config
 from eco_planner.models.guidance import zero_guidance_diagnostics
 from eco_planner.rl.reward.config import EnergyRewardConfig
@@ -31,7 +31,7 @@ from eco_planner.runtime.envs import VectorEnvScenario
 def study():
     return InterventionConfig.model_validate(
         OmegaConf.to_container(
-            OmegaConf.load(CONFIG_ROOT / "experiments/guidance-control-authority/intervention.yaml")
+            OmegaConf.load(CONFIG_ROOT / "experiments/guidance/control-authority/intervention.yaml")
         )
     )
 
@@ -158,6 +158,7 @@ def test_offline_recompute_matches_live_statistics(tmp_path):
     write_json(source / "intervention_config.json", study().model_dump())
     write_json(source / "episodes.json", {"episodes": rows})
     write_json(source / "scenarios.json", {"scenarios": [{"name": str(i)} for i in range(16)]})
+    save_decisions(rows, study(), [str(i) for i in range(16)], source)
     output = tmp_path / "analysis"
     analyze("guidance-control-authority", source, output, figures=False)
     result = json.loads((output / "summary.json").read_text())
@@ -165,16 +166,35 @@ def test_offline_recompute_matches_live_statistics(tmp_path):
     assert result == {"status": "completed", **expected}
     assert (output / "report.md").is_file()
 
+    # Offline rendering preserves recorded decisions without applying thresholds again.
+    recorded = json.loads((source / "decisions.json").read_text())
+    recorded["gate_d"]["passed"] = not recorded["gate_d"]["passed"]
+    recorded["gate_d"]["attribution"] = "recorded_decision"
+    recorded["windows"]["short_horizon"]["speed_mps"]["scenarios"]["0"]["passed"] = False
+    write_json(source / "decisions.json", recorded)
+    analyze("guidance-control-authority", source, tmp_path / "again", figures=False)
+    again = json.loads((tmp_path / "again" / "summary.json").read_text())
+    assert again["gate_d"] == recorded["gate_d"]
+    assert not again["windows"]["short_horizon"]["speed_mps"]["scenarios"]["0"]["passed"]
+    assert (
+        again["windows"]["short_horizon"]["speed_mps"]["scenarios"]["0"]["effect"]
+        == (expected["windows"]["short_horizon"]["speed_mps"]["scenarios"]["0"]["effect"])
+    )
+    (source / "decisions.json").unlink()
+    with pytest.raises(FileNotFoundError, match="decisions.json"):
+        analyze("guidance-control-authority", source, tmp_path / "missing", figures=False)
+
 
 def test_manual_cli_and_config(monkeypatch):
-    from eco_planner.experiments.guidance_control_authority import runner
+    from eco_planner.experiments.guidance.control_authority import runner
     from scripts.experiments import __main__ as cli
 
     calls = []
     monkeypatch.setattr(runner, "run", lambda *a, **kw: calls.append((a, kw)))
     args = cli.build_parser().parse_args(
         [
-            "guidance-control-authority",
+            "guidance",
+            "control-authority",
             "run",
             "--output-dir",
             "out",
@@ -278,16 +298,21 @@ def test_real_rollout_intervention_window_and_noise_pairing(tmp_path, horizon):
         torch_threads_per_worker=1,
     )
     try:
-        rows = collect_group(
-            env,
-            analytic_runtime(),
-            (scenario,),
-            0,
-            study(),
-            EnergyRewardConfig(reference_ml_per_km=50.0, minimum_step_distance_m=0.001),
-            tmp_path,
-            0,
-        )
+        all_rows = []
+        for group, noise_seed in enumerate(study().noise_seeds):
+            all_rows.extend(
+                collect_group(
+                    env,
+                    analytic_runtime(),
+                    (scenario,),
+                    noise_seed,
+                    study(),
+                    EnergyRewardConfig(reference_ml_per_km=50.0, minimum_step_distance_m=0.001),
+                    tmp_path,
+                    group,
+                )
+            )
+        rows = all_rows[:5]
     finally:
         env.close()
     if horizon == 3:
@@ -302,3 +327,20 @@ def test_real_rollout_intervention_window_and_noise_pairing(tmp_path, horizon):
     assert aggregate(rows[-1]["steps"])["speed_mps"] > aggregate(rows[0]["steps"])["speed_mps"]
     saved = json.loads((tmp_path / "raw/group-000-arm-4/episodes.json").read_text())
     assert saved["episodes"][0]["status"] == "window_complete"
+
+    from eco_planner.analysis.runner import analyze
+    from eco_planner.artifacts import write_json
+
+    source = tmp_path / "source"
+    source.mkdir()
+    config = study().model_copy(update={"required_scenarios": 1})
+    write_json(source / "intervention_config.json", config.model_dump())
+    write_json(source / "episodes.json", {"episodes": all_rows})
+    write_json(source / "scenarios.json", {"scenarios": [{"name": scenario.name}]})
+    save_decisions(all_rows, config, [scenario.name], source)
+    analyze("guidance-control-authority", source, tmp_path / "report", figures=False)
+    result = json.loads((tmp_path / "report/summary.json").read_text())
+    assert result == {
+        "status": "completed",
+        **analyze_episodes(all_rows, config, [scenario.name]),
+    }

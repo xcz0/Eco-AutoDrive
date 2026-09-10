@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any
 
+from .evaluation import ScalarComparison
 from .fixed_batch import calibration, recompute
 from .io import read_json, write_json
 from .reporting.markdown import write_report
@@ -28,7 +29,7 @@ def analyze(
     output: Path,
     *,
     figures: bool = True,
-    comparison_config: Path | None = None,
+    scalar_comparison: ScalarComparison | None = None,
     source_file: Path | None = None,
 ) -> dict[str, Any]:
     source, output = source.resolve(strict=True), output.resolve()
@@ -39,7 +40,7 @@ def analyze(
         source,
         output,
         figures=figures,
-        comparison_config=comparison_config,
+        scalar_comparison=scalar_comparison,
         source_file=source_file,
     )
 
@@ -50,12 +51,12 @@ def publish(
     output: Path,
     *,
     figures: bool = True,
-    comparison_config: Path | None = None,
+    scalar_comparison: ScalarComparison | None = None,
     source_file: Path | None = None,
 ) -> dict[str, Any]:
     """Also used by experiment writers, after all original artifacts and guards are complete."""
     if experiment == "guidance-control-authority":
-        from eco_planner.experiments.guidance_control_authority.report import (
+        from .reporting.guidance import (
             publish as intervention,
         )
 
@@ -73,9 +74,9 @@ def publish(
     elif experiment == "scalar-reward":
         from .evaluation import scalar_reward
 
-        if comparison_config is None:
-            raise ValueError("scalar-reward analysis requires --comparison-config")
-        data = scalar_reward(comparison_config.resolve(strict=True))
+        if scalar_comparison is None:
+            raise ValueError("scalar-reward analysis requires a validated comparison")
+        data = scalar_reward(scalar_comparison)
     elif experiment == "ppo-stability":
         from .stability import analyze as stability_analysis
 
@@ -93,6 +94,8 @@ def publish(
     else:
         raise ValueError(f"unsupported experiment: {experiment}")
     output.mkdir(parents=True, exist_ok=True)
+    if study is not None:
+        write_json(output / "stage-a-summary.json", data["search_summary"])
     files = []
     if figures:
         import matplotlib.pyplot as plt
