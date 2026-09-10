@@ -4,17 +4,15 @@ import numpy as np
 import pytest
 import torch
 
+from eco_planner.experiments.fixed_batch.gradients import actor_gradients
+from eco_planner.experiments.fixed_batch.rewards import COMPONENTS, reward_profile, reweight
 from eco_planner.experiments.lambda_identifiability.diagnostics import (
-    COMPONENTS,
-    actor_gradients,
     advantage_comparison,
     analyze,
     cosine,
-    reward_profile,
-    reweight,
 )
 from eco_planner.rl.optimization import PPOUpdater, compute_episode_gae
-from eco_planner.rl.optimization.ppo import _batch_trajectories, _normalize_full_batch_advantage
+from eco_planner.rl.optimization.ppo import build_ppo_batch, normalize_full_batch_advantage
 from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.reward import (
     evaluate_plannerrft_energy_step,
@@ -127,8 +125,8 @@ def test_backward_only_matches_ppo_and_preserves_inputs(monkeypatch):
     assert all(p.grad is None for p in policy.parameters())
 
     matched = [reweight(e, _no_energy_config()) for e in episodes]
-    batch = _batch_trajectories(matched, updater.config)
-    _normalize_full_batch_advantage(batch)
+    batch = build_ppo_batch(matched, updater.config)
+    normalize_full_batch_advantage(batch)
     updater.loss_module(batch)["loss_objective"].backward()
     gradient, _ = actor_gradients(policy)
     for group, value in gradient.items():
@@ -145,6 +143,6 @@ def test_positive_scale_is_removed_by_full_batch_normalization():
     a = TensorDict({"advantage": torch.tensor([[-2.0], [1.0], [3.0]])}, batch_size=[3])
     b = a.clone()
     b["advantage"] = b["advantage"] * 7
-    _normalize_full_batch_advantage(a)
-    _normalize_full_batch_advantage(b)
+    normalize_full_batch_advantage(a)
+    normalize_full_batch_advantage(b)
     torch.testing.assert_close(a["advantage"], b["advantage"])

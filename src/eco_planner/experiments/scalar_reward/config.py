@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 from eco_planner._repository import CONFIG_ROOT
 from eco_planner.configuration import ScenarioConfig, load_resolved_yaml_mapping
 
-DEFAULT_PROTOCOL = CONFIG_ROOT / "experiments" / "scalar_reward" / "protocol.yaml"
+DEFAULT_PROTOCOL = CONFIG_ROOT / "experiments" / "scalar-reward" / "protocol.yaml"
 
 
 class _StrictModel(BaseModel):

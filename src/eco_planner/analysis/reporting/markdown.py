@@ -61,7 +61,11 @@ def write_report(experiment: str, source: Path, output: Path, data: dict, files:
             "objective-decomposition": render_decomposition_report,
             "critic-gae-ablation": render_ablation_report,
         }[experiment]
-        body = renderer(data)
+        body = (
+            render_report(data, batch_origin="Reused fixed source batch")
+            if experiment == "lambda-identifiability"
+            else renderer(data)
+        )
         for filename in ("summary.json", "diagnostics.npz", "sample_index.json"):
             body = body.replace(f"]({filename})", f"](<{source_link}/{filename}>)")
         lines.append(body)

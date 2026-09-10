@@ -15,7 +15,7 @@ def reproducibility(source: Path) -> dict[str, Any]:
     acceptance = read_json(source / "training_report.json")
     runs = []
     seen = set()
-    for path in sorted(source.glob("seed-*-replay-*/summary.json")):
+    for path in sorted(Path(acceptance["source_dir"]).glob("seed-*-replay-*/summary.json")):
         s = TrainingRunSummary.model_validate_json(path.read_text(encoding="utf-8"))
         key = (s.training_seed, s.replay_id)
         if key in seen:

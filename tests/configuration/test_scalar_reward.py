@@ -10,14 +10,14 @@ from omegaconf import DictConfig, MissingMandatoryValue
 
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation import parse_evaluation_config
-from eco_planner.experiments.scalar_reward.config import (
-    ScalarRewardProtocolConfig,
-    load_scalar_reward_protocol,
-)
-from eco_planner.experiments.scalar_reward.runner import (
+from eco_planner.experiments.scalar_reward.composition import (
     compose_a0_evaluation_config,
     compose_arm_training_config,
     compose_policy_evaluation_config,
+)
+from eco_planner.experiments.scalar_reward.config import (
+    ScalarRewardProtocolConfig,
+    load_scalar_reward_protocol,
 )
 from eco_planner.jobs import compose_job_config
 from eco_planner.models import Ddim5SamplerConfig
@@ -25,7 +25,7 @@ from eco_planner.rl.config import TrainingJobConfig
 
 ComposeConfig = Callable[[str, list[str] | None], DictConfig]
 PROTOCOL_PATH = Path(__file__).resolve().parents[2] / (
-    "configs/experiments/scalar_reward/protocol.yaml"
+    "configs/experiments/scalar-reward/protocol.yaml"
 )
 CHECKPOINT_OVERRIDES = [
     "evaluation.policy_checkpoint.label=final",

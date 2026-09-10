@@ -53,9 +53,9 @@ def assert_report(output: Path, *, figures: bool) -> None:
 
 @pytest.fixture(scope="module")
 def batches():
-    from eco_planner.experiments.critic_gae_ablation import analyze_critic_gae_ablation
+    from eco_planner.experiments.critic_gae_ablation.diagnostics import analyze_critic_gae_ablation
     from eco_planner.experiments.lambda_identifiability.diagnostics import analyze as diagnose
-    from eco_planner.experiments.objective_decomposition import analyze_decomposition
+    from eco_planner.experiments.objective_decomposition.diagnostics import analyze_decomposition
     from eco_planner.rl.optimization import PPOUpdater
     from eco_planner.rl.policy import ExplorationPolicy
     from tests.training.test_critic_gae_ablation import _study as ablation_study
@@ -336,7 +336,11 @@ def test_reproducibility_and_execution_reports(tmp_path, training_summary):
     write_json(path / "summary.json", training_summary.model_dump(mode="json"))
     write_json(
         source / "training_report.json",
-        {"status": "passed", "runs": [{"training_seed": 0, "replay_id": 0}]},
+        {
+            "status": "passed",
+            "source_dir": str(source),
+            "runs": [{"training_seed": 0, "replay_id": 0}],
+        },
     )
     analyze("ppo-reproducibility", source, tmp_path / "replay-report")
     assert_report(tmp_path / "replay-report", figures=True)
@@ -457,7 +461,7 @@ def test_scalar_run_uses_common_report_writer(tmp_path, training_summary, traini
 def test_offline_imports_do_not_load_execution_modules():
     script = """
 import sys
-import scripts.experiments.analyze
+import scripts.experiments.__main__
 import eco_planner.analysis.evaluation
 import eco_planner.analysis.simple
 import eco_planner.analysis.stability
@@ -471,26 +475,39 @@ for root in ('torch', 'metadrive', 'panda3d', 'eco_planner.rl.trainer', 'eco_pla
 @pytest.mark.parametrize(
     "module,function,args",
     [
-        ("lambda_identifiability", "run", ["--output-dir", "out"]),
+        ("lambda_identifiability", "run", ["--source-dir", "in", "--output-dir", "out"]),
         ("objective_decomposition", "run", ["--source-dir", "in", "--output-dir", "out"]),
         (
             "critic_gae_ablation",
             "run",
             ["--source-dir", "in", "--reference-dir", "ref", "--output-dir", "out"],
         ),
-        ("reward_calibration", "run", ["--source-dir", "in", "--output-dir", "out"]),
-        ("energy_sweep", "run_study", ["--output-root", "out"]),
-        ("reward_sanity", "run_sanity", ["--output-root", "out"]),
+        (
+            "reward_calibration",
+            "run",
+            ["--source-dir", "in", "--reference-dir", "ref", "--output-dir", "out"],
+        ),
+        ("energy_sweep", "run_study", ["--output-dir", "out"]),
+        ("reward_sanity", "run_sanity", ["--output-dir", "out"]),
         ("scalar_reward", "run_command", ["evaluate-a0", "--output-dir", "out"]),
-        ("ppo_stability", "run_command", ["summarize", "--output-root", "out"]),
-        ("ppo_reproducibility", "summarize_and_write_training_runs", ["in"]),
+        ("ppo_stability", "run_command", ["summarize", "--output-dir", "out"]),
+        (
+            "ppo_reproducibility",
+            "summarize_and_write_training_runs",
+            ["--source-dir", "in", "--output-dir", "out"],
+        ),
         (
             "execution_backend",
             "write_report",
             [
+                "--serial-dir",
                 "serial",
+                "--job-level-dir",
                 "job",
+                "--vector-dir",
                 "vector",
+                "--output-dir",
+                "out",
                 "--serial-wall-s",
                 "1",
                 "--job-level-wall-s",
@@ -501,24 +518,33 @@ for root in ('torch', 'metadrive', 'panda3d', 'eco_planner.rl.trainer', 'eco_pla
         ),
     ],
 )
-def test_existing_cli_forwards_no_figures(monkeypatch, module, function, args):
+def test_unified_cli_forwards_no_figures(monkeypatch, module, function, args):
     from importlib import import_module
 
-    adapter = import_module("scripts.experiments." + module)
+    adapter = import_module("scripts.experiments.__main__")
+    suffix = (
+        ""
+        if module == "ppo_reproducibility"
+        else (".report" if module == "execution_backend" else ".runner")
+    )
+    implementation = import_module("eco_planner.experiments." + module + suffix)
     captured = {}
 
     def fake(*args, **kwargs):
         captured.update(kwargs)
         return 0 if module in ("energy_sweep", "reward_sanity") else {}
 
-    monkeypatch.setattr(adapter, function, fake)
-    if hasattr(adapter, "load_local_environment"):
-        monkeypatch.setattr(adapter, "load_local_environment", lambda *_: None)
-    monkeypatch.setattr(sys, "argv", [module, *args, "--no-figures"])
-    if module in ("energy_sweep", "reward_sanity"):
-        with pytest.raises(SystemExit) as exc:
-            adapter.main()
-        assert exc.value.code == 0
-    else:
+    monkeypatch.setattr(implementation, function, fake)
+    monkeypatch.setattr(adapter, "bootstrap", lambda *_: None)
+    command = (
+        []
+        if module in ("scalar_reward", "ppo_stability")
+        else ["report" if module in ("ppo_reproducibility", "execution_backend") else "run"]
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["experiment", module.replace("_", "-"), *command, *args, "--no-figures"]
+    )
+    with pytest.raises(SystemExit) as exc:
         adapter.main()
+    assert exc.value.code == 0
     assert captured["figures"] is False

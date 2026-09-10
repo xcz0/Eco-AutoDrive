@@ -6,7 +6,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
-import numpy as np
 import torch
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
@@ -34,11 +33,11 @@ from eco_planner.rl.rollout import (
     VectorRolloutCollector,
     create_fabric_rollout_runtime,
 )
+from eco_planner.rl.rollout.seeds import derive_rollout_seeds
 from eco_planner.rl.tracking import TrainingTracking
 from eco_planner.rl.training_state import resume_training_state
 from eco_planner.runtime.resources import ResourceProfileConfig
 
-_SEED_NAMESPACE = 6_002_024
 TrainingUpdateObserver = Callable[[TrainingUpdateSummary], None]
 
 
@@ -73,7 +72,7 @@ def _train(
     torch.set_float32_matmul_precision("high")
     resources = cast(ResourceProfileConfig, config.resources)
     scenario_count = len(config.scenarios)
-    noise_seeds, policy_seeds = _derive_rollout_seeds(config.runtime.seed, scenario_count)
+    noise_seeds, policy_seeds = derive_rollout_seeds(config.runtime.seed, scenario_count)
     runtime = create_fabric_rollout_runtime(
         config.runtime,
         config.sampler,
@@ -208,18 +207,3 @@ def _train(
     tracking.artifact("policy-final.pt")
     tracking.artifact("training-state.ckpt")
     return summary
-
-
-def _derive_rollout_seeds(
-    training_seed: int, scenario_count: int
-) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    if type(scenario_count) is not int or scenario_count <= 0:
-        raise ValueError("scenario_count must be a positive integer")
-    sequence = np.random.SeedSequence([_SEED_NAMESPACE, training_seed])
-    values = tuple(
-        int(child.generate_state(1, dtype=np.uint32)[0])
-        for child in sequence.spawn(2 * scenario_count)
-    )
-    if len(set(values)) != len(values):
-        raise RuntimeError("seed derivation produced duplicate random streams")
-    return values[:scenario_count], values[scenario_count:]

@@ -7,20 +7,19 @@ from pathlib import Path
 from typing import Literal
 
 import optuna
-from omegaconf import DictConfig, OmegaConf, open_dict
+from omegaconf import OmegaConf
 from optuna.trial import Trial
 
 from eco_planner.artifacts import write_json
+from eco_planner.experiments.ppo_stability.composition import compose_trial_training_config
 from eco_planner.experiments.ppo_stability.config import (
     PPOStabilityStudyConfig,
     SearchSpace,
     TrialParameters,
-    scenarios,
 )
 from eco_planner.experiments.ppo_stability.monitor import StabilityMonitor
-from eco_planner.jobs import compose_job_config, run_training_job
+from eco_planner.jobs import run_training_job
 from eco_planner.rl.artifacts import TrainingUpdateSummary
-from eco_planner.rl.config import TrainingJobConfig, parse_training_config
 
 
 def sample_trial_parameters(trial: Trial, config: SearchSpace) -> TrialParameters:
@@ -37,49 +36,6 @@ def sample_trial_parameters(trial: Trial, config: SearchSpace) -> TrialParameter
             "target_kl", config.target_kl_min, config.target_kl_max, log=True
         ),
     )
-
-
-def compose_trial_training_config(
-    study: PPOStabilityStudyConfig,
-    parameters: TrialParameters,
-    *,
-    training_seed: int,
-    update_count: int,
-    gradient_diagnostics: bool = False,
-    guidance_range: tuple[float, float] | None = None,
-) -> tuple[DictConfig, TrainingJobConfig]:
-    """Compose and strictly parse the job used for one candidate run."""
-
-    scenario_count = parameters.batch_size // study.transitions_per_scenario
-    selected_scenarios = scenarios(
-        study.training_maps, study.training_map_seeds, limit=scenario_count
-    )
-    if len(selected_scenarios) != scenario_count:
-        raise ValueError("study does not define enough independent training scenarios")
-    config = compose_job_config(
-        study.base_training_config, [f"runtime.seed={training_seed}", "training.replay_id=0"]
-    )
-    optimizer_steps = (
-        update_count * parameters.epochs * (parameters.batch_size // parameters.minibatch_size)
-    )
-    maximum_map_seed = max((*study.training_map_seeds, *study.evaluation.map_seeds))
-    with open_dict(config):
-        config.training.update_count = update_count
-        config.training.transitions_per_environment = study.transitions_per_scenario
-        config.ppo.learning_rate = parameters.learning_rate
-        config.ppo.epochs = parameters.epochs
-        config.ppo.batch_size = parameters.batch_size
-        config.ppo.minibatch_size = parameters.minibatch_size
-        config.ppo.target_kl = parameters.target_kl
-        config.ppo.gradient_diagnostics = gradient_diagnostics
-        config.ppo.scheduler_total_optimizer_steps = optimizer_steps
-        config.scenarios = [item.model_dump(mode="python") for item in selected_scenarios]
-        config.env.horizon = study.transitions_per_scenario
-        config.env.num_scenarios = maximum_map_seed + 1
-        if guidance_range is not None:
-            config.guidance.lateral_max_offset_m = guidance_range[0]
-            config.guidance.longitudinal_max_speed_fraction = guidance_range[1]
-    return config, parse_training_config(config)
 
 
 def create_study(config: PPOStabilityStudyConfig, output_root: Path) -> optuna.Study:

@@ -64,12 +64,16 @@ def summarize_training_runs(root: Path) -> dict[str, object]:
     }
 
 
-def summarize_and_write_training_runs(root: Path, *, figures: bool = True) -> dict[str, object]:
+def summarize_and_write_training_runs(
+    root: Path, output: Path, *, figures: bool = True
+) -> dict[str, object]:
     """Write the pre-registered PPO reproducibility acceptance report."""
 
     report = summarize_training_runs(root)
-    write_json(root / "training_report.json", report)
-    publish("ppo-reproducibility", root, root, figures=figures)
+    output.mkdir(parents=True, exist_ok=False)
+    report["source_dir"] = str(root.resolve())
+    write_json(output / "training_report.json", report)
+    publish("ppo-reproducibility", output, output, figures=figures)
     return report
 
 

@@ -80,16 +80,41 @@ just mlflow ui --backend-store-uri sqlite:///outputs/mlflow/mlflow.db --host 127
 just benchmark run
 just benchmark run --config-name jobs/benchmark/throughput_traffic
 just benchmark run --config-name jobs/benchmark/rollout
-just energy run --output-root outputs/energy_matrix/manual-run
+just experiment energy-sweep run --output-dir outputs/energy_matrix/manual-run
 ```
 
 PlannerRFT reward sanity：
 
 ```powershell
-just reward-sanity run --output-root outputs/reward_sanity/manual-run
+just experiment reward-sanity run --output-dir outputs/reward_sanity/manual-run
 ```
 
 该命令只计算配置中声明的固定合成 reward case，不运行 PPO。
+
+实验统一使用 `just experiment <experiment> <action>`，对应
+`python -m scripts.experiments`。各实验的配置位于 `configs/experiments/<experiment>/`，
+可用 `--config` 指定；`just experiment <experiment> <action> --help` 查看参数。
+
+固定批次采集与诊断分开运行。先采集一次，再显式复用同一批次：
+
+```powershell
+just experiment fixed-batch collect --output-dir outputs/fixed-batch
+just experiment lambda-identifiability run --source-dir outputs/fixed-batch --output-dir outputs/lambda
+just experiment reward-calibration run --source-dir outputs/fixed-batch --reference-dir outputs/lambda --output-dir outputs/calibration
+just experiment objective-decomposition run --source-dir outputs/fixed-batch --output-dir outputs/decomposition
+just experiment critic-gae-ablation run --source-dir outputs/fixed-batch --reference-dir outputs/decomposition --output-dir outputs/ablation
+```
+
+采集配置拥有 protocol、training seed 和 overrides；诊断配置拥有诊断轴、校准目标和阈值。
+分解/消融配置中的 expected calibration 是显式的来源校验值，应与所研究批次对应。
+参考目录必须来自同一批次、相同初始策略与样本顺序。
+
+其他实验动作：`scalar-reward` 支持 `evaluate-a0`、`train`、`evaluate-policy`；
+`ppo-stability` 支持 `stage-a`、`stage-b`、`stage-c`、`diagnose`、`summarize`；
+`ppo-reproducibility report` 使用 `--source-dir` 与 `--output-dir`；
+`execution-backend report` 使用 `--serial-dir`、`--job-level-dir`、`--vector-dir`、
+对应的 `--*-wall-s` 和 `--output-dir`。原独立实验入口已移除，历史记录保留原命令，
+当前实现不提供历史产物兼容或迁移。
 
 机器资源通过版本化 profile 选择，例如 `components/resources=rtx_a4000`；它只改变 worker、slot 和线程预算。CLI 与 study bootstrap 会按需读取仓库根目录的可选 `.env`，并以 `MACHINE_NAME` 自动选择同名的 `configs/components/resources/<机器名>.yaml`。进程中已有的 `MACHINE_NAME` 优先于 `.env`，显式 Hydra `components/resources=...` override 又优先于两者；可用值见该目录，`.env.example` 给出格式。
 
@@ -99,14 +124,15 @@ just reward-sanity run --output-root outputs/reward_sanity/manual-run
 
 运行产物默认写入 `outputs/`。
 
-实验入口默认生成 Markdown 报告与 SVG/PNG 图，`--no-figures` 可关闭出图。
+实验运行/汇总入口默认生成 Markdown 报告与 SVG/PNG 图，`--no-figures` 可关闭出图。
+`fixed-batch collect` 只保存采集产物，不生成诊断或图表。
 已有产物可通过统一入口重算描述统计并重绘，不重新运行环境、GAE 或训练：
 
 ```powershell
-just analyze lambda-identifiability --source-dir outputs/my-batch --output-dir outputs/my-report
-just analyze reward-calibration --source-dir outputs/my-calibration --output-dir outputs/calibration-report
-just analyze ppo-stability --source-dir outputs/my-study --output-dir outputs/study-report
-just analyze scalar-reward --source-dir outputs/my-protocol --comparison-config outputs/my-protocol/comparison.yaml --output-dir outputs/protocol-report
+just experiment lambda-identifiability analyze --source-dir outputs/lambda --output-dir outputs/lambda-report
+just experiment reward-calibration analyze --source-dir outputs/calibration --output-dir outputs/calibration-report
+just experiment ppo-stability analyze --source-dir outputs/my-study --output-dir outputs/study-report
+just experiment scalar-reward analyze --source-dir outputs/my-protocol --config outputs/my-protocol/comparison.yaml --output-dir outputs/protocol-report
 ```
 
 源目录与离线输出目录必须独立，不能相同或互相嵌套。实验类型、输入文件和比较配置见

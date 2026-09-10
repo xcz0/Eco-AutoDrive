@@ -25,9 +25,9 @@ from eco_planner.evaluation import (
     TrafficObservationSummary,
     WarmupSummary,
 )
-from eco_planner.experiments import energy_sweep as energy_study
 from eco_planner.experiments import ppo_reproducibility as training_analysis
-from eco_planner.experiments.ppo_stability.validation import (
+from eco_planner.experiments.energy_sweep import runner as energy_study
+from eco_planner.experiments.ppo_stability.comparison import (
     PolicyEvaluationSummary,
     compare_policy_evaluations,
 )
@@ -453,4 +453,34 @@ def test_training_reproducibility_acceptance_report_schema_is_stable(
                 "final_policy_hash": "b" * 64,
             },
         ],
+    }
+
+
+def test_reproducibility_report_uses_separate_output_and_preserves_source(tmp_path: Path) -> None:
+    from tests.training.test_tracking import summary as update_fixture
+
+    full_update = update_fixture.__wrapped__()
+    source, output = tmp_path / "source", tmp_path / "report"
+    for seed in (0, 1):
+        for replay in (0, 1):
+            run = source / f"seed-{seed}-replay-{replay}"
+            (run / "updates").mkdir(parents=True)
+            summary = _training_summary(seed, replay)
+            summary = summary.model_copy(
+                update={
+                    "updates": tuple(
+                        full_update.model_copy(update=u.model_dump()) for u in summary.updates
+                    )
+                }
+            )
+            (run / "summary.json").write_text(summary.model_dump_json(), encoding="utf-8")
+            np.savez(run / "updates/episode.npz", values=np.asarray([seed, 1]))
+    before = {p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()}
+    result = training_analysis.summarize_and_write_training_runs(source, output, figures=False)
+    assert result["source_dir"] == str(source.resolve()) and result["total_runs"] == 4
+    evidence = json.loads((output / "analysis.json").read_text(encoding="utf-8"))
+    assert len(evidence["evidence"]["runs"]) == 4 and evidence["figures"] == []
+    assert (output / "report.md").is_file()
+    assert before == {
+        p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()
     }

@@ -13,13 +13,10 @@ from optuna.trial import FrozenTrial, TrialState
 from eco_planner.analysis.runner import publish
 from eco_planner.analysis.stability import load_study
 from eco_planner.artifacts import write_json
-from eco_planner.experiments.ppo_stability.config import (
-    TrialParameters,
-    load_stability_config,
-)
+from eco_planner.experiments.ppo_stability.composition import compose_trial_training_config
+from eco_planner.experiments.ppo_stability.config import TrialParameters, load_stability_config
 from eco_planner.experiments.ppo_stability.report import rank_validation_configs, summarize_stage_a
 from eco_planner.experiments.ppo_stability.search import (
-    compose_trial_training_config,
     create_study,
     make_objective,
     prepare_study_root,

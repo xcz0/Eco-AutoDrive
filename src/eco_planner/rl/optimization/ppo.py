@@ -27,7 +27,7 @@ from eco_planner.rl.policy.distribution import AffineBeta
 from eco_planner.rl.policy.model import POLICY_CONTEXT_KEYS
 from eco_planner.rl.rollout.contracts import RolloutEpisode, concatenate_tensordicts
 
-_PPO_BATCH_KEYS: tuple[str, ...] = (
+PPO_BATCH_KEYS: tuple[str, ...] = (
     *POLICY_CONTEXT_KEYS,
     "guidance_action",
     "old_joint_guidance_log_prob",
@@ -238,7 +238,7 @@ class PPOUpdater:
         """Perform all configured PPO epochs over one immutable rollout batch."""
 
         self.policy.eval()
-        batch = _batch_trajectories(episodes, self.config)
+        batch = build_ppo_batch(episodes, self.config)
         sample_count = batch.batch_size[0]
         if sample_count != self.config.batch_size:
             raise ValueError(
@@ -251,7 +251,7 @@ class PPOUpdater:
         ):
             raise RuntimeError("PPO update would exceed the configured scheduler horizon")
         raw_advantage_mean, raw_advantage_std = _tensor_statistics(batch["advantage"], correction=1)
-        _normalize_full_batch_advantage(batch)
+        normalize_full_batch_advantage(batch)
         normalized_advantage_mean, normalized_advantage_std = _tensor_statistics(
             batch["advantage"], correction=1
         )
@@ -411,17 +411,17 @@ def _build_torchrl_policy_adapters(
     return actor, critic
 
 
-def _batch_trajectories(episodes: Sequence[RolloutEpisode], config: PPOConfig) -> TensorDictBase:
+def build_ppo_batch(episodes: Sequence[RolloutEpisode], config: PPOConfig) -> TensorDictBase:
     episode_tuple = tuple(episodes)
     if not episode_tuple:
         raise ValueError("PPO update requires at least one rollout episode")
     trajectories: list[TensorDictBase] = []
     for episode in episode_tuple:
         trajectories.append(compute_episode_gae(episode, config))
-    return concatenate_tensordicts(trajectories).select(*_PPO_BATCH_KEYS)
+    return concatenate_tensordicts(trajectories).select(*PPO_BATCH_KEYS)
 
 
-def _normalize_full_batch_advantage(batch: TensorDictBase) -> None:
+def normalize_full_batch_advantage(batch: TensorDictBase) -> None:
     advantage = batch["advantage"]
     if advantage.numel() < 2:
         raise ValueError("advantage normalization requires at least two samples")

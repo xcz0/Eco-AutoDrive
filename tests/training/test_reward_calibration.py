@@ -7,16 +7,17 @@ import pytest
 import torch
 
 from eco_planner.analysis.reporting.fixed import render_report
-from eco_planner.experiments.lambda_identifiability.diagnostics import reward_profile
-from eco_planner.experiments.reward_calibration import (
-    CalibrationConfig,
+from eco_planner.experiments.fixed_batch.artifacts import load_batch
+from eco_planner.experiments.fixed_batch.calibration import (
     calibrate,
-    dynamic_range_audit,
     raw_arrays,
     rescore,
     scored_arrays,
+    verify_original_components,
 )
-from eco_planner.experiments.reward_calibration_runner import load_batch, verify_original_components
+from eco_planner.experiments.fixed_batch.rewards import reward_profile
+from eco_planner.experiments.reward_calibration.config import CalibrationConfig
+from eco_planner.experiments.reward_calibration.diagnostics import dynamic_range_audit
 from eco_planner.rl.artifacts import write_rollout_episode
 from eco_planner.rl.reward.components.comfort import component_score
 from tests.training.test_ppo import _episode

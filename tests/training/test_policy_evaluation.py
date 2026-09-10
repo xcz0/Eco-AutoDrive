@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from eco_planner.experiments.ppo_stability.validation import (
+from eco_planner.experiments.ppo_stability.comparison import (
     PolicyEvaluationSummary,
     compare_policy_evaluations,
 )

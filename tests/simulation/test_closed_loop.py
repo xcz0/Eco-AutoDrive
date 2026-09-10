@@ -59,6 +59,67 @@ def _environment_config(
     }
 
 
+@pytest.mark.simulator
+@pytest.mark.gpu
+def test_fixed_batch_collection_persists_seeds_and_episodes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, baseline_checkpoint_dir: Path
+) -> None:
+    import json
+
+    from eco_planner._repository import CONFIG_ROOT
+    from eco_planner.experiments.fixed_batch.artifacts import load_fixed_batch
+    from eco_planner.experiments.fixed_batch.collection import collect
+    from eco_planner.rl.rollout.seeds import derive_rollout_seeds
+
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    protocol = OmegaConf.load(CONFIG_ROOT / "experiments/scalar-reward/protocol.yaml")
+    protocol.training.base_job = "jobs/training/ppo"
+    protocol_path = tmp_path / "protocol.yaml"
+    OmegaConf.save(protocol, protocol_path)
+    config_path = tmp_path / "collect.yaml"
+    OmegaConf.save(
+        OmegaConf.create(
+            {
+                "protocol": str(protocol_path),
+                "training_seed": 0,
+                "overrides": [
+                    "components/resources=rtx3050_laptop",
+                    "resources.rollout_worker_count=1",
+                    "resources.torch_threads_per_worker=1",
+                    "training.transitions_per_environment=1",
+                    "training.update_count=1",
+                    "ppo.batch_size=2",
+                    "ppo.minibatch_size=2",
+                    "ppo.epochs=1",
+                    "ppo.scheduler_total_optimizer_steps=1",
+                    "env.num_scenarios=8",
+                    f"model.args_path={(baseline_checkpoint_dir / 'args.json').as_posix()}",
+                    f"model.checkpoint_path={(baseline_checkpoint_dir / 'model.pth').as_posix()}",
+                ],
+            }
+        ),
+        config_path,
+    )
+    output = tmp_path / "batch"
+    result = collect(config_path, output)
+    batch = load_fixed_batch(output)
+    summary = json.loads((output / "summary.json").read_text())
+    noise, policy = derive_rollout_seeds(0, 2)
+    assert summary["noise_seeds"] == list(noise)
+    assert summary["policy_action_seeds"] == list(policy)
+    assert result["sample_count"] == 2 and result["optimizer_steps"] == 0
+    assert summary["policy_unchanged"] and summary["planner_unchanged"]
+    assert summary["planner_gradients_absent"]
+    assert len(batch.episodes) == 2 and len(batch.samples) == 2
+    for episode, sample in zip(batch.episodes, batch.samples, strict=True):
+        slot = sample["scenario_index"]
+        assert episode.audit["noise_seed"].item() == noise[slot]
+        assert episode.audit["policy_action_seed"].item() == policy[slot]
+        assert episode.audit["map_seed"].item() == batch.config.scenarios[slot].seed
+    assert not (output / "diagnostics.npz").exists()
+    assert "arms" not in summary
+
+
 def _straight_trajectory(speed_mps: float = 5.0) -> np.ndarray:
     trajectory = np.zeros((80, 4), dtype=np.float32)
     trajectory[:, 0] = np.arange(1, 81, dtype=np.float32) * speed_mps * 0.1

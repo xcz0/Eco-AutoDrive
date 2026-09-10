@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import replace
 from itertools import combinations
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import torch
@@ -16,90 +15,19 @@ from eco_planner.analysis.statistics import (
     paired_difference,
     statistics,
 )
-from eco_planner.rl.optimization.ppo import (
-    PPOUpdater,
-    _batch_trajectories,
-    _normalize_full_batch_advantage,
+from eco_planner.experiments.fixed_batch.gradients import (
+    actor_backward,
 )
-from eco_planner.rl.policy import ExplorationPolicy
+from eco_planner.experiments.fixed_batch.rewards import COMPONENTS, reward_profile, reweight
+from eco_planner.rl.optimization import (
+    PPOUpdater,
+    build_ppo_batch,
+    normalize_full_batch_advantage,
+)
 from eco_planner.rl.reward.config import (
-    PlannerRFTEnergyRewardConfig,
     PlannerRFTNoEnergyRewardConfig,
-    RewardProfileConfig,
 )
 from eco_planner.rl.rollout.contracts import RolloutEpisode, concatenate_tensordicts
-
-COMPONENTS = ("ttc", "progress", "comfort", "speed", "energy")
-
-
-def reward_profile(base: PlannerRFTNoEnergyRewardConfig, weight: float) -> RewardProfileConfig:
-    if weight == 0:
-        return base
-    payload = base.model_dump()
-    payload["name"] = "plannerrft_energy_v1"
-    payload["weights"]["energy"] = weight
-    return PlannerRFTEnergyRewardConfig.model_validate(payload)
-
-
-def reweight(episode: RolloutEpisode, profile: RewardProfileConfig) -> RolloutEpisode:
-    # Recompose fixed audited scores; no environment or component calibration is rerun.
-    audit = episode.audit.clone()
-    weights = profile.weights.model_dump()
-    base = cast(
-        torch.Tensor,
-        (
-            sum(
-                audit[f"reward_component_{name}"].double() * weight
-                for name, weight in weights.items()
-            )
-            / profile.weights.total
-        ),
-    )
-    total = (base * audit["reward_safety_gate"].double()).float()
-    audit["reward_base_total"] = base.float()
-    audit["reward_total"] = total
-    training = episode.training.clone()
-    training["next", "reward"] = total.to(training["next", "reward"])
-    return replace(episode, training=training, audit=audit, reward_profile=profile.name)
-
-
-def actor_gradients(policy: ExplorationPolicy) -> tuple[dict[str, np.ndarray], list[dict]]:
-    groups: dict[str, list[np.ndarray]] = {key: [] for key in ("actor_head", "shared_trunk")}
-    layout = []
-    offset = 0
-    for name, parameter in policy.named_parameters():
-        if name.startswith("value_head."):
-            if parameter.grad is not None:
-                raise RuntimeError("actor backward reached value head")
-            continue
-        if parameter.grad is None:
-            raise RuntimeError(f"actor parameter has no gradient: {name}")
-        value = parameter.grad.detach().cpu().float().numpy().reshape(-1).copy()
-        if not np.isfinite(value).all():
-            raise FloatingPointError(f"nonfinite actor gradient: {name}")
-        group = "actor_head" if name.startswith("actor_head.") else "shared_trunk"
-        groups[group].append(value)
-        layout.append(
-            {"name": name, "shape": list(parameter.shape), "offset": offset, "size": value.size}
-        )
-        offset += value.size
-    result = {key: np.concatenate(values) for key, values in groups.items()}
-    result["actor"] = np.concatenate(
-        [
-            cast(torch.Tensor, parameter.grad).detach().cpu().float().numpy().reshape(-1)
-            for name, parameter in policy.named_parameters()
-            if not name.startswith("value_head.")
-        ]
-    )
-    # forward_tensors views the four rows as [lateral/longitudinal, alpha/beta].
-    for name, rows in (("lateral", slice(0, 2)), ("longitudinal", slice(2, 4))):
-        result[name] = np.concatenate(
-            [
-                cast(torch.Tensor, parameter.grad)[rows].detach().cpu().float().numpy().reshape(-1)
-                for parameter in policy.actor_head.parameters()
-            ]
-        )
-    return result, layout
 
 
 def analyze(
@@ -131,14 +59,14 @@ def analyze(
     for index, weight in enumerate(lambdas):
         profile = reward_profile(base, weight)
         matched = tuple(reweight(episode, profile) for episode in episodes)
-        batch = _batch_trajectories(matched, updater.config)
+        batch = build_ppo_batch(matched, updater.config)
         if (
             batch.batch_size[0] != updater.config.batch_size
             or len(scenario_ids) != batch.batch_size[0]
         ):
             raise ValueError("diagnostic batch must match the complete configured PPO batch")
         raw = batch["advantage"].detach().cpu().numpy().reshape(-1).copy()
-        _normalize_full_batch_advantage(batch)
+        normalize_full_batch_advantage(batch)
         norm = batch["advantage"].detach().cpu().numpy().reshape(-1).copy()
         reward = torch.cat([e.training["next", "reward"] for e in matched])
         values = {
@@ -147,19 +75,13 @@ def analyze(
             "normalized_advantage": norm,
             "value_target": batch["value_target"].cpu().numpy().reshape(-1),
         }
-        policy.zero_grad(set_to_none=True)
-        losses = updater.loss_module(batch.to(updater.device))
-        loss = losses["loss_objective"]
-        if not torch.isfinite(loss).all():
-            raise FloatingPointError("actor loss must be finite")
-        loss.backward()
-        gradient, layout = actor_gradients(policy)
+        loss, gradient, layout = actor_backward(updater, batch, batch["advantage"])
         gradients.append(gradient)
         summary["actor_parameter_layout"] = layout
         arm = {
             "lambda": weight,
             "reward_profile": profile.model_dump(mode="json"),
-            "actor_loss": float(loss.detach()),
+            "actor_loss": loss,
             "gradient_norms": {
                 k: float(np.linalg.norm(v.astype(np.float64))) for k, v in gradient.items()
             },

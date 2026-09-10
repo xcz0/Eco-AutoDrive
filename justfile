@@ -75,10 +75,10 @@ check: lint format-check typecheck test-all-cpu
 evaluation action *arguments:
     if ("{{ action }}" -eq "run") { & {{ python }} -m scripts.evaluation {{ arguments }}; exit $LASTEXITCODE } elseif ("{{ action }}" -eq "matrix-report") { & {{ python }} -m scripts.evaluation_matrix {{ arguments }}; exit $LASTEXITCODE } else { throw "evaluation action must be run or matrix-report" }
 
-# Run a configured PPO job or summarize reproducibility artifacts.
+# Run a configured PPO job.
 [group('training')]
 training action *arguments:
-    if ("{{ action }}" -eq "run") { & {{ python }} -m scripts.training {{ arguments }}; exit $LASTEXITCODE } elseif ("{{ action }}" -eq "reproducibility-report") { & {{ python }} -m scripts.experiments.ppo_reproducibility {{ arguments }}; exit $LASTEXITCODE } else { throw "training action must be run or reproducibility-report" }
+    if ("{{ action }}" -ne "run") { throw "training action must be run" } else { & {{ python }} -m scripts.training {{ arguments }}; exit $LASTEXITCODE }
 
 # Forward MLflow CLI commands for tracking and the local UI.
 [group('training')]
@@ -86,55 +86,13 @@ mlflow action *arguments:
     & .venv/Scripts/mlflow.exe {{ action }} {{ arguments }}
     exit $LASTEXITCODE
 
-# Run a configured benchmark or consolidate evaluation-backend measurements.
+# Run a configured benchmark.
 [group('benchmark')]
 benchmark action *arguments:
-    if ("{{ action }}" -eq "run") { & {{ python }} -m scripts.benchmark {{ arguments }}; exit $LASTEXITCODE } elseif ("{{ action }}" -eq "evaluation-report") { & {{ python }} -m scripts.experiments.execution_backend {{ arguments }}; exit $LASTEXITCODE } else { throw "benchmark action must be run or evaluation-report" }
+    if ("{{ action }}" -ne "run") { throw "benchmark action must be run" } else { & {{ python }} -m scripts.benchmark {{ arguments }}; exit $LASTEXITCODE }
 
-# Run the fixed energy-sweep experiment.
+# Forward experiment selection, actions and options to the unified CLI.
 [group('experiments')]
-energy action *arguments:
-    if ("{{ action }}" -ne "run") { throw "energy action must be run" } else { & {{ python }} -m scripts.experiments.energy_sweep {{ arguments }}; exit $LASTEXITCODE }
-
-# Audit fixed synthetic PlannerRFT-style reward cases without running PPO.
-[group('experiments')]
-reward-sanity action *arguments:
-    if ("{{ action }}" -ne "run") { throw "reward-sanity action must be run" } else { & {{ python }} -m scripts.experiments.reward_sanity {{ arguments }}; exit $LASTEXITCODE }
-
-# Run staged PPO stability search, validation, diagnostics, or summary.
-[group('experiments')]
-ppo-stability action *arguments:
-    & {{ python }} -m scripts.experiments.ppo_stability {{ action }} {{ arguments }}
-    exit $LASTEXITCODE
-
-# Run A0 evaluation, A1/A2 training, or checkpoint evaluation under the matched protocol.
-[group('experiments')]
-scalar-reward action *arguments:
-    & {{ python }} -m scripts.experiments.scalar_reward {{ action }} {{ arguments }}
-    exit $LASTEXITCODE
-
-[group('experiments')]
-lambda-identifiability *arguments:
-    & {{ python }} -m scripts.experiments.lambda_identifiability {{ arguments }}
-    exit $LASTEXITCODE
-
-[group('experiments')]
-reward-calibration *arguments:
-    & {{ python }} -m scripts.experiments.reward_calibration {{ arguments }}
-    exit $LASTEXITCODE
-
-[group('experiments')]
-objective-decomposition *arguments:
-    & {{ python }} -m scripts.experiments.objective_decomposition {{ arguments }}
-    exit $LASTEXITCODE
-
-[group('experiments')]
-critic-gae-ablation *arguments:
-    & {{ python }} -m scripts.experiments.critic_gae_ablation {{ arguments }}
-    exit $LASTEXITCODE
-
-# Recompute descriptive evidence and static reports from saved experiment artifacts.
-[group('experiments')]
-analyze experiment *arguments:
-    & {{ python }} -m scripts.experiments.analyze {{ experiment }} {{ arguments }}
+experiment experiment action *arguments:
+    & {{ python }} -m scripts.experiments {{ experiment }} {{ action }} {{ arguments }}
     exit $LASTEXITCODE
