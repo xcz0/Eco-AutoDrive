@@ -328,7 +328,10 @@ sample index 恢复 episode 与 initial policy 并核对配对，不实例化 pl
 校准由 Task B 冻结规则在本 batch 上重新执行，配置中的 E-034 冻结值以显式容差作为源
 batch 溯源守卫（防误用 batch/协议漂移，不要求逐位复现）。arms 为校准 R0、正 λ（分母
 16+λ）与 Energy-only endpoint（`safety_gate × reward_component_energy`，仅诊断用，不是
-训练 profile，不进入全局 reward 配置）。每个 arm 在 raw、center-only、z 三种 advantage
+训练 profile，不进入全局 reward 配置）。配置可携带可选 `energy_band` 节（Issue #94
+Task E）：runner 从本 batch 执行强度分位数推导 efficiency-band 阈值、对照冻结 expected
+值守卫后，把校准 profile 的 energy 切到 `calibrated_band` 模式并重打分 episodes 的
+`reward_component_energy`；无该节时协议与 E-035 逐字节兼容。每个 arm 在 raw、center-only、z 三种 advantage
 形式下各做一次 full-batch `loss_objective` backward；z 形式复用训练路径的
 `normalize_full_batch_advantage`，center-only 仅减 full-batch 均值。梯度按 actor
 head/shared trunk/lateral/longitudinal 分组，Gate C 使用 actor-head cosine 与
@@ -489,7 +492,7 @@ PPO stability 直接调用 Optuna Matplotlib 的 history、parallel coordinate�
 * 每种能耗指标使用独立名称、单位和累计边界。`envs.domain.energy` 拥有 `EnergyTrace`、`EnergyMetrics` 与 provider protocol；provider 接收有限、非负且时间严格递增的 `EnergyTrace(time_s[N+1], speed_mps[N+1], step_distance_m[N])`，返回带 metric 名称、实际距离、可选 J 和可选 mL 的 `EnergyMetrics`；Wh 与各 per-km quantity 只由该统一结果派生，零距离时 per-km 为未定义。
 * MetaDrive native audit 直接保存上游每个 simulator 子步产生的 `step_energy` 和 reset-bounded `episode_energy`，单位均为 mL；这些事实保存在 `TransitionMetricInput`，evaluation trace 映射为 `warmup_native_*` / `executed_native_*`。当前 kinematic waypoint phase ordering 下这些值可能恒为零，只能审计上游 phase boundary，不进入 reward 或 evaluation energy summary。
 * `envs.domain.energy.MetaDriveFuelProxyProvider` 在 environment execution boundary 使用相邻实际 center position、实际执行速度和 MetaDrive 原公式逐子步计算；`TransitionMetrics` 保存统一 `EnergyMetrics`，reward/evaluation 在各自 audit/artifact 边界映射为既有 `*_fuel_proxy_step_energy_ml` 与配套 `*_step_distance_m`。evaluation summary 的 `total_ml`、`distance_m` 和 `ml_per_km` 只聚合 trace 中该流，不得重算公式或改用 native 流。
-* 两个 PlannerRFT reward profile 对位移小于 reward profile `minimum_step_distance_m` 的子步保存 denominator-valid=false、mL/km=0、energy score=0；有效子步使用 `exp(-ml_per_km / reference_ml_per_km)`。该 denominator 判定是 reward 子步契约，不改变 episode summary 对总 execution distance 的分母。
+* 两个 PlannerRFT reward profile 对位移小于 reward profile `minimum_step_distance_m` 的子步保存 denominator-valid=false、mL/km=0、energy score=0；有效子步的 energy score 由 `energy.mode` 决定：默认 `reference_exponential` 使用 `exp(-ml_per_km / reference_ml_per_km)`，`calibrated_band`（Issue #94 Task E）使用双侧饱和 `clip((band_zero_score_ml_per_km − ml_per_km)/(band_zero_score_ml_per_km − band_full_score_ml_per_km), 0, 1)`，阈值由固定校准 batch 强度分位数预冻结。该 denominator 判定是 reward 子步契约，不改变 episode summary 对总 execution distance 的分母。
 * 该指标记录 `total_ml`、`distance_m` 和 `ml_per_km`，后者在零距离时为 null。失败回合若存在 partial trace 也记录已产生的能耗；空 trace 没有能耗值。
 * `envs.domain.fastsim` 的 `fastsim_fuel_energy` 仅在完整实际执行轨迹结束后离线运行。首个 adapter 固定使用 FASTSim 3.0.6 内置 conventional `2012_Ford_Fusion.yaml`，由显式 grade、环境温度和初始海拔构造 cycle，输出 fuel energy J/Wh，不推导 fuel mL。它不进入在线 reward 或默认 evaluation artifact；MetaDrive proxy 与 FASTSim 不得相加、替换名称或混合解释。具体边界见 ADR 0032。
 * 能耗结果必须关联实际执行 trace、采样间隔、车辆配置、场景特征和终止类型。

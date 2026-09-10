@@ -9,6 +9,8 @@ import torch
 
 from eco_planner.rl import PlannerRFTNoEnergyRewardConfig, RolloutEpisode, concatenate_tensordicts
 from eco_planner.rl.reward import component_score, score_delta
+from eco_planner.rl.reward.components.energy import calibrated_band_score
+from eco_planner.rl.reward.config import EnergyRewardConfig
 
 from .config import CalibrationGuardSource, CalibrationTargets
 from .rewards import reweight
@@ -73,13 +75,35 @@ def calibrate(
     return PlannerRFTNoEnergyRewardConfig.model_validate(payload)
 
 
+def rescore_energy(episode: RolloutEpisode, energy: EnergyRewardConfig) -> RolloutEpisode:
+    """Replace the audited energy score with the calibrated-band rescore."""
+    if energy.mode != "calibrated_band":
+        return episode
+    full = energy.band_full_score_ml_per_km
+    zero = energy.band_zero_score_ml_per_km
+    assert full is not None and zero is not None
+    audit = episode.audit.clone()
+    key = audit["reward_component_energy"]
+    intensity = audit["executed_fuel_proxy_ml_per_km"].numpy().astype(np.float64).reshape(-1)
+    valid = audit["energy_distance_valid"].numpy().astype(bool).reshape(-1)
+    scores = np.asarray(
+        [
+            calibrated_band_score(x, full, zero) if ok else 0.0
+            for x, ok in zip(intensity, valid, strict=True)
+        ]
+    )
+    audit["reward_component_energy"] = torch.from_numpy(scores).reshape_as(key).to(key)
+    return replace(episode, audit=audit)
+
+
 def rescore(episode: RolloutEpisode, profile: PlannerRFTNoEnergyRewardConfig) -> RolloutEpisode:
     scores = scored_arrays(raw_arrays([episode]), profile)
     audit = episode.audit.clone()
     for name in ("progress", "comfort"):
         key = f"reward_component_{name}"
         audit[key] = torch.from_numpy(scores[name]).reshape_as(audit[key]).to(audit[key])
-    return reweight(replace(episode, audit=audit), profile)
+    episode = rescore_energy(replace(episode, audit=audit), profile.energy)
+    return reweight(episode, profile)
 
 
 def verify_original_components(

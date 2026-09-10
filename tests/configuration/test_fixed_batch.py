@@ -61,6 +61,7 @@ def fixed_source(tmp_path, compose_config):
         episode = _behavior_policy_episode(policy, torch.tensor([action]), reward=0.5)
         episode.audit["route_progress_delta_m"].fill_(0.2 * (index + 1))
         episode.audit["reward_component_energy"].fill_([0.9, 0.5, 0.7, 0.3][index])
+        episode.audit["executed_fuel_proxy_ml_per_km"].fill_([46.0, 48.0, 47.0, 49.0][index])
         episode.audit["reward_safety_gate"].fill_([1.0, 0.5, 1.0, 0.25][index])
         episode.audit["map_seed"].fill_(config.scenarios[index // 2].seed)
         slots[index // 2].append(rescore(reweight(episode, config.reward), config.reward))
@@ -147,6 +148,40 @@ def test_full_offline_chain_and_reference_endpoints(fixed_source, tmp_path, lamb
     )
     decomp_dir = tmp_path / "decomp"
     run_decomposition(source, decomp_config, decomp_dir, figures=False)
+    intensity = np.asarray([46.0, 48.0, 47.0, 49.0])
+    band = {
+        "full_score_intensity_quantile": 0.10,
+        "zero_score_intensity_quantile": 0.90,
+        "expected_full_score_ml_per_km": float(np.quantile(intensity, 0.10)),
+        "expected_zero_score_ml_per_km": float(np.quantile(intensity, 0.90)),
+        "match_tolerance": {"rtol": 1e-6, "atol": 0.0},
+    }
+    band_config = tmp_path / "decomp-band.yaml"
+    OmegaConf.save(
+        OmegaConf.create(
+            decomposition_config(
+                lambdas=lambdas, expected_calibration=expected, energy_band=band
+            ).model_dump()
+        ),
+        band_config,
+    )
+    band_dir = tmp_path / "decomp-band"
+    run_decomposition(source, band_config, band_dir, figures=False)
+    band_summary = json.loads((band_dir / "summary.json").read_text())
+    assert band_summary["calibrated_reward"]["energy"]["mode"] == "calibrated_band"
+    assert band_summary["energy_band_verification"]["energy.band_full_score_ml_per_km"][
+        "actual"
+    ] == pytest.approx(float(np.quantile(intensity, 0.10)))
+    band_scores = np.clip(
+        (float(np.quantile(intensity, 0.90)) - np.asarray([46.0, 48.0, 47.0, 49.0]))
+        / (float(np.quantile(intensity, 0.90)) - float(np.quantile(intensity, 0.10))),
+        0.0,
+        1.0,
+    )
+    assert band_summary["components"]["reward_component_energy"]["mean"] == pytest.approx(
+        float(band_scores.mean())
+    )
+    assert band_summary["optimizer_steps"] == 0 and band_summary["policy_unchanged"]
     abl_config = tmp_path / "ablation.yaml"
     OmegaConf.save(
         OmegaConf.create(ablation_config(expected_calibration=expected).model_dump()), abl_config

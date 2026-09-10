@@ -5,15 +5,25 @@ import pytest
 import torch
 
 from eco_planner.analysis.reporting.fixed import render_decomposition_report
+from eco_planner.experiments.reward.fixed_batch import rescore
 from eco_planner.experiments.reward.fixed_batch.calibration import verify_expected_calibration
-from eco_planner.experiments.reward.fixed_batch.rewards import energy_only_reward
-from eco_planner.experiments.reward.objective_decomposition.config import DecompositionConfig
+from eco_planner.experiments.reward.fixed_batch.rewards import (
+    energy_only_reward,
+    reward_profile,
+    reweight,
+)
+from eco_planner.experiments.reward.objective_decomposition.config import (
+    DecompositionConfig,
+    EnergyBandConfig,
+)
 from eco_planner.experiments.reward.objective_decomposition.diagnostics import (
     analyze_decomposition,
     evaluate_gate,
 )
+from eco_planner.experiments.reward.objective_decomposition.runner import apply_energy_band
 from eco_planner.rl.optimization import PPOUpdater
 from eco_planner.rl.policy import ExplorationPolicy
+from eco_planner.rl.reward import PlannerRFTNoEnergyRewardConfig
 from tests.training.test_ppo import (
     _behavior_policy_episode,
     _episode,
@@ -271,3 +281,94 @@ def test_decomposition_config_rejects_invalid_axes():
         _study(lambdas=[64.0, 16.0])
     with pytest.raises(ValueError, match="quantiles"):
         _study(quantiles=[0.25, 1.0])
+
+
+def _band_profile() -> PlannerRFTNoEnergyRewardConfig:
+    payload = _no_energy_config().model_dump(mode="python")
+    payload["energy"] = {
+        "mode": "calibrated_band",
+        "reference_ml_per_km": 50.0,
+        "minimum_step_distance_m": 0.01,
+        "band_full_score_ml_per_km": 44.0,
+        "band_zero_score_ml_per_km": 50.0,
+    }
+    return PlannerRFTNoEnergyRewardConfig.model_validate(payload)
+
+
+def test_rescore_recomputes_energy_only_in_band_mode():
+    episodes = []
+    for intensity, valid in ((46.0, True), (43.0, True), (47.0, False)):
+        episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
+        episode.audit["executed_fuel_proxy_ml_per_km"].fill_(intensity)
+        episode.audit["energy_distance_valid"].fill_(valid)
+        episodes.append(episode)
+
+    untouched = [rescore(episode, _no_energy_config()) for episode in episodes]
+    for episode, matched in zip(episodes, untouched, strict=True):
+        torch.testing.assert_close(
+            matched.audit["reward_component_energy"],
+            episode.audit["reward_component_energy"],
+            rtol=0,
+            atol=0,
+        )
+
+    matched = [rescore(episode, _band_profile()) for episode in episodes]
+    assert matched[0].audit["reward_component_energy"].item() == pytest.approx((50.0 - 46.0) / 6.0)
+    assert matched[1].audit["reward_component_energy"].item() == 1.0
+    assert matched[2].audit["reward_component_energy"].item() == 0.0
+
+    endpoint = energy_only_reward(matched[0])
+    assert endpoint.training["next", "reward"].item() == pytest.approx((50.0 - 46.0) / 6.0)
+    r0 = reweight(matched[0], _no_energy_config())
+    torch.testing.assert_close(
+        r0.audit["reward_base_total"], untouched[0].audit["reward_base_total"], rtol=0, atol=0
+    )
+    stress = reweight(matched[0], reward_profile(_band_profile(), 16.0))
+    assert stress.audit["reward_base_total"].item() == pytest.approx(
+        (5.0 + 5.0 + 2.0 + 4.0 + 16.0 * ((50.0 - 46.0) / 6.0)) / 32.0
+    )
+
+
+def _band_study(**overrides: object) -> EnergyBandConfig:
+    values: dict[str, object] = {
+        "full_score_intensity_quantile": 0.10,
+        "zero_score_intensity_quantile": 0.90,
+        "expected_full_score_ml_per_km": 46.0,
+        "expected_zero_score_ml_per_km": 49.0,
+        "match_tolerance": {"rtol": 1e-6, "atol": 0.0},
+    }
+    values.update(overrides)
+    return EnergyBandConfig.model_validate(values)
+
+
+def test_energy_band_config_validation():
+    assert _study().energy_band is None
+    with pytest.raises(ValueError):
+        _band_study(full_score_intensity_quantile=0.6)
+    with pytest.raises(ValueError):
+        _band_study(zero_score_intensity_quantile=0.4)
+
+
+def test_apply_energy_band_derives_thresholds_and_guards_frozen_values():
+    episodes = []
+    for intensity in (44.0, 46.0, 48.0, 50.0):
+        episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
+        episode.audit["executed_fuel_proxy_ml_per_km"].fill_(intensity)
+        episodes.append(episode)
+    intensity = np.asarray([44.0, 46.0, 48.0, 50.0])
+    full = float(np.quantile(intensity, 0.10))
+    zero = float(np.quantile(intensity, 0.90))
+    band = _band_study(expected_full_score_ml_per_km=full, expected_zero_score_ml_per_km=zero)
+    study = _study(energy_band=band.model_dump())
+    assert study.energy_band == band
+
+    calibrated, checks = apply_energy_band(_no_energy_config(), episodes, band)
+    assert calibrated.energy.mode == "calibrated_band"
+    assert calibrated.energy.band_full_score_ml_per_km == pytest.approx(full)
+    assert calibrated.energy.band_zero_score_ml_per_km == pytest.approx(zero)
+    assert checks["energy.band_full_score_ml_per_km"]["actual"] == pytest.approx(full)
+    assert checks["energy.band_zero_score_ml_per_km"]["expected"] == pytest.approx(zero)
+
+    drifted = _band_study(expected_full_score_ml_per_km=full + 1.0)
+    with pytest.raises(ValueError, match="frozen value"):
+        apply_energy_band(_no_energy_config(), episodes, drifted)

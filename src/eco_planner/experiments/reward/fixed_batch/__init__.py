@@ -10,6 +10,7 @@ from .calibration import (
     calibrate,
     raw_arrays,
     rescore,
+    rescore_energy,
     verify_expected_calibration,
     verify_original_components,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "calibrate",
     "raw_arrays",
     "rescore",
+    "rescore_energy",
     "verify_original_components",
     "restore_runtime",
     "write_runtime_metadata",

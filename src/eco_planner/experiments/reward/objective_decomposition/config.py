@@ -18,6 +18,23 @@ class GateThresholds(BaseModel):
     min_stress_fraction_of_endpoint_separation: StrictFloat = Field(gt=0.0, le=1.0)
 
 
+class EnergyBandConfig(BaseModel):
+    """Issue #94 Task E: calibrated efficiency-band energy representation.
+
+    Band thresholds are intensity quantiles of the fixed source batch; the expected
+    values are the frozen pre-fixed thresholds guarded against batch drift. The
+    quantile bounds keep the full-score threshold below the median and the zero-score
+    threshold above it.
+    """
+
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid", allow_inf_nan=False)
+    full_score_intensity_quantile: StrictFloat = Field(gt=0.0, lt=0.5)
+    zero_score_intensity_quantile: StrictFloat = Field(gt=0.5, lt=1.0)
+    expected_full_score_ml_per_km: StrictFloat = Field(gt=0.0)
+    expected_zero_score_ml_per_km: StrictFloat = Field(gt=0.0)
+    match_tolerance: CalibrationMatchTolerance
+
+
 class DecompositionConfig(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True, extra="forbid", allow_inf_nan=False)
     lambdas: list[StrictFloat] = Field(min_length=1)
@@ -26,6 +43,7 @@ class DecompositionConfig(BaseModel):
     comfort_target_score: StrictFloat = Field(gt=0.0, lt=1.0)
     calibration_match_tolerance: CalibrationMatchTolerance
     expected_calibration: ExpectedCalibration
+    energy_band: EnergyBandConfig | None = None
     gate: GateThresholds
 
     @model_validator(mode="after")

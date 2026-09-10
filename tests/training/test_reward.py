@@ -20,6 +20,7 @@ from eco_planner.rl.reward import (
     evaluate_plannerrft_energy_step,
     evaluate_plannerrft_no_energy_step,
 )
+from eco_planner.rl.reward.components import calibrated_band_score
 
 
 def _config() -> PlannerRFTEnergyRewardConfig:
@@ -156,6 +157,70 @@ def test_energy_score_does_not_reward_a_stationary_transition() -> None:
     assert result.diagnostics.step_distance_m == 0.0
     assert result.components.energy == 0.0
     assert result.components.progress == 0.0
+
+
+def _band_config() -> PlannerRFTEnergyRewardConfig:
+    payload = _config().model_dump(mode="python")
+    payload["energy"] = {
+        "mode": "calibrated_band",
+        "reference_ml_per_km": 50.0,
+        "minimum_step_distance_m": 0.01,
+        "band_full_score_ml_per_km": 44.0,
+        "band_zero_score_ml_per_km": 50.0,
+    }
+    return PlannerRFTEnergyRewardConfig.model_validate(payload)
+
+
+def test_calibrated_band_score_direction_and_saturation() -> None:
+    assert calibrated_band_score(44.0, 44.0, 50.0) == 1.0
+    assert calibrated_band_score(43.0, 44.0, 50.0) == 1.0
+    assert calibrated_band_score(50.0, 44.0, 50.0) == 0.0
+    assert calibrated_band_score(51.0, 44.0, 50.0) == 0.0
+    assert calibrated_band_score(47.0, 44.0, 50.0) == pytest.approx(0.5)
+    assert calibrated_band_score(45.0, 44.0, 50.0) > calibrated_band_score(49.0, 44.0, 50.0)
+
+
+def test_plannerrft_band_energy_reward_scores_intensity_in_the_band() -> None:
+    result = evaluate_plannerrft_energy_step(_band_config(), _metrics())
+
+    intensity = 32.5 * math.exp(0.36)
+    assert result.diagnostics.energy_distance_valid
+    assert result.diagnostics.executed_fuel_proxy_ml_per_km == pytest.approx(intensity)
+    assert result.components.energy == pytest.approx(calibrated_band_score(intensity, 44.0, 50.0))
+    assert 0.0 < result.components.energy < 1.0
+
+
+def test_band_energy_score_does_not_reward_a_stationary_transition() -> None:
+    result = evaluate_plannerrft_energy_step(
+        _band_config(),
+        _metrics(
+            position_xy_m=(0.0, 0.0),
+            velocity_xy_mps=(0.0, 0.0),
+            route_progress_delta_m=0.0,
+            traffic_frame=_frame(),
+        ),
+    )
+
+    assert not result.diagnostics.energy_distance_valid
+    assert result.components.energy == 0.0
+
+
+def test_energy_band_config_validation() -> None:
+    payload = _band_config().model_dump(mode="python")
+    del payload["energy"]["band_zero_score_ml_per_km"]
+    with pytest.raises(ValueError, match="calibrated_band energy mode requires"):
+        PlannerRFTEnergyRewardConfig.model_validate(payload)
+
+    inverted = _band_config().model_dump(mode="python")
+    inverted["energy"]["band_full_score_ml_per_km"] = 50.0
+    inverted["energy"]["band_zero_score_ml_per_km"] = 44.0
+    with pytest.raises(ValueError, match="zero_score above full_score"):
+        PlannerRFTEnergyRewardConfig.model_validate(inverted)
+
+    leaked = _config().model_dump(mode="python")
+    leaked["energy"]["band_full_score_ml_per_km"] = 44.0
+    with pytest.raises(ValueError, match="only allowed in calibrated_band mode"):
+        PlannerRFTEnergyRewardConfig.model_validate(leaked)
 
 
 def test_ttc_and_terminal_gates_are_independent_auditable_components() -> None:

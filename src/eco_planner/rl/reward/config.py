@@ -84,8 +84,27 @@ class SpeedRewardConfig(_StrictRewardModel):
 
 
 class EnergyRewardConfig(_StrictRewardModel):
+    mode: Literal["reference_exponential", "calibrated_band"] = "reference_exponential"
     reference_ml_per_km: StrictFloat = Field(gt=0.0)
     minimum_step_distance_m: StrictFloat = Field(gt=0.0)
+    band_full_score_ml_per_km: StrictFloat | None = None
+    band_zero_score_ml_per_km: StrictFloat | None = None
+
+    @model_validator(mode="after")
+    def validate_energy_band(self) -> EnergyRewardConfig:
+        if self.mode == "calibrated_band":
+            if self.band_full_score_ml_per_km is None or self.band_zero_score_ml_per_km is None:
+                raise ValueError(
+                    "calibrated_band energy mode requires band_full_score_ml_per_km "
+                    "and band_zero_score_ml_per_km"
+                )
+            if self.band_zero_score_ml_per_km <= self.band_full_score_ml_per_km:
+                raise ValueError("energy band requires zero_score above full_score")
+        elif (
+            self.band_full_score_ml_per_km is not None or self.band_zero_score_ml_per_km is not None
+        ):
+            raise ValueError("energy band thresholds are only allowed in calibrated_band mode")
+        return self
 
 
 class PlannerRFTEnergyRewardConfig(_StrictRewardModel):

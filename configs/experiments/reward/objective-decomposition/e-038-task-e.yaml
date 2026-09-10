@@ -1,0 +1,30 @@
+# Issue #94 Task E: objective decomposition with the calibrated efficiency-band energy
+# representation. Same protocol as diagnostic.yaml; the energy_band section derives the
+# band thresholds from the fixed source batch's executed-intensity quantiles and guards
+# them against the pre-fixed frozen values (deterministic, so tight rtol).
+lambdas: [16.0, 64.0, 256.0]
+quantiles: [0.0, 0.05, 0.25, 0.5, 0.75, 0.9, 0.95, 1.0]
+progress_target_score: 0.6
+comfort_target_score: 0.6
+calibration_match_tolerance:
+  rtol: 0.05
+  atol: 0.0
+expected_calibration:
+  full_score_delta_m: 1.7813475926717124
+  longitudinal_acceleration_limit_mps2: 4.157548461641585
+  lateral_acceleration_limit_mps2: 3.0
+  jerk_limit_mps3: 111.70486995152065
+  yaw_rate_limit_radps: 0.5
+energy_band:
+  full_score_intensity_quantile: 0.10
+  zero_score_intensity_quantile: 0.90
+  expected_full_score_ml_per_km: 46.37086372375488
+  expected_zero_score_ml_per_km: 48.7514030456543
+  match_tolerance:
+    rtol: 1.0e-6
+    atol: 0.0
+gate:
+  endpoint_max_actor_head_cosine: 0.99
+  min_normalized_advantage_rmse: 0.10
+  min_sign_flip_fraction: 0.05
+  min_stress_fraction_of_endpoint_separation: 0.5

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
+from collections.abc import Sequence
 from pathlib import Path
 
+import numpy as np
 from omegaconf import OmegaConf
 
 from eco_planner._repository import REPOSITORY_ROOT
@@ -13,7 +16,7 @@ from eco_planner.artifacts import (
     write_npz,
 )
 from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.rl import PlannerRFTNoEnergyRewardConfig
+from eco_planner.rl import PlannerRFTNoEnergyRewardConfig, RolloutEpisode, concatenate_tensordicts
 
 from ..fixed_batch import (
     ADVANTAGE_FORMS,
@@ -28,8 +31,42 @@ from ..fixed_batch import (
     write_runtime_metadata,
 )
 from ..fixed_batch.calibration import verify_original_components
-from .config import DecompositionConfig
+from .config import DecompositionConfig, EnergyBandConfig
 from .diagnostics import analyze_decomposition
+
+
+def apply_energy_band(
+    calibrated: PlannerRFTNoEnergyRewardConfig,
+    episodes: Sequence[RolloutEpisode],
+    band: EnergyBandConfig,
+) -> tuple[PlannerRFTNoEnergyRewardConfig, dict[str, dict[str, float]]]:
+    """Derive the efficiency-band thresholds from batch intensity quantiles, guard them
+    against the frozen pre-fixed values, and switch the profile's energy mode."""
+    audit = concatenate_tensordicts([episode.audit for episode in episodes])
+    intensity = audit["executed_fuel_proxy_ml_per_km"].numpy().astype(np.float64).reshape(-1)
+    full = float(np.quantile(intensity, band.full_score_intensity_quantile))
+    zero = float(np.quantile(intensity, band.zero_score_intensity_quantile))
+    checks: dict[str, dict[str, float]] = {}
+    for field, actual, expected in (
+        ("energy.band_full_score_ml_per_km", full, band.expected_full_score_ml_per_km),
+        ("energy.band_zero_score_ml_per_km", zero, band.expected_zero_score_ml_per_km),
+    ):
+        if not math.isclose(
+            actual,
+            expected,
+            rel_tol=band.match_tolerance.rtol,
+            abs_tol=band.match_tolerance.atol,
+        ):
+            raise ValueError(
+                f"source batch energy-band threshold is inconsistent with the frozen value "
+                f"for {field}: {actual!r} vs {expected!r}"
+            )
+        checks[field] = {"actual": actual, "expected": expected}
+    payload = calibrated.model_dump()
+    payload["energy"]["mode"] = "calibrated_band"
+    payload["energy"]["band_full_score_ml_per_km"] = full
+    payload["energy"]["band_zero_score_ml_per_km"] = zero
+    return PlannerRFTNoEnergyRewardConfig.model_validate(payload), checks
 
 
 def run(source: Path, config_path: Path, output: Path, *, figures: bool = True) -> dict:
@@ -41,6 +78,9 @@ def run(source: Path, config_path: Path, output: Path, *, figures: bool = True) 
     verify_original_components(episodes, base)
     calibrated = calibrate(raw_arrays(episodes), base, study)
     calibration_checks = verify_expected_calibration(calibrated, study)
+    energy_band_checks: dict[str, dict[str, float]] | None = None
+    if study.energy_band is not None:
+        calibrated, energy_band_checks = apply_energy_band(calibrated, episodes, study.energy_band)
     scenario_ids = batch.scenario_ids
     runtime = restore_runtime(source, batch)
     updater, initial_hash = runtime.updater, runtime.initial_policy_hash
@@ -88,6 +128,7 @@ def run(source: Path, config_path: Path, output: Path, *, figures: bool = True) 
             "source_batch": str(source.resolve()),
             "calibrated_reward": calibrated.model_dump(),
             "calibration_verification": calibration_checks,
+            "energy_band_verification": energy_band_checks,
             "initial_policy_hash": initial_hash,
             "decision": "Gate C evaluated with Issue #94 engineering thresholds; "
             "Task D entry is decided from the recorded gate verdict",
