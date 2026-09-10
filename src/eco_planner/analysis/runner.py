@@ -8,6 +8,7 @@ from .io import read_json, write_json
 from .reporting.markdown import write_report
 
 EXPERIMENTS = (
+    "guidance-control-authority",
     "lambda-identifiability",
     "reward-calibration",
     "objective-decomposition",
@@ -53,6 +54,12 @@ def publish(
     source_file: Path | None = None,
 ) -> dict[str, Any]:
     """Also used by experiment writers, after all original artifacts and guards are complete."""
+    if experiment == "guidance-control-authority":
+        from eco_planner.experiments.guidance_control_authority.report import (
+            publish as intervention,
+        )
+
+        return intervention(source, output, figures=figures)
     study = None
     seed = 0
     if experiment in ("lambda-identifiability", "objective-decomposition", "critic-gae-ablation"):
