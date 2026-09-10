@@ -7,8 +7,9 @@ import math
 import optuna
 from optuna.trial import FrozenTrial, TrialState
 
-from eco_planner.analysis.stability import importance
-from eco_planner.experiments.ppo_stability.config import PPOStabilityStudyConfig
+from eco_planner.analysis import importance
+
+from .config import PPOStabilityStudyConfig
 
 
 def summarize_stage_a(study: optuna.Study, config: PPOStabilityStudyConfig) -> dict[str, object]:

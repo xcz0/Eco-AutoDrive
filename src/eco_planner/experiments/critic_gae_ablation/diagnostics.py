@@ -10,28 +10,28 @@ import numpy as np
 import torch
 from tensordict import TensorDictBase
 
-from eco_planner.analysis.statistics import advantage_comparison, statistics
-from eco_planner.analysis.statistics import gradient_comparison as _gradient_comparison
-from eco_planner.analysis.statistics import rmse as _rmse
-from eco_planner.experiments.critic_gae_ablation.config import AttributionThresholds
-from eco_planner.experiments.fixed_batch.gradients import (
+from eco_planner.analysis import advantage_comparison, gradient_comparison, rmse, statistics
+from eco_planner.rl import (
+    PPO_BATCH_KEYS,
+    PlannerRFTNoEnergyRewardConfig,
+    PPOConfig,
+    PPOUpdater,
+    RolloutEpisode,
+    build_ppo_batch,
+    concatenate_tensordicts,
+    normalize_full_batch_advantage,
+)
+
+from ..fixed_batch.gradients import (
     ADVANTAGE_FORMS,
     GRADIENT_GROUPS,
     actor_backward,
 )
-from eco_planner.experiments.fixed_batch.rewards import (
+from ..fixed_batch.rewards import (
     energy_only_reward,
     reweight,
 )
-from eco_planner.rl.optimization import (
-    PPO_BATCH_KEYS,
-    PPOConfig,
-    PPOUpdater,
-    build_ppo_batch,
-    normalize_full_batch_advantage,
-)
-from eco_planner.rl.reward.config import PlannerRFTNoEnergyRewardConfig
-from eco_planner.rl.rollout.contracts import RolloutEpisode, concatenate_tensordicts
+from .config import AttributionThresholds
 
 CREDIT_FORMS = ("standard_gae", "reward_only_gae", "discounted_return")
 ARM_LABELS = ("r0", "energy_only")
@@ -175,12 +175,12 @@ def analyze_critic_gae_ablation(
                 arrays[f"arm_r0__{form}__normalized_advantage"],
                 arrays[f"arm_energy_only__{form}__normalized_advantage"],
             ),
-            "normalized_advantage_rmse": _rmse(
+            "normalized_advantage_rmse": rmse(
                 arrays[f"arm_r0__{form}__normalized_advantage"],
                 arrays[f"arm_energy_only__{form}__normalized_advantage"],
             ),
             "gradients": {
-                group: _gradient_comparison(
+                group: gradient_comparison(
                     gradients[("r0", form)]["z"][group],
                     gradients[("energy_only", form)]["z"][group],
                 )
@@ -194,12 +194,12 @@ def analyze_critic_gae_ablation(
                     arrays[f"arm_r0__{form}__{key}"],
                     arrays[f"arm_energy_only__{form}__{key}"],
                 ),
-                "advantage_rmse": _rmse(
+                "advantage_rmse": rmse(
                     arrays[f"arm_r0__{form}__{key}"],
                     arrays[f"arm_energy_only__{form}__{key}"],
                 ),
                 "gradients": {
-                    group: _gradient_comparison(
+                    group: gradient_comparison(
                         gradients[("r0", form)][advantage_form][group],
                         gradients[("energy_only", form)][advantage_form][group],
                     )

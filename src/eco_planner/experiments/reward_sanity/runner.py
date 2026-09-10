@@ -6,10 +6,11 @@ from pathlib import Path
 from omegaconf import OmegaConf
 
 from eco_planner._repository import REPOSITORY_ROOT
-from eco_planner.analysis.runner import publish
+from eco_planner.analysis import publish
 from eco_planner.artifacts import write_json
-from eco_planner.experiments.reward_sanity.config import load_sanity_config
-from eco_planner.experiments.reward_sanity.diagnostics import evaluate_sanity
+
+from .config import load_sanity_config
+from .diagnostics import evaluate_sanity
 
 
 def run_sanity(config_path: Path, output_root: Path, *, figures: bool = True) -> int:

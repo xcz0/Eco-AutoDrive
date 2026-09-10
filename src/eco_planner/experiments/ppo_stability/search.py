@@ -11,15 +11,16 @@ from omegaconf import OmegaConf
 from optuna.trial import Trial
 
 from eco_planner.artifacts import write_json
-from eco_planner.experiments.ppo_stability.composition import compose_trial_training_config
-from eco_planner.experiments.ppo_stability.config import (
+from eco_planner.jobs import run_training_job
+from eco_planner.rl import TrainingUpdateSummary
+
+from .composition import compose_trial_training_config
+from .config import (
     PPOStabilityStudyConfig,
     SearchSpace,
     TrialParameters,
 )
-from eco_planner.experiments.ppo_stability.monitor import StabilityMonitor
-from eco_planner.jobs import run_training_job
-from eco_planner.rl.artifacts import TrainingUpdateSummary
+from .monitor import StabilityMonitor
 
 
 def sample_trial_parameters(trial: Trial, config: SearchSpace) -> TrialParameters:

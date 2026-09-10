@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from omegaconf import DictConfig, open_dict
 
-from eco_planner.experiments.ppo_stability.config import (
+from eco_planner.jobs import compose_job_config
+from eco_planner.rl import TrainingJobConfig, parse_training_config
+
+from .config import (
     PPOStabilityStudyConfig,
     TrialParameters,
     scenarios,
 )
-from eco_planner.jobs import compose_job_config
-from eco_planner.rl.config import TrainingJobConfig, parse_training_config
 
 
 def compose_trial_training_config(

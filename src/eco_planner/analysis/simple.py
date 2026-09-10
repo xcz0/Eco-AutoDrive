@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from eco_planner.rl.artifacts.summaries import TrainingRunSummary
+from eco_planner.rl.artifacts import TrainingRunSummary
 
 from .io import read_json
 from .statistics import measurement, statistics

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, StrictFloat
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
 
 
 class ExpectedCalibration(BaseModel):
@@ -34,3 +34,12 @@ class CalibrationGuardSource(Protocol):
 
     expected_calibration: ExpectedCalibration
     calibration_match_tolerance: CalibrationMatchTolerance
+
+
+class CollectionConfig(BaseModel):
+    """Configuration for one update-0 batch collection."""
+
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid", allow_inf_nan=False)
+    protocol: str
+    training_seed: StrictInt = Field(ge=0)
+    overrides: list[str]

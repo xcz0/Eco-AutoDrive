@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from eco_planner.envs.domain import TransitionMetrics
 
+from .components.comfort import component_score
+from .components.progress import score_delta
 from .config import (
     PlannerRFTEnergyRewardConfig,
     PlannerRFTNoEnergyRewardConfig,
@@ -42,4 +44,6 @@ __all__ = [
     "create_reward_evaluator",
     "evaluate_plannerrft_energy_step",
     "evaluate_plannerrft_no_energy_step",
+    "component_score",
+    "score_delta",
 ]

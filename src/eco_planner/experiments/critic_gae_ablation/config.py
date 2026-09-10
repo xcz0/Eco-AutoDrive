@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, model_validator
 
-from eco_planner.experiments.fixed_batch.config import (
+from ..fixed_batch.config import (
     CalibrationMatchTolerance,
     ExpectedCalibration,
 )

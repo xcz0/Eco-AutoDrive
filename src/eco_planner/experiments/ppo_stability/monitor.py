@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import math
 
-from eco_planner.experiments.ppo_stability.config import PruningConfig
-from eco_planner.rl.artifacts import TrainingUpdateSummary
+from eco_planner.rl import TrainingUpdateSummary
+
+from .config import PruningConfig
 
 
 class StabilityViolation(RuntimeError):

@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from . import fixed_batch
+from .fixed_batch import calibration, recompute
 from .io import read_json, write_json
 from .reporting.markdown import write_report
 
@@ -56,9 +56,9 @@ def publish(
     study = None
     seed = 0
     if experiment in ("lambda-identifiability", "objective-decomposition", "critic-gae-ablation"):
-        data = fixed_batch.recompute(source)
+        data = recompute(source)
     elif experiment == "reward-calibration":
-        data = fixed_batch.calibration(source)
+        data = calibration(source)
     elif experiment == "energy-sweep":
         from .evaluation import energy_sweep
 

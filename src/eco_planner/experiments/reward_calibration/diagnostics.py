@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from eco_planner.analysis.statistics import statistics
-from eco_planner.experiments.fixed_batch.calibration import MOTION_LIMITS, scored_arrays
-from eco_planner.experiments.reward_calibration.config import CalibrationConfig
-from eco_planner.rl.reward.config import PlannerRFTNoEnergyRewardConfig
+from eco_planner.analysis import statistics
+from eco_planner.rl.reward import PlannerRFTNoEnergyRewardConfig
+
+from ..fixed_batch.calibration import MOTION_LIMITS, scored_arrays
+from .config import CalibrationConfig
 
 
 def dynamic_range_audit(

@@ -7,9 +7,8 @@ import numpy as np
 from omegaconf import OmegaConf
 from pydantic import BaseModel, ConfigDict, Field
 
-from eco_planner.evaluation.artifacts.io import load_job_summary
-from eco_planner.evaluation.artifacts.models import JobSummary
-from eco_planner.rl.artifacts.summaries import TrainingRunSummary
+from eco_planner.evaluation.artifacts import JobSummary, load_job_summary
+from eco_planner.rl.artifacts import TrainingRunSummary
 
 from .io import read_json
 from .statistics import statistics

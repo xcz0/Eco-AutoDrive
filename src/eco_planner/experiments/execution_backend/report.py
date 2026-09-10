@@ -11,10 +11,9 @@ from typing import cast
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
-from eco_planner.analysis.runner import publish
-from eco_planner.analysis.simple import mode_report as _mode_report
+from eco_planner.analysis import mode_report, publish
 from eco_planner.artifacts import collect_repository_metadata
-from eco_planner.benchmarking.config import write_benchmark_artifacts
+from eco_planner.benchmarking import write_benchmark_artifacts
 from eco_planner.evaluation import JobSummary, load_job_summary, load_runtime_metadata
 
 
@@ -92,9 +91,7 @@ def build_report(
                 "vector": str(vector_root.resolve()),
             },
         },
-        "evaluation_modes": {
-            name: _mode_report(jobs, walls[name]) for name, jobs in groups.items()
-        },
+        "evaluation_modes": {name: mode_report(jobs, walls[name]) for name, jobs in groups.items()},
     }
 
 

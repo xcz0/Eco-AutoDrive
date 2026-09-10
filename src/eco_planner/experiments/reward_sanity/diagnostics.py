@@ -15,8 +15,9 @@ from eco_planner.envs import (
     TransitionMetricInput,
     derive_transition_metrics,
 )
-from eco_planner.experiments.reward_sanity.config import RewardInputConfig, SanityConfig
 from eco_planner.rl.reward import RewardEvaluator, RewardProfileConfig
+
+from .config import RewardInputConfig, SanityConfig
 
 _SCORE_FIELDS = (
     "total",

@@ -9,13 +9,14 @@ from typing import Literal
 from omegaconf import DictConfig
 
 from eco_planner.evaluation import EvaluationJobConfig, parse_evaluation_config
-from eco_planner.experiments.scalar_reward.config import (
-    ScalarRewardProtocolConfig,
-    TrainedPolicyArmConfig,
-)
 from eco_planner.jobs import compose_job_config
 from eco_planner.models import Ddim5SamplerConfig
 from eco_planner.rl.config import TrainingJobConfig, parse_training_config
+
+from .config import (
+    ScalarRewardProtocolConfig,
+    TrainedPolicyArmConfig,
+)
 
 ArmName = Literal["a1", "a2"]
 CheckpointLabel = Literal["initial", "final"]

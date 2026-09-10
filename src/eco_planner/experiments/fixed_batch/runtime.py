@@ -7,10 +7,11 @@ import torch
 
 from eco_planner._repository import REPOSITORY_ROOT
 from eco_planner.artifacts import collect_repository_metadata, write_json, write_tracked_diff
-from eco_planner.experiments.fixed_batch.artifacts import FixedBatch
 from eco_planner.rl.artifacts import policy_state_hash
 from eco_planner.rl.optimization import PPOUpdater, load_exploration_policy_checkpoint
 from eco_planner.rl.policy import ExplorationPolicy
+
+from .artifacts import FixedBatch
 
 
 @dataclass(frozen=True)

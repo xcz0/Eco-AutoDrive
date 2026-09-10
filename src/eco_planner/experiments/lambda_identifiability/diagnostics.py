@@ -9,25 +9,22 @@ from typing import Any
 import numpy as np
 import torch
 
-from eco_planner.analysis.statistics import (
+from eco_planner.analysis import (
     advantage_comparison,
     cosine,
     paired_difference,
     statistics,
 )
-from eco_planner.experiments.fixed_batch.gradients import (
-    actor_backward,
-)
-from eco_planner.experiments.fixed_batch.rewards import COMPONENTS, reward_profile, reweight
-from eco_planner.rl.optimization import (
+from eco_planner.rl import (
+    PlannerRFTNoEnergyRewardConfig,
     PPOUpdater,
+    RolloutEpisode,
     build_ppo_batch,
+    concatenate_tensordicts,
     normalize_full_batch_advantage,
 )
-from eco_planner.rl.reward.config import (
-    PlannerRFTNoEnergyRewardConfig,
-)
-from eco_planner.rl.rollout.contracts import RolloutEpisode, concatenate_tensordicts
+
+from ..fixed_batch import COMPONENTS, actor_backward, reward_profile, reweight
 
 
 def analyze(

@@ -5,7 +5,9 @@ from pathlib import Path
 from typing import Literal
 
 from eco_planner.analysis.runner import publish_scalar_run
-from eco_planner.experiments.scalar_reward.composition import (
+from eco_planner.jobs import run_evaluation_job, run_training_job
+
+from .composition import (
     ArmName,
     CheckpointLabel,
     arm_config,
@@ -13,10 +15,7 @@ from eco_planner.experiments.scalar_reward.composition import (
     compose_arm_training_config,
     compose_policy_evaluation_config,
 )
-from eco_planner.experiments.scalar_reward.config import (
-    load_scalar_reward_protocol,
-)
-from eco_planner.jobs import run_evaluation_job, run_training_job
+from .config import load_scalar_reward_protocol
 
 
 def run_command(

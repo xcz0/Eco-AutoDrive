@@ -9,9 +9,13 @@ from typing import Any, cast
 import numpy as np
 import torch
 
-from eco_planner.analysis.statistics import advantage_comparison, paired_difference, statistics
-from eco_planner.analysis.statistics import gradient_comparison as _gradient_comparison
-from eco_planner.analysis.statistics import rmse as _rmse
+from eco_planner.analysis.statistics import (
+    advantage_comparison,
+    gradient_comparison,
+    paired_difference,
+    statistics,
+)
+from eco_planner.analysis.statistics import rmse as rmse
 from eco_planner.experiments.fixed_batch.gradients import (
     ADVANTAGE_FORMS,
     GRADIENT_GROUPS,
@@ -184,11 +188,11 @@ def analyze_decomposition(
             **advantage_comparison(
                 arrays[f"arm_{i}_normalized_advantage"], arrays[f"arm_{j}_normalized_advantage"]
             ),
-            "normalized_advantage_rmse": _rmse(
+            "normalized_advantage_rmse": rmse(
                 arrays[f"arm_{i}_normalized_advantage"], arrays[f"arm_{j}_normalized_advantage"]
             ),
             "gradients": {
-                group: _gradient_comparison(gradients[i]["z"][group], gradients[j]["z"][group])
+                group: gradient_comparison(gradients[i]["z"][group], gradients[j]["z"][group])
                 for group in GRADIENT_GROUPS
             },
             "matched_differences": {},
@@ -208,9 +212,9 @@ def analyze_decomposition(
             arrays["endpoint_center_advantage_delta"] = delta
         endpoint_forms[form] = {
             **comparison,
-            "advantage_rmse": _rmse(arrays[f"arm_0_{key}"], arrays[f"arm_{endpoint_index}_{key}"]),
+            "advantage_rmse": rmse(arrays[f"arm_0_{key}"], arrays[f"arm_{endpoint_index}_{key}"]),
             "gradients": {
-                group: _gradient_comparison(
+                group: gradient_comparison(
                     gradients[0][form][group], gradients[endpoint_index][form][group]
                 )
                 for group in GRADIENT_GROUPS
