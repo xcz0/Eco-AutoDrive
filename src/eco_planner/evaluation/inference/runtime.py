@@ -16,6 +16,7 @@ from eco_planner.models import (
     GuidanceConfig,
     NoGuidanceConfig,
     OfficialDiffusionPlannerConfig,
+    OrthogonalPolicyGuidanceConfig,
     SamplerConfig,
     SamplerReport,
     load_official_diffusion_planner,
@@ -96,10 +97,13 @@ class FabricInferenceRuntime:
         transition_generators: Sequence[torch.Generator | None],
         *,
         profile: bool = False,
+        guidance_action: torch.Tensor | None = None,
     ) -> InferenceDecision:
         """Run a batch with independently owned per-slot diffusion RNG streams."""
 
         batch = validate_artifact_observation_fields(observation, self.planner_config)
+        if guidance_action is not None:
+            validate_manual_guidance(guidance_action, batch, self.device, self.guidance_config)
         config = self.planner_config
         expected_shape = (batch, 1 + config.predicted_neighbor_num, config.future_len, 4)
         if tuple(standard_normal_noise.shape) != expected_shape:
@@ -130,9 +134,17 @@ class FabricInferenceRuntime:
                 )
         else:
             with torch.enable_grad():
-                result = self._planner(
-                    device_observation, standard_normal_noise, transition_generators
-                )
+                if guidance_action is None:
+                    result = self._planner(
+                        device_observation, standard_normal_noise, transition_generators
+                    )
+                else:
+                    result = self._planner(
+                        device_observation,
+                        standard_normal_noise,
+                        transition_generators,
+                        guidance_action=guidance_action,
+                    )
         synchronize_if_cuda(self.device, profile)
         execution_s = perf_counter() - execution_started if profile else 0.0
         prediction = result.prediction.detach()
@@ -166,6 +178,20 @@ class FabricInferenceRuntime:
             else None
         )
         return InferenceDecision(execution, resolve_audit, timing)
+
+
+def validate_manual_guidance(
+    action: torch.Tensor, batch: int, device: torch.device, config: GuidanceConfig
+) -> None:
+    """Validate direct planner actions, including closed-interval intervention endpoints."""
+    if not isinstance(config, OrthogonalPolicyGuidanceConfig):
+        raise ValueError("manual actions require orthogonal_policy guidance")
+    if tuple(action.shape) != (batch, 2):
+        raise ValueError("manual guidance must have shape [B, 2]")
+    if action.device != device or action.dtype != torch.float32:
+        raise TypeError("manual guidance must be float32 on the runtime device")
+    if not torch.isfinite(action).all() or torch.any(action.abs() > 1):
+        raise ValueError("manual guidance must be finite and in [-1, 1]")
 
 
 def create_fabric_inference_runtime(

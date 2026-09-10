@@ -15,6 +15,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run or analyze repository experiments")
     experiments = parser.add_subparsers(dest="experiment", required=True)
     actions = {
+        "guidance-control-authority": ("run", "analyze"),
         "fixed-batch": ("collect",),
         "lambda-identifiability": ("run", "analyze"),
         "reward-calibration": ("run", "analyze"),
@@ -28,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
         "execution-backend": ("report", "analyze"),
     }
     defaults = {
+        "guidance-control-authority": "intervention.yaml",
         "fixed-batch": "collect.yaml",
         "lambda-identifiability": "diagnostic.yaml",
         "reward-calibration": "calibration.yaml",
@@ -94,6 +96,7 @@ def bootstrap(args: argparse.Namespace) -> None:
     if args.action in ("analyze", "report", "summarize"):
         return
     if args.experiment in (
+        "guidance-control-authority",
         "fixed-batch",
         "lambda-identifiability",
         "reward-calibration",
@@ -103,7 +106,13 @@ def bootstrap(args: argparse.Namespace) -> None:
         "ppo-stability",
     ):
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-    if args.experiment in ("fixed-batch", "energy-sweep", "scalar-reward", "ppo-stability"):
+    if args.experiment in (
+        "guidance-control-authority",
+        "fixed-batch",
+        "energy-sweep",
+        "scalar-reward",
+        "ppo-stability",
+    ):
         from eco_planner.configuration import load_local_environment
 
         load_local_environment(LOCAL_ENVIRONMENT_PATH)
@@ -112,6 +121,10 @@ def bootstrap(args: argparse.Namespace) -> None:
 def dispatch(args: argparse.Namespace) -> dict[str, Any] | int:
     figures = not getattr(args, "no_figures", False)
     name = args.experiment
+    if name == "guidance-control-authority" and args.action == "run":
+        from eco_planner.experiments.guidance_control_authority.runner import run
+
+        return run(args.config, args.output_dir, figures=figures)
     if args.action == "analyze":
         from eco_planner.analysis.runner import analyze
 

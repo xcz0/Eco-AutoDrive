@@ -26,7 +26,7 @@ from eco_planner.rl import (
 )
 
 from .artifacts import SHARED_SOURCES, copy_sources, write_batch
-from .collection import CollectionConfig
+from .config import CollectionConfig
 
 
 def collect(config_path: Path, output_dir: Path) -> dict[str, Any]:

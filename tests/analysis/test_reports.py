@@ -465,11 +465,42 @@ import scripts.experiments.__main__
 import eco_planner.analysis.evaluation
 import eco_planner.analysis.simple
 import eco_planner.analysis.stability
+import eco_planner.experiments.guidance_control_authority.report
 from eco_planner.rl.artifacts import TrainingRunSummary
 for root in ('torch', 'metadrive', 'panda3d', 'eco_planner.rl.trainer', 'eco_planner.models'):
     assert not any(k == root or k.startswith(root + '.') for k in sys.modules), root
 """
     subprocess.run([sys.executable, "-c", script], check=True)
+
+
+@pytest.mark.parametrize("module", ["eco_planner.analysis", "eco_planner.rl.artifacts"])
+def test_offline_package_initialization_never_imports_torch(module):
+    script = f"""
+import importlib
+import sys
+class BlockExecutionImports:
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname in ('torch', 'metadrive', 'panda3d', 'eco_planner.models'):
+            raise AssertionError('offline initialization imported ' + fullname)
+sys.meta_path.insert(0, BlockExecutionImports())
+importlib.import_module({module!r})
+from eco_planner.rl.artifacts import TrainingRunSummary
+assert TrainingRunSummary.__name__ == 'TrainingRunSummary'
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_rl_lazy_exports_keep_execution_symbols():
+    from eco_planner import rl
+    from eco_planner.rl.artifacts import TrainingRunSummary
+    from eco_planner.rl.optimization import PPOUpdater
+    from eco_planner.rl.policy import ExplorationPolicy
+
+    assert rl.PPOUpdater is PPOUpdater
+    assert rl.ExplorationPolicy is ExplorationPolicy
+    assert rl.TrainingRunSummary is TrainingRunSummary
+    with pytest.raises(AttributeError):
+        _ = rl.not_an_export
 
 
 @pytest.mark.parametrize(

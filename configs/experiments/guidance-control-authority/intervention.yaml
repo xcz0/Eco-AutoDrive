@@ -1,0 +1,12 @@
+protocol: configs/experiments/scalar-reward/protocol.yaml
+runtime_seed: 0
+noise_seeds: [0, 1, 2]
+longitudinal_actions: [-1.0, -0.5, 0.0, 0.5, 1.0]
+lateral_action: 0.0
+window_steps: 20
+spearman_threshold: 0.8
+noise_multiplier: 2.0
+required_scenarios: 9
+overrides:
+  - components/resources=rtx_a4000
+  - env.horizon=21

@@ -355,6 +355,32 @@ reward-to-go（逐 episode 反向递推，无 critic 无 bootstrap，仅诊断�
 between-arm advantage 差分与 V 无关的抵消恒等式、V=0 GAE 等于 (γλ)-discounted return
 与 reward-to-go 递推均由测试逐元素核验。
 
+### Guidance control-authority intervention
+
+`just experiment guidance-control-authority run --output-dir <new-directory>` 是 Issue #94
+Task D 的人工干预入口；配置位于 `configs/experiments/guidance-control-authority/`。
+复用 scalar-reward protocol 的训练场景池和模型/仿真配置，但不构造 Exploration Policy、
+critic 或 optimizer。Fabric inference runtime 的可选 `guidance_action` 接收设备上的
+有限 `float32 [B,2]`，范围为闭区间 `[-1,1]`，只用于 `orthogonal_policy`；因此 ±1 是
+合法的直接 planner intervention，不经过 Beta 分布或 log-prob。
+
+每个 matched group 固定场景、reset seed、物理 slot、batch shape 和 noise seed，依次运行
+五个 longitudinal arms，lateral 固定为 0。每 arm 独立 reset，并逐元素核对初始 observation、
+simulator state 与逐周期 initial noise。DDIM stochasticity 固定为 0；reference 与 guided
+pass 沿用 planner 的共享随机流契约。使用 `ExecutionMode.ROLLOUT`，每周期重规划后仅执行
+0.1 s；首步为 immediate，固定 20 步为 2 s short horizon，env horizon 必须大于窗口。
+提前结束的 slot 不再 step、不补零；仍保留固定 inference batch 和 noise draw 次数，
+其终止后的 planner audit 不计入执行指标。运行错误保留当前 arm 的部分 episode 证据并抛出。
+
+执行统计使用 `TransitionMetrics`；Energy 使用实际执行 fuel proxy 流和现有 `energy_score`，
+窗口 intensity 为累计 fuel 除以累计距离，零距离记未定义。保存每步实际运动、终止事实、
+reference/guided prediction、guidance diagnostics 与 initial noise。
+两个主指标为窗口平均执行速度与窗口 fuel proxy intensity，分别计算每场景的五个 arm
+repeat 均值的 Spearman、配对 ±1 endpoint 差，以及五个 arm 内 repeat 样本方差均值的
+平方根。常量相关性记未定义；零噪声不使零效应通过。阈值和一致方向所需场景数由实验配置
+显式给定；全部 episode 的安全/完整性、时间窗口方向冲突、planner-output 到执行的方向链路
+及 proxy 公式一致性单独记录。Gate 失败不等于实验执行失败，也不授权后续 PPO tuning。
+
 ## 实验离线分析与报告
 
 `experiments` 拥有采集、reward/校准、GAE/backward、gate、候选晋级和 correctness guards。
@@ -364,6 +390,8 @@ between-arm advantage 差分与 V 无关的抵消恒等式、V=0 GAE 等于 (γ�
 分析入口、training summary models 和 evaluation artifact readers 的导入不加载 Torch、
 MetaDrive、Panda3D、planner 或训练执行器。两层复用 float64 分布统计、相关性、cosine、
 RMSE、梯度向量比较和逐 scenario 配对差值；benchmark measurement 的原字段与算法保持不变。
+`eco_planner.rl` 根包的现有导出按需加载；访问纯 training summary 不触发 artifact I/O、
+policy 或 rollout 初始化，访问执行类时才加载所属模块。其符号与原所属模块保持同一对象。
 
 `just experiment <experiment> analyze --source-dir <source> --output-dir <output>` 是显式离线入口。
 source/output 不能相同或互相嵌套；分析不写回源数据。已有实验运行/汇总入口在原始产物和
@@ -378,6 +406,7 @@ JSON 保存完整分析证据和图路径，Markdown 保留实验裁定、未定
 | `lambda-identifiability` / `objective-decomposition` / `critic-gae-ablation` | `summary.json`、`diagnostics.npz`、`sample_index.json` |
 | `reward-calibration` | 根目录 summary/sample index/audit JSON 与 NPZ，original/calibrated 子目录的 summary/diagnostics |
 | `energy-sweep` | `matrix_summary.json` 与按 job/guidance 保存的 evaluation summaries |
+| `guidance-control-authority` | `episodes.json` 每步原始指标、`intervention_config.json`、`scenarios.json` |
 | `scalar-reward` | `--config` 显式列出的 protocol、training summaries 和 evaluation 目录 |
 | `ppo-stability` | `study_manifest.yaml`、`study.db`，以及已存在的 stage/diagnostic summaries |
 | `reward-sanity` | `sanity_report.json`，含原 case 结果与 checks |

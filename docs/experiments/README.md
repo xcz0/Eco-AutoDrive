@@ -76,6 +76,7 @@
 | [E-034](records/e-034-issue94-task-b-reward-calibration.md) | 2026-09-09 | 正式离线固定批次诊断 | Issue #94 Task B：复用 E-033 审计并校准 Progress/Comfort，配对重跑 Task A | Progress/Comfort 恢复方差；λ0→16 仍无 sign flip，actor-head cosine 0.999973，norm ratio 0.970824；未观察到明显方向分离，Task C 由用户裁定 |
 | [E-035](records/e-035-issue94-task-c-objective-decomposition.md) | 2026-09-09 | 正式离线固定批次诊断 | Issue #94 Task C：同协议重采源 batch（hash 与 E-033 一致）上比较校准 R0 / λ={16,64,256} / Energy-only，三种 advantage 形式归因 + Gate C | R0 vs Energy-only 在 raw/center/z 下均共线（head cosine ≥0.997），λ stress 单调且达 endpoint 分离的 31–88%；Gate C FAILED，归因 `objective/batch collinearity`（共享 value/GAE 结构主导，非 normalization 压缩） |
 | [E-036](records/e-036-issue94-task-c4-critic-gae-common-term-ablation.md) | 2026-09-09 | 正式离线固定批次诊断 | Issue #94 Task C4：复用 E-035 fixed batch 的 critic/GAE common-term ablation（standard GAE / V=0 reward-only GAE / discounted return，standard arm 与 E-035 逐位一致） | 三种 temporal-credit 形式下 R0 vs Energy-only 均共线（head cosine ≥0.9997）；共享 critic 项在 arm 间差分中严格抵消，归因 `reward/batch collinearity`，Gate C 维持 FAILED；下一步 Task D |
+| [E-037](records/e-037-issue94-task-d-guidance-control-authority.md) | 2026-09-10 | 正式配对闭环人工干预 | Issue #94 Task D：S/SC × seeds 0–7 × 3 noise repeats × 5 longitudinal arms，0.1 s / 2 s 响应 | Gate D PASSED：2 s 执行速度在 12/16 场景负方向通过，Energy intensity 8/16 未过多数门槛；完整预测正响应与首点执行负响应并存，无安全失效；未执行 Task E–H |
 
 ## 服务器训练与正式实验登记模板
 
