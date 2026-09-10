@@ -1,0 +1,59 @@
+src/eco_planner/experiments/reward/fixed_batch/calibration.py
+  s_f85b100e017ab7::t_68190091636528 90-93
+  s_f85b100e017ab7::t_c4dd0ccdcdba5f 12-13
+  s_f85b100e017ab7::t_b0b6838e5e3d83 78-89,94-98,105-106
+src/eco_planner/rl/reward/components/energy.py
+  s_f85b100e017ab7::t_d3f881e70b87bd 12-23,34-42,46
+src/eco_planner/experiments/reward/objective_decomposition/runner.py
+  s_f85b100e017ab7::t_9db6a0e35a1091 5-6,9,19,34,38-71
+  s_f85b100e017ab7::t_a14395b97effee 131
+  s_f85b100e017ab7::t_a044dce9b51f6a 81-83
+tests/training/test_reward.py
+  s_f85b100e017ab7::t_1525e179dd9749 23
+  s_f85b100e017ab7::t_0a17baa4889eb0 162-225
+src/eco_planner/rl/reward/config.py
+  s_f85b100e017ab7::t_74b9b7e7d8614d 87,90-103,105-107
+  s_f85b100e017ab7::t_e8d083f4352669 104
+docs/experiments/README.md
+  s_f85b100e017ab7::t_936a56a8e25ade 80
+src/eco_planner/experiments/reward/fixed_batch/__init__.py
+  s_f85b100e017ab7::t_1d1eb4ac279458 13
+  s_f85b100e017ab7::t_64c0a9a72bc309 33
+tests/training/test_objective_decomposition.py
+  s_f85b100e017ab7::t_e99dca40c1823c 13
+  s_f85b100e017ab7::t_26928b1c121cf1 8,10-12,14-18,23,26
+  s_f85b100e017ab7::t_ade4240244867e 284-360,362-374
+  s_f85b100e017ab7::t_e8d083f4352669 361
+docs/agents/system-contract.md
+  s_f85b100e017ab7::t_cb0c5266e00ad9 331-334
+  s_f85b100e017ab7::t_17c1b9f1e2e717 495
+src/eco_planner/rl/reward/components/__init__.py
+  s_f85b100e017ab7::t_46bee6d32040ae 4,11
+tests/configuration/test_fixed_batch.py
+  s_f85b100e017ab7::t_8a68906a17d515 64
+  s_f85b100e017ab7::t_ace20521afb5a4 151-175,178-184
+  s_f85b100e017ab7::t_e8d083f4352669 176-177
+docs/experiments/records/e-038-issue94-task-e-energy-representation.md
+  s_f85b100e017ab7::t_371c538c60effd 1-203
+configs/experiments/reward/objective-decomposition/e-038-task-e.yaml
+  s_f85b100e017ab7::t_65ed5461bcf319 1-30
+src/eco_planner/experiments/reward/objective_decomposition/config.py
+  s_f85b100e017ab7::t_b7b0476cac158f 25-27
+  s_f85b100e017ab7::t_ffc333c3d3fd9d 21-24,28-37,46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "ad65e77ef4d9a2922372199dbe219bff94c9e531",
+  "prompts": {},
+  "sessions": {
+    "s_f85b100e017ab7": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f7525851affepEnHSHheZ3J3lc",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
