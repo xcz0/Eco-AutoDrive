@@ -1,0 +1,69 @@
+tests/training/test_objective_positive_control.py
+  s_3a0a1d9900bae7::t_ab222c768fac45 90-99
+  s_3a0a1d9900bae7::t_921f6afca50daa 243-245
+  s_3a0a1d9900bae7::t_cec46ab1541130 1-49,51-89,100-121,123-124,126-133,135-202,207-212,214-219,221-224,226,230-242,246-289,293-316,318-344,349-371,373-381,385,387-391,393-427,432,436-445,447-471
+  s_3a0a1d9900bae7::t_c0ceb0f2f783ad 225,227-229
+  s_3a0a1d9900bae7::t_6b09c8aa57b359 122,125
+  s_3a0a1d9900bae7::t_043f81562442a7 382-384,386,392
+  s_3a0a1d9900bae7::t_f64d61c30082da 203-206,213,290-292,317,345-348,372,428-431,433-435,446
+  s_3a0a1d9900bae7::t_d15a472db871ae 50
+  s_3a0a1d9900bae7::t_178851fe8d3b13 220
+  s_3a0a1d9900bae7::t_dca813cde37859 134
+scripts/experiments.py
+  s_3a0a1d9900bae7::t_8082fbc6b17d87 121-129
+docs/experiments/README.md
+  s_8b6eec6a7b3674::t_71347045f4bb12 86
+configs/experiments/training/objective-positive-control.yaml
+  s_3a0a1d9900bae7::t_37879b43b2431b 1-45
+docs/agents/system-contract.md
+  s_8b6eec6a7b3674::t_5427f81f0bdc22 62
+docs/experiments/records/e-040-issue94-task-g-objective-positive-control.md
+  s_8b6eec6a7b3674::t_a3f49793b2e178 1-166
+src/eco_planner/experiments/training/objective_positive_control/runner.py
+  s_3a0a1d9900bae7::t_78e237180509de 1-81,104,112,114-119,121-124,126-128,131-142,144-168,170-187,189-207,210-212,216,219-225,227-237,239-247,249-256,258-263
+  s_8b6eec6a7b3674::t_9f5eca4a074fb8 82,214
+  s_3a0a1d9900bae7::t_a76298dec4c8c9 83-103,105-109,111,120,125,129-130,143,169,188,208-209,217-218,226,238,248,257
+  s_8b6eec6a7b3674::t_8ee273532c00f5 113
+  s_8b6eec6a7b3674::t_f997431e804406 213,215
+  s_3a0a1d9900bae7::t_f64d61c30082da 110
+src/eco_planner/experiments/training/objective_positive_control/composition.py
+  s_3a0a1d9900bae7::t_fa9772b3909a1a 1-98
+src/eco_planner/experiments/training/objective_positive_control/diagnostics.py
+  s_3a0a1d9900bae7::t_963823df3d00cf 1-6,8-92,94-122,124-164,166-235
+  s_3a0a1d9900bae7::t_61151cee8af94e 93
+  s_3a0a1d9900bae7::t_a7929a25640ddf 123
+  s_3a0a1d9900bae7::t_67e3a18a842786 7
+  s_3a0a1d9900bae7::t_f64d61c30082da 165
+src/eco_planner/experiments/training/objective_positive_control/config.py
+  s_3a0a1d9900bae7::t_72d9a1a842fdcd 1-38,47-76,78-94
+  s_3a0a1d9900bae7::t_59f278a0f41384 39-46
+  s_3a0a1d9900bae7::t_db1adfa2f245ed 77
+src/eco_planner/experiments/training/objective_positive_control/__init__.py
+  s_3a0a1d9900bae7::t_7631f1ca387927 1-37
+docs/agents/contracts/training.md
+  s_8b6eec6a7b3674::t_6d41620e57bb1f 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "b0a30c83450c69594a6a4b78a23fdcb031d59188",
+  "prompts": {},
+  "sessions": {
+    "s_3a0a1d9900bae7": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f70316e60ffeF01zRzM2MWCzns",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    },
+    "s_8b6eec6a7b3674": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f6fdde693ffex9N57cvdyWbSu5",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
