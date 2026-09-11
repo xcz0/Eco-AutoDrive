@@ -1,0 +1,21 @@
+tests/training/test_effective_update.py
+  s_8b6eec6a7b3674::t_9f5eca4a074fb8 360,364
+src/eco_planner/experiments/training/effective_update/diagnostics.py
+  s_8b6eec6a7b3674::t_9f5eca4a074fb8 281-282,288,291-293
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "5b543928f2693ce46ae5093ce9d5c04efd2f7f5a",
+  "prompts": {},
+  "sessions": {
+    "s_8b6eec6a7b3674": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f6fdde693ffex9N57cvdyWbSu5",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
