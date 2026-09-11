@@ -13,7 +13,7 @@ Eco-AutoDrive 是个人科研代码库。优先保证**逻辑正确、实验语�
 | 需要确认的内容 | 权威来源 |
 | --- | --- |
 | 高风险领域语义、易混淆概念 | `docs/agents/domain.md`；需要精确定义时再读 `CONTEXT.md` |
-| 当前已实现的数据流、shape、单位、时间语义、训练/评测契约 | `docs/agents/system-contract.md` 的相关章节 + 对应代码和测试 |
+| 当前已实现的数据流、shape、单位、时间语义、训练/评测契约 | `docs/agents/system-contract.md` 按任务索引指向的章节/分篇 + 对应代码和测试 |
 | 当前任务、待完成工作、验收标准 | 当前用户请求 + 对应 GitHub Issue |
 | 已接受的重要设计选择及理由 | 相关 `docs/adr/` |
 | 尚未确定的方法、假设和研究问题 | `docs/research/` |
@@ -86,7 +86,7 @@ just typecheck
 同一事实只维护一个权威位置：
 
 - 稳定领域术语定义变化 → `CONTEXT.md`；只有高风险语义区分变化时才同步 `docs/agents/domain.md`。
-- 已实现的数据或执行契约变化 → `docs/agents/system-contract.md`。
+- 已实现的数据或执行契约变化 → `docs/agents/system-contract.md` 索引中的对应章节/分篇。
 - 新的长期设计选择或既有 ADR 被取代 → `docs/adr/`。
 - 尚未确定的研究假设 → `docs/research/`。
 - 实际完成的研究实验 → `docs/experiments/records/` 并更新实验索引。

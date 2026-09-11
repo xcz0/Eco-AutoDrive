@@ -30,5 +30,5 @@ read-only mode. Experimental decisions remain recorded evidence, never silently 
 plotting. Insufficient data and undefined quantities remain visible in reports.
 
 The implemented input/output and numerical contracts have one authoritative home in
-[system-contract.md](../agents/system-contract.md#实验离线分析与报告). This decision adds the analysis
+[experiment analysis contract](../agents/contracts/experiments.md#实验离线分析与报告). This decision adds the analysis
 boundary without replacing evaluation's artifact ownership or changing training and simulator semantics.

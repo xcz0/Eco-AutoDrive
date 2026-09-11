@@ -24,4 +24,4 @@ replay checks remain because they validate experiment inputs and execution, rath
 source provenance. Historical artifacts and experiment records are not rewritten.
 
 The current numerical, input and artifact contracts live in
-[system-contract.md](../agents/system-contract.md#实验离线分析与报告).
+[experiment analysis contract](../agents/contracts/experiments.md#实验离线分析与报告).
