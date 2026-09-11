@@ -59,7 +59,7 @@
 * `envs.domain.fastsim` 的 `fastsim_fuel_energy` 仅在完整实际执行轨迹结束后离线运行。首个 adapter 固定使用 FASTSim 3.0.6 内置 conventional `2012_Ford_Fusion.yaml`，由显式 grade、环境温度和初始海拔构造 cycle，输出 fuel energy J/Wh，不推导 fuel mL。它不进入在线 reward 或默认 evaluation artifact；MetaDrive proxy 与 FASTSim 不得相加、替换名称或混合解释。具体边界见 ADR 0032。
 * 能耗结果必须关联实际执行 trace、采样间隔、车辆配置、场景特征和终止类型。
 * 程序化地图没有原生坡度时不得假设高程信息。
-* 结果必须明确限定在运动学执行条件；两个 PlannerRFT reward profile（`plannerrft_energy_v1` 与 `plannerrft_no_energy_v1`）都是 smoke-only PlannerRFT-style MetaDrive adaptation，不代表 PlannerRFT/nuPlan scorer parity、真实车辆舒适性或已验证的节能目标。
+* 结果必须明确限定在运动学执行条件；全部 PlannerRFT reward profile（`plannerrft_energy_v1`、`plannerrft_no_energy_v1`、`plannerrft_no_energy_calibrated_v1`、`plannerrft_energy_band_lam64_v1`）都是 smoke-only PlannerRFT-style MetaDrive adaptation，不代表 PlannerRFT/nuPlan scorer parity、真实车辆舒适性或已验证的节能目标。
 * 若 completed episode 的执行距离为零，`ml_per_km` 为 null；固定 matrix 不对该未定义指标 bootstrap，而是明确失败。
 
 ## 评测与产物

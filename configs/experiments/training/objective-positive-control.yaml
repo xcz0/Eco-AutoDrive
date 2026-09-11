@@ -1,0 +1,45 @@
+# Issue #94 Task G: objective positive control. Frozen inputs: the E-038
+# identifiable reward pair (calibrated components + band energy, lambda=64 is
+# the smallest stress lambda reaching >=50% of the R0 -> Energy-only gradient
+# angular separation) and the E-039 Task F effective PPO control
+# (lr=1.5e-04, epochs=1, max_gradient_norm=0.5). R0 and Rstress share one
+# initial policy, matched noise/action seed streams, the scenario pool, the
+# update budget, and the held-out evaluation matrix within each training seed.
+
+version: 1
+study_name: issue94_task_g_objective_positive_control
+protocol: experiments/reward/scalar.yaml
+arms: r0_vs_rstress
+
+r0:
+  label: ppo_plannerrft_r0_calibrated
+  reward_profile: plannerrft_no_energy_calibrated_v1
+rstress:
+  label: ppo_plannerrft_band_energy_lam64
+  reward_profile: plannerrft_energy_band_lam64_v1
+
+training_seeds: [0, 1]
+update_count: 50
+
+ppo:
+  learning_rate: 1.5e-04
+  epochs: 1
+  max_gradient_norm: 0.5
+
+base_overrides:
+- components/resources=rtx_a4000
+- ppo.target_kl=0.006
+- ppo.batch_size=128
+- training.transitions_per_environment=8
+
+gate:
+  # Probe guidance-mean RMS floor matches the Task F condition-4 floor.
+  guidance_rms_floor: 0.01
+  probe_match_tolerance: 1.0e-06
+  # E-031 matched held-out protocol aggregated noise bound: ~0.1%.
+  paired_relative_effect_floor: 0.001
+  separation_metrics: [mean_speed_mps, energy_ml_per_km, route_completion]
+  collision_budget: 2
+  arrive_dest_drop_ceiling: 0.125
+  stopped_fraction_increase_ceiling: 0.1
+  route_completion_drop_ceiling: 0.1

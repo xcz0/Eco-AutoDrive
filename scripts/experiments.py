@@ -118,6 +118,15 @@ COMMANDS = {
         cuda=True,
         environment=True,
     ),
+    ("training", "positive-control"): Command(
+        "ppo-objective-positive-control",
+        "training.objective_positive_control.runner",
+        "run",
+        ("run",),
+        "objective-positive-control.yaml",
+        cuda=True,
+        environment=True,
+    ),
     ("training", "reproducibility"): Command(
         "ppo-reproducibility",
         "training.reproducibility",
