@@ -1,0 +1,66 @@
+# Issue #94 Task F: standard PPO effective-update region search on the R0
+# anchor. The reward objective stays fixed (a1 = plannerrft_no_energy_v1, the
+# no-energy R0 arm; Task E's band representation only alters the energy
+# component and is byte-identical on R0). Only optimizer-region knobs are
+# swept: learning_rate, epochs, and max_gradient_norm. The goal is a stable,
+# non-trivial policy update, not a training-return ranking.
+
+version: 1
+study_name: issue94_task_f_effective_update_region
+
+# Relative to configs/; reuses the matched scalar-reward protocol (training
+# pool S/SC seeds 0-7, held-out pool seeds 16-23, seed namespaces, guards).
+protocol: experiments/reward/scalar.yaml
+arm: a1
+training_seed: 0
+update_count: 50
+# Matched control overrides, identical to configs/experiments/reward/fixed-batch.yaml
+# (E-031/E-032 / E-028 config-0001 baseline): batch 128 = 16 scenarios x 8
+# transitions, one minibatch per epoch (minibatch inherits 128 from
+# ppo_conservative), so scheduler_total_optimizer_steps = update_count * epochs.
+base_overrides:
+- components/resources=rtx_a4000
+- ppo.target_kl=0.006
+- ppo.batch_size=128
+- training.transitions_per_environment=8
+
+grid:
+  # current control lr first (1.6301e-05, the E-031/E-032 under-update
+  # baseline), then geometrically higher levels (~3x steps).
+  learning_rates: [1.6301e-05, 5.0e-05, 1.5e-04, 4.5e-04]
+  epochs: [1, 2]
+  # Known pre-clip grad norm is 4.8-6.6, so every level still clips; the
+  # effect on Adam updates is second-order and must not be assumed.
+  max_gradient_norms: [0.5, 1.0, 2.0]
+
+gate:
+  target_kl: 0.006
+  # C1: median approximate KL must leave the ~1e-8 numerical floor.
+  kl_floor: 1.0e-06
+  # C2: >= 90% of updates stay within target_kl and no sustained runaway.
+  within_target_kl_fraction: 0.9
+  runaway_tail_updates: 10
+  runaway_tail_factor: 10.0
+  # C3: policy ratio must measurably move off exact 1.
+  ratio_change_floor: 1.0e-04
+  # C4: deterministic Beta-mean probe RMS shift vs the initial policy.
+  guidance_rms_shift_floor: 0.01
+  # C5: no Beta boundary collapse (alpha/beta floors, probe boundary-mass ceiling).
+  beta_parameter_floor: 0.1
+  boundary_mass_ceiling: 0.2
+  # C6: training rollouts must not structurally collapse.
+  episode_length_retention_floor: 0.5
+  collision_budget: 2
+  # C7: held-out non-safety behavior change beyond matched evaluation noise
+  # (E-031 cross-seed matched-protocol noise bound: ~0.1% aggregated).
+  heldout_relative_change_floor: 0.001
+  heldout_metrics:
+  - mean_speed_mps
+  - distance_m
+  - route_completion
+  - energy_total_ml
+  - energy_ml_per_km
+
+# Among configs passing all seven Gate F conditions, pick the smallest
+# learning_rate, then the smallest epochs, then the smallest max_gradient_norm.
+selection: lowest_learning_rate_then_epochs_then_max_gradient_norm

@@ -109,6 +109,15 @@ COMMANDS = {
         cuda=True,
         environment=True,
     ),
+    ("training", "effective-update"): Command(
+        "ppo-effective-update",
+        "training.effective_update.runner",
+        "run",
+        ("run",),
+        "effective-update.yaml",
+        cuda=True,
+        environment=True,
+    ),
     ("training", "reproducibility"): Command(
         "ppo-reproducibility",
         "training.reproducibility",
