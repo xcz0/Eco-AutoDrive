@@ -1,0 +1,75 @@
+docs/experiments/records/e-039-issue94-task-f-effective-update-region.md
+  s_0693457ed2f343::t_8bf84b752bebd3 1-147
+scripts/experiments.py
+  s_0693457ed2f343::t_fff5d305c03f0f 112-120
+docs/experiments/README.md
+  s_0693457ed2f343::t_8eea7b232176ca 85
+configs/experiments/training/effective-update.yaml
+  s_0693457ed2f343::t_f492e43865dc46 1-66
+src/eco_planner/experiments/training/effective_update/__init__.py
+  s_0693457ed2f343::t_9bed13a3d0595d 1-24
+src/eco_planner/experiments/training/effective_update/runner.py
+  s_0693457ed2f343::t_108e0ff56092e3 216
+  s_0693457ed2f343::t_6fe398b863ca48 60,188
+  s_0693457ed2f343::t_bb86b532bbe129 7,13
+  s_0693457ed2f343::t_d835d001eaff7d 1-6,8-12,14-25,27-59,61-96,100-187,189-208,210-215,217-222
+  s_0693457ed2f343::t_19393c841b7be1 26
+  s_0693457ed2f343::t_294aa90c8ba821 97-99
+  s_0693457ed2f343::t_e5a237138b8c3e 209
+src/eco_planner/experiments/training/effective_update/config.py
+  s_0693457ed2f343::t_164a6525c81fb1 23-30
+  s_0693457ed2f343::t_40e46e34f75ae0 79
+  s_0693457ed2f343::t_616130386d9962 1-22,31-78,80-101
+tests/training/test_effective_update.py
+  s_0693457ed2f343::t_004460ee411e3c 358
+  s_0693457ed2f343::t_1586f3ae56835f 365,371
+  s_0693457ed2f343::t_79525dc684f171 1-7,9-10,12-27,29-34,38-88,91-164,166-170,172,174-219,222-235,237-327,329-330,332-333,335-340,410-430,432-434
+  s_0693457ed2f343::t_421703a48cf40d 377
+  s_0693457ed2f343::t_21b7d9f60a9d48 165,171,173
+  s_0693457ed2f343::t_6681113f95f18e 334
+  s_0693457ed2f343::t_c3d4f519f0fe0c 328
+  s_0693457ed2f343::t_b76762fa0e1dde 35-36
+  s_0693457ed2f343::t_456c871bd8e9e9 431
+  s_0693457ed2f343::t_1dcd9ee522bcba 89-90
+  s_0693457ed2f343::t_fcf5fedcd68b5d 8,11,28,37
+  s_0693457ed2f343::t_e022e1f373aa6b 220-221
+  s_0693457ed2f343::t_0bf3dcb0e05dfc 331
+  s_0693457ed2f343::t_0761681d2f5199 341-357,363-364,369-370,372,378-394,397-400,402-403,406-409
+  s_0693457ed2f343::t_b4d05ea135ef4c 359-362,366-368,373-376,395-396,404-405
+  s_0693457ed2f343::t_cb95c7041e8bb0 401
+  s_0693457ed2f343::t_beb9f7adfa4e95 236
+src/eco_planner/experiments/training/effective_update/diagnostics.py
+  s_0693457ed2f343::t_da64633d59abc2 10,14-15,21-22
+  s_0693457ed2f343::t_3e7efc2057e8d0 379
+  s_0693457ed2f343::t_84686def488c0a 26-32
+  s_0693457ed2f343::t_a62c824845a2de 246-247
+  s_0693457ed2f343::t_c081454a3d97cb 372-373
+  s_0693457ed2f343::t_6fe398b863ca48 75,128,191-192,222-223,356,401,404
+  s_0693457ed2f343::t_b94ba9aa075787 276-278,281-283,289-295,297-298
+  s_0693457ed2f343::t_68efc3fa089f73 254
+  s_0693457ed2f343::t_11ab4a4a1adc50 16-20
+  s_0693457ed2f343::t_2311757916b099 1-9,11,13,23-25,35-74,76-127,129-166,172-190,193-221,224-227,325-334,337-355,357-371,374-378,380-400,402-403,405-408,410-412,415-458
+  s_0693457ed2f343::t_c36cf93e11ad51 409,413-414
+  s_0693457ed2f343::t_8d53a3edb42172 234-242,250,258-275,279-280,284-288,296,302-309
+  s_0693457ed2f343::t_3bc12b3212ac25 167-171
+  s_0693457ed2f343::t_37cbf9e5dbdb55 33-34
+  s_0693457ed2f343::t_e4573651599561 12
+  s_0693457ed2f343::t_44beeb8ed52878 228-233,243-245,248-249,251-253,255-257,299-301,310-324
+  s_0693457ed2f343::t_aff45bcaed80ef 335-336
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "a195d7736ec7f4e3fbfbb170ba083068aa927cf4",
+  "prompts": {},
+  "sessions": {
+    "s_0693457ed2f343": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f71984b18ffeihQnatxK754m9T",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
