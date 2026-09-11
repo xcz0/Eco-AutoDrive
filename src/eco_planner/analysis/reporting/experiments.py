@@ -182,34 +182,31 @@ def experiment_figures(experiment: str, data: dict, output: Path) -> list[str]:
 
 
 def scalar_run_figures(data: dict, output: Path, *, training: bool) -> list[str]:
-    import matplotlib.pyplot as plt
-
     from .plots import curves
 
-    with plt.style.context("default"):
-        if training:
-            return curves(
-                output,
-                "training-reward",
-                {
-                    "reward": (
-                        [u["update_index"] for u in data["updates"]],
-                        [u["total_reward"] for u in data["updates"]],
-                    )
-                },
-                "PPO update",
-                "total reward",
-            )
+    if training:
         return curves(
             output,
-            "energy-progress",
+            "training-reward",
             {
-                "episodes": (
-                    [r["route_completion"] for r in data["episodes"]],
-                    [r["energy_ml"] for r in data["episodes"]],
+                "reward": (
+                    [u["update_index"] for u in data["updates"]],
+                    [u["total_reward"] for u in data["updates"]],
                 )
             },
-            "route completion",
-            "MetaDrive fuel proxy (mL)",
-            scatter=True,
+            "PPO update",
+            "total reward",
         )
+    return curves(
+        output,
+        "energy-progress",
+        {
+            "episodes": (
+                [r["route_completion"] for r in data["episodes"]],
+                [r["energy_ml"] for r in data["episodes"]],
+            )
+        },
+        "route completion",
+        "MetaDrive fuel proxy (mL)",
+        scatter=True,
+    )

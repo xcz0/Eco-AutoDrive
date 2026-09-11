@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from types import SimpleNamespace
 
 import numpy as np
@@ -148,9 +149,13 @@ def test_temporal_reversal_and_incomplete_matrix():
         analyze_episodes(rows[:-1], study(), [str(i) for i in range(16)])
 
 
-def test_offline_recompute_matches_live_statistics(tmp_path):
+@pytest.mark.parametrize("figures", [False, True])
+def test_offline_recompute_matches_live_statistics(tmp_path, figures):
+    from eco_planner.analysis.guidance import recompute
+    from eco_planner.analysis.reporting import guidance as presentation
     from eco_planner.analysis.runner import analyze
     from eco_planner.artifacts import write_json
+    from tests.analysis.test_reports import assert_report
 
     source = tmp_path / "source"
     source.mkdir()
@@ -159,12 +164,35 @@ def test_offline_recompute_matches_live_statistics(tmp_path):
     write_json(source / "episodes.json", {"episodes": rows})
     write_json(source / "scenarios.json", {"scenarios": [{"name": str(i)} for i in range(16)]})
     save_decisions(rows, study(), [str(i) for i in range(16)], source)
+    original_files = {p.name: p.read_bytes() for p in source.iterdir()}
     output = tmp_path / "analysis"
-    analyze("guidance-control-authority", source, output, figures=False)
+    returned = analyze("guidance-control-authority", source, output, figures=figures)
     result = json.loads((output / "summary.json").read_text())
     expected = analyze_episodes(rows, study(), [str(i) for i in range(16)])
     assert result == {"status": "completed", **expected}
-    assert (output / "report.md").is_file()
+    assert returned == {
+        "status": "completed",
+        "output_dir": str(output.resolve()),
+        "gate_d": expected["gate_d"],
+    }
+    assert_report(output, figures=figures)
+    assert {p.name: p.read_bytes() for p in source.iterdir()} == original_files
+    payload = json.loads((output / "analysis.json").read_text())
+    if figures:
+        assert set(payload["figures"]) == {
+            f"figures/{name}.{extension}"
+            for name in ("response-speed_mps", "response-energy_ml_per_km", "speed-trajectories")
+            for extension in ("svg", "png")
+        }
+        assert not list(output.glob("*.png"))
+        assert not list(output.glob("*.svg"))
+        data, saved_episodes = recompute(source)
+        before = deepcopy((data, saved_episodes))
+        presentation.plot(data, saved_episodes, tmp_path / "plot-only")
+        assert (data, saved_episodes) == before
+    else:
+        assert payload["figures"] == []
+        assert not (output / "figures").exists()
 
     # Offline rendering preserves recorded decisions without applying thresholds again.
     recorded = json.loads((source / "decisions.json").read_text())

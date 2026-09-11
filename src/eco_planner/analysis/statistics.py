@@ -10,7 +10,36 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from scipy.stats import bootstrap, pearsonr, spearmanr
 
 
-def statistics(value: np.ndarray, quantiles: Sequence[float], *, ddof: int = 0) -> dict:
+class DistributionStatistics(TypedDict):
+    mean: float
+    std: float
+    quantiles: dict[str, float]
+
+
+class AdvantageComparison(TypedDict):
+    pearson: float | None
+    spearman: float | None
+    sign_flip_fraction: float
+    zero_fraction_i: float
+    zero_fraction_j: float
+
+
+class GradientComparison(TypedDict):
+    cosine: float | None
+    norm_ratio_j_over_i: float | None
+
+
+class ScenarioEffect(TypedDict):
+    estimate: float | None
+    sample_count: int
+    ci95: list[float] | None
+    ci_crosses_zero: bool | None
+    unavailable_reason: str | None
+
+
+def statistics(
+    value: np.ndarray, quantiles: Sequence[float], *, ddof: int = 0
+) -> DistributionStatistics:
     x = np.asarray(value, dtype=np.float64).reshape(-1)
     if x.size <= ddof or not np.isfinite(x).all():
         raise ValueError("statistics require enough finite samples")
@@ -30,12 +59,12 @@ class ScenarioBootstrapConfig(BaseModel):
     bootstrap_seed: StrictInt = Field(ge=0)
 
 
-def scenario_effect(delta: np.ndarray, config: ScenarioBootstrapConfig) -> dict:
+def scenario_effect(delta: np.ndarray, config: ScenarioBootstrapConfig) -> ScenarioEffect:
     """Scenario uncertainty conditional on one trained policy and available pairs."""
     x = np.asarray(delta, dtype=np.float64).reshape(-1)
     if not np.isfinite(x).all():
         raise ValueError("scenario bootstrap requires finite paired deltas")
-    result = {
+    result: ScenarioEffect = {
         "estimate": float(x.mean()) if x.size else None,
         "sample_count": int(x.size),
         "ci95": None,
@@ -63,7 +92,7 @@ def cosine(x: np.ndarray, y: np.ndarray) -> float | None:
     return None if denominator == 0 else float(np.dot(x, y) / denominator)
 
 
-def advantage_comparison(x: np.ndarray, y: np.ndarray) -> dict:
+def advantage_comparison(x: np.ndarray, y: np.ndarray) -> AdvantageComparison:
     x, y = x.astype(np.float64).reshape(-1), y.astype(np.float64).reshape(-1)
     defined = x.size >= 2 and np.any(x != x[0]) and np.any(y != y[0])
     return {
@@ -80,7 +109,7 @@ def rmse(x: np.ndarray, y: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(delta))))
 
 
-def gradient_comparison(x: np.ndarray, y: np.ndarray) -> dict[str, float | None]:
+def gradient_comparison(x: np.ndarray, y: np.ndarray) -> GradientComparison:
     norm_x = np.linalg.norm(x.astype(np.float64))
     norm_y = np.linalg.norm(y.astype(np.float64))
     return {

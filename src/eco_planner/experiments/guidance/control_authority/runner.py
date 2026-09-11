@@ -13,7 +13,7 @@ from omegaconf import OmegaConf
 from tensordict import TensorDictBase
 
 from eco_planner._repository import REPOSITORY_ROOT
-from eco_planner.analysis.reporting.guidance import publish
+from eco_planner.analysis import publish
 from eco_planner.artifacts import collect_repository_metadata, write_json, write_npz
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.contracts import SIMULATOR_STEP_S, ExecutionMode
@@ -311,7 +311,7 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
         },
     )
     save_decisions(episodes, study, [s.name for s in scenarios], output_dir)
-    return publish(output_dir, output_dir, figures=figures)
+    return publish("guidance-control-authority", output_dir, output_dir, figures=figures)
 
 
 def save_decisions(

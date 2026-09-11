@@ -1,4 +1,4 @@
-"""Offline Task D recomputation and response plots."""
+"""Task D Markdown presentation and response plots from prepared evidence."""
 
 from __future__ import annotations
 
@@ -6,32 +6,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from eco_planner.analysis.guidance import InterventionDesign, analyze_episodes
-from eco_planner.analysis.io import write_json
+import numpy as np
 
 
-def publish(source: Path, output: Path, *, figures: bool = True) -> dict[str, Any]:
-    config = json.loads((source / "intervention_config.json").read_text(encoding="utf-8"))
-    episodes = json.loads((source / "episodes.json").read_text(encoding="utf-8"))["episodes"]
-    scenarios = json.loads((source / "scenarios.json").read_text(encoding="utf-8"))["scenarios"]
-    decisions = json.loads((source / "decisions.json").read_text(encoding="utf-8"))
-    design = InterventionDesign(
-        config["longitudinal_actions"], config["noise_seeds"], config["window_steps"]
-    )
-    result = analyze_episodes(episodes, design, [s["name"] for s in scenarios])
-    result.pop("unsafe_or_incomplete_episodes")
-    result.pop("proxy_errors")
-    result["gate_d"] = decisions["gate_d"]
-    for window, metrics in result["windows"].items():
-        for metric, data in metrics.items():
-            recorded = decisions["windows"][window][metric]
-            for scenario, row in data["scenarios"].items():
-                row["passed"] = recorded["scenarios"][scenario]["passed"]
-            for key in ("passed", "positive_pass_count", "negative_pass_count"):
-                data[key] = recorded[key]
-    output.mkdir(parents=True, exist_ok=True)
-    write_json(output / "summary.json", {"status": "completed", **result})
-    files = plot(result, episodes, output) if figures else []
+def write_report(result: dict[str, Any], output: Path, files: list[str]) -> None:
     lines = [
         "# Task D: Guidance control authority",
         "",
@@ -67,27 +45,24 @@ def publish(source: Path, output: Path, *, figures: bool = True) -> dict[str, An
         "```",
         "",
     ]
-    lines += [f"![{name}]({name})" for name in files]
+    for name in files:
+        if name.endswith(".png"):
+            lines += [
+                f"![{Path(name).stem}](<{name}>)",
+                "",
+                f"[SVG](<{name[:-4]}.svg>) · [PNG](<{name}>)",
+                "",
+            ]
     lines += [
         "",
         "This is a kinematic, no-traffic, 2 s proxy-energy intervention study; "
         "it does not establish learned behavior or physical vehicle trackability.",
     ]
     (output / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    write_json(
-        output / "analysis.json",
-        {
-            "experiment": "guidance-control-authority",
-            "source": str(source.resolve()),
-            "evidence": result,
-            "figures": files,
-        },
-    )
-    return {"status": "completed", "output_dir": str(output), "gate_d": result["gate_d"]}
 
 
 def plot(result: dict[str, Any], episodes: list[dict[str, Any]], output: Path) -> list[str]:
-    import matplotlib.pyplot as plt
+    from .plots import plt, save
 
     files = []
     for metric, label in (
@@ -103,10 +78,7 @@ def plot(result: dict[str, Any], episodes: list[dict[str, Any]], output: Path) -
             ax.set_title(name)
             ax.set_xlabel("Longitudinal guidance")
             ax.set_ylabel(label)
-        filename = f"response-{metric}.png"
-        fig.savefig(output / filename, dpi=140)
-        plt.close(fig)
-        files.append(filename)
+        files += save(fig, output, f"response-{metric}")
     fig, axes = plt.subplots(4, 4, figsize=(15, 11), constrained_layout=True)
     names = list(result["windows"]["short_horizon"]["speed_mps"]["scenarios"])
     colors = dict(
@@ -118,7 +90,7 @@ def plot(result: dict[str, Any], episodes: list[dict[str, Any]], output: Path) -
                 continue
             steps = episode["steps"]
             ax.plot(
-                [sum(s["dt_s"] for s in steps[: i + 1]) for i in range(len(steps))],
+                np.cumsum([s["dt_s"] for s in steps]),
                 [s["speed_mps"] for s in steps],
                 color=colors[episode["g_lon"]],
                 alpha=0.6,
@@ -127,7 +99,4 @@ def plot(result: dict[str, Any], episodes: list[dict[str, Any]], output: Path) -
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Executed speed (m/s)")
     fig.suptitle("Guidance -1 (blue) to +1 (red); three paired noise repeats")
-    filename = "speed-trajectories.png"
-    fig.savefig(output / filename, dpi=140)
-    plt.close(fig)
-    return [*files, filename]
+    return files + save(fig, output, "speed-trajectories")

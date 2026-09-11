@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -475,11 +476,37 @@ def test_optuna_read_only_native_plots_and_unavailable_trials(tmp_path, count, t
         )
     else:
         assert "parameter-importance" in result["evidence"]["unavailable_figures"]
+    persisted = read_json(tmp_path / "report/analysis.json")["evidence"]
+    assert persisted["unavailable_figures"] == result["evidence"]["unavailable_figures"]
+    report = (tmp_path / "report/report.md").read_text(encoding="utf-8")
+    for reason in persisted["unavailable_figures"].values():
+        assert reason in report
     with pytest.raises(FileNotFoundError):
         from eco_planner.analysis.stability import load_study
 
         load_study(tmp_path / "missing", "fixture")
     assert not (tmp_path / "missing").exists()
+
+
+def test_stability_figures_do_not_modify_evidence(tmp_path):
+    from eco_planner.analysis.reporting.stability import figures
+
+    study = optuna.create_study()
+    data = {
+        "parameter_importances": None,
+        "parameter_importance_error": "no completed trials",
+        "unavailable_figures": {"existing": "preserve caller evidence"},
+    }
+    before = deepcopy(data)
+    result = figures(data, study, 3, tmp_path)
+    assert data == before
+    assert result.files == []
+    assert result.unavailable == {
+        "optimization-history": "no completed trials",
+        "parallel-coordinate": "no completed trials",
+        "parameter-importance": "no completed trials",
+        "contour": "requires at least two varying shared parameters",
+    }
 
 
 @pytest.mark.parametrize("training", [False, True])
@@ -490,6 +517,40 @@ def test_scalar_run_uses_common_report_writer(tmp_path, training_summary, traini
     write_json(tmp_path / "summary.json", summary.model_dump(mode="json"))
     publish_scalar_run(tmp_path, training=training)
     assert_report(tmp_path, figures=True)
+
+
+@pytest.mark.parametrize("figures", [False, True])
+def test_publication_configures_plotting_only_when_requested(tmp_path, figures):
+    source = tmp_path / "source"
+    source.mkdir()
+    write_json(source / "sanity_report.json", {"cases": {"fixture": {"components": {"x": 1.0}}}})
+    write_json(source / "summary.json", job().model_dump(mode="json"))
+    script = """
+import sys
+from pathlib import Path
+
+figures = sys.argv[2] == 'True'
+class BlockImports:
+    def find_spec(self, fullname, path=None, target=None):
+        blocked = ['torch', 'metadrive', 'panda3d', 'eco_planner.models']
+        if not figures:
+            blocked += ['matplotlib', 'seaborn', 'optuna.visualization']
+        if any(fullname == root or fullname.startswith(root + '.') for root in blocked):
+            raise AssertionError('unexpected import: ' + fullname)
+sys.meta_path.insert(0, BlockImports())
+from eco_planner.analysis.runner import analyze, publish_scalar_run
+source = Path(sys.argv[1])
+analyze('reward-sanity', source, source.parent / 'report', figures=figures)
+publish_scalar_run(source, training=False, figures=figures)
+if figures:
+    import matplotlib
+    import matplotlib.pyplot as plt
+    assert matplotlib.get_backend().lower() == 'agg'
+    assert not plt.get_fignums()
+else:
+    assert not any(k == 'matplotlib' or k.startswith('matplotlib.') for k in sys.modules)
+"""
+    subprocess.run([sys.executable, "-c", script, str(source), str(figures)], check=True)
 
 
 def test_offline_imports_do_not_load_execution_modules():

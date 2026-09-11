@@ -6,7 +6,7 @@ from typing import Any
 from .evaluation import ScalarComparison
 from .fixed_batch import calibration, recompute
 from .io import read_json, write_json
-from .reporting.markdown import write_report
+from .reporting import write_report
 
 
 def analyze(
@@ -41,15 +41,13 @@ def publish(
     source_file: Path | None = None,
 ) -> dict[str, Any]:
     """Also used by experiment writers, after all original artifacts and guards are complete."""
-    if experiment == "guidance-control-authority":
-        from .reporting.guidance import (
-            publish as intervention,
-        )
-
-        return intervention(source, output, figures=figures)
     study = None
     seed = 0
-    if experiment in ("lambda-identifiability", "objective-decomposition", "critic-gae-ablation"):
+    if experiment == "guidance-control-authority":
+        from .guidance import recompute as guidance_analysis
+
+        data, episodes = guidance_analysis(source)
+    elif experiment in ("lambda-identifiability", "objective-decomposition", "critic-gae-ablation"):
         data = recompute(source)
     elif experiment == "reward-calibration":
         data = calibration(source)
@@ -82,33 +80,57 @@ def publish(
     output.mkdir(parents=True, exist_ok=True)
     if study is not None:
         write_json(output / "stage-a-summary.json", data["search_summary"])
+    if experiment == "guidance-control-authority":
+        write_json(output / "summary.json", {"status": "completed", **data})
     files = []
     if figures:
-        import matplotlib.pyplot as plt
+        from .reporting.plots import plt
 
         with plt.style.context("default"):
             from .reporting.experiments import experiment_figures
 
-            files = experiment_figures(experiment, data, output)
-            if study is not None:
-                from .stability import figures as stability_figures
+            if experiment == "guidance-control-authority":
+                from .reporting.guidance import plot
 
-                files += stability_figures(data, study, seed, output)
-    payload = {
-        "experiment": experiment,
-        "source": str(source.resolve()),
-        "evidence": data,
-        "figures": files,
-    }
-    write_json(output / "analysis.json", payload)
+                files = plot(data, episodes, output)
+            else:
+                files = experiment_figures(experiment, data, output)
+            if study is not None:
+                from .reporting.stability import figures as stability_figures
+
+                rendered = stability_figures(data, study, seed, output)
+                files += rendered.files
+                data["unavailable_figures"] = rendered.unavailable
+    payload = _write_analysis(output, data, files, experiment=experiment, source=source)
+    if experiment == "guidance-control-authority":
+        from .reporting.guidance import write_report as write_guidance_report
+
+        write_guidance_report(data, output, files)
+        return {"status": "completed", "output_dir": str(output), "gate_d": data["gate_d"]}
     write_report(experiment, source, output, data, files)
+    return payload
+
+
+def _write_analysis(
+    output: Path,
+    data: dict[str, Any],
+    files: list[str],
+    *,
+    experiment: str | None = None,
+    source: Path | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"evidence": data, "figures": files}
+    if experiment is not None:
+        payload["experiment"] = experiment
+    if source is not None:
+        payload["source"] = str(source.resolve())
+    write_json(output / "analysis.json", payload)
     return payload
 
 
 def publish_scalar_run(source: Path, *, training: bool, figures: bool = True) -> None:
     """Single-run presentation; cross-arm comparisons require explicit input grouping."""
     from .evaluation import episode_records
-    from .reporting.experiments import scalar_run_figures
 
     if training:
         from eco_planner.rl.artifacts.summaries import TrainingRunSummary
@@ -122,6 +144,12 @@ def publish_scalar_run(source: Path, *, training: bool, figures: bool = True) ->
 
         rows = episode_records(load_job_summary(source / "summary.json"))
         data = {"episodes": rows}
-    files = scalar_run_figures(data, source, training=training) if figures else []
-    write_json(source / "analysis.json", {"evidence": data, "figures": files})
+    files = []
+    if figures:
+        from .reporting.experiments import scalar_run_figures
+        from .reporting.plots import plt
+
+        with plt.style.context("default"):
+            files = scalar_run_figures(data, source, training=training)
+    _write_analysis(source, data, files)
     write_report("scalar-reward", source, source, data, files)

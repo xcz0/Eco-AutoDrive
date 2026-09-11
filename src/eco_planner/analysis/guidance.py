@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
 from scipy.stats import spearmanr
+
+from .io import read_json
 
 
 @dataclass(frozen=True)
@@ -145,3 +148,26 @@ def analyze_episodes(
         "unsafe_or_incomplete_episodes": unsafe,
         "proxy_errors": proxy_errors,
     }
+
+
+def recompute(source: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Describe saved episodes and attach recorded experimental decisions unchanged."""
+    config = read_json(source / "intervention_config.json")
+    episodes = read_json(source / "episodes.json")["episodes"]
+    scenarios = read_json(source / "scenarios.json")["scenarios"]
+    decisions = read_json(source / "decisions.json")
+    design = InterventionDesign(
+        config["longitudinal_actions"], config["noise_seeds"], config["window_steps"]
+    )
+    result = analyze_episodes(episodes, design, [s["name"] for s in scenarios])
+    result.pop("unsafe_or_incomplete_episodes")
+    result.pop("proxy_errors")
+    result["gate_d"] = decisions["gate_d"]
+    for window, metrics in result["windows"].items():
+        for metric, data in metrics.items():
+            recorded = decisions["windows"][window][metric]
+            for scenario, row in data["scenarios"].items():
+                row["passed"] = recorded["scenarios"][scenario]["passed"]
+            for key in ("passed", "positive_pass_count", "negative_pass_count"):
+                data[key] = recorded[key]
+    return result, episodes

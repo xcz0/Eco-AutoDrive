@@ -1,10 +1,9 @@
-"""Read-only Optuna study evidence and native static visualizations."""
+"""Read-only Optuna study evidence and search statistics."""
 
 import math
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import optuna
 from optuna.importance import FanovaImportanceEvaluator, get_param_importances
 from optuna.trial import FrozenTrial, TrialState
@@ -84,47 +83,6 @@ def analyze(source: Path) -> tuple[dict[str, Any], optuna.Study, int]:
             "mean_episode_length": [u.mean_episode_length for u in training.updates],
         }
     return data, study, seed
-
-
-def figures(data: dict, study: optuna.Study, seed: int, output: Path) -> list[str]:
-    from optuna.visualization import matplotlib as plots
-
-    from .reporting.plots import save
-
-    files = []
-    unavailable = data.setdefault("unavailable_figures", {})
-    completed = [t for t in study.trials if t.state == TrialState.COMPLETE]
-    if not completed:
-        unavailable["optimization-history"] = "no completed trials"
-        unavailable["parallel-coordinate"] = "no completed trials"
-    else:
-        files += save(plots.plot_optimization_history(study).figure, output, "optimization-history")
-        if any(t.params for t in completed):
-            files += save(
-                plots.plot_parallel_coordinate(study).figure, output, "parallel-coordinate"
-            )
-        else:
-            unavailable["parallel-coordinate"] = "no trial parameters"
-    if data["parameter_importances"]:
-        # The same seeded native evaluator is used for JSON and the native Optuna figure.
-        files += save(
-            plots.plot_param_importances(
-                study, evaluator=FanovaImportanceEvaluator(seed=seed)
-            ).figure,
-            output,
-            "parameter-importance",
-        )
-    else:
-        unavailable["parameter-importance"] = data["parameter_importance_error"]
-    shared = set.intersection(*(set(t.params) for t in completed)) if completed else set()
-    varying = sorted(p for p in shared if len({t.params[p] for t in completed}) > 1)
-    if len(varying) >= 2:
-        axes = plots.plot_contour(study, params=varying)
-        ax = axes.flat[0] if isinstance(axes, np.ndarray) else axes
-        files += save(ax.figure, output, "contour")
-    else:
-        unavailable["contour"] = "requires at least two varying shared parameters"
-    return files
 
 
 def summarize_search(study: optuna.Study, seed: int, top_config_count: int) -> dict[str, object]:

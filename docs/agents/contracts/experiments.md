@@ -39,7 +39,9 @@ scalar reward 因果研究的 matched protocol 由 `configs/experiments/reward/s
 
 reward sanity 的配置、计算与产物发布统一由单文件 `reward_validation` 拥有，配置为 `configs/validation/reward.yaml`；execution backend workload 核验由 `benchmarking.execution` 拥有。它们分别使用 `just validation reward` 和 `just benchmark execution`，不属于研究域。
 
-guidance 的描述统计由 `analysis.guidance` 拥有，场景/指标阈值、方向计数和 Gate D 由实验层裁定，并保存至 `decisions.json`。离线报告重算描述统计，原样读取保存的逐场景 passed、指标 passed/方向计数和完整 gate_d；缺少判定文件或字段明确报错，不从重算统计推导替代判定。summary/report 的原有数值与字段含义保持不变。
+guidance 的输入读取、描述统计重算和已保存 decisions 的合并由 `analysis.guidance` 拥有，场景/指标阈值、方向计数和 Gate D 由实验层裁定，并保存至 `decisions.json`。离线报告原样读取保存的逐场景 passed、指标 passed/方向计数和完整 gate_d；缺少判定文件或字段明确报错，不从重算统计推导替代判定。`analysis.runner` 统一编排 JSON 与报告发布；guidance 的 summary/report 原有数值与字段含义保持不变。
+
+guidance 三类图与其他报告共用静态图保存流程，生成 `figures/response-speed_mps.{svg,png}`、`figures/response-energy_ml_per_km.{svg,png}` 和 `figures/speed-trajectories.{svg,png}`；Markdown 嵌入 PNG 并链接 SVG。`analysis.stability` 保留 study 读取与统计，`analysis.reporting.stability` 返回图路径和不可用原因，由 runner 合入发布证据，绘图不修改输入证据。所有发布入口仅在启用图片时加载绘图库，先设置 Agg 再导入 pyplot/Optuna 绘图，并使用默认样式与公共保存、关闭流程。
 
 scalar 比较 YAML 和协议由 reward scalar 实验层加载并核验，向 analysis 传入已解析、已核验的 baseline 与带 arm/checkpoint 标签的训练/评测记录；analysis 不解析研究协议。stability analyze 只读 study.db 和 manifest，将重新生成的 `stage-a-summary.json` 与其他分析产物写到独立输出目录，不更新源 study、原 gate 或候选晋升结果。
 
