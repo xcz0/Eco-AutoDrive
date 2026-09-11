@@ -16,8 +16,8 @@ from eco_planner.evaluation.inference.runtime import (
     FabricInferenceRuntime,
     validate_manual_guidance,
 )
-from eco_planner.experiments.guidance.control_authority.config import InterventionConfig
 from eco_planner.experiments.guidance.control_authority.diagnostics import (
+    InterventionConfig,
     analyze_episodes,
     matched_statistics,
 )
@@ -31,7 +31,7 @@ from eco_planner.runtime.envs import VectorEnvScenario
 def study():
     return InterventionConfig.model_validate(
         OmegaConf.to_container(
-            OmegaConf.load(CONFIG_ROOT / "experiments/guidance/control-authority/intervention.yaml")
+            OmegaConf.load(CONFIG_ROOT / "experiments/guidance/control-authority.yaml")
         )
     )
 
@@ -187,7 +187,7 @@ def test_offline_recompute_matches_live_statistics(tmp_path):
 
 def test_manual_cli_and_config(monkeypatch):
     from eco_planner.experiments.guidance.control_authority import runner
-    from scripts.experiments import __main__ as cli
+    from scripts import experiments as cli
 
     calls = []
     monkeypatch.setattr(runner, "run", lambda *a, **kw: calls.append((a, kw)))

@@ -6,20 +6,21 @@ from pathlib import Path
 
 from omegaconf import OmegaConf
 
-from eco_planner._repository import REPOSITORY_ROOT
 from eco_planner.analysis import publish
 from eco_planner.artifacts import (
     write_json,
     write_npz,
 )
 from eco_planner.configuration import load_resolved_yaml_mapping
+from eco_planner.experiments.reward.objective_decomposition.diagnostics import (
+    DecompositionConfig,
+    analyze_decomposition,
+)
 from eco_planner.rl import PlannerRFTNoEnergyRewardConfig
 
 from ..fixed_batch import (
     ADVANTAGE_FORMS,
-    SHARED_SOURCES,
     calibrate,
-    copy_sources,
     load_fixed_batch,
     raw_arrays,
     rescore,
@@ -28,8 +29,6 @@ from ..fixed_batch import (
     write_runtime_metadata,
 )
 from ..fixed_batch.calibration import verify_original_components
-from .config import DecompositionConfig
-from .diagnostics import analyze_decomposition
 
 
 def run(source: Path, config_path: Path, output: Path, *, figures: bool = True) -> dict:
@@ -53,16 +52,6 @@ def run(source: Path, config_path: Path, output: Path, *, figures: bool = True) 
     resolved = {**config, "reward": calibrated.model_dump()}
     OmegaConf.save(OmegaConf.create(resolved), output / "resolved_config.yaml")
     write_runtime_metadata(output, source, batch, runtime)
-    copy_sources(
-        output,
-        (
-            *SHARED_SOURCES,
-            Path(__file__),
-            Path(__file__).with_name("config.py"),
-            Path(__file__).with_name("diagnostics.py"),
-            REPOSITORY_ROOT / "scripts/experiments/__main__.py",
-        ),
-    )
     print(
         f"Running Task C decomposition: {len(samples)} fixed transitions, "
         f"{len(study.lambdas) + 2} arms x {len(ADVANTAGE_FORMS)} advantage forms, "

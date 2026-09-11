@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import groupby
@@ -15,7 +14,6 @@ import torch
 from omegaconf import OmegaConf
 from tensordict import TensorDict
 
-from eco_planner._repository import REPOSITORY_ROOT
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import ScenarioConfig, load_resolved_yaml_mapping
 from eco_planner.rl import (
@@ -26,18 +24,6 @@ from eco_planner.rl import (
     parse_training_config,
     rollout_audit_keys,
     write_rollout_episode,
-)
-
-SHARED_SOURCES = tuple(
-    Path(__file__).with_name(name + ".py")
-    for name in (
-        "artifacts",
-        "config",
-        "runtime",
-        "rewards",
-        "calibration",
-        "gradients",
-    )
 )
 
 
@@ -158,10 +144,3 @@ def verify_reference(reference: Path, source: Path, batch: FixedBatch) -> dict[s
     if samples != batch.samples:
         raise ValueError("reference sample order differs from the source batch")
     return summary
-
-
-def copy_sources(output: Path, files: Sequence[Path]) -> None:
-    for source in files:
-        target = output / "source" / source.relative_to(REPOSITORY_ROOT)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)

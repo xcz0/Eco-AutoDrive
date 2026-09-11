@@ -72,7 +72,7 @@ def test_fixed_batch_collection_persists_seeds_and_episodes(
     from eco_planner.rl.rollout.seeds import derive_rollout_seeds
 
     monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-    protocol = OmegaConf.load(CONFIG_ROOT / "experiments/reward/scalar/protocol.yaml")
+    protocol = OmegaConf.load(CONFIG_ROOT / "experiments/reward/scalar.yaml")
     protocol.training.base_job = "jobs/training/ppo"
     protocol_path = tmp_path / "protocol.yaml"
     OmegaConf.save(protocol, protocol_path)
@@ -118,7 +118,9 @@ def test_fixed_batch_collection_persists_seeds_and_episodes(
         assert episode.audit["map_seed"].item() == batch.config.scenarios[slot].seed
     assert not (output / "diagnostics.npz").exists()
     assert "arms" not in summary
-    assert (output / "source/src/eco_planner/experiments/reward/fixed_batch/config.py").is_file()
+    assert not (output / "source").exists()
+    assert not (output / "tracked_diff.patch").exists()
+    assert "git_head" in batch.runtime_metadata
 
 
 def _straight_trajectory(speed_mps: float = 5.0) -> np.ndarray:

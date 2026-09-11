@@ -48,14 +48,6 @@ def collect_repository_metadata(repository_root: Path) -> dict[str, object]:
     }
 
 
-def write_tracked_diff(path: Path, repository_root: Path) -> None:
-    """Persist the tracked source diff associated with an artifact run."""
-
-    path.write_text(
-        _git_output(repository_root, "diff", "--binary", "--no-ext-diff"), encoding="utf-8"
-    )
-
-
 def _git_output(repository_root: Path, *arguments: str) -> str:
     result = subprocess.run(
         ["git", *arguments],

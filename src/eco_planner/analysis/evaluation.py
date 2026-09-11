@@ -10,7 +10,7 @@ from eco_planner.evaluation.artifacts import JobSummary, load_job_summary
 from eco_planner.rl.artifacts import TrainingRunSummary
 
 from .io import read_json
-from .statistics import statistics
+from .statistics import ScenarioBootstrapConfig, scenario_effect, statistics
 
 
 def episode_records(summary: JobSummary) -> list[dict[str, Any]]:
@@ -33,6 +33,8 @@ def episode_records(summary: JobSummary) -> list[dict[str, Any]]:
                 route_completion=episode.metrics.route_completion,
                 collision=episode.metrics.collision,
                 out_of_road=episode.metrics.out_of_road,
+                wrong_direction=episode.metrics.wrong_direction,
+                arrive_dest=episode.metrics.arrive_dest,
             )
         else:
             row.update(
@@ -56,7 +58,8 @@ def paired(reference: JobSummary, comparison: JobSummary) -> dict[str, Any]:
     if len(lm) != len(left) or len(rm) != len(right) or lm.keys() != rm.keys():
         raise ValueError("duplicate or missing scenario/map/noise-seed pairs")
     rows = []
-    for key, reference_row in lm.items():
+    for key in sorted(lm):
+        reference_row = lm[key]
         r = rm[key]
         complete = reference_row["status"] == r["status"] == "completed"
         rows.append(
@@ -77,6 +80,7 @@ def paired(reference: JobSummary, comparison: JobSummary) -> dict[str, Any]:
         "pairs": rows,
         "pair_count": len(rows),
         "available_pair_count": len(valid),
+        "available_rate": len(valid) / len(rows) if rows else None,
         "unavailable_pair_count": len(rows) - len(valid),
         "statistics": {
             m: statistics(np.asarray([r[m + "_delta"] for r in valid]), [0.0, 0.25, 0.5, 0.75, 1.0])
@@ -128,6 +132,42 @@ class ScalarComparisonRun:
 class ScalarComparison:
     baseline: JobSummary
     runs: tuple[ScalarComparisonRun, ...]
+    bootstrap: ScenarioBootstrapConfig
+    training_seeds: tuple[int, ...]
+
+
+def arm_outcomes(summary: JobSummary) -> dict:
+    rows = episode_records(summary)
+    valid = [row for row in rows if row["status"] == "completed"]
+    count, available = len(rows), len(valid)
+    return {
+        "completion": {
+            "episode_count": count,
+            "completed_count": available,
+            "failed_count": count - available,
+            "completed_rate": available / count if count else None,
+            "arrive_dest_count": sum(row["arrive_dest"] for row in valid),
+            "arrive_dest_rate": sum(row["arrive_dest"] for row in valid) / available
+            if available
+            else None,
+            "arrival_denominator": available,
+            "route_completion_mean": float(np.mean([row["route_completion"] for row in valid]))
+            if available
+            else None,
+        },
+        "safety": {
+            "denominator": available,
+            "unavailable_count": count - available,
+            **{
+                metric: {
+                    "count": sum(row[metric] for row in valid),
+                    "rate": sum(row[metric] for row in valid) / available if available else None,
+                }
+                for metric in ("collision", "out_of_road", "wrong_direction")
+            },
+        },
+        "failures": [row for row in rows if row["status"] != "completed"],
+    }
 
 
 def scalar_reward(comparison: ScalarComparison) -> dict[str, Any]:
@@ -140,6 +180,7 @@ def scalar_reward(comparison: ScalarComparison) -> dict[str, Any]:
                 "arm": run.arm,
                 "training_seed": training.training_seed,
                 "checkpoint_label": run.checkpoint_label,
+                "outcomes": arm_outcomes(summary),
                 "comparison": paired(baseline, summary),
                 "training_curve": {
                     "update": [u.update_index for u in training.updates],
@@ -147,24 +188,65 @@ def scalar_reward(comparison: ScalarComparison) -> dict[str, Any]:
                 },
             }
         )
-    aggregates = {}
-    for arm, label in sorted({(r["arm"], r["checkpoint_label"]) for r in runs}):
-        items = [r for r in runs if r["arm"] == arm and r["checkpoint_label"] == label]
-        aggregates[f"{arm}/{label}"] = {
-            "training_seeds": [r["training_seed"] for r in items],
-            "aggregation_unit": "training_seed_mean_of_available_matched_episodes",
-            "metrics": {
-                m: statistics(
-                    np.asarray([r["comparison"]["statistics"][m]["mean"] for r in items]),
-                    [0.0, 0.5, 1.0],
+    indexed = {
+        (r.arm, r.training.training_seed, r.checkpoint_label): r.evaluation for r in comparison.runs
+    }
+    contrasts = {}
+    for name, reference_arm, comparison_arm in (
+        ("a2-a1", "a1", "a2"),
+        ("a1-a0", "a0", "a1"),
+        ("a2-a0", "a0", "a2"),
+    ):
+        checkpoints = {}
+        for label in sorted({"final", *(r.checkpoint_label for r in comparison.runs)}):
+            effects = []
+            for seed in comparison.training_seeds:
+                reference = (
+                    baseline if reference_arm == "a0" else indexed.get((reference_arm, seed, label))
                 )
-                if all(r["comparison"]["statistics"][m] is not None for r in items)
-                else None
-                for m in ("energy_ml", "route_completion")
-            },
-        }
+                target = indexed.get((comparison_arm, seed, label))
+                pairs = (
+                    paired(reference, target)
+                    if reference is not None and target is not None
+                    else None
+                )
+                delta = (
+                    np.asarray([r["energy_ml_delta"] for r in pairs["pairs"] if r["available"]])
+                    if pairs is not None
+                    else np.asarray([])
+                )
+                effect = scenario_effect(delta, comparison.bootstrap)
+                if pairs is None:
+                    effect["unavailable_reason"] = "missing evaluation for this arm/seed/checkpoint"
+                effects.append({"training_seed": seed, **effect, "comparison": pairs})
+            entry: dict[str, Any] = {"effects": effects}
+            if label == "final":
+                estimates = [e["estimate"] for e in effects if e["estimate"] is not None]
+                entry["direction_counts"] = {
+                    "lower": sum(e < 0 for e in estimates),
+                    "zero": sum(e == 0 for e in estimates),
+                    "higher": sum(e > 0 for e in estimates),
+                    "unavailable": len(effects) - len(estimates),
+                    "total": len(effects),
+                }
+                entry["partial"] = len(estimates) != len(effects)
+            checkpoints[label] = entry
+        contrasts[name] = checkpoints
     return {
+        "baseline": arm_outcomes(baseline),
         "runs": runs,
-        "seed_aggregates": aggregates,
-        "interpretation": "Descriptive matched comparisons; update0 is diagnostic only.",
+        "contrasts": contrasts,
+        "bootstrap": {
+            **comparison.bootstrap.model_dump(),
+            "method": "percentile",
+            "unit": "matched_scenario_delta",
+        },
+        "interpretation": (
+            "Completed means normally ended with metrics, including collision/out-of-road."
+            " Energy is comparison - reference on jointly-completed matched episodes; negative is"
+            " lower MetaDrive fuel proxy (mL). Interpret energy after completion, arrival/progress"
+            " and safety. Scenario bootstrap CIs condition on each trained policy and available"
+            " scenarios; they are "
+            "not uncertainty across training seeds. Initial/update0 is diagnostic only."
+        ),
     }

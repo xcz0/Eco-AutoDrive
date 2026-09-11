@@ -11,7 +11,7 @@ import torch
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
-from eco_planner.artifacts import collect_repository_metadata, write_json, write_tracked_diff
+from eco_planner.artifacts import collect_repository_metadata, write_json
 from eco_planner.models import (
     GuidanceConfig,
     OrthogonalPolicyGuidanceConfig,
@@ -262,7 +262,6 @@ def write_runtime_metadata(
         }
     )
     write_json(output_dir / "runtime_metadata.json", metadata)
-    write_tracked_diff(output_dir / "tracked_diff.patch", repository_root)
 
 
 def _cuda_memory_report(runtime_report: InferenceRuntimeReport) -> dict[str, int] | None:

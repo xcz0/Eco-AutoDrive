@@ -334,7 +334,6 @@ class TrainingTracking:
         if self.logger is None:
             return
         self.artifact("runtime_metadata.json")
-        self.artifact("tracked_diff.patch")
         for key, value in {
             "git.commit": metadata["git_head"],
             "git.branch": metadata["git_branch"],

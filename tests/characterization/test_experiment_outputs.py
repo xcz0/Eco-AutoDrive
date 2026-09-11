@@ -25,7 +25,7 @@ from eco_planner.evaluation import (
     TrafficObservationSummary,
     WarmupSummary,
 )
-from eco_planner.experiments.guidance.energy_sweep import runner as energy_study
+from eco_planner.experiments.guidance import energy_sweep as energy_study
 from eco_planner.experiments.training import reproducibility as training_analysis
 from eco_planner.experiments.training.stability.comparison import (
     PolicyEvaluationSummary,

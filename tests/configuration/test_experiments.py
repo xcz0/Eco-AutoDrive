@@ -7,15 +7,14 @@ import pytest
 from omegaconf import DictConfig
 
 from eco_planner.evaluation import EvaluationJobConfig, parse_evaluation_config
-from eco_planner.experiments.guidance.energy_sweep.config import load_energy_study
+from eco_planner.experiments.guidance.energy_sweep import load_energy_study
 from eco_planner.experiments.training.stability.composition import compose_trial_training_config
 from eco_planner.experiments.training.stability.config import TrialParameters, load_stability_config
 from eco_planner.experiments.training.stability.monitor import StabilityMonitor
 from eco_planner.experiments.training.stability.report import rank_validation_configs
 from eco_planner.experiments.training.stability.search import create_study
+from eco_planner.reward_validation import evaluate_sanity, load_sanity_config
 from eco_planner.rl.artifacts import TrainingUpdateSummary
-from eco_planner.rl.reward.validation.config import load_sanity_config
-from eco_planner.rl.reward.validation.diagnostics import evaluate_sanity
 
 ComposeConfig = Callable[[str, list[str] | None], DictConfig]
 
@@ -44,7 +43,7 @@ def test_experiment_manifests_are_strict_and_reference_composable_jobs(
 
 
 def test_reward_sanity_config_covers_anti_hacking_and_gate_cases(config_root: Path) -> None:
-    config = load_sanity_config(config_root / "validation" / "reward" / "sanity.yaml")
+    config = load_sanity_config(config_root / "validation" / "reward.yaml")
 
     assert {item.name for item in config.cases} == {
         "cruise",
@@ -64,7 +63,7 @@ def test_reward_sanity_config_covers_anti_hacking_and_gate_cases(config_root: Pa
 
 
 def test_reward_sanity_report_requires_every_declared_check_to_pass(config_root: Path) -> None:
-    config = load_sanity_config(config_root / "validation" / "reward" / "sanity.yaml")
+    config = load_sanity_config(config_root / "validation" / "reward.yaml")
 
     report = evaluate_sanity(config)
 
@@ -92,9 +91,7 @@ def test_ppo_stability_manifest_composes_balanced_independent_scenarios(
     config_root: Path,
 ) -> None:
     monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
-    study = load_stability_config(
-        config_root / "experiments" / "training" / "stability" / "study.yaml"
-    )
+    study = load_stability_config(config_root / "experiments" / "training" / "stability.yaml")
     parameters = TrialParameters(
         learning_rate=2.5e-5,
         epochs=2,
@@ -120,9 +117,7 @@ def test_ppo_stability_manifest_composes_balanced_independent_scenarios(
 
 
 def test_stability_monitor_reports_registered_domain_prune_reasons(config_root: Path) -> None:
-    study = load_stability_config(
-        config_root / "experiments" / "training" / "stability" / "study.yaml"
-    )
+    study = load_stability_config(config_root / "experiments" / "training" / "stability.yaml")
     monitor = StabilityMonitor(study.pruning)
     update = lambda index, **values: TrainingUpdateSummary.model_construct(  # noqa: E731
         update_index=index,
@@ -159,9 +154,7 @@ def test_stability_experiment_sqlite_continuation_and_validation_ranking(
     config_root: Path,
     tmp_path: Path,
 ) -> None:
-    config = load_stability_config(
-        config_root / "experiments" / "training" / "stability" / "study.yaml"
-    )
+    config = load_stability_config(config_root / "experiments" / "training" / "stability.yaml")
 
     first = create_study(config, tmp_path)
     second = create_study(config, tmp_path)

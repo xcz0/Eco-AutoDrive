@@ -10,7 +10,6 @@ import torch
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
-from eco_planner._repository import REPOSITORY_ROOT
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.experiments.reward.scalar.composition import compose_arm_training_config
@@ -25,7 +24,7 @@ from eco_planner.rl import (
     write_training_runtime_metadata,
 )
 
-from .artifacts import SHARED_SOURCES, copy_sources, write_batch
+from .artifacts import write_batch
 from .config import CollectionConfig
 
 
@@ -47,17 +46,6 @@ def collect(config_path: Path, output_dir: Path) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=False)
     OmegaConf.save(resolved, output_dir / "resolved_config.yaml")
     OmegaConf.save(OmegaConf.create(study.model_dump()), output_dir / "collection_config.yaml")
-    copy_sources(
-        output_dir,
-        (
-            *SHARED_SOURCES,
-            Path(__file__),
-            Path(__file__).with_name("config.py"),
-            REPOSITORY_ROOT / "src/eco_planner/experiments/reward/scalar/composition.py",
-            REPOSITORY_ROOT / "src/eco_planner/rl/rollout/seeds.py",
-            REPOSITORY_ROOT / "scripts/experiments/__main__.py",
-        ),
-    )
     if config.training.deterministic:
         torch.use_deterministic_algorithms(True)
     torch.set_float32_matmul_precision("high")

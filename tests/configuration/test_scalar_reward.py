@@ -24,9 +24,7 @@ from eco_planner.models import Ddim5SamplerConfig
 from eco_planner.rl.config import TrainingJobConfig
 
 ComposeConfig = Callable[[str, list[str] | None], DictConfig]
-PROTOCOL_PATH = Path(__file__).resolve().parents[2] / (
-    "configs/experiments/reward/scalar/protocol.yaml"
-)
+PROTOCOL_PATH = Path(__file__).resolve().parents[2] / ("configs/experiments/reward/scalar.yaml")
 CHECKPOINT_OVERRIDES = [
     "evaluation.policy_checkpoint.label=final",
     "evaluation.policy_checkpoint.path=checkpoints/run/policy-final.pt",

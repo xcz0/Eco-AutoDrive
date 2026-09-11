@@ -1,4 +1,4 @@
-protocol: configs/experiments/reward/scalar/protocol.yaml
+protocol: configs/experiments/reward/scalar.yaml
 training_seed: 0
 overrides:
 - components/resources=rtx_a4000

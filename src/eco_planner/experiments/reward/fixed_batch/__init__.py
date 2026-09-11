@@ -1,11 +1,6 @@
 """Repository experiment implementation."""
 
-from .artifacts import (
-    SHARED_SOURCES,
-    copy_sources,
-    load_fixed_batch,
-    verify_reference,
-)
+from .artifacts import load_fixed_batch, verify_reference
 from .calibration import (
     calibrate,
     raw_arrays,
@@ -22,8 +17,6 @@ from .rewards import COMPONENTS, reward_profile, reweight
 from .runtime import restore_runtime, write_runtime_metadata
 
 __all__ = [
-    "SHARED_SOURCES",
-    "copy_sources",
     "load_fixed_batch",
     "verify_reference",
     "calibrate",

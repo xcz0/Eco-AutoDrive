@@ -56,7 +56,7 @@ def batches():
     from eco_planner.experiments.reward.critic_gae_ablation.diagnostics import (
         analyze_critic_gae_ablation,
     )
-    from eco_planner.experiments.reward.lambda_identifiability.diagnostics import (
+    from eco_planner.experiments.reward.lambda_identifiability import (
         analyze as diagnose,
     )
     from eco_planner.experiments.reward.objective_decomposition.diagnostics import (
@@ -495,7 +495,7 @@ def test_scalar_run_uses_common_report_writer(tmp_path, training_summary, traini
 def test_offline_imports_do_not_load_execution_modules():
     script = """
 import sys
-import scripts.experiments.__main__
+import scripts.experiments
 import eco_planner.analysis.evaluation
 import eco_planner.analysis.simple
 import eco_planner.analysis.stability

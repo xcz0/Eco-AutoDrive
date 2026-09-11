@@ -9,13 +9,17 @@
 每次用于研究结论的运行至少记录：
 
 - 实验 ID、日期、目的和状态（诊断/本机验证/正式基线）；
-- Git commit 和运行时未提交 diff；若当时未采集，明确写“未记录”；
+- Git commit、branch 和运行时 dirty status；正式结果必须从 clean commit 运行；
 - 上游源码 commit、依赖环境、设备；
 - 数据集或程序化地图、场景 seed、噪声 seed；
 - checkpoint 路径和参数量；
 - resolved config、全部 Hydra overrides 和运行命令；
 - 主要结果、失败状态、可支持的结论和不能支持的结论；
 - `summary.json`、`trace.npz`、视频和外部归档位置。
+
+运行产物不再复制 Python source 或保存 tracked diff，继续保存现有 runtime metadata。
+开发诊断允许 dirty 工作区，但不得据此登记正式结果；不增加自动 preflight 或补偿性来源文件。
+历史记录保留当时实际保存的 provenance，未记录的事实不得事后补造。
 
 实验目录应由 Hydra 独立创建，不覆盖旧结果。计划但未运行的工作由项目 GitHub Issues 跟踪，不在本目录伪装成实验记录。
 
