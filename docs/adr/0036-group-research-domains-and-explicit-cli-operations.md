@@ -31,6 +31,6 @@ artifact. Historical experiment records retain their original commands and paths
 a direct dependency at the existing locked resolution.
 
 Current commands are maintained in the README; artifact and numerical contracts are maintained
-in [system-contract.md](../agents/system-contract.md#实验离线分析与报告). Verification covers command
+in [experiment analysis contract](../agents/contracts/experiments.md#实验离线分析与报告). Verification covers command
 routing and bootstrap, numerical and artifact regression, dependency boundaries and the
 simulator intervention-to-report path; it is not new research evidence.

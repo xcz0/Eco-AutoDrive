@@ -1,0 +1,67 @@
+# Policy、rollout 与训练契约
+
+涉及动作概率、reward、episode/GAE、PPO、checkpoint 评测或训练跟踪时读取；共享环境和扩散随机流见[运行时](runtime.md)与[规划](planner.md)。这是 [system contract](../system-contract.md) 的分篇，遵循入口中的使用与维护规则。
+
+## Exploration Policy
+
+Exploration Policy 由 fixed-slot vector rollout collector（B=1 也走同一契约）接入 learned-guidance closed loop，并由 PPO optimizer 更新；训练采集由 rollout collector 拥有；导出的 policy checkpoint 通过独立 adapter 接入通用 evaluation engine，见下文“Policy checkpoint 评测”。它的输入固定为：冻结 scene tokens `[B,N,H]` 及 bool padding mask、冻结 route/navigation token `[B,1,H]` 及 bool validity/padding mask，以及 ego-local physical reference trajectory `float [B,80,4]`。reference 使用 10 Hz、米和 `[cos(h),sin(h)]`。所有 feature 必须同 batch、dtype 和 device，且有限；每个 batch item 至少有一个有效 context token。完整的有限值和有效 token 校验发生在 rollout 回传 CPU 的边界或显式调试校验中；policy/PPO 热路径只检查结构契约。
+
+rollout runtime 在 eval-mode、所有参数 `requires_grad=False` 的官方模型上，通过 `prepare_policy_guidance()` 一次准备 scene/navigation encoding 和 reference。输出 detach 后才进入 policy；policy backward 不得为 planner 产生 `.grad` 或改变 planner 权重。普通 planner `encode()`、fixed-guidance evaluation engine 和官方 checkpoint state-dict 层级保持不变。
+
+PPO 训练必须显式配置 `training.planner_compile_mode`。`eager` 是当前 base profile 默认值；`dit_reduce_overhead` 只允许 CUDA，并以 `torch.compile(mode="reduce-overhead", fullgraph=True, dynamic=False)` 编译 `decoder.dit` 已绑定的 `forward`，不替换注册模块或改变 state-dict key。编译所需后端不可用、graph capture 失败或执行失败时直接报错，不回退 eager。该选项不得改变 sampler、guidance、随机流或冻结 planner hash；独立 rollout 回归入口显式使用 eager。
+
+reference 先经 MLP-Mixer 编码，再作为 query 对拼接后的 scene/navigation tokens 做 masked cross-attention；actor 与 value 共享融合 trunk。policy TensorDict boundary 以该输入 context keys 写入严格正的 `alpha,beta [B,2]` 与 `state_value [B,1]`；typed collection adapter 将 value 暴露为 `[B]`。rollout、PPO current-policy recomputation、bootstrap value 和训练 probe 共享这组 TensorDict output keys。reference 输入固定为 `[B,80,4]`；其余层数、维度、attention heads、dropout、初始 concentration 和最小 concentration 都是 Hydra 必需字段。concentration 使用 `softplus(raw)+minimum_concentration`；actor head 对称初始化为 `alpha=beta`，所以初始 guidance 均值为零，但 Beta 方差非零。
+
+每个 planning cycle 只定义单候选 `K=1`。base action `u` 严格位于 `(0,1)^2`，rollout 保存 `u`；audited guidance action 为 `g=2u-1`，严格位于 `(-1,1)^2`。training sampling 使用调用者提供的独立 policy `torch.Generator` 和 `rsample`；普通 `sample` 也只消费该 generator；deterministic evaluation 使用 mean，不公开 mode。边界 action、非有限参数或非法 shape/dtype/device 立即失败，不得 clamp。两个维度独立时：
+
+```text
+joint_log_prob_u = sum_i log Beta(u_i; alpha_i, beta_i)
+joint_log_prob_g = joint_log_prob_u - 2 * log(2)
+joint_entropy_g = sum_i H(Beta_i) + 2 * log(2)
+```
+
+policy action generator 不得改变 PyTorch 全局 RNG，且与 map/noise seed 分离。policy export checkpoint 只包含其 checkpoint `format_version` 与 Exploration Policy 自身的 trainable state dict；该字段只描述 checkpoint 文件结构。网络结构、Beta 参数化、仿射映射和初始化见 ADR 0016，均为本项目复现决定，不得描述为 PlannerRFT 作者公开实现。
+
+## Policy-guided rollout
+
+rollout 使用独立的 single-device Fabric runtime 和 `guidance=orthogonal_policy`。训练在 update loop 前创建固定物理 slot 的 collector，其 MetaDrive worker pool 在整个 training run 内复用并在 collector 生命周期结束时关闭。逻辑 scenario 数和 `transitions_per_environment` 决定 PPO batch；resource profile 的 `rollout_worker_count` 只决定同时运行的物理 slots。当逻辑 scenarios 多于物理 slots 时，collector 按确定性 wave 复用 worker，并保留每个逻辑 slot 自己的 noise/action generator、seed 和 episode 边界；map 改变时 worker 在同一进程中重建对应环境。每个 PPO update 仍从所有逻辑 scenarios 收集完整 batch。每个 planning round collate 当前 wave observations，执行一次 batched inference，再把 ego trajectory scatter 回对应 worker；一个 transition 先准备冻结 scene/navigation encoding 与 DDIM reference，以独立 policy generator 抽取 `rsample`，再用同一份 encoding、initial noise 与 DDIM transition randomness 完成 guided pass。planner 保持 eval/frozen；普通 evaluation 和固定 action guidance 路径不变。
+
+collector 为每个 slot episode 构造两个按时间维组织的 TensorDict；serial/vector 共用 next-value linking、transition append、tail 判定与 finish/bootstrap lifecycle。vector 路径直接消费环境返回的批 `observation` TensorDict，并对同一 round 需要继续收集的 terminal/truncated slots发起一次 batched partial reset。每个 slot 维持独立、持久的 noise/action generator；episode terminal 或 truncation 只 reset 该 slot，且 GAE 不跨其 episode boundary。TorchRL Collector 不拥有该边界，因为每 step 的 remote execution sidecar、逻辑 scenario 精确 transition 配额、逐 slot generator、延迟 audit transfer 与 bootstrap profiling 都是项目特有职责；TorchRL 仍拥有环境并行、partial mask、GAE 与 PPO。父进程 collector 从 sidecar 的单步 `TransitionMetrics` 调用一次 `RewardEvaluator`；同一 `RewardResult.total` 写入 PPO `next.reward`，其 components/diagnostics 写入 CPU audit，不存在 worker score、parent rescore 或浮点 equality contract。PPO training trajectory 在 root 保存 policy context、guidance action、old transformed joint log-prob 与当前 value；在 `next` 保存最终 scalar reward、done、terminated、truncated 与 next state value。下一次已生成的 policy decision 直接链接前一 transition 的 next state value，episode tail 才注入显式 bootstrap value；已脱离计算图的 PPO fields 在其收集设备上保留至 PPO update。rollout 每次决策只同步复制供 MetaDrive 执行的 ego trajectory；其余 audit/replay 字段在 simulator step 后经独立 CUDA transfer stream 等待并写入，且其 CPU copy 不决定 training trajectory 的设备生命周期。rollout 必须设置`trajectory_execution_steps=1`；evaluation config 要求 5。不保存 DDIM denoise chain。纯 truncation 与 rollout-limit tail 通过同一 batched bootstrap pass 保存各 slot 最终状态的冻结 critic value；terminal tail 保存零。
+
+训练 reward 是按 `name` 判别、`extra="forbid"` 的严格 profile 联合：`plannerrft_energy_v1`（Rλ，objective 含 energy 项，分母为全部权重之和 16+λ，λ 即 `weights.energy` 且必须大于零）与 `plannerrft_no_energy_v1`（R0，objective 不含 energy 项，分母为四个共享权重之和 16）。两个 profile 的 safety gate 与 TTC/Progress/Comfort/Speed 共享同一实现，唯一目标差异是 energy 项与归一化分母；λ=0 不通过把 energy 权重设为零表达，而是选择 no-energy profile。no-energy profile 仍计算并保存 energy component score，但作为由 `energy` 子配置归一化的未加权 audit 诊断，不进入 objective；两个 profile 共用同一 rollout audit key 集与 NPZ artifact 字段 schema，由 `reward_profile` 字段区分。配置解析、component 映射、safety gate、聚合和 `RewardResult` 全部归 `eco_planner.rl.reward`；`envs`、MetaDrive worker 和 TorchRL adapter 不 import 或执行 reward policy。TTC corridor/threshold 解释也归 reward 层；客观运动与执行误差归 `envs.domain.transition`，能耗事实与 provider protocol 归 `envs.domain.energy`。safety gate 为 collision、当前 `out_of_road` 与当前 route/reference lane 前向切线的 wrong-direction 判定之积；未 gated components 为 TTC、非负 route-lane 纵向 progress、实际执行 velocity/acceleration/yaw-rate 得到的 comfort、当前 lane speed limit 下的 speed，以及 energy provider 产生的 fuel proxy metric。全部阈值、权重、归一化尺度和 corridor margin 来自 resolved reward profile；PPO/GAE 只接收 `RewardResult.total`。
+
+### Energy reward 评分
+
+两个 PlannerRFT reward profile 对位移小于 reward profile `minimum_step_distance_m` 的子步保存 denominator-valid=false、mL/km=0、energy score=0；有效子步的 energy score 由 `energy.mode` 决定：默认 `reference_exponential` 使用 `exp(-ml_per_km / reference_ml_per_km)`，`calibrated_band`（Issue #94 Task E）使用双侧饱和 `clip((band_zero_score_ml_per_km − ml_per_km)/(band_zero_score_ml_per_km − band_full_score_ml_per_km), 0, 1)`，阈值由固定校准 batch 强度分位数预冻结。该 denominator 判定是 reward 子步契约，不改变 episode summary 对总 execution distance 的分母。
+
+## GAE、PPO 与训练
+
+每个 `RolloutEpisode` 的 PPO training TensorDict 在 root 包含当前 value，在 `next` 包含 reward、done、terminated、truncated 与 next state value；audit/replay TensorDict 不带 GAE 派生字段。episode 最后一项总是 GAE recursion boundary；真实 terminal 不 bootstrap，纯 truncation 与 rollout-limit tail bootstrap，advantage 不跨 episode 泄漏。若 MetaDrive 在同一 transition 同时返回 `terminated=true` 和 `truncated=true`，保留两个原始标志并按真实 terminal 处理：tail kind 为 `terminated`，bootstrap value 为零。
+
+TorchRL `GAE` 产生未标准化 advantage 与 value target。多个 episode 仅在 GAE 后拼接，advantage 只在完整 PPO batch 上使用 sample standard deviation 标准化一次；少于两个样本、零方差或非有限统计立即失败。设备传输前 PPO batch 严格只选择 policy context、guidance action、old transformed joint log-prob、advantage 和 value target；其中 joint log-prob 是每个 transition 一个标量的 `[T]` tensor，必须与当前 `AffineBeta.log_prob(action)` 同形，不能保留尾部单例维；`next`、reward、边界标记和 collection-time value 仅用于 GAE，不进入 `ClipPPOLoss` 更新。TorchRL `ClipPPOLoss` 的 actor TensorDict adapter 一次执行 `ExplorationPolicy` 并写入 `alpha`、`beta` 与当前 value；critic adapter 复用该 value，不重复执行 shared trunk。PPO ratio 使用保存的 old transformed joint log-prob，entropy 含仿射 Jacobian，不使用 DDIM transition probability。value loss 为 unclipped L2，policy、value 与 entropy loss 共同更新 policy actor head、value head 和共享 trunk。
+
+可 sweep 的训练参数由 `TrainingJobConfig` 和 YAML profile 决定；顶层 `ppo` 子树只保存 PPO/GAE、optimizer 与 scheduler 参数，不接受旧 `rl` 键。PPO 固定使用完整 batch advantage normalization、unclipped L2 value loss、Adam 与 cosine scheduler。每个逻辑 slot 拥有独立、持久的 diffusion noise 与 policy action generator；实际 seeds 由固定 SeedSequence namespace 和 training seed 确定性派生。训练状态 checkpoint 使用 Fabric 保存 policy、optimizer、scheduler、PPO minibatch replay sampler/RNG state、CPU/CUDA RNG 以及已完成 update 的 loop state，可从 checkpoint 恢复。训练前后冻结 planner 参数 hash 必须相同，只有 Exploration Policy 可被 optimizer 更新。
+
+`ppo.target_kl` 是显式 nullable 配置。非 null 时，每个 minibatch forward 后、backward 前检查 current/old policy approximate KL；若超过 `1.5 * target_kl`，触发该 minibatch不执行 optimizer step，并终止本 update 剩余 minibatch/epoch。scheduler 只按实际 optimizer step 前进；checkpoint 同时保存累计 KL early-stop 次数。update artifact 分开记录 evaluated minibatch 与 optimizer step 数、触发 KL、原始/归一化 advantage 统计以及 update 后完整 batch 的 policy ratio 统计。`ppo.gradient_diagnostics=true` 时，另以不改变最终 total backward 的 `autograd.grad` 记录 coefficient-weighted actor、critic 与 entropy loss 对 actor/value head 和 shared trunk 的 gradient norm；普通训练默认关闭该额外诊断。
+
+RL 训练输出与 evaluation 输出使用各自独立的数据边界。训练 episode NPZ 显式保存 `reward_total`、`reward_base_total`、`reward_safety_gate`、五个 `reward_component_*` 与独立命名的 `reward_diagnostic_*`，不再复用 `dense_reward` / `terminal_override` 表达不同 objective 的含义。它同时保存 policy context、Beta 参数、base/guidance action、old log-prob/value、initial noise、两条 RNG state、episode status、五类 collision、native MetaDrive energy、execution fuel proxy、step distance、mL/km、denominator-valid 和 seeds；不保存 DDIM denoise chain。evaluation trace 和 episode summary 不保存或聚合训练 reward，只报告稳定的执行、安全、进度、速度、误差和能耗指标。每次训练运行保存 resolved config、runtime metadata、policy export checkpoints、training-state checkpoint 和严格 summary。`configs/components/resources/` 的版本化 profile 是 host scheduling 的唯一配置层，不得覆盖 PPO、reward、sampler 或 guidance 字段。rollout 内部错误直接终止训练，不保存 partial trajectory。
+
+### Policy checkpoint 评测
+
+Exploration-policy checkpoint evaluation 进入与 base diffusion planner、fixed-reference guidance 相同的 closed-loop evaluation engine：通用 evaluation job 通过 `policy` 组件 + `guidance=orthogonal_policy` + `evaluation.policy_checkpoint.{label,path}` 声明一次 checkpoint 评测，`parse_evaluation_config` 在该模式下强制 ddim5 且 `ddim_stochasticity=0`，不允许没有 checkpoint 的悬空 policy 组件。`evaluation.inference.agent.PolicyCheckpointEvaluationAgent` 是 public adapter，固定 policy action 为 Beta mean，因而不消费 policy RNG；它仍使用普通 evaluation 的 0.5 s execution，而非训练 rollout 的 0.1 s transition。checkpoint provenance（label、path、policy state hash）写入 job summary；每个 scenario 的 diffusion noise seed 都取自 job 的 runtime seed，与 frozen-planner agent 的单一 generator 流 matched。评测使用独立于 training seed 的显式 evaluation seed；不同 checkpoint、arm 或候选配置必须使用相同 scenario、map seed 和 diffusion seed。PPO stability 的 `validation.py` 复用同一 agent 与 artifact，只从其 typed episode metrics 应用最小 episode-length/route-progress retention 及 collision/out-of-road non-regression，不读取或比较 reward。
+
+### 训练实验跟踪
+
+PPO training 默认通过 `tracking` Hydra 组件启用 MLflow。SQLite URI 和本地 artifact location 的相对路径以仓库根目录解析，默认分别为 `outputs/mlflow/mlflow.db` 和 `outputs/mlflow/artifacts`；HTTP(S) tracking URI 支持远程服务。远程服务应显式设置 `artifact_location=null`，让服务选择存储。关闭 tracking 不建立数据库或 Run。
+
+训练编排的 adapter 将 `TrainingUpdateSummary` 转为有限标量，经已有 runtime 的 `Fabric.log_dict` 和 Lightning `MLFlowLogger` 同步发送；collector、reward evaluator 和 TorchRL PPO 数学实现不调用 MLflow。现有 `update_observer` 每个成功记录的 update 调用一次，异常继续传播。所有 update 曲线使用从零开始的绝对 `update_index`，不在恢复后重置。
+
+`reward/total_sum`、`reward/base_sum` 保留 transition reward 总和，`*_mean` 除以 `sample_count`；collision/out-of-road 的 `transition_count` 和 `transition_fraction` 是标记 transition 的计数和占比，不是 episode failure rate。energy 保留 native 和 executed fuel proxy 的独立名称与单位；mL/km 为总 proxy mL 除以总距离 km，零距离时不发送该可选指标，不填零。二维 Beta/action 统计按 `dim_0`、`dim_1` 展开。分组 gradient diagnostics 和 KL trigger 仅在存在时发送。`policy/probe_before/*` 与 `policy/probe_after/*` 使用已有固定上下文 probe，按 scenario 和维度记录，包括 boundary mass；不是逐 update 新增采样。
+
+通用 rollout mean/sum/max 由 TorchMetrics 聚合同一份拼接 audit，保持原 dtype，均值按 transition 而非 episode 加权。PPO loss/KL/entropy 等使用 float64 状态，对 evaluated minibatch 求均值，包括触发 KL early stop 的 minibatch；pre-clip gradient 最大值仅更新于实际 optimizer step，零 step 时保持零。聚合状态每个 update 重建，不消费随机流，NaN 报错。分组梯度诊断、policy ratio、标准差、GAE 和 reward/energy 领域计算保持原实现。
+
+全新训练独立建 Run；training checkpoint 的 loop state 可含 `tracking={run_id, tracking_uri}`，恢复时沿用该身份。关闭跟踪仍保留继承身份，并写入 runtime metadata。同一 Run 固定 model、sampler、guidance、policy、reward、PPO、runtime、scenarios、env、map query radius 及其余 training 参数；允许变化的是 job name、resources、tracking、目标 update 数与 resume 路径。scheduler horizon 仍属于固定 PPO 参数。
+
+Run 参数展平为 `config.*`，每次调用的执行参数与 artifacts 按独立 invocation 保存。原始 resolved config 缺失的旧 checkpoint 使用 `continuation_config.*` 标记从本次恢复起已知的配置，并明确标记历史参数未记录；原始配置存在时先校验一致，再关联历史配置。不以恢复配置冒充历史 provenance。恢复先检查已有 metric history，只补录 checkpoint summaries 中缺失的 metric/step；已有点超出 checkpoint 或同一步数值冲突时拒绝续写。Run 缺失或 tracking URI 不匹配同样报错，不自动创建替代 Run。
+
+resolved config、runtime metadata、initial/final policy、按显式间隔选取的 update policy 和最新 training-state checkpoint 上传为 invocation artifacts，正式 rollout NPZ 保留在原输出目录。正常完成并上传成功后 Run 为 `FINISHED`，异常为 `FAILED`，用户中断为 `KILLED`；终结日志自身失败不得替换原训练异常。MLflow 不接管已有 research artifact schema，不混入 held-out evaluation reward，也不代表训练结果已有科研结论。
