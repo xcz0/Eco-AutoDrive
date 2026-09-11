@@ -357,15 +357,11 @@ def test_post_update_kl_series_recomputes_kl_on_persisted_updates(tmp_path: Path
     old_distribution = AffineBeta(alpha, beta, validate_args=False)
     action = old_distribution.sample(torch.Generator().manual_seed(7)).guidance_action
     old_log_prob = old_distribution.log_prob(action)
-    _write_kl_update(
-        run_dir, 0, context, action, old_log_prob, alpha, beta, policy.state_dict()
-    )
+    _write_kl_update(run_dir, 0, context, action, old_log_prob, alpha, beta, policy.state_dict())
     perturbed = {key: value.clone() for key, value in policy.state_dict().items()}
     actor_key = next(key for key in perturbed if key.startswith("actor_head."))
     perturbed[actor_key] = perturbed[actor_key] + 1.0
-    _write_kl_update(
-        run_dir, 1, context, action, old_log_prob, alpha, beta, perturbed
-    )
+    _write_kl_update(run_dir, 1, context, action, old_log_prob, alpha, beta, perturbed)
     series = post_update_kl_series(run_dir, update_count=2)
     assert series["post_update_kl"][0] == pytest.approx(0.0, abs=1.0e-12)
     assert series["post_update_kl"][1] > 1.0e-03

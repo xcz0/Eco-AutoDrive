@@ -278,22 +278,19 @@ def post_update_kl_series(run_dir: Path, *, update_count: int) -> dict[str, Any]
                 new_beta.repeat(_KL_MC_DRAWS, 1),
                 validate_args=False,
             )
-            log_ratio_draws = (
-                new_repeated.log_prob(guidance_action) - old_distribution.log_prob(guidance_action)
+            log_ratio_draws = new_repeated.log_prob(guidance_action) - old_distribution.log_prob(
+                guidance_action
             )
             if not torch.isfinite(log_ratio_draws).all():
                 raise FloatingPointError(
                     f"post-update MC log ratios must be finite (update {index})"
                 )
-            kl_series.append(
-                float((-log_ratio_draws).reshape(_KL_MC_DRAWS, batch_size).mean())
-            )
+            kl_series.append(float((-log_ratio_draws).reshape(_KL_MC_DRAWS, batch_size).mean()))
             new_single = AffineBeta(new_alpha, new_beta, validate_args=False)
             new_log_prob = new_single.log_prob(batch["guidance_action"].to(dtype=torch.float32))
-            log_ratio = (
-                new_log_prob.reshape(-1)
-                - batch["old_joint_guidance_log_prob"].reshape(-1).to(dtype=torch.float32)
-            )
+            log_ratio = new_log_prob.reshape(-1) - batch["old_joint_guidance_log_prob"].reshape(
+                -1
+            ).to(dtype=torch.float32)
             if not torch.isfinite(log_ratio).all():
                 raise FloatingPointError(f"post-update log ratio must be finite (update {index})")
         k1_series.append(float(log_ratio.mul(-1.0).mean()))
