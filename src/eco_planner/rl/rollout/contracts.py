@@ -15,7 +15,12 @@ from eco_planner.rl.policy import ExplorationPolicyContext
 from eco_planner.rl.reward import RewardResult
 
 TailKind = Literal["terminated", "truncated", "rollout_limit"]
-RewardProfileName = Literal["plannerrft_energy_v1", "plannerrft_no_energy_v1"]
+RewardProfileName = Literal[
+    "plannerrft_energy_v1",
+    "plannerrft_energy_band_lam64_v1",
+    "plannerrft_no_energy_v1",
+    "plannerrft_no_energy_calibrated_v1",
+]
 _CPU_DEVICE = torch.device("cpu")
 _CONTEXT_KEYS = (
     "scene_tokens",
@@ -431,9 +436,14 @@ def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
 def rollout_audit_keys(reward_profile: RewardProfileName) -> tuple[str, ...]:
     """Return the exact in-memory audit keys for one reward profile."""
 
-    # Both PlannerRFT profiles share one audit schema: under the no-energy
-    # profile the energy component stays an audited, unweighted diagnostic.
-    if reward_profile in ("plannerrft_energy_v1", "plannerrft_no_energy_v1"):
+    # All PlannerRFT profiles share one audit schema: under the no-energy
+    # profiles the energy component stays an audited, unweighted diagnostic.
+    if reward_profile in (
+        "plannerrft_energy_v1",
+        "plannerrft_energy_band_lam64_v1",
+        "plannerrft_no_energy_v1",
+        "plannerrft_no_energy_calibrated_v1",
+    ):
         return _AUDIT_KEYS
     raise ValueError("rollout episode has an invalid reward profile")
 

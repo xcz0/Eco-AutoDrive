@@ -16,6 +16,7 @@ from eco_planner.rl.policy import (
     policy_context_tensordict,
 )
 from eco_planner.rl.reward import RewardComponents, RewardDiagnostics, RewardResult
+from eco_planner.rl.reward.result import RewardProfileName
 from eco_planner.rl.rollout import (
     DecisionAudit,
     ExecutionTransitionAudit,
@@ -91,11 +92,15 @@ def _decision_audit() -> DecisionAudit:
 
 
 def _execution_audit(
-    reward: float, *, terminated: bool, truncated: bool
+    reward: float,
+    *,
+    terminated: bool,
+    truncated: bool,
+    profile_name: RewardProfileName = "plannerrft_energy_v1",
 ) -> ExecutionTransitionAudit:
     return ExecutionTransitionAudit(
         reward_result=RewardResult(
-            profile_name="plannerrft_energy_v1",
+            profile_name=profile_name,
             total=reward,
             base_total=reward,
             safety_gate=1.0,
@@ -140,7 +145,14 @@ def _execution_audit(
     )
 
 
-def _episode(*, reward: float, terminated: bool, truncated: bool, bootstrap: float):
+def _episode(
+    *,
+    reward: float,
+    terminated: bool,
+    truncated: bool,
+    bootstrap: float,
+    profile_name: RewardProfileName = "plannerrft_energy_v1",
+):
     context = _context()
     decision = build_training_decision(
         context,
@@ -152,7 +164,9 @@ def _episode(*, reward: float, terminated: bool, truncated: bool, bootstrap: flo
     builder.append(
         decision,
         _decision_audit(),
-        _execution_audit(reward, terminated=terminated, truncated=truncated),
+        _execution_audit(
+            reward, terminated=terminated, truncated=truncated, profile_name=profile_name
+        ),
         RolloutProvenance(0, 1, 2, 0),
     )
     tail_kind = "terminated" if terminated else "truncated" if truncated else "rollout_limit"
@@ -287,6 +301,46 @@ def test_ppo_update_changes_policy_and_reports_finite_training_summary() -> None
         assert summary.action_mean[dim] <= summary.action_max[dim]
         assert summary.action_std[dim] >= 0.0
     assert summary.reward_profile == "plannerrft_energy_v1"
+
+
+@pytest.mark.parametrize(
+    "profile_name",
+    [
+        "plannerrft_energy_v1",
+        "plannerrft_energy_band_lam64_v1",
+        "plannerrft_no_energy_v1",
+        "plannerrft_no_energy_calibrated_v1",
+    ],
+)
+def test_update_summary_persists_every_reward_profile_name(profile_name) -> None:
+    episodes = (
+        _episode(
+            reward=0.25,
+            terminated=True,
+            truncated=False,
+            bootstrap=0.0,
+            profile_name=profile_name,
+        ),
+        _episode(
+            reward=2.0,
+            terminated=True,
+            truncated=False,
+            bootstrap=0.0,
+            profile_name=profile_name,
+        ),
+    )
+
+    summary = build_update_summary(0, episodes, _update_report(episodes))
+
+    assert isinstance(summary, TrainingUpdateSummary)
+    assert summary.reward_profile == profile_name
+
+
+def _update_report(episodes):
+    with torch.random.fork_rng():
+        torch.manual_seed(0)
+        policy = ExplorationPolicy(_policy_config())
+    return PPOUpdater(policy, _ppo_config()).update(episodes)
 
 
 def test_ppo_pairs_each_action_with_its_behavior_log_probability() -> None:

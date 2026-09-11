@@ -112,7 +112,7 @@ def evaluate_plannerrft_energy_step(
         + weights.speed * components.speed
         + weights.energy * components.energy
     ) / weights.total
-    return _finalize("plannerrft_energy_v1", gate, base_total, components, diagnostics)
+    return _finalize(config.name, gate, base_total, components, diagnostics)
 
 
 def evaluate_plannerrft_no_energy_step(
@@ -129,7 +129,7 @@ def evaluate_plannerrft_no_energy_step(
         + weights.comfort * components.comfort
         + weights.speed * components.speed
     ) / weights.total
-    return _finalize("plannerrft_no_energy_v1", gate, base_total, components, diagnostics)
+    return _finalize(config.name, gate, base_total, components, diagnostics)
 
 
 __all__ = [

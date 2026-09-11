@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-RewardProfileName = Literal["plannerrft_energy_v1", "plannerrft_no_energy_v1"]
+RewardProfileName = Literal[
+    "plannerrft_energy_v1",
+    "plannerrft_energy_band_lam64_v1",
+    "plannerrft_no_energy_v1",
+    "plannerrft_no_energy_calibrated_v1",
+]
 
 
 @dataclass(frozen=True, slots=True)

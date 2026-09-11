@@ -108,7 +108,7 @@ class EnergyRewardConfig(_StrictRewardModel):
 
 
 class PlannerRFTEnergyRewardConfig(_StrictRewardModel):
-    name: Literal["plannerrft_energy_v1"]
+    name: Literal["plannerrft_energy_v1", "plannerrft_energy_band_lam64_v1"]
     weights: RewardWeightsConfig
     gates: RewardGatesConfig
     ttc: TTCRewardConfig
@@ -121,7 +121,7 @@ class PlannerRFTEnergyRewardConfig(_StrictRewardModel):
 class PlannerRFTNoEnergyRewardConfig(_StrictRewardModel):
     """No-energy R0 objective; `energy` only normalizes the audited diagnostic score."""
 
-    name: Literal["plannerrft_no_energy_v1"]
+    name: Literal["plannerrft_no_energy_v1", "plannerrft_no_energy_calibrated_v1"]
     weights: NoEnergyRewardWeightsConfig
     gates: RewardGatesConfig
     ttc: TTCRewardConfig

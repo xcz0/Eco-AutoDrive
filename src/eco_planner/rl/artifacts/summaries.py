@@ -86,7 +86,12 @@ class TrainingUpdateSummary(_ArtifactModel):
     policy_ratio_p95: StrictFloat = Field(gt=0.0)
     policy_ratio_max: StrictFloat = Field(gt=0.0)
     gradient_diagnostics: PPOGradientDiagnosticsSummary | None
-    reward_profile: Literal["plannerrft_energy_v1", "plannerrft_no_energy_v1"]
+    reward_profile: Literal[
+        "plannerrft_energy_v1",
+        "plannerrft_energy_band_lam64_v1",
+        "plannerrft_no_energy_v1",
+        "plannerrft_no_energy_calibrated_v1",
+    ]
     native_step_energy_total_ml: StrictFloat = Field(ge=0.0)
     executed_fuel_proxy_total_ml: StrictFloat = Field(ge=0.0)
     executed_fuel_proxy_distance_m: StrictFloat = Field(ge=0.0)
@@ -116,4 +121,9 @@ class TrainingRunSummary(_ArtifactModel):
     probe_before: PolicyProbeSummary
     probe_after: PolicyProbeSummary
     updates: tuple[TrainingUpdateSummary, ...]
-    reward_profile: Literal["plannerrft_energy_v1", "plannerrft_no_energy_v1"]
+    reward_profile: Literal[
+        "plannerrft_energy_v1",
+        "plannerrft_energy_band_lam64_v1",
+        "plannerrft_no_energy_v1",
+        "plannerrft_no_energy_calibrated_v1",
+    ]
