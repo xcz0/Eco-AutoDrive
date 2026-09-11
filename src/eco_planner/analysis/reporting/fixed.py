@@ -15,6 +15,8 @@ def render_report(summary: dict[str, Any], *, batch_origin: str = "New batch") -
         "",
         "Component std uses population variance; advantage std uses sample variance.",
         "",
+        "## Reward: component scale",
+        "",
         "| Component | Mean | Std | Quantiles |",
         "| --- | ---: | ---: | --- |",
     ]
@@ -23,6 +25,8 @@ def render_report(summary: dict[str, Any], *, batch_origin: str = "New batch") -
             f"| {name} | {number(stats['mean'])} | {number(stats['std'])} | {stats['quantiles']} |"
         )
     lines += [
+        "",
+        "## Credit assignment to actor gradient",
         "",
         "| Lambda | Raw A mean | Raw A std | Norm A std | Head norm | Trunk norm |",
         "| --- | ---: | ---: | ---: | ---: | ---: |",
@@ -94,7 +98,7 @@ def render_decomposition_report(summary: dict[str, Any]) -> str:
     )
     lines += [
         "",
-        "## Endpoint attribution: R0 vs Energy-only",
+        "## Credit assignment to actor gradient: R0 vs Energy-only",
         "",
         "| Advantage form | Pearson | Spearman | Sign flip | Advantage RMSE | "
         "Head cosine | Head norm ratio |",
@@ -114,7 +118,7 @@ def render_decomposition_report(summary: dict[str, Any]) -> str:
         )
     lines += [
         "",
-        "## Stress trajectory: R0 -> finite lambda -> Energy-only",
+        "## Actor gradient response: R0 -> finite lambda -> Energy-only",
         "",
         "| Lambda | Head cosine vs R0 | Angular separation (rad) | "
         "Fraction of endpoint separation | Head norm ratio |",
@@ -174,6 +178,8 @@ def render_ablation_report(summary: dict[str, Any]) -> str:
         summary["undefined_reason"],
         "",
         "Advantage std uses sample variance.",
+        "",
+        "## Credit assignment to actor gradient",
         "",
         "| Arm | Credit form | Raw A mean | Raw A std | Z A std | Head grad norm (z) |",
         "| --- | --- | ---: | ---: | ---: | ---: |",

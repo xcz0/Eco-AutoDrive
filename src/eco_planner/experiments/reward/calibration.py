@@ -1,4 +1,4 @@
-"""Run original and calibrated diagnostics against an explicit lambda reference."""
+"""Configuration, diagnostics and execution for calibration."""
 
 from __future__ import annotations
 
@@ -6,21 +6,13 @@ from pathlib import Path
 
 import numpy as np
 from omegaconf import OmegaConf
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, model_validator
 
-from eco_planner._repository import REPOSITORY_ROOT
-from eco_planner.analysis import publish, render_report
-from eco_planner.artifacts import (
-    write_json,
-    write_npz,
-)
+from eco_planner.analysis import publish, render_report, statistics
+from eco_planner.artifacts import write_json, write_npz
 from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.experiments.reward.lambda_identifiability.diagnostics import analyze
-from eco_planner.rl.reward import PlannerRFTNoEnergyRewardConfig
-
-from ..fixed_batch import (
-    SHARED_SOURCES,
+from eco_planner.experiments.reward.fixed_batch import (
     calibrate,
-    copy_sources,
     load_fixed_batch,
     raw_arrays,
     rescore,
@@ -29,8 +21,88 @@ from ..fixed_batch import (
     verify_reference,
     write_runtime_metadata,
 )
-from .config import CalibrationConfig
-from .diagnostics import dynamic_range_audit
+from eco_planner.experiments.reward.fixed_batch.calibration import MOTION_LIMITS, scored_arrays
+from eco_planner.experiments.reward.lambda_identifiability import analyze
+from eco_planner.rl.reward import PlannerRFTNoEnergyRewardConfig
+
+
+class CalibrationConfig(BaseModel):
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid", allow_inf_nan=False)
+    progress_target_score: StrictFloat = Field(gt=0.0, lt=1.0)
+    comfort_target_score: StrictFloat = Field(gt=0.0, lt=1.0)
+    lambdas: list[StrictFloat] = Field(min_length=2)
+    quantiles: list[StrictFloat] = Field(min_length=2)
+
+    @model_validator(mode="after")
+    def validate_axes(self) -> CalibrationConfig:
+        if self.lambdas[0] != 0 or sorted(set(self.lambdas)) != self.lambdas:
+            raise ValueError("lambdas must start at zero and strictly increase")
+        if (
+            self.quantiles[0] != 0
+            or self.quantiles[-1] != 1
+            or sorted(set(self.quantiles)) != self.quantiles
+        ):
+            raise ValueError("quantiles must increase from zero to one")
+        return self
+
+
+def dynamic_range_audit(
+    raw: dict[str, np.ndarray],
+    base: PlannerRFTNoEnergyRewardConfig,
+    calibrated: PlannerRFTNoEnergyRewardConfig,
+    study: CalibrationConfig,
+    scenario_ids: np.ndarray,
+    cycle_ids: np.ndarray,
+) -> tuple[dict, dict[str, np.ndarray]]:
+    before, after = scored_arrays(raw, base), scored_arrays(raw, calibrated)
+    arrays = {**raw, "scenario_index": scenario_ids, "planning_cycle_index": cycle_ids}
+    arrays.update(
+        {
+            f"{label}_{k}": v
+            for label, s in (("original", before), ("calibrated", after))
+            for k, v in s.items()
+        }
+    )
+
+    def describe(mask: np.ndarray) -> dict:
+        result: dict = {"sample_count": int(mask.sum()), "raw": {}, "scores": {}}
+        for key, value in raw.items():
+            measured = np.abs(value) if key in MOTION_LIMITS else value
+            result["raw"][key] = statistics(measured[mask], study.quantiles)
+            if key in MOTION_LIMITS:
+                limit = getattr(base.comfort, MOTION_LIMITS[key])
+                result["raw"][key]["original_limit_exceeded_fraction"] = float(
+                    np.mean(measured[mask] > limit)
+                )
+        for label, scores in (("original", before), ("calibrated", after)):
+            result["scores"][label] = {
+                key: {
+                    **statistics(value[mask], study.quantiles),
+                    "zero_fraction": float(np.mean(value[mask] == 0)),
+                    "one_fraction": float(np.mean(value[mask] == 1)),
+                    **(
+                        {
+                            "minimum_fraction_including_ties": float(
+                                np.mean(value[mask] == scores["comfort"][mask])
+                            )
+                        }
+                        if key in MOTION_LIMITS
+                        else {}
+                    ),
+                }
+                for key, value in scores.items()
+            }
+        return result
+
+    return {
+        "all": describe(np.ones(len(scenario_ids), dtype=bool)),
+        "per_scenario": {str(i): describe(scenario_ids == i) for i in np.unique(scenario_ids)},
+        "per_planning_cycle": {str(i): describe(cycle_ids == i) for i in np.unique(cycle_ids)},
+        "interpretation": (
+            "Distribution-relative smoothness; original limits remain audit references, "
+            "not redefined physical comfort standards. All transitions retained."
+        ),
+    }, arrays
 
 
 def run(
@@ -59,18 +131,6 @@ def run(
     write_npz(output / "audit.npz", audit_arrays)
     OmegaConf.save(OmegaConf.create(study.model_dump()), output / "calibration_config.yaml")
     write_runtime_metadata(output, source, batch, runtime)
-    copy_sources(
-        output,
-        (
-            *SHARED_SOURCES,
-            Path(__file__),
-            Path(__file__).with_name("config.py"),
-            Path(__file__).with_name("diagnostics.py"),
-            REPOSITORY_ROOT / "scripts/experiments/__main__.py",
-            REPOSITORY_ROOT
-            / "src/eco_planner/experiments/reward/lambda_identifiability/diagnostics.py",
-        ),
-    )
     results, original_errors = {}, {}
     for label, profile in (("original", base), ("calibrated", calibrated)):
         print(f"Running {label}: {len(samples)} fixed transitions, backward only.", flush=True)

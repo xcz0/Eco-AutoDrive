@@ -35,6 +35,10 @@ def publish(source: Path, output: Path, *, figures: bool = True) -> dict[str, An
     lines = [
         "# Task D: Guidance control authority",
         "",
+        "Behavior link: follow imposed guidance through planner output to executed motion and "
+        "energy response. This intervention tests control authority, not whether PPO learned "
+        "to exploit the energy reward.",
+        "",
         f"Gate D: **{'PASSED' if result['gate_d']['passed'] else 'FAILED'}**",
         "",
         f"Attribution: `{result['gate_d']['attribution']}`",

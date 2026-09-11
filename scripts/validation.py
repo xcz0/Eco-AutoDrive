@@ -19,7 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument(
                 "--config",
                 type=Path,
-                default=CONFIG_ROOT / "validation" / "reward" / "sanity.yaml",
+                default=CONFIG_ROOT / "validation" / "reward.yaml",
             )
         else:
             command.add_argument("--source-dir", type=Path, required=True)

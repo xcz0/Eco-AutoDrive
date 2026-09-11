@@ -9,21 +9,23 @@ from typing import Any
 import numpy as np
 from omegaconf import OmegaConf
 
-from eco_planner._repository import REPOSITORY_ROOT
 from eco_planner.analysis import publish
 from eco_planner.artifacts import (
     write_json,
     write_npz,
 )
 from eco_planner.configuration import load_resolved_yaml_mapping
+from eco_planner.experiments.reward.critic_gae_ablation.diagnostics import (
+    CREDIT_FORMS,
+    AblationConfig,
+    analyze_critic_gae_ablation,
+)
 from eco_planner.rl import PlannerRFTNoEnergyRewardConfig
 
 from ..fixed_batch import (
     ADVANTAGE_FORMS,
     GRADIENT_GROUPS,
-    SHARED_SOURCES,
     calibrate,
-    copy_sources,
     load_fixed_batch,
     raw_arrays,
     rescore,
@@ -32,11 +34,6 @@ from ..fixed_batch import (
     verify_original_components,
     verify_reference,
     write_runtime_metadata,
-)
-from .config import AblationConfig
-from .diagnostics import (
-    CREDIT_FORMS,
-    analyze_critic_gae_ablation,
 )
 
 _VALUE_KEYS = (
@@ -123,16 +120,6 @@ def run(
     resolved = {**config, "reward": calibrated.model_dump()}
     OmegaConf.save(OmegaConf.create(resolved), output / "resolved_config.yaml")
     write_runtime_metadata(output, source, batch, runtime)
-    copy_sources(
-        output,
-        (
-            *SHARED_SOURCES,
-            Path(__file__),
-            Path(__file__).with_name("config.py"),
-            Path(__file__).with_name("diagnostics.py"),
-            REPOSITORY_ROOT / "scripts/experiments/__main__.py",
-        ),
-    )
     print(
         f"Running Task C4 critic/GAE ablation: {len(samples)} fixed transitions, "
         f"{len(calibrated_episodes)} episodes, 2 arms x {len(CREDIT_FORMS)} credit forms x "

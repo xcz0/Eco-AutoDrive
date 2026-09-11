@@ -226,11 +226,11 @@ TorchRL `GAE` 产生未标准化 advantage 与 value target。多个 episode 仅
 
 `ppo.target_kl` 是显式 nullable 配置。非 null 时，每个 minibatch forward 后、backward 前检查 current/old policy approximate KL；若超过 `1.5 * target_kl`，触发该 minibatch不执行 optimizer step，并终止本 update 剩余 minibatch/epoch。scheduler 只按实际 optimizer step 前进；checkpoint 同时保存累计 KL early-stop 次数。update artifact 分开记录 evaluated minibatch 与 optimizer step 数、触发 KL、原始/归一化 advantage 统计以及 update 后完整 batch 的 policy ratio 统计。`ppo.gradient_diagnostics=true` 时，另以不改变最终 total backward 的 `autograd.grad` 记录 coefficient-weighted actor、critic 与 entropy loss 对 actor/value head 和 shared trunk 的 gradient norm；普通训练默认关闭该额外诊断。
 
-RL 训练输出与 evaluation 输出使用各自独立的数据边界。训练 episode NPZ 显式保存 `reward_total`、`reward_base_total`、`reward_safety_gate`、五个 `reward_component_*` 与独立命名的 `reward_diagnostic_*`，不再复用 `dense_reward` / `terminal_override` 表达不同 objective 的含义。它同时保存 policy context、Beta 参数、base/guidance action、old log-prob/value、initial noise、两条 RNG state、episode status、五类 collision、native MetaDrive energy、execution fuel proxy、step distance、mL/km、denominator-valid 和 seeds；不保存 DDIM denoise chain。evaluation trace 和 episode summary 不保存或聚合训练 reward，只报告稳定的执行、安全、进度、速度、误差和能耗指标。每次训练运行保存 resolved config、runtime metadata、tracked diff、policy export checkpoints、training-state checkpoint 和严格 summary。`configs/components/resources/` 的版本化 profile 是 host scheduling 的唯一配置层，不得覆盖 PPO、reward、sampler 或 guidance 字段。rollout 内部错误直接终止训练，不保存 partial trajectory。
+RL 训练输出与 evaluation 输出使用各自独立的数据边界。训练 episode NPZ 显式保存 `reward_total`、`reward_base_total`、`reward_safety_gate`、五个 `reward_component_*` 与独立命名的 `reward_diagnostic_*`，不再复用 `dense_reward` / `terminal_override` 表达不同 objective 的含义。它同时保存 policy context、Beta 参数、base/guidance action、old log-prob/value、initial noise、两条 RNG state、episode status、五类 collision、native MetaDrive energy、execution fuel proxy、step distance、mL/km、denominator-valid 和 seeds；不保存 DDIM denoise chain。evaluation trace 和 episode summary 不保存或聚合训练 reward，只报告稳定的执行、安全、进度、速度、误差和能耗指标。每次训练运行保存 resolved config、runtime metadata、policy export checkpoints、training-state checkpoint 和严格 summary。`configs/components/resources/` 的版本化 profile 是 host scheduling 的唯一配置层，不得覆盖 PPO、reward、sampler 或 guidance 字段。rollout 内部错误直接终止训练，不保存 partial trajectory。
 
 Exploration-policy checkpoint evaluation 进入与 base diffusion planner、fixed-reference guidance 相同的 closed-loop evaluation engine：通用 evaluation job 通过 `policy` 组件 + `guidance=orthogonal_policy` + `evaluation.policy_checkpoint.{label,path}` 声明一次 checkpoint 评测，`parse_evaluation_config` 在该模式下强制 ddim5 且 `ddim_stochasticity=0`，不允许没有 checkpoint 的悬空 policy 组件。`evaluation.inference.agent.PolicyCheckpointEvaluationAgent` 是 public adapter，固定 policy action 为 Beta mean，因而不消费 policy RNG；它仍使用普通 evaluation 的 0.5 s execution，而非训练 rollout 的 0.1 s transition。checkpoint provenance（label、path、policy state hash）写入 job summary；每个 scenario 的 diffusion noise seed 都取自 job 的 runtime seed，与 frozen-planner agent 的单一 generator 流 matched。评测使用独立于 training seed 的显式 evaluation seed；不同 checkpoint、arm 或候选配置必须使用相同 scenario、map seed 和 diffusion seed。PPO stability 的 `validation.py` 复用同一 agent 与 artifact，只从其 typed episode metrics 应用最小 episode-length/route-progress retention 及 collision/out-of-road non-regression，不读取或比较 reward。
 
-scalar reward 因果研究的 matched protocol 由 `configs/experiments/reward/scalar/protocol.yaml` 的 typed manifest 与 `eco_planner.experiments.reward.scalar` runner 承载：三臂 A0（frozen Diffusion Planner，guidance=none）、A1（PPO + PlannerRFT R0 `plannerrft_no_energy_v1`）、A2（PPO + PlannerRFT Rλ=1 `plannerrft_energy_v1`）共用同一 held-out evaluation 作业语义——S/SC map seeds 16–23、no-traffic、300 步 horizon、DDIM5、runtime seed 760025、`env.num_scenarios=24`。训练场景池为 S/SC seeds 0–7（job `jobs/training/ppo_conservative`）、training seed namespace `{0,1,2}`（每次运行经 `--training-seed` 显式选择其一）、`replay_id=0`；manifest 校验训练池与 held-out 池的 (map, seed) 集合不相交，runner 在组合后校验 reward profile、seed（属于 namespace 且未被 override 改写）、sampler、scenario 集合（训练为协议池子集、评测为全集）与 `env.num_scenarios` 覆盖。update-0（initial checkpoint）evaluation 是诊断 artifact，不构成第四个主实验组。
+scalar reward 因果研究的 matched protocol 由 `configs/experiments/reward/scalar.yaml` 的 typed manifest 与 `eco_planner.experiments.reward.scalar` runner 承载：三臂 A0（frozen Diffusion Planner，guidance=none）、A1（PPO + PlannerRFT R0 `plannerrft_no_energy_v1`）、A2（PPO + PlannerRFT Rλ=1 `plannerrft_energy_v1`）共用同一 held-out evaluation 作业语义——S/SC map seeds 16–23、no-traffic、300 步 horizon、DDIM5、runtime seed 760025、`env.num_scenarios=24`。训练场景池为 S/SC seeds 0–7（job `jobs/training/ppo_conservative`）、training seed namespace `{0,1,2}`（每次运行经 `--training-seed` 显式选择其一）、`replay_id=0`；manifest 校验训练池与 held-out 池的 (map, seed) 集合不相交，runner 在组合后校验 reward profile、seed（属于 namespace 且未被 override 改写）、sampler、scenario 集合（训练为协议池子集、评测为全集）与 `env.num_scenarios` 覆盖。update-0（initial checkpoint）evaluation 是诊断 artifact，不构成第四个主实验组。
 
 ### 训练实验跟踪
 
@@ -271,7 +271,7 @@ Run 参数展平为 `config.*`，每次调用的执行参数与 artifacts 按独
 summaries 中缺失的 metric/step；已有点超出 checkpoint 或同一步数值冲突时拒绝续写。
 Run 缺失或 tracking URI 不匹配同样报错，不自动创建替代 Run。
 
-resolved config、runtime metadata、tracked diff、initial/final policy、按显式间隔选取的
+resolved config、runtime metadata、initial/final policy、按显式间隔选取的
 update policy 和最新 training-state checkpoint 上传为 invocation artifacts，正式 rollout
 NPZ 保留在原输出目录。正常完成并上传成功后 Run 为 `FINISHED`，异常为 `FAILED`，用户中断为
 `KILLED`；终结日志自身失败不得替换原训练异常。MLflow 不接管已有 research artifact schema，
@@ -281,8 +281,9 @@ NPZ 保留在原输出目录。正常完成并上传成功后 Run 为 `FINISHED`
 
 `experiments.reward.fixed_batch` 拥有共享批次读写、奖励变换/校准、策略恢复和 actor backward。
 `FixedBatch` 承载 episodes、sample index、解析后的训练配置、resolved config 与采集元数据，
-scenario 顺序从 sample index 派生。四个诊断各自划分 config、diagnostics 与 runner；runner
-不相互导入，诊断计算不读写文件或创建模拟器。scalar reward 与 PPO stability 的配置组合
+scenario 顺序从 sample index 派生。calibration、lambda-identifiability 合为各自单文件，
+objective-decomposition、critic-gae-ablation 保留 runner 与包含配置的 diagnostics；
+诊断计算不读写文件或创建模拟器。scalar reward 与 PPO stability 的配置组合
 独立于执行入口，stability 的评测比较模型独立于训练/评测调度。
 训练和诊断共用 `rl.optimization` 的 `build_ppo_batch`、`normalize_full_batch_advantage` 与
 `PPO_BATCH_KEYS`；随机流派生由 `rl.rollout.seeds.derive_rollout_seeds` 拥有。
@@ -311,7 +312,7 @@ initial policy，核对动作、log-prob、value、reward 和 episode boundary �
 不实例化 planner 或 simulator。原配置重放须与参考 λ 诊断数组在 `rtol=1e-5, atol=1e-6`
 内一致。校准组只从原始量重算 Progress/Comfort，复用同一 Task A GAE/backward 路径。
 
-研究专用 `configs/experiments/reward/calibration/calibration.yaml` 显式指定目标分数与诊断轴。
+研究专用 `configs/experiments/reward/calibration.yaml` 显式指定目标分数与诊断轴。
 Progress 使用完整批次正向 delta 的中位数除以目标分数；Comfort 仅对有零分样本的子项
 使用 `max(原 limit, P50(abs(metric))/(2-target_score))`，保留现有分段线性评分及四项
 取最小值。全部 transition（含启动阶段）保留，未失活子项与 Energy/TTC/Speed/Safety
@@ -361,7 +362,7 @@ between-arm advantage 差分与 V 无关的抵消恒等式、V=0 GAE 等于 (γ�
 ### Guidance control-authority intervention
 
 `just experiment guidance control-authority run --output-dir <new-directory>` 是 Issue #94
-Task D 的人工干预入口；配置位于 `configs/experiments/guidance/control-authority/`。
+Task D 的人工干预入口；配置位于 `configs/experiments/guidance/control-authority.yaml`。
 复用 scalar-reward protocol 的训练场景池和模型/仿真配置，但不构造 Exploration Policy、
 critic 或 optimizer。Fabric inference runtime 的可选 `guidance_action` 接收设备上的
 有限 `float32 [B,2]`，范围为闭区间 `[-1,1]`，只用于 `orthogonal_policy`；因此 ±1 是
@@ -388,13 +389,14 @@ repeat 均值的 Spearman、配对 ±1 endpoint 差，以及五个 arm 内 repea
 
 研究实现按 `experiments.reward/guidance/training` 组织；CLI 使用
 `just experiment <domain> <study> <action>`，配置位于相同三域的
-`configs/experiments/<domain>/<study>/`。CLI 静态命令表只负责参数与延迟分派，
+`configs/experiments/<domain>/<study>.yaml`；含 evaluation 子配置的 energy-sweep 保留目录。
+`scripts/experiments.py` 是单文件 CLI，静态命令表只负责参数与延迟分派，
 分析及核心模块不导入实验模块。scalar run 显式选择 train/evaluate；stability run
 显式选择 search/confirm/held-out/diagnostic，沿用内部 stage A/B/C 和已有预算、
 晋升与目录要求，不自动运行下一步。参数组合在 bootstrap 前核验。
 
-reward sanity 的配置与计算由 `rl.reward.validation` 拥有，应用入口负责保存原检查
-产物；execution backend workload 核验由 `benchmarking.execution` 拥有。
+reward sanity 的配置、计算与产物发布统一由单文件 `reward_validation` 拥有，配置为
+`configs/validation/reward.yaml`；execution backend workload 核验由 `benchmarking.execution` 拥有。
 它们分别使用 `just validation reward` 和 `just benchmark execution`，不属于研究域。
 
 guidance 的描述统计由 `analysis.guidance` 拥有，场景/指标阈值、方向计数和 Gate D
@@ -448,8 +450,31 @@ score 分布，按 scenario/planning cycle 分组，不重定义原物理限值�
 评测比较要求相同 workload、sampler、runtime seed，并按 scenario/map/map seed/noise seed、
 evaluation mode 与 traffic density 精确配对；重复或缺失配对报错。差值为 comparison − reference。
 失败运行、失败原因与不可用配对数显式保留；可用配对的统计明确给出分母，不为失败样本补零。
-正常终止的碰撞/越界 episode 保留有效指标。跨 training seed 的 scalar reward 汇总以每 seed
-的可用 matched-episode mean 为单位，保存实际 seed 列表，属于描述统计而非统计推断。
+正常终止的碰撞/越界 episode 保留有效指标；completed 不代表成功到达。
+
+Scalar final 报告顺序固定为 completion/availability → safety guardrails → paired energy。
+各 arm 的 completed rate 使用全部 episode 为分母，arrival rate、route completion 均值和
+collision/out-of-road/wrong-direction rate 使用该 arm 的 completed episodes；同时保留失败
+数量和原因。安全统计不限定到配对交集，未知状态不计为安全。每组对照另报 available pairs / total。
+
+主对照为同 training seed 的 A2−A1，辅以 A1−A0、A2−A0；各对照使用自身双方 completed
+的 matched episode 交集。A0 只保存一次，不伪造 training seed。每 seed effect estimate
+为该交集的 mean energy delta（MetaDrive fuel proxy，mL），负值表示更低；不对失败填补能耗，
+不设置 energy penalty 或 composite score，提前终止导致的低能耗须结合前两层解释。
+
+协议显式配置 bootstrap 的 confidence_level=0.95、n_resamples=10000、bootstrap_seed=0。
+实验层将 bootstrap 配置及 training seed namespace 传入分析层；按稳定排序的完整配对键形成
+scenario delta，使用 SciPy percentile bootstrap 和独立 RNG。无 pair 时 estimate/CI 不可用；
+单 pair 保留 estimate、CI 不可用；至少两个常量 delta 允许零宽区间。不重采样 training seed。
+每个 final 对照分别绘制 seed 0/1/2 点估计、95% CI、零线及缺项；按点估计符号报告降低、零、
+升高、不可用的 seed 数，CI 是否包含零单独记录。缺项标为部分结果，不用跨 seed 平均替代三点。
+initial/update-0 单列诊断，不计入 final 方向计数。CI 仅反映固定训练策略及可用场景下的
+scenario 不确定性，不是跨 training seed 的总体区间。
+
+相关性统一使用 SciPy Pearson/Spearman 系数；ties 使用库定义，常量或样本不足记 undefined，
+不增加显著性检验。现有 ddof、cosine、RMSE 和实验 gate 保持原定义。各报告按 reward →
+credit assignment → actor gradient → behavior 解释自身证据；fixed-batch backward 结果不证明
+训练后行为改变。Optuna 仍只服务现有 PPO stability 搜索、晋升与诊断。
 
 Scalar reward 比较配置的路径均相对该 YAML 所在目录解析，最小结构如下：
 
@@ -502,7 +527,7 @@ PPO stability 直接调用 Optuna Matplotlib 的 history、parallel coordinate�
 
 ## 评测与产物
 
-每个评测作业必须保存 resolved config、Hydra overrides、runtime Git metadata、tracked diff、地图/场景 seed、噪声 seed、Fabric 请求与解析后的 accelerator/precision、实际设备、依赖环境和场景特征。`tracked_diff.patch` 必须存在，但干净工作区时允许为空。
+每个评测作业必须保存 resolved config、Hydra overrides、runtime Git metadata、地图/场景 seed、噪声 seed、Fabric 请求与解析后的 accelerator/precision、实际设备、依赖环境和场景特征。所有运行入口均不再保存 tracked diff 或复制 Python source；Git head、branch、dirty status 与运行环境仍由现有 metadata 记录，checkpoint 身份和 replay 核验保留。正式结果必须来自 clean commit，见实验记录规范；不增加运行前检查框架。
 
 每个回合至少保存 `summary.json` 和 `trace.npz`；开启视频时保存闭环 GIF。trace 必须包含 raw observation、初始噪声、完整联合预测、规划锚点、目标与实际状态、逐点误差、逐子步 wrapped route heading error、逐子步 native MetaDrive energy、execution-recomputed fuel proxy、实际 distance 和终止标志；交通回合还保存预热、对象 ID、交通数量、最近交通距离和历史有效性。
 

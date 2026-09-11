@@ -12,12 +12,7 @@ import torch
 from hydra.utils import to_absolute_path
 from tensordict import TensorDictBase
 
-from eco_planner.artifacts import (
-    collect_repository_metadata,
-    write_json,
-    write_npz,
-    write_tracked_diff,
-)
+from eco_planner.artifacts import collect_repository_metadata, write_json, write_npz
 from eco_planner.rl.artifacts.schema import rollout_artifact_fields
 from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.rollout.contracts import (
@@ -74,7 +69,6 @@ def write_training_runtime_metadata(
         "resources": resources.model_dump(mode="json"),
     }
     write_json(path, metadata)
-    write_tracked_diff(path.parent / "tracked_diff.patch", repository_root)
 
 
 def _trajectory_arrays(episode: RolloutEpisode) -> dict[str, np.ndarray]:

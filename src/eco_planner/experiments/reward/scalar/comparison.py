@@ -73,4 +73,6 @@ def load_comparison(config_path: Path) -> ScalarComparison:
                 "evaluation checkpoint is not the declared training initial/final state"
             )
         runs.append(ScalarComparisonRun(run.arm, run.checkpoint_label, training, summary))
-    return ScalarComparison(baseline, tuple(runs))
+    return ScalarComparison(
+        baseline, tuple(runs), protocol.bootstrap, tuple(protocol.training.seeds)
+    )

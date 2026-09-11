@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model
 from eco_planner._repository import CONFIG_ROOT
 from eco_planner.configuration import ScenarioConfig, load_resolved_yaml_mapping
 
-DEFAULT_STUDY = CONFIG_ROOT / "experiments" / "training" / "stability" / "study.yaml"
+DEFAULT_STUDY = CONFIG_ROOT / "experiments" / "training" / "stability.yaml"
 
 
 class _StrictModel(BaseModel):

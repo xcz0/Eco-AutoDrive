@@ -92,7 +92,8 @@ just validation reward run --output-dir outputs/reward_sanity/manual-run
 该命令只计算配置中声明的固定合成 reward case，不运行 PPO。
 
 实验统一使用 `just experiment <domain> <study> <action>`，对应
-`python -m scripts.experiments`。各实验的配置位于 `configs/experiments/<domain>/<study>/`，
+`python -m scripts.experiments`（单文件入口）。单配置实验使用
+`configs/experiments/<domain>/<study>.yaml`；energy-sweep 保留含 evaluation 子配置的目录。
 可用 `--config` 指定；`just experiment <domain> <study> <action> --help` 查看参数。
 
 固定批次采集与诊断分开运行。先采集一次，再显式复用同一批次：

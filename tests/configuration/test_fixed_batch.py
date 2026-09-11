@@ -8,7 +8,7 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import write_json
-from eco_planner.experiments.reward.calibration.runner import run as run_calibration
+from eco_planner.experiments.reward.calibration import run as run_calibration
 from eco_planner.experiments.reward.critic_gae_ablation.runner import run as run_ablation
 from eco_planner.experiments.reward.fixed_batch.artifacts import (
     load_batch,
@@ -19,7 +19,7 @@ from eco_planner.experiments.reward.fixed_batch.artifacts import (
 from eco_planner.experiments.reward.fixed_batch.calibration import calibrate, raw_arrays, rescore
 from eco_planner.experiments.reward.fixed_batch.rewards import reweight
 from eco_planner.experiments.reward.fixed_batch.runtime import restore_runtime
-from eco_planner.experiments.reward.lambda_identifiability.runner import run as run_lambda
+from eco_planner.experiments.reward.lambda_identifiability import run as run_lambda
 from eco_planner.experiments.reward.objective_decomposition.runner import run as run_decomposition
 from eco_planner.rl.artifacts import policy_state_hash
 from eco_planner.rl.config import parse_training_config
@@ -189,6 +189,9 @@ def test_full_offline_chain_and_reference_endpoints(fixed_source, tmp_path, lamb
     run_ablation(source, decomp_dir, abl_config, tmp_path / "ablation", figures=False)
     for directory in (lambda_dir, tmp_path / "calibration", decomp_dir, tmp_path / "ablation"):
         assert_report(directory, figures=False)
+        assert not (directory / "source").exists()
+        assert not (directory / "tracked_diff.patch").exists()
+        assert "git_head" in json.loads((directory / "runtime_metadata.json").read_text())
         summary = json.loads((directory / "summary.json").read_text())
         assert summary["optimizer_steps"] == 0 and summary["policy_unchanged"]
     from eco_planner.analysis.runner import analyze

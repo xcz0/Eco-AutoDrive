@@ -6,7 +6,7 @@ import torch
 
 from eco_planner.experiments.reward.fixed_batch.gradients import actor_gradients
 from eco_planner.experiments.reward.fixed_batch.rewards import COMPONENTS, reward_profile, reweight
-from eco_planner.experiments.reward.lambda_identifiability.diagnostics import (
+from eco_planner.experiments.reward.lambda_identifiability import (
     advantage_comparison,
     analyze,
     cosine,

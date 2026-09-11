@@ -22,11 +22,7 @@ from pydantic import (
 
 from eco_planner.analysis.statistics import Measurement as Measurement
 from eco_planner.analysis.statistics import measurement as measurement
-from eco_planner.artifacts import (
-    collect_repository_metadata,
-    write_json,
-    write_tracked_diff,
-)
+from eco_planner.artifacts import collect_repository_metadata, write_json
 from eco_planner.configuration import ModelPathsConfig
 from eco_planner.runtime.resources import ResourceProfileConfig
 
@@ -178,7 +174,6 @@ def write_benchmark_artifacts(
     output_dir.mkdir(parents=True, exist_ok=True)
     write_json(output_dir / filename, report)
     OmegaConf.save(config, output_dir / "resolved_config.yaml", resolve=True)
-    write_tracked_diff(output_dir / "tracked_diff.patch", Path(to_absolute_path(".")))
 
 
 def _validate_scales(scales: tuple[int, ...], name: str) -> None:

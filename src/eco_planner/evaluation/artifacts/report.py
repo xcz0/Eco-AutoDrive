@@ -167,7 +167,6 @@ def validate_matrix_artifacts(matrix_root: Path, *, partial: bool = False) -> Va
             raise ValueError(f"job {job_dir} resolved matrix specification disagrees")
         _require_nonempty(job_dir / ".hydra" / "overrides.yaml")
         metadata = load_runtime_metadata(job_dir / "runtime_metadata.json")
-        _require_file(job_dir / "tracked_diff.patch")
         if metadata.inference_runtime != job_summary.runtime:
             raise ValueError(f"job {job_dir} runtime metadata disagrees with summary")
         seed = job_summary.runtime.seed

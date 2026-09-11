@@ -127,14 +127,25 @@ def experiment_figures(experiment: str, data: dict, output: Path) -> list[str]:
         )
         return files
     if experiment in ("energy-sweep", "scalar-reward"):
-        comparisons = (
-            data["comparisons"]
-            if experiment == "energy-sweep"
-            else {
-                f"{r['arm']}-seed-{r['training_seed']}-{r['checkpoint_label']}": r["comparison"]
-                for r in data["runs"]
-            }
-        )
+        if experiment == "scalar-reward":
+            from .scalar import scalar_effect_figures
+
+            files = scalar_effect_figures(data, output)
+            files += curves(
+                output,
+                "training-rewards",
+                {
+                    f"{r['arm']}-seed-{r['training_seed']}-{r['checkpoint_label']}": (
+                        r["training_curve"]["update"],
+                        r["training_curve"]["reward"],
+                    )
+                    for r in data["runs"]
+                },
+                "PPO update",
+                "total reward",
+            )
+            return files
+        comparisons = data["comparisons"]
         files = []
         for label, entry in comparisons.items():
             if "pairs" not in entry:
@@ -165,20 +176,6 @@ def experiment_figures(experiment: str, data: dict, output: Path) -> list[str]:
                 "route completion",
                 "MetaDrive fuel proxy (mL)",
                 scatter=True,
-            )
-        if experiment == "scalar-reward":
-            files += curves(
-                output,
-                "training-rewards",
-                {
-                    f"{r['arm']}-seed-{r['training_seed']}-{r['checkpoint_label']}": (
-                        r["training_curve"]["update"],
-                        r["training_curve"]["reward"],
-                    )
-                    for r in data["runs"]
-                },
-                "PPO update",
-                "total reward",
             )
         return files
     return []

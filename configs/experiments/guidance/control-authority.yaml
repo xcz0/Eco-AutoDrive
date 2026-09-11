@@ -1,4 +1,4 @@
-protocol: configs/experiments/reward/scalar/protocol.yaml
+protocol: configs/experiments/reward/scalar.yaml
 runtime_seed: 0
 noise_seeds: [0, 1, 2]
 longitudinal_actions: [-1.0, -0.5, 0.0, 0.5, 1.0]

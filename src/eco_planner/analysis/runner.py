@@ -8,20 +8,6 @@ from .fixed_batch import calibration, recompute
 from .io import read_json, write_json
 from .reporting.markdown import write_report
 
-EXPERIMENTS = (
-    "guidance-control-authority",
-    "lambda-identifiability",
-    "reward-calibration",
-    "objective-decomposition",
-    "critic-gae-ablation",
-    "scalar-reward",
-    "energy-sweep",
-    "ppo-stability",
-    "reward-sanity",
-    "ppo-reproducibility",
-    "execution-backend",
-)
-
 
 def analyze(
     experiment: str,

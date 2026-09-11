@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -15,18 +14,17 @@ from tensordict import TensorDictBase
 
 from eco_planner._repository import REPOSITORY_ROOT
 from eco_planner.analysis.reporting.guidance import publish
-from eco_planner.artifacts import (
-    collect_repository_metadata,
-    write_json,
-    write_npz,
-    write_tracked_diff,
-)
+from eco_planner.artifacts import collect_repository_metadata, write_json, write_npz
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.contracts import SIMULATOR_STEP_S, ExecutionMode
 from eco_planner.envs.domain import TrajectoryExecutionResult
 from eco_planner.evaluation.inference.runtime import (
     FabricInferenceRuntime,
     create_fabric_inference_runtime,
+)
+from eco_planner.experiments.guidance.control_authority.diagnostics import (
+    InterventionConfig,
+    analyze_episodes,
 )
 from eco_planner.experiments.reward.scalar.composition import compose_arm_training_config
 from eco_planner.experiments.reward.scalar.config import load_scalar_reward_protocol
@@ -39,9 +37,6 @@ from eco_planner.runtime.envs import (
     WorkerStepResult,
     operation_results,
 )
-
-from .config import InterventionConfig
-from .diagnostics import analyze_episodes
 
 
 def transition_record(
@@ -251,31 +246,6 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
     OmegaConf.save(resolved, output_dir / "resolved_config.yaml", resolve=True)
     write_json(output_dir / "intervention_config.json", study.model_dump())
     write_json(output_dir / "scenarios.json", {"scenarios": [asdict(s) for s in scenarios]})
-    source_dir = output_dir / "source"
-    for relative in (
-        "src/eco_planner/experiments/guidance/control_authority",
-        "src/eco_planner/evaluation/inference",
-        "src/eco_planner/models",
-        "src/eco_planner/envs/domain",
-        "src/eco_planner/envs/metadrive",
-        "src/eco_planner/runtime",
-        "src/eco_planner/rl/reward",
-    ):
-        shutil.copytree(
-            REPOSITORY_ROOT / relative,
-            source_dir / relative,
-            ignore=shutil.ignore_patterns("__pycache__"),
-        )
-    for relative in (
-        "scripts/experiments/__main__.py",
-        "src/eco_planner/contracts.py",
-        "src/eco_planner/analysis/guidance.py",
-        "src/eco_planner/analysis/reporting/guidance.py",
-    ):
-        target = source_dir / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(REPOSITORY_ROOT / relative, target)
-    write_tracked_diff(output_dir / "tracked_diff.patch", REPOSITORY_ROOT)
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms(True)
     torch.set_num_threads(job.resources.torch_threads_per_worker)

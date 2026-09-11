@@ -9,7 +9,7 @@ from importlib import import_module
 import pytest
 
 from eco_planner._repository import REPOSITORY_ROOT
-from scripts.experiments import __main__ as cli
+from scripts import experiments as cli
 
 
 @pytest.mark.parametrize(
@@ -176,7 +176,7 @@ def test_collection_bootstrap_sets_cuda_before_environment(monkeypatch):
 def test_help_does_not_import_execution():
     script = """
 import sys
-from scripts.experiments.__main__ import build_parser
+from scripts.experiments import build_parser
 from scripts.validation import build_parser as validation
 from scripts.benchmark_execution import build_parser as benchmark
 for factory in (build_parser, validation, benchmark):

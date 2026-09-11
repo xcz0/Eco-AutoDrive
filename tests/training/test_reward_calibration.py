@@ -7,8 +7,7 @@ import pytest
 import torch
 
 from eco_planner.analysis.reporting.fixed import render_report
-from eco_planner.experiments.reward.calibration.config import CalibrationConfig
-from eco_planner.experiments.reward.calibration.diagnostics import dynamic_range_audit
+from eco_planner.experiments.reward.calibration import CalibrationConfig, dynamic_range_audit
 from eco_planner.experiments.reward.fixed_batch.artifacts import load_batch
 from eco_planner.experiments.reward.fixed_batch.calibration import (
     calibrate,

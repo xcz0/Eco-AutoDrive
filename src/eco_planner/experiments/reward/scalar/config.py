@@ -8,9 +8,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from eco_planner._repository import CONFIG_ROOT
+from eco_planner.analysis.statistics import ScenarioBootstrapConfig
 from eco_planner.configuration import ScenarioConfig, load_resolved_yaml_mapping
 
-DEFAULT_PROTOCOL = CONFIG_ROOT / "experiments" / "reward" / "scalar" / "protocol.yaml"
+DEFAULT_PROTOCOL = CONFIG_ROOT / "experiments" / "reward" / "scalar.yaml"
 
 
 class _StrictModel(BaseModel):
@@ -56,6 +57,7 @@ class ScalarRewardProtocolConfig(_StrictModel):
     arms: ArmsConfig
     evaluation: EvaluationProtocolConfig
     update0_evaluation: Literal["diagnostic"]
+    bootstrap: ScenarioBootstrapConfig
 
     @model_validator(mode="after")
     def validate_disjoint_pools(self) -> ScalarRewardProtocolConfig:

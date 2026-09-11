@@ -91,10 +91,11 @@ just experiment reward fixed-batch collect `
 just experiment reward objective-decomposition run `
   --source-dir outputs/studies/scalar-reward/e-038-issue94-task-e-source-batch `
   --output-dir outputs/studies/scalar-reward/e-038-issue94-task-e-objective-decomposition `
-  --config configs/experiments/reward/objective-decomposition/e-038-task-e.yaml
+  --config configs/experiments/reward/e-038-task-e.yaml
 ```
 
-`configs/experiments/reward/objective-decomposition/e-038-task-e.yaml` = `diagnostic.yaml`
+`configs/experiments/reward/e-038-task-e.yaml`（扁平化前位于
+`configs/experiments/reward/objective-decomposition/e-038-task-e.yaml`）= `objective-decomposition.yaml`
 的全部协议（λ={16,64,256}、分位、E-034 冻结校准守卫、Gate C 阈值）+ `energy_band` 节。
 运行时推导值与冻结 expected 值逐位一致（`46.37086372375488` / `48.7514030456543`）。
 

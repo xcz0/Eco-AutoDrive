@@ -12,11 +12,9 @@ from eco_planner.experiments.reward.fixed_batch.rewards import (
     reward_profile,
     reweight,
 )
-from eco_planner.experiments.reward.objective_decomposition.config import (
+from eco_planner.experiments.reward.objective_decomposition.diagnostics import (
     DecompositionConfig,
     EnergyBandConfig,
-)
-from eco_planner.experiments.reward.objective_decomposition.diagnostics import (
     analyze_decomposition,
     evaluate_gate,
 )
@@ -179,7 +177,7 @@ def test_decomposition_forms_and_gradient_identities(monkeypatch):
     assert summary["gate"]["gate_c_passed"] in (True, False)
     assert summary["gate"]["attribution"] is not None or summary["gate"]["gate_c_passed"]
     report = render_decomposition_report(summary)
-    assert "Endpoint attribution: R0 vs Energy-only" in report
+    assert "Credit assignment to actor gradient: R0 vs Energy-only" in report
     assert "Verdict: **PASSED**" in report or "Verdict: **FAILED**" in report
     for episode, (training, audit) in zip(episodes, snapshots, strict=True):
         assert (episode.training == training).all()

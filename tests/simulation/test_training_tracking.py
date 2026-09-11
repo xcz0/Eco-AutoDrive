@@ -30,6 +30,7 @@ def test_real_training_observer_and_mlflow_artifacts(tmp_path, monkeypatch):
     assert observed == list(summary.updates)
     assert summary.frozen_planner_hash_before == summary.frozen_planner_hash_after
     metadata = json.loads((tmp_path / "training/runtime_metadata.json").read_text(encoding="utf-8"))
+    assert not (tmp_path / "training/tracked_diff.patch").exists()
     identity = metadata["tracking"]
     client = MlflowClient(identity["tracking_uri"])
     run = client.get_run(identity["run_id"])
@@ -42,7 +43,6 @@ def test_real_training_observer_and_mlflow_artifacts(tmp_path, monkeypatch):
     } >= {
         "summary.json",
         "runtime_metadata.json",
-        "tracked_diff.patch",
         "policy-initial.pt",
         "policy-final.pt",
         "policy-update-000.pt",

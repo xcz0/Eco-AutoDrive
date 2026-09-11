@@ -3,9 +3,11 @@
 import statistics as descriptive_statistics
 from collections.abc import Sequence
 from math import isfinite
-from typing import TypedDict
+from typing import Any, TypedDict, cast
 
 import numpy as np
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from scipy.stats import bootstrap, pearsonr, spearmanr
 
 
 def statistics(value: np.ndarray, quantiles: Sequence[float], *, ddof: int = 0) -> dict:
@@ -21,9 +23,38 @@ def statistics(value: np.ndarray, quantiles: Sequence[float], *, ddof: int = 0) 
     }
 
 
-def _ranks(x: np.ndarray) -> np.ndarray:
-    _, inverse, counts = np.unique(x, return_inverse=True, return_counts=True)
-    return (np.cumsum(counts) - (counts - 1) / 2)[inverse]
+class ScenarioBootstrapConfig(BaseModel):
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid", allow_inf_nan=False)
+    confidence_level: float = Field(ge=0.95, le=0.95)
+    n_resamples: StrictInt = Field(gt=0)
+    bootstrap_seed: StrictInt = Field(ge=0)
+
+
+def scenario_effect(delta: np.ndarray, config: ScenarioBootstrapConfig) -> dict:
+    """Scenario uncertainty conditional on one trained policy and available pairs."""
+    x = np.asarray(delta, dtype=np.float64).reshape(-1)
+    if not np.isfinite(x).all():
+        raise ValueError("scenario bootstrap requires finite paired deltas")
+    result = {
+        "estimate": float(x.mean()) if x.size else None,
+        "sample_count": int(x.size),
+        "ci95": None,
+        "ci_crosses_zero": None,
+        "unavailable_reason": "fewer than two available scenario pairs" if x.size < 2 else None,
+    }
+    if x.size >= 2:
+        interval = bootstrap(
+            (x,),
+            np.mean,
+            method="percentile",
+            confidence_level=config.confidence_level,
+            n_resamples=config.n_resamples,
+            rng=np.random.default_rng(config.bootstrap_seed),
+        ).confidence_interval
+        low, high = float(interval.low), float(interval.high)
+        result["ci95"] = [low, high]
+        result["ci_crosses_zero"] = low <= 0 <= high
+    return result
 
 
 def cosine(x: np.ndarray, y: np.ndarray) -> float | None:
@@ -34,10 +65,10 @@ def cosine(x: np.ndarray, y: np.ndarray) -> float | None:
 
 def advantage_comparison(x: np.ndarray, y: np.ndarray) -> dict:
     x, y = x.astype(np.float64).reshape(-1), y.astype(np.float64).reshape(-1)
-    rx, ry = _ranks(x), _ranks(y)
+    defined = x.size >= 2 and np.any(x != x[0]) and np.any(y != y[0])
     return {
-        "pearson": cosine(x - x.mean(), y - y.mean()),
-        "spearman": cosine(rx - rx.mean(), ry - ry.mean()),
+        "pearson": float(cast(Any, pearsonr(x, y))[0]) if defined else None,
+        "spearman": float(cast(Any, spearmanr(x, y))[0]) if defined else None,
         "sign_flip_fraction": float(np.mean(x * y < 0)),
         "zero_fraction_i": float(np.mean(x == 0)),
         "zero_fraction_j": float(np.mean(y == 0)),

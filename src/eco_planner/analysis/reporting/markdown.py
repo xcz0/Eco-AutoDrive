@@ -41,6 +41,30 @@ def write_report(experiment: str, source: Path, output: Path, data: dict, files:
         f"[Source artifacts](<{source_link}>) · [Analysis JSON](analysis.json)",
         "",
     ]
+    scalar_comparison = experiment == "scalar-reward" and "contrasts" in data
+    if scalar_comparison:
+        from .scalar import render_scalar
+
+        lines.append(render_scalar(data))
+    chain = {
+        "reward-sanity": "Reward: synthetic checks establish component correctness, not learning.",
+        "reward-calibration": "Reward → credit assignment → actor gradient: compare original and "
+        "calibrated component scales, advantage changes and gradient response on the same batch.",
+        "lambda-identifiability": "Reward → credit assignment → actor gradient: follow lambda "
+        "changes through raw/normalized advantages and actor-head/shared-trunk gradients.",
+        "objective-decomposition": "Reward → credit assignment → actor gradient: attribute "
+        "separation or attenuation to reward components and advantage normalization.",
+        "critic-gae-ablation": "Credit assignment → actor gradient: compare value targets and "
+        "advantage forms to locate attenuation before the actor backward pass.",
+    }
+    if experiment in chain:
+        lines += [
+            chain[experiment],
+            "",
+            "Saved gates remain experimental decisions. Fixed-batch gradient evidence "
+            "alone does not establish learned behavioral improvement.",
+            "",
+        ]
     for path in files:
         if path.endswith(".png"):
             lines += [
@@ -99,7 +123,7 @@ def write_report(experiment: str, source: Path, output: Path, data: dict, files:
         lines.append(
             "\nPer-scenario and per-planning-cycle evidence: [analysis.json](analysis.json)."
         )
-    else:
+    elif not scalar_comparison:
         lines.append(evidence_tables(report_evidence(experiment, data)))
     (output / "report.md").write_text("\n".join(lines), encoding="utf-8")
 
@@ -117,18 +141,6 @@ def report_evidence(experiment: str, data: dict) -> dict:
         return {
             "runs": [{k: v for k, v in r.items() if k != "episodes"} for r in data["runs"]],
             "comparisons": {k: comparison(v) for k, v in data["comparisons"].items()},
-        }
-    if experiment == "scalar-reward" and "seed_aggregates" in data:
-        return {
-            "seed_aggregates": data["seed_aggregates"],
-            "runs": [
-                {
-                    **{k: v for k, v in r.items() if k not in ("comparison", "training_curve")},
-                    "comparison": comparison(r["comparison"]),
-                }
-                for r in data["runs"]
-            ],
-            "interpretation": data["interpretation"],
         }
     if experiment == "ppo-stability":
         return {k: v for k, v in data.items() if k != "training_curves"}
