@@ -349,6 +349,7 @@ class JobSummary(ArtifactModel):
 
 class RuntimeMetadata(ArtifactModel):
     git_head: str = Field(min_length=1)
+    git_branch: str = Field(min_length=1)
     git_status_short: tuple[str, ...]
     platform: str = Field(min_length=1)
     python: str = Field(min_length=1)
