@@ -1,0 +1,57 @@
+tests/simulation/test_training_tracking.py
+  s_8b6eec6a7b3674::t_b067d0980b7c30 5
+  s_8b6eec6a7b3674::t_e44c8414badbc1 53-82
+tests/training/test_ppo.py
+  s_8b6eec6a7b3674::t_b3508aa30581c8 333,339
+  s_8b6eec6a7b3674::t_bbf1301d874d30 95-99,103
+  s_8b6eec6a7b3674::t_d3acc914b1d794 19
+  s_8b6eec6a7b3674::t_14a3d02c680260 306-332,334-338,340-343
+  s_8b6eec6a7b3674::t_5ad90622434808 148-155,167-169
+  s_8b6eec6a7b3674::t_5a83c7b96aab48 344-345
+configs/components/reward/plannerrft_no_energy_calibrated_v1.yaml
+  s_3a0a1d9900bae7::t_117ad1ad6eca73 1-48
+src/eco_planner/rl/reward/result.py
+  s_8b6eec6a7b3674::t_04873f02513977 8-13
+src/eco_planner/rl/reward/config.py
+  s_3a0a1d9900bae7::t_43dbf6d830103f 124
+  s_3a0a1d9900bae7::t_254d341b51ce4c 111
+src/eco_planner/rl/rollout/contracts.py
+  s_8b6eec6a7b3674::t_bc462116c6cac3 439-446
+  s_8b6eec6a7b3674::t_e0e829ee59240e 18-23
+src/eco_planner/rl/artifacts/summaries.py
+  s_8b6eec6a7b3674::t_220172eca60fa1 124-129
+  s_8b6eec6a7b3674::t_7c0dfb2b083337 89-94
+tests/training/test_reward.py
+  s_8b6eec6a7b3674::t_92ed11d377f63c 542-544
+  s_8b6eec6a7b3674::t_ce18c38d8c7e71 518-541,545-552
+  s_3a0a1d9900bae7::t_74e4a515862639 425-517
+src/eco_planner/rl/reward/objectives/plannerrft.py
+  s_8b6eec6a7b3674::t_415f948d81f156 115
+  s_8b6eec6a7b3674::t_ff5479a7651a0c 132
+configs/components/reward/plannerrft_energy_band_lam64_v1.yaml
+  s_3a0a1d9900bae7::t_def971d2854df8 1-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "203f304fd97c5cc8f3d305e4be5d25d518aabd04",
+  "prompts": {},
+  "sessions": {
+    "s_3a0a1d9900bae7": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f70316e60ffeF01zRzM2MWCzns",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    },
+    "s_8b6eec6a7b3674": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f6fdde693ffex9N57cvdyWbSu5",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
