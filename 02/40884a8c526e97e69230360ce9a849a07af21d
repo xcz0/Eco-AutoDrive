@@ -1,0 +1,134 @@
+tests/configuration/test_scalar_reward.py
+  s_405ab17dd65405::t_a3de61a795d275 27
+configs/experiments/guidance/control-authority.yaml
+  s_405ab17dd65405::t_a3de61a795d275 1-12
+src/eco_planner/evaluation/engine.py
+  s_405ab17dd65405::t_a3de61a795d275 14
+tests/simulation/test_training_tracking.py
+  s_405ab17dd65405::t_a3de61a795d275 33
+scripts/experiments.py
+  s_405ab17dd65405::t_a3de61a795d275 35,44,50,53,59,72,81,88,91,99,108,146
+tests/training/test_guidance_control_authority.py
+  s_405ab17dd65405::t_a3de61a795d275 20,34,190
+tests/training/test_reward_calibration.py
+  s_405ab17dd65405::t_a3de61a795d275 10
+README.md
+  s_405ab17dd65405::t_a3de61a795d275 95-96
+tests/configuration/test_experiment_cli.py
+  s_405ab17dd65405::t_a3de61a795d275 12,179
+src/eco_planner/experiments/guidance/energy_sweep.py
+  s_405ab17dd65405::t_a3de61a795d275 1-146
+src/eco_planner/reward_validation.py
+  s_405ab17dd65405::t_a3de61a795d275 1-2,5-6,8,11,13,16-319
+tests/configuration/test_experiments.py
+  s_405ab17dd65405::t_a3de61a795d275 10,16,46,66,94,120,157
+docs/experiments/README.md
+  s_405ab17dd65405::t_a3de61a795d275 12,20-23
+configs/experiments/training/stability.yaml
+  s_405ab17dd65405::t_a3de61a795d275 1-55
+src/eco_planner/analysis/reporting/fixed.py
+  s_405ab17dd65405::t_a3de61a795d275 18-19,28-29,101,121,182-183
+src/eco_planner/experiments/reward/fixed_batch/__init__.py
+  s_405ab17dd65405::t_a3de61a795d275 3
+tests/analysis/test_reports.py
+  s_405ab17dd65405::t_a3de61a795d275 59,498
+tests/characterization/test_experiment_outputs.py
+  s_405ab17dd65405::t_a3de61a795d275 28
+src/eco_planner/experiments/reward/fixed_batch/runtime.py
+  s_405ab17dd65405::t_a3de61a795d275 9
+tests/training/test_critic_gae_ablation.py
+  s_405ab17dd65405::t_a3de61a795d275 10
+configs/experiments/reward/e-038-task-e.yaml
+  s_405ab17dd65405::t_a3de61a795d275 1-30
+configs/experiments/reward/lambda-identifiability.yaml
+  s_405ab17dd65405::t_a3de61a795d275 1-15
+docs/agents/system-contract.md
+  s_405ab17dd65405::t_a3de61a795d275 229,233,274,284-286,315,365,392-393,398-399,453-477,530
+tests/simulation/test_closed_loop.py
+  s_405ab17dd65405::t_a3de61a795d275 75,121-123
+tests/training/test_objective_decomposition.py
+  s_405ab17dd65405::t_a3de61a795d275 15
+  s_405ab17dd65405::t_968dc3fd9bbd20 180
+src/eco_planner/experiments/reward/lambda_identifiability.py
+  s_405ab17dd65405::t_a3de61a795d275 1-191
+configs/validation/reward.yaml
+  s_405ab17dd65405::t_a3de61a795d275 1-159
+src/eco_planner/experiments/training/stability/config.py
+  s_405ab17dd65405::t_a3de61a795d275 13
+tests/training/test_lambda_identifiability.py
+  s_405ab17dd65405::t_a3de61a795d275 9
+src/eco_planner/experiments/guidance/control_authority/diagnostics.py
+  s_405ab17dd65405::t_a3de61a795d275 1-3,8-26,28-38
+tests/configuration/test_fixed_batch.py
+  s_405ab17dd65405::t_a3de61a795d275 11,22,192-194
+src/eco_planner/experiments/reward/objective_decomposition/diagnostics.py
+  s_405ab17dd65405::t_a3de61a795d275 1,11,20-23,35,40-49,67-74,76-90
+  s_405ab17dd65405::t_a0b7e6b88794db 50-66,75
+src/eco_planner/analysis/reporting/experiments.py
+  s_405ab17dd65405::t_a3de61a795d275 130-148
+docs/experiments/records/e-038-issue94-task-e-energy-representation.md
+  s_405ab17dd65405::t_5cf08304a30c60 94,97
+  s_405ab17dd65405::t_6622bcf133710b 98
+src/eco_planner/rl/artifacts/io.py
+  s_405ab17dd65405::t_a3de61a795d275 15
+configs/experiments/reward/fixed-batch.yaml
+  s_405ab17dd65405::t_a3de61a795d275 1-10
+configs/experiments/reward/critic-gae-ablation.yaml
+  s_405ab17dd65405::t_a3de61a795d275 1-27
+src/eco_planner/experiments/reward/scalar/comparison.py
+  s_405ab17dd65405::t_a3de61a795d275 76-78
+configs/experiments/reward/scalar.yaml
+  s_405ab17dd65405::t_a3de61a795d275 1-42
+src/eco_planner/analysis/reporting/scalar.py
+  s_405ab17dd65405::t_a3de61a795d275 1-182
+src/eco_planner/experiments/reward/fixed_batch/collection.py
+  s_405ab17dd65405::t_a3de61a795d275 27
+src/eco_planner/experiments/reward/scalar/config.py
+  s_405ab17dd65405::t_a3de61a795d275 11,14,60
+src/eco_planner/analysis/reporting/guidance.py
+  s_405ab17dd65405::t_a3de61a795d275 38-41
+src/eco_planner/benchmarking/config.py
+  s_405ab17dd65405::t_a3de61a795d275 25
+docs/adr/0037-simplify-experiments-and-report-seed-effects.md
+  s_405ab17dd65405::t_a3de61a795d275 1-27
+src/eco_planner/analysis/evaluation.py
+  s_405ab17dd65405::t_a3de61a795d275 13,36-37,61-62,83,135-170,183,191-205,207-234,236,238-251
+src/eco_planner/experiments/reward/calibration.py
+  s_405ab17dd65405::t_a3de61a795d275 1-180
+src/eco_planner/experiments/reward/objective_decomposition/runner.py
+  s_405ab17dd65405::t_427e250f21acb1 31
+configs/experiments/reward/calibration.yaml
+  s_405ab17dd65405::t_a3de61a795d275 1-5
+src/eco_planner/analysis/reporting/markdown.py
+  s_405ab17dd65405::t_a3de61a795d275 44-67,126
+src/eco_planner/analysis/statistics.py
+  s_405ab17dd65405::t_a3de61a795d275 6,9-10,26-57,68,70-71
+src/eco_planner/experiments/reward/critic_gae_ablation/runner.py
+  s_405ab17dd65405::t_a3de61a795d275 18-22
+src/eco_planner/experiments/guidance/control_authority/runner.py
+  s_405ab17dd65405::t_a3de61a795d275 17,25-28
+src/eco_planner/experiments/reward/critic_gae_ablation/diagnostics.py
+  s_405ab17dd65405::t_a3de61a795d275 1,11,15-24,36-65,68-69
+tests/analysis/test_scalar_effects.py
+  s_405ab17dd65405::t_a3de61a795d275 1-205
+configs/experiments/reward/objective-decomposition.yaml
+  s_405ab17dd65405::t_a3de61a795d275 1-24
+scripts/validation.py
+  s_405ab17dd65405::t_a3de61a795d275 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "0240884a8c526e97e69230360ce9a849a07af21d",
+  "prompts": {},
+  "sessions": {
+    "s_405ab17dd65405": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f71a9e3cbffeWpgo0Jmlp3huDC",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
