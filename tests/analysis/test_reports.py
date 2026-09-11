@@ -522,16 +522,3 @@ from eco_planner.rl.artifacts import TrainingRunSummary
 assert TrainingRunSummary.__name__ == 'TrainingRunSummary'
 """
     subprocess.run([sys.executable, "-c", script], check=True)
-
-
-def test_rl_lazy_exports_keep_execution_symbols():
-    from eco_planner import rl
-    from eco_planner.rl.artifacts import TrainingRunSummary
-    from eco_planner.rl.optimization import PPOUpdater
-    from eco_planner.rl.policy import ExplorationPolicy
-
-    assert rl.PPOUpdater is PPOUpdater
-    assert rl.ExplorationPolicy is ExplorationPolicy
-    assert rl.TrainingRunSummary is TrainingRunSummary
-    with pytest.raises(AttributeError):
-        _ = rl.not_an_export

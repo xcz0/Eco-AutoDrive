@@ -7,6 +7,7 @@ import torch
 
 from eco_planner.models import Ddim5SamplerConfig
 from eco_planner.models.sampling import DiffusionSampler, _DdimSampler
+from eco_planner.runtime.random import sample_batched_standard_normal
 
 
 def _config() -> Ddim5SamplerConfig:
@@ -61,3 +62,23 @@ def test_deterministic_ddim_step_omits_unused_variance_noise_without_consuming_r
 
     assert torch.equal(actual, expected)
     assert torch.equal(generator.get_state(), rng_state)
+
+
+def test_batched_standard_normal_matches_slot_loop_and_generator_states() -> None:
+    actual_generators = [torch.Generator().manual_seed(seed) for seed in (11, 17, 23)]
+    expected_generators = [torch.Generator().manual_seed(seed) for seed in (11, 17, 23)]
+
+    actual = sample_batched_standard_normal(
+        actual_generators,
+        (2, 3, 4),
+        device=torch.device("cpu"),
+    )
+    expected = torch.cat(
+        [torch.randn((1, 2, 3, 4), generator=generator) for generator in expected_generators]
+    )
+
+    assert torch.equal(actual, expected)
+    for actual_generator, expected_generator in zip(
+        actual_generators, expected_generators, strict=True
+    ):
+        assert torch.equal(actual_generator.get_state(), expected_generator.get_state())
