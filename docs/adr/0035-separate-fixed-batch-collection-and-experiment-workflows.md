@@ -1,5 +1,8 @@
 # Separate fixed-batch collection and unify experiment workflows
 
+> 关于机制归属、旧 CLI、强制参考链和历史工作流保留的决定已由 [ADR 0038](0038-consolidate-scientific-workflows.md) 取代；其他数值、配对与证据约束继续有效。
+
+
 **Status:** Accepted and implemented
 **Date:** 2026-09-10
 
@@ -36,3 +39,4 @@ storage roundtrips, a synthetic complete offline chain, explicit reference failu
 a small real-simulator collection test. These checks are software verification, not new research
 evidence or a rerun of historical studies. Current invocation and artifact details are maintained
 in README and the system contract rather than duplicated here.
+

@@ -8,26 +8,18 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import write_json
-from eco_planner.experiments.reward.calibration import run as run_calibration
-from eco_planner.experiments.reward.critic_gae_ablation.runner import run as run_ablation
-from eco_planner.experiments.reward.fixed_batch.artifacts import (
-    load_batch,
-    load_fixed_batch,
-    verify_reference,
-    write_batch,
-)
-from eco_planner.experiments.reward.fixed_batch.calibration import calibrate, raw_arrays, rescore
-from eco_planner.experiments.reward.fixed_batch.rewards import reweight
-from eco_planner.experiments.reward.fixed_batch.runtime import restore_runtime
-from eco_planner.experiments.reward.lambda_identifiability import run as run_lambda
-from eco_planner.experiments.reward.objective_decomposition.runner import run as run_decomposition
 from eco_planner.rl.artifacts import policy_state_hash
 from eco_planner.rl.config import parse_training_config
 from eco_planner.rl.optimization import save_exploration_policy_checkpoint
+from eco_planner.rl.optimization.diagnostic_runtime import restore_runtime
 from eco_planner.rl.policy import ExplorationPolicy
-from tests.analysis.test_reports import assert_report
-from tests.training.test_critic_gae_ablation import _study as ablation_config
-from tests.training.test_objective_decomposition import _study as decomposition_config
+from eco_planner.rl.reward.calibration import rescore
+from eco_planner.rl.reward.reweighting import reweight
+from eco_planner.rl.rollout.fixed_batch import (
+    load_batch,
+    load_fixed_batch,
+    write_batch,
+)
 from tests.training.test_ppo import _behavior_policy_episode, _policy_config, _ppo_config
 from tests.training.test_reward import _no_energy_config
 
@@ -112,128 +104,136 @@ def test_batch_rejects_out_of_order_episode(fixed_source):
         load_batch(source)
 
 
-@pytest.mark.parametrize("lambdas", [[2.0], [2.0, 8.0, 16.0]])
-def test_full_offline_chain_and_reference_endpoints(fixed_source, tmp_path, lambdas):
-    source, episodes, _ = fixed_source
-    before = {p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()}
-    axes = {"lambdas": [0.0, 2.0, 8.0], "quantiles": [0.0, 0.5, 1.0]}
-    lambda_config = tmp_path / "lambda.yaml"
-    OmegaConf.save(OmegaConf.create(axes), lambda_config)
-    lambda_dir = tmp_path / "lambda"
-    run_lambda(source, lambda_config, lambda_dir, figures=False)
-    cal_config = tmp_path / "cal.yaml"
-    calibration = {**axes, "progress_target_score": 0.6, "comfort_target_score": 0.6}
-    OmegaConf.save(OmegaConf.create(calibration), cal_config)
-    run_calibration(source, lambda_dir, cal_config, tmp_path / "calibration", figures=False)
-    base = _no_energy_config()
-    calibrated = calibrate(raw_arrays(episodes), base, decomposition_config())
-    expected = {
-        "full_score_delta_m": calibrated.progress.full_score_delta_m,
-        **{
-            key: getattr(calibrated.comfort, key)
-            for key in (
-                "longitudinal_acceleration_limit_mps2",
-                "lateral_acceleration_limit_mps2",
-                "jerk_limit_mps3",
-                "yaw_rate_limit_radps",
-            )
-        },
-    }
-    decomp_config = tmp_path / "decomp.yaml"
-    OmegaConf.save(
-        OmegaConf.create(
-            decomposition_config(lambdas=lambdas, expected_calibration=expected).model_dump()
-        ),
-        decomp_config,
-    )
-    decomp_dir = tmp_path / "decomp"
-    run_decomposition(source, decomp_config, decomp_dir, figures=False)
-    intensity = np.asarray([46.0, 48.0, 47.0, 49.0])
-    band = {
-        "full_score_intensity_quantile": 0.10,
-        "zero_score_intensity_quantile": 0.90,
-        "expected_full_score_ml_per_km": float(np.quantile(intensity, 0.10)),
-        "expected_zero_score_ml_per_km": float(np.quantile(intensity, 0.90)),
-        "match_tolerance": {"rtol": 1e-6, "atol": 0.0},
-    }
-    band_config = tmp_path / "decomp-band.yaml"
-    OmegaConf.save(
-        OmegaConf.create(
-            decomposition_config(
-                lambdas=lambdas, expected_calibration=expected, energy_band=band
-            ).model_dump()
-        ),
-        band_config,
-    )
-    band_dir = tmp_path / "decomp-band"
-    run_decomposition(source, band_config, band_dir, figures=False)
-    band_summary = json.loads((band_dir / "summary.json").read_text())
-    assert band_summary["calibrated_reward"]["energy"]["mode"] == "calibrated_band"
-    assert band_summary["energy_band_verification"]["energy.band_full_score_ml_per_km"][
-        "actual"
-    ] == pytest.approx(float(np.quantile(intensity, 0.10)))
-    band_scores = np.clip(
-        (float(np.quantile(intensity, 0.90)) - np.asarray([46.0, 48.0, 47.0, 49.0]))
-        / (float(np.quantile(intensity, 0.90)) - float(np.quantile(intensity, 0.10))),
-        0.0,
-        1.0,
-    )
-    assert band_summary["components"]["reward_component_energy"]["mean"] == pytest.approx(
-        float(band_scores.mean())
-    )
-    assert band_summary["optimizer_steps"] == 0 and band_summary["policy_unchanged"]
-    abl_config = tmp_path / "ablation.yaml"
-    OmegaConf.save(
-        OmegaConf.create(ablation_config(expected_calibration=expected).model_dump()), abl_config
-    )
-    run_ablation(source, decomp_dir, abl_config, tmp_path / "ablation", figures=False)
-    for directory in (lambda_dir, tmp_path / "calibration", decomp_dir, tmp_path / "ablation"):
-        assert_report(directory, figures=False)
-        assert not (directory / "source").exists()
-        assert not (directory / "tracked_diff.patch").exists()
-        assert "git_head" in json.loads((directory / "runtime_metadata.json").read_text())
-        summary = json.loads((directory / "summary.json").read_text())
-        assert summary["optimizer_steps"] == 0 and summary["policy_unchanged"]
+def test_reward_and_credit_recompute_without_reference_artifacts(
+    fixed_source, tmp_path, monkeypatch
+):
+    from eco_planner._repository import CONFIG_ROOT
     from eco_planner.analysis.runner import analyze
+    from eco_planner.experiments.credit.runner import run as credit
+    from eco_planner.experiments.reward.runner import run as reward
 
-    for experiment, directory in (
-        ("lambda-identifiability", lambda_dir),
-        ("reward-calibration", tmp_path / "calibration"),
-        ("objective-decomposition", decomp_dir),
-        ("critic-gae-ablation", tmp_path / "ablation"),
-    ):
-        report_dir = tmp_path / (experiment + "-report")
-        analyze(experiment, directory, report_dir, figures=False)
-        assert_report(report_dir, figures=False)
+    source, _, _ = fixed_source
+    before = {p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()}
+    reward_dir = tmp_path / "reward"
+    # Reward definition must not restore an actor or call a backward operation.
+    monkeypatch.setattr(
+        torch.Tensor, "backward", lambda *a, **k: pytest.fail("reward ran backward")
+    )
+    reward(source, CONFIG_ROOT / "experiments/reward/default.yaml", reward_dir, figures=False)
+    monkeypatch.undo()
+    for name in ("sensitivity", "objectives", "ablation", "energy-band"):
+        output = tmp_path / name
+        result = credit(
+            source, CONFIG_ROOT / f"experiments/credit/{name}.yaml", output, figures=False
+        )
+        assert result["optimizer_steps"] == 0
+        summary = json.loads((output / "summary.json").read_text())
+        assert summary["policy_unchanged"]
+        assert "reference" not in summary and "expected_calibration" not in summary
+        persisted = {
+            p.relative_to(output): p.read_bytes() for p in output.rglob("*") if p.is_file()
+        }
+        report = tmp_path / (name + "-report")
+        regenerated = analyze("credit", output, report, figures=name == "objectives")
+        original = json.loads((output / "analysis.json").read_text())
+        assert regenerated["evidence"] == original["evidence"]
+        assert (report / "report.md").is_file()
+        if name == "objectives":
+            assert list((report / "figures").glob("*.png"))
+        assert persisted == {
+            p.relative_to(output): p.read_bytes() for p in output.rglob("*") if p.is_file()
+        }
+    analyzed = analyze("reward", reward_dir, tmp_path / "reward-report", figures=False)
+    assert analyzed["evidence"]["pairs"]
     assert before == {
         p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()
     }
-    # Calibration must compare identical lambda axes, not silently use another diagnostic.
-    calibration["lambdas"] = [0.0, 4.0]
-    OmegaConf.save(OmegaConf.create(calibration), cal_config)
-    with pytest.raises(ValueError, match="lambda axes"):
-        run_calibration(source, lambda_dir, cal_config, tmp_path / "bad-calibration", figures=False)
-    assert not (tmp_path / "bad-calibration").exists()
 
 
-@pytest.mark.parametrize("mismatch", ["source", "policy", "samples"])
-def test_reference_mismatch_is_rejected(fixed_source, tmp_path, mismatch):
-    source, _, samples = fixed_source
+def test_credit_preserves_ppo_gradients_and_objective_identities(fixed_source, monkeypatch):
+    from eco_planner.experiments.credit.config import CreditStudyConfig
+    from eco_planner.experiments.credit.runner import measure
+    from eco_planner.rl.optimization import build_ppo_batch, normalize_full_batch_advantage
+    from eco_planner.rl.optimization.gradients import actor_gradients
+
+    source, episodes, _ = fixed_source
     batch = load_fixed_batch(source)
-    reference = tmp_path / "reference"
-    reference.mkdir()
-    summary = {
-        "source_batch": str(source),
-        "initial_policy_hash": batch.summary["initial_policy_hash"],
-    }
-    if mismatch == "source":
-        summary["source_batch"] = str(tmp_path / "another-batch")
-    if mismatch == "policy":
-        summary["initial_policy_hash"] = "0" * 64
-    write_json(reference / "summary.json", summary)
-    write_json(
-        reference / "sample_index.json",
-        {"samples": samples[::-1] if mismatch == "samples" else samples},
+    runtime = restore_runtime(source, batch)
+    updater = runtime.updater
+    config = CreditStudyConfig.model_validate(
+        {
+            "arms": [
+                {"label": "r0", "weight": 0.0},
+                {"label": "lambda_2", "weight": 2.0},
+                {"label": "energy_only", "weight": "energy_only"},
+            ],
+            "advantage_forms": ["raw", "center", "z"],
+            "credit_forms": ["standard_gae", "reward_only_gae", "discounted_return"],
+            "value_target_ddof": 1,
+            "quantiles": [0.0, 0.5, 1.0],
+            "calibration": None,
+            "energy_band": None,
+            "objective_gate": None,
+            "attribution_gate": None,
+        }
     )
-    with pytest.raises(ValueError, match="different|order"):
-        verify_reference(reference, source, batch)
+    monkeypatch.setattr(updater.optimizer, "step", lambda: pytest.fail("optimizer step"))
+    monkeypatch.setattr(updater.scheduler, "step", lambda: pytest.fail("scheduler step"))
+    snapshots = [(e.training.clone(), e.audit.clone()) for e in episodes]
+    _, arrays = measure(updater, episodes, batch.config.reward, config, batch.scenario_ids)
+    runtime.verify_unchanged()
+    for arm in ("r0", "lambda_2", "energy_only"):
+        for credit in config.credit_forms:
+            prefix = f"{arm}__{credit}__"
+            raw = arrays[prefix + "raw_advantage"]
+            center = arrays[prefix + "center_advantage"]
+            np.testing.assert_allclose(center, raw - raw.mean(), rtol=1e-6, atol=1e-8)
+            np.testing.assert_allclose(
+                arrays[prefix + "normalized_advantage"],
+                center / raw.std(ddof=1),
+                rtol=1e-5,
+                atol=1e-7,
+            )
+            np.testing.assert_allclose(
+                arrays[prefix + "gradient_z_actor_head"],
+                arrays[prefix + "gradient_center_actor_head"] / raw.std(ddof=1),
+                rtol=1e-4,
+                atol=1e-8,
+            )
+    weight = 16 / 18
+    for credit in config.credit_forms:
+        for key in ("raw_advantage", "gradient_raw_actor_head", "gradient_center_actor_head"):
+            np.testing.assert_allclose(
+                arrays[f"lambda_2__{credit}__{key}"],
+                weight * arrays[f"r0__{credit}__{key}"]
+                + (1 - weight) * arrays[f"energy_only__{credit}__{key}"],
+                rtol=1e-4,
+                atol=1e-7,
+            )
+    reference = build_ppo_batch(
+        [reweight(e, batch.config.reward) for e in episodes], updater.config
+    )
+    normalize_full_batch_advantage(reference)
+    updater.loss_module(reference)["loss_objective"].backward()
+    gradients, _ = actor_gradients(updater.policy)
+    for group, values in gradients.items():
+        np.testing.assert_array_equal(values, arrays[f"r0__standard_gae__gradient_z_{group}"])
+    for episode, (training, audit) in zip(episodes, snapshots, strict=True):
+        assert (episode.training == training).all() and (episode.audit == audit).all()
+
+
+def test_missing_gradient_and_sample_mismatch_are_errors(fixed_source, tmp_path):
+    from eco_planner._repository import CONFIG_ROOT
+    from eco_planner.analysis.workflows import fixed
+    from eco_planner.experiments.credit.runner import run
+
+    source, _, _ = fixed_source
+    output = tmp_path / "credit"
+    run(source, CONFIG_ROOT / "experiments/credit/sensitivity.yaml", output, figures=False)
+    with np.load(output / "diagnostics.npz") as archive:
+        arrays = {
+            key: archive[key] for key in archive.files if not key.endswith("gradient_z_actor_head")
+        }
+    np.savez(output / "diagnostics.npz", **arrays)
+    with pytest.raises((ValueError, KeyError)):
+        fixed(output)

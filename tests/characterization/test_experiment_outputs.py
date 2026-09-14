@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
 
 import eco_planner.evaluation.artifacts.report as evaluation_report
@@ -25,12 +24,7 @@ from eco_planner.evaluation import (
     TrafficObservationSummary,
     WarmupSummary,
 )
-from eco_planner.experiments.guidance import energy_sweep as energy_study
-from eco_planner.experiments.training import reproducibility as training_analysis
-from eco_planner.experiments.training.stability.comparison import (
-    PolicyEvaluationSummary,
-    compare_policy_evaluations,
-)
+from eco_planner.experiments.guidance import sweep as energy_study
 from eco_planner.rl.artifacts import PolicyProbeSummary, TrainingRunSummary, TrainingUpdateSummary
 
 
@@ -339,148 +333,3 @@ def _training_summary(
         updates=(_update(0, 1.0), post_update or _update(1, 2.0)),
         reward_profile="plannerrft_energy_v1",
     )
-
-
-def _policy_summary(
-    label: str,
-    *,
-    episodes: float,
-    progress: float,
-    collisions: int = 0,
-) -> PolicyEvaluationSummary:
-    return PolicyEvaluationSummary.model_validate(
-        {
-            "checkpoint_label": label,
-            "checkpoint_path": f"{label}.pt",
-            "policy_hash": "a" * 64,
-            "evaluation_seed": 760025,
-            "scenarios": ("held-out:S:16",),
-            "noise_seeds": (1,),
-            "transition_count": 100,
-            "episode_count": 1,
-            "mean_episode_length": episodes,
-            "collision_count": collisions,
-            "out_of_road_count": 0,
-            "route_completion_delta": progress,
-            "distance_m": 100.0,
-            "mean_speed_mps": 5.0,
-            "stopped_fraction": 0.0,
-        }
-    )
-
-
-def test_ppo_stability_comparison_payload_freezes_acceptance_fields() -> None:
-    comparison = compare_policy_evaluations(
-        _policy_summary("initial", episodes=100.0, progress=10.0),
-        _policy_summary("final", episodes=95.0, progress=9.5),
-    )
-
-    payload = comparison.model_dump(mode="json")
-
-    assert set(payload) == {
-        "initial",
-        "final",
-        "episode_length_retention",
-        "route_progress_retention",
-        "collision_count_not_increased",
-        "out_of_road_count_not_increased",
-        "passed",
-    }
-    assert payload["episode_length_retention"] == 0.95
-    assert payload["route_progress_retention"] == 0.95
-    assert payload["collision_count_not_increased"] is True
-    assert payload["out_of_road_count_not_increased"] is True
-    assert payload["passed"] is True
-
-
-def test_training_reproducibility_acceptance_report_schema_is_stable(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    summaries = {
-        (seed, replay): _training_summary(seed, replay) for seed in (0, 1) for replay in (0, 1)
-    }
-    for seed, replay in summaries:
-        run = tmp_path / f"seed-{seed}-replay-{replay}"
-        (run / "updates" / "update-000").mkdir(parents=True)
-        (run / "summary.json").write_text(
-            json.dumps({"seed": seed, "replay": replay}), encoding="utf-8"
-        )
-        np.savez(run / "updates" / "update-000" / "episode.npz", values=np.asarray([seed, 1]))
-
-    def load_summary(content: str, *_args: object, **_kwargs: object) -> TrainingRunSummary:
-        record = json.loads(content)
-        return summaries[(record["seed"], record["replay"])]
-
-    monkeypatch.setattr(
-        training_analysis.TrainingRunSummary,
-        "model_validate_json",
-        staticmethod(load_summary),
-    )
-
-    report = training_analysis.summarize_training_runs(tmp_path)
-
-    assert report == {
-        "status": "passed",
-        "total_runs": 4,
-        "total_transitions": 16,
-        "replay_checks": [
-            {"training_seed": 0, "exact": True},
-            {"training_seed": 1, "exact": True},
-        ],
-        "runs": [
-            {
-                "training_seed": 0,
-                "replay_id": 0,
-                "reward_sequence": [1.0, 2.0],
-                "final_policy_hash": "b" * 64,
-            },
-            {
-                "training_seed": 0,
-                "replay_id": 1,
-                "reward_sequence": [1.0, 2.0],
-                "final_policy_hash": "b" * 64,
-            },
-            {
-                "training_seed": 1,
-                "replay_id": 0,
-                "reward_sequence": [1.0, 2.0],
-                "final_policy_hash": "b" * 64,
-            },
-            {
-                "training_seed": 1,
-                "replay_id": 1,
-                "reward_sequence": [1.0, 2.0],
-                "final_policy_hash": "b" * 64,
-            },
-        ],
-    }
-
-
-def test_reproducibility_report_uses_separate_output_and_preserves_source(tmp_path: Path) -> None:
-    from tests.training.test_tracking import summary as update_fixture
-
-    full_update = update_fixture.__wrapped__()
-    source, output = tmp_path / "source", tmp_path / "report"
-    for seed in (0, 1):
-        for replay in (0, 1):
-            run = source / f"seed-{seed}-replay-{replay}"
-            (run / "updates").mkdir(parents=True)
-            summary = _training_summary(seed, replay)
-            summary = summary.model_copy(
-                update={
-                    "updates": tuple(
-                        full_update.model_copy(update=u.model_dump()) for u in summary.updates
-                    )
-                }
-            )
-            (run / "summary.json").write_text(summary.model_dump_json(), encoding="utf-8")
-            np.savez(run / "updates/episode.npz", values=np.asarray([seed, 1]))
-    before = {p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()}
-    result = training_analysis.summarize_and_write_training_runs(source, output, figures=False)
-    assert result["source_dir"] == str(source.resolve()) and result["total_runs"] == 4
-    evidence = json.loads((output / "analysis.json").read_text(encoding="utf-8"))
-    assert len(evidence["evidence"]["runs"]) == 4 and evidence["figures"] == []
-    assert (output / "report.md").is_file()
-    assert before == {
-        p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()
-    }

@@ -10,21 +10,23 @@ from omegaconf import DictConfig, MissingMandatoryValue
 
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation import parse_evaluation_config
-from eco_planner.experiments.reward.scalar.composition import (
+from eco_planner.experiments.protocol.composition import (
     compose_a0_evaluation_config,
     compose_arm_training_config,
     compose_policy_evaluation_config,
 )
-from eco_planner.experiments.reward.scalar.config import (
-    ScalarRewardProtocolConfig,
-    load_scalar_reward_protocol,
+from eco_planner.experiments.protocol.config import (
+    ComparisonProtocol,
+    load_protocol,
 )
 from eco_planner.jobs import compose_job_config
 from eco_planner.models import Ddim5SamplerConfig
 from eco_planner.rl.config import TrainingJobConfig
 
 ComposeConfig = Callable[[str, list[str] | None], DictConfig]
-PROTOCOL_PATH = Path(__file__).resolve().parents[2] / ("configs/experiments/reward/scalar.yaml")
+PROTOCOL_PATH = Path(__file__).resolve().parents[2] / (
+    "configs/experiments/comparison/default.yaml"
+)
 CHECKPOINT_OVERRIDES = [
     "evaluation.policy_checkpoint.label=final",
     "evaluation.policy_checkpoint.path=checkpoints/run/policy-final.pt",
@@ -37,12 +39,12 @@ def without_machine_profile(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_protocol_manifest_defines_disjoint_matched_pools() -> None:
-    protocol = load_scalar_reward_protocol(PROTOCOL_PATH)
+    protocol = load_protocol(PROTOCOL_PATH)
 
-    assert protocol.arms.a0.label == "frozen_diffusion_planner"
-    assert protocol.arms.a1.reward_profile == "plannerrft_no_energy_v1"
-    assert protocol.arms.a2.reward_profile == "plannerrft_energy_v1"
-    assert protocol.update0_evaluation == "diagnostic"
+    assert protocol.arms["a0"].label == "frozen_diffusion_planner"
+    assert protocol.arms["a1"].reward_profile == "plannerrft_no_energy_v1"
+    assert protocol.arms["a2"].reward_profile == "plannerrft_energy_v1"
+    assert "update0_evaluation" not in type(protocol).model_fields
     assert {item.name for item in protocol.training_scenarios()} == {
         f"{prefix}_s{seed}" for prefix in ("s", "sc") for seed in range(8)
     }
@@ -52,16 +54,30 @@ def test_protocol_manifest_defines_disjoint_matched_pools() -> None:
     assert not (protocol.training_pairs() & protocol.held_out_pairs())
 
 
+def test_calibrated_comparison_composes_two_matched_reward_arms():
+    protocol = load_protocol(PROTOCOL_PATH.with_name("calibrated.yaml"))
+    assert protocol.frozen_arm is None
+    assert protocol.contrasts == [["r0", "rstress"]]
+    configs = [compose_arm_training_config(protocol, arm, 0)[1] for arm in protocol.arms]
+    assert {c.reward.name for c in configs} == {
+        "plannerrft_no_energy_calibrated_v1",
+        "plannerrft_energy_band_lam64_v1",
+    }
+    assert configs[0].ppo == configs[1].ppo
+    assert configs[0].scenarios == configs[1].scenarios
+    assert configs[0].runtime.seed == configs[1].runtime.seed == 0
+
+
 def test_protocol_manifest_rejects_overlapping_train_and_eval_pools() -> None:
     raw = load_resolved_yaml_mapping(PROTOCOL_PATH)
     raw["evaluation"]["map_seeds"] = [0, 16, 17]
 
     with pytest.raises(ValueError, match="overlap"):
-        ScalarRewardProtocolConfig.model_validate(raw)
+        ComparisonProtocol.model_validate(raw)
 
 
 def test_a0_heldout_job_matches_the_protocol() -> None:
-    protocol = load_scalar_reward_protocol(PROTOCOL_PATH)
+    protocol = load_protocol(PROTOCOL_PATH)
 
     _, parsed = compose_a0_evaluation_config(protocol)
 
@@ -78,14 +94,14 @@ def test_a0_heldout_job_matches_the_protocol() -> None:
 def test_a0_runner_rejects_seed_mismatch_against_the_composed_job() -> None:
     raw = load_resolved_yaml_mapping(PROTOCOL_PATH)
     raw["evaluation"]["seed"] = 760_026
-    protocol = ScalarRewardProtocolConfig.model_validate(raw)
+    protocol = ComparisonProtocol.model_validate(raw)
 
     with pytest.raises(ValueError, match="runtime.seed"):
         compose_a0_evaluation_config(protocol)
 
 
 def test_arm_training_composition_pins_the_matched_protocol() -> None:
-    protocol = load_scalar_reward_protocol(PROTOCOL_PATH)
+    protocol = load_protocol(PROTOCOL_PATH)
 
     assert protocol.training.seeds == [0, 1, 2]
     for seed in protocol.training.seeds:
@@ -107,7 +123,7 @@ def test_arm_training_composition_pins_the_matched_protocol() -> None:
 
 
 def test_arm_training_composition_passes_through_ppo_overrides() -> None:
-    protocol = load_scalar_reward_protocol(PROTOCOL_PATH)
+    protocol = load_protocol(PROTOCOL_PATH)
 
     _, training = compose_arm_training_config(protocol, "a1", 0, ["ppo.learning_rate=1.6301e-5"])
 
@@ -115,7 +131,7 @@ def test_arm_training_composition_passes_through_ppo_overrides() -> None:
 
 
 def test_arm_training_composition_rejects_protocol_violations() -> None:
-    protocol = load_scalar_reward_protocol(PROTOCOL_PATH)
+    protocol = load_protocol(PROTOCOL_PATH)
 
     with pytest.raises(ValueError, match="reward profile"):
         compose_arm_training_config(protocol, "a1", 0, ["components/reward=plannerrft_energy_v1"])
@@ -128,7 +144,7 @@ def test_arm_training_composition_rejects_protocol_violations() -> None:
 
 
 def test_policy_evaluation_composition_matches_the_training_arm() -> None:
-    protocol = load_scalar_reward_protocol(PROTOCOL_PATH)
+    protocol = load_protocol(PROTOCOL_PATH)
     _, training = compose_arm_training_config(protocol, "a1", 0)
 
     _, policy_job = compose_policy_evaluation_config(
@@ -144,7 +160,7 @@ def test_policy_evaluation_composition_matches_the_training_arm() -> None:
 
 
 def test_policy_heldout_job_requires_checkpoint_overrides() -> None:
-    protocol = load_scalar_reward_protocol(PROTOCOL_PATH)
+    protocol = load_protocol(PROTOCOL_PATH)
 
     config = compose_job_config(protocol.evaluation.policy_job)
 

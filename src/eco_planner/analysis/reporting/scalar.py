@@ -2,11 +2,13 @@
 
 from pathlib import Path
 
-from .fixed import number
+from .markdown import number
 
 
 def _arms(data: dict, label: str) -> list[tuple[str, dict]]:
-    return [("A0", data["baseline"])] + [
+    return (
+        [(data["baseline_arm"].upper(), data["baseline"])] if data["baseline"] is not None else []
+    ) + [
         (f"{r['arm'].upper()} seed {r['training_seed']}", r["outcomes"])
         for r in sorted(data["runs"], key=lambda r: (r["arm"], r["training_seed"]))
         if r["checkpoint_label"] == label
@@ -72,7 +74,8 @@ def render_scalar(data: dict) -> str:
         "",
         "## 3. Paired energy effects",
         "",
-        "Primary contrast: **A2 - A1**. A1 - A0 and A2 - A0 provide baseline context.",
+        f"Primary contrast: **{next(iter(data['contrasts'])).upper()}**; "
+        "contrasts follow the declared protocol.",
         "Each contrast uses its own jointly-completed matched episodes. "
         "Early termination can reduce energy; read completion and safety first.",
         "",

@@ -1,5 +1,8 @@
 # Separate experiment execution, descriptive analysis, and static reporting
 
+> 关于机制归属、旧 CLI、强制参考链和历史工作流保留的决定已由 [ADR 0038](0038-consolidate-scientific-workflows.md) 取代；其他数值、配对与证据约束继续有效。
+
+
 **Status:** Accepted and implemented
 **Date:** 2026-09-09
 
@@ -32,3 +35,4 @@ plotting. Insufficient data and undefined quantities remain visible in reports.
 The implemented input/output and numerical contracts have one authoritative home in
 [experiment analysis contract](../agents/contracts/experiments.md#实验离线分析与报告). This decision adds the analysis
 boundary without replacing evaluation's artifact ownership or changing training and simulator semantics.
+

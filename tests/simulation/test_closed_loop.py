@@ -67,12 +67,12 @@ def test_fixed_batch_collection_persists_seeds_and_episodes(
     import json
 
     from eco_planner._repository import CONFIG_ROOT
-    from eco_planner.experiments.reward.fixed_batch.artifacts import load_fixed_batch
-    from eco_planner.experiments.reward.fixed_batch.collection import collect
+    from eco_planner.rl.rollout.collection import collect
+    from eco_planner.rl.rollout.fixed_batch import load_fixed_batch
     from eco_planner.rl.rollout.seeds import derive_rollout_seeds
 
     monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-    protocol = OmegaConf.load(CONFIG_ROOT / "experiments/reward/scalar.yaml")
+    protocol = OmegaConf.load(CONFIG_ROOT / "experiments/comparison/default.yaml")
     protocol.training.base_job = "jobs/training/ppo"
     protocol_path = tmp_path / "protocol.yaml"
     OmegaConf.save(protocol, protocol_path)
@@ -101,7 +101,14 @@ def test_fixed_batch_collection_persists_seeds_and_episodes(
         config_path,
     )
     output = tmp_path / "batch"
-    result = collect(config_path, output)
+    from eco_planner.experiments.protocol.composition import compose_arm_training_config
+    from eco_planner.experiments.protocol.config import load_protocol
+
+    spec = OmegaConf.load(config_path)
+    resolved, parsed = compose_arm_training_config(
+        load_protocol(Path(spec.protocol)), "a1", spec.training_seed, spec.overrides
+    )
+    result = collect(resolved, parsed, output)
     batch = load_fixed_batch(output)
     summary = json.loads((output / "summary.json").read_text())
     noise, policy = derive_rollout_seeds(0, 2)
@@ -441,6 +448,7 @@ def test_real_checkpoint_metadrive_rollout_updates_policy_without_changing_plann
         history_warmup_steps=parsed.rollout.history_warmup_steps,
         max_transitions=2,
         stopped_speed_threshold_mps=parsed.rollout.stopped_speed_threshold_mps,
+        reward_profile=_ENERGY_REWARD,
     )
     planner_hash = runtime.frozen_planner_hash()
     policy_before = {

@@ -9,7 +9,7 @@
 | job composition、资源预算、Fabric、serial/vector/job-parallel、host transfer、benchmark | [运行时与配置](contracts/runtime.md) |
 | checkpoint、observation shape/padding、地图/交通、扩散随机流、reference guidance | [模型输入与规划](contracts/planner.md) |
 | policy 动作与概率、rollout/reward、GAE/PPO、checkpoint 评测、训练跟踪 | [Policy、rollout 与训练](contracts/training.md) |
-| fixed-batch 诊断、校准、guidance intervention、scalar protocol、离线分析与报告 | [实验工具与离线分析](contracts/experiments.md) |
+| comparison/reward/credit/guidance/training 工作流、机制归属与离线报告 | [实验工具与离线分析](contracts/experiments.md) |
 | 坐标、时间、轨迹执行、能耗流、evaluation 指标与产物 | 本文件下文 |
 
 ## 使用与维护

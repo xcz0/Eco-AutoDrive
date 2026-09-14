@@ -4,37 +4,89 @@ from pathlib import Path
 
 
 def experiment_figures(experiment: str, data: dict, output: Path) -> list[str]:
-    from .plots import curves, fixed_figures, heatmap
+    from .plots import curves, heatmap
 
-    if experiment in ("lambda-identifiability", "objective-decomposition", "critic-gae-ablation"):
-        return fixed_figures(data, output)
-    if experiment == "reward-calibration":
-        files = fixed_figures(data["original"], output, "original-")
-        files += fixed_figures(data["calibrated"], output, "calibrated-")
-        keys = list(data["original"]["components"])
-        for metric in ("mean", "std"):
+    if experiment in ("reward", "credit"):
+        files = curves(
+            output,
+            "distributions",
+            {
+                name: (
+                    [float(q) for q in value["all"]["quantiles"]],
+                    list(value["all"]["quantiles"].values()),
+                )
+                for name, value in data["distributions"].items()
+                if name.endswith("__reward_total") or name.endswith("__reward")
+            },
+            "quantile",
+            "reward (dimensionless)",
+        )
+        if experiment == "credit":
+            groups = data["recorded"]["gradient_groups"]
+            pairs = data["pairs"]
+            labels = [
+                f"{p['comparison']}-{p['reference']} / {p['credit_form']} / {p['advantage_form']}"
+                for p in pairs
+            ]
+            for metric in ("cosine", "one_minus_cosine", "norm_ratio_j_over_i"):
+                values = []
+                for pair in pairs:
+                    row = []
+                    for group in groups:
+                        stats = pair["gradients"][group]
+                        value = stats["cosine"] if metric == "one_minus_cosine" else stats[metric]
+                        row.append(
+                            1 - value
+                            if metric == "one_minus_cosine" and value is not None
+                            else value
+                        )
+                    values.append(row)
+                files += heatmap(output, "gradient-" + metric, values, labels, groups, metric)
+        else:
+            names = list(data["distributions"])
             files += heatmap(
                 output,
-                f"calibration-component-{metric}",
-                [
-                    [data[label]["components"][k][metric] for k in keys]
-                    for label in ("original", "calibrated")
-                ],
-                ["original", "calibrated"],
-                keys,
-                f"Component {metric}",
-            )
-        for key, entry in data["distributions"].items():
-            q = entry["all"]["quantiles"]
-            order = sorted(q, key=float)
-            files += curves(
-                output,
-                "audit-" + key,
-                {key: ([float(v) for v in order], [q[v] for v in order])},
-                "quantile",
-                key + " (native audit units)",
+                "component-means",
+                [[data["distributions"][name]["all"]["mean"]] for name in names],
+                names,
+                ["mean"],
+                "Reward component means (dimensionless)",
             )
         return files
+    if experiment == "training":
+        runs = data.get("runs", data.get("arms", []))
+        series = {}
+        for index, record in enumerate(runs):
+            metrics = record.get("metrics")
+            if metrics is not None:
+                values = metrics["post_update_kl"]
+                series[str(record.get("label", record.get("source", index)))] = (
+                    list(range(len(values))),
+                    values,
+                )
+        if series:
+            return curves(output, "post-update-kl", series, "PPO update", "KL (dimensionless)")
+        if data["kind"] == "training-evaluation":
+            return curves(
+                output,
+                "completion",
+                {
+                    str(index): (
+                        ["deterministic", *record["stochastic"]],
+                        [
+                            record["deterministic"]["completion"]["completed_rate"],
+                            *[
+                                v["outcomes"]["completion"]["completed_rate"]
+                                for v in record["stochastic"].values()
+                            ],
+                        ],
+                    )
+                    for index, record in enumerate(runs)
+                },
+                "policy action condition",
+                "completed episode fraction",
+            )
+        return []
     if experiment == "reward-sanity":
         cases = data["cases"]
         keys = list(next(iter(cases.values()))["components"])
@@ -47,60 +99,6 @@ def experiment_figures(experiment: str, data: dict, output: Path) -> list[str]:
             "Reward components",
             limits=(0, 1),
         )
-    if experiment == "ppo-reproducibility":
-        return curves(
-            output,
-            "replay-reward",
-            {
-                f"seed {r['training_seed']} replay {r['replay_id']}": (r["updates"], r["rewards"])
-                for r in data["runs"]
-            },
-            "PPO update",
-            "total reward",
-        )
-    if experiment == "ppo-stability":
-        files = []
-        for metric in ("total_reward", "mean_approximate_kl", "mean_episode_length"):
-            series = {
-                label: (entry["update"], entry[metric])
-                for label, entry in data["training_curves"].items()
-            }
-            if series:
-                files += curves(output, "training-" + metric, series, "PPO update", metric)
-        for stage, entry in data["stages"].items():
-            records = entry["records"]
-            labels = [f"config {r['config_id']} seed {r['training_seed']}" for r in records]
-            if records:
-                files += curves(
-                    output,
-                    f"stage-{stage}-episode-retention",
-                    {
-                        "training retention": (
-                            labels,
-                            [r["minimum_episode_length_retention"] for r in records],
-                        )
-                    },
-                    "candidate / seed",
-                    "minimum episode length retention",
-                )
-                files += curves(
-                    output,
-                    f"stage-{stage}-route-retention",
-                    {
-                        "evaluation retention": (
-                            labels,
-                            [
-                                r["evaluation"]["route_progress_retention"]
-                                if r["evaluation"] is not None
-                                else None
-                                for r in records
-                            ],
-                        )
-                    },
-                    "candidate / seed",
-                    "route progress retention",
-                )
-        return files
     if experiment == "execution-backend":
         files = curves(
             output,

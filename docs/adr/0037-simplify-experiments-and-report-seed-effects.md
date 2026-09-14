@@ -1,5 +1,8 @@
 # Simplify experiment modules and report conditional seed effects
 
+> 关于机制归属、旧 CLI、强制参考链和历史工作流保留的决定已由 [ADR 0038](0038-consolidate-scientific-workflows.md) 取代；其他数值、配对与证据约束继续有效。
+
+
 **Status:** Accepted and implemented
 **Date:** 2026-09-11
 
@@ -25,3 +28,4 @@ source provenance. Historical artifacts and experiment records are not rewritten
 
 The current numerical, input and artifact contracts live in
 [experiment analysis contract](../agents/contracts/experiments.md#实验离线分析与报告).
+

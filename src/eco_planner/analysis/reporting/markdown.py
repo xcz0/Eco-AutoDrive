@@ -48,14 +48,9 @@ def write_report(experiment: str, source: Path, output: Path, data: dict, files:
         lines.append(render_scalar(data))
     chain = {
         "reward-sanity": "Reward: synthetic checks establish component correctness, not learning.",
-        "reward-calibration": "Reward → credit assignment → actor gradient: compare original and "
-        "calibrated component scales, advantage changes and gradient response on the same batch.",
-        "lambda-identifiability": "Reward → credit assignment → actor gradient: follow lambda "
-        "changes through raw/normalized advantages and actor-head/shared-trunk gradients.",
-        "objective-decomposition": "Reward → credit assignment → actor gradient: attribute "
-        "separation or attenuation to reward components and advantage normalization.",
-        "critic-gae-ablation": "Credit assignment → actor gradient: compare value targets and "
-        "advantage forms to locate attenuation before the actor backward pass.",
+        "reward": "Reward distributions and calibration from one persisted batch.",
+        "credit": "Reward to credit assignment to actor gradient; no optimizer updates.",
+        "training": "Policy update measurements and matched evaluation; all seeds retained.",
     }
     if experiment in chain:
         lines += [
@@ -73,57 +68,7 @@ def write_report(experiment: str, source: Path, output: Path, data: dict, files:
                 f"[SVG](<{path[:-4]}.svg>) · [PNG](<{path}>)",
                 "",
             ]
-    if experiment in ("lambda-identifiability", "objective-decomposition", "critic-gae-ablation"):
-        from .fixed import (
-            render_ablation_report,
-            render_decomposition_report,
-            render_report,
-        )
-
-        renderer = {
-            "lambda-identifiability": render_report,
-            "objective-decomposition": render_decomposition_report,
-            "critic-gae-ablation": render_ablation_report,
-        }[experiment]
-        body = (
-            render_report(data, batch_origin="Reused fixed source batch")
-            if experiment == "lambda-identifiability"
-            else renderer(data)
-        )
-        for filename in ("summary.json", "diagnostics.npz", "sample_index.json"):
-            body = body.replace(f"]({filename})", f"](<{source_link}/{filename}>)")
-        lines.append(body)
-    elif experiment == "reward-calibration":
-        from .fixed import render_report
-
-        lines.append(
-            evidence_tables(
-                {k: v for k, v in data["experiment"].items() if k != "comparisons"},
-                "Recorded experiment",
-            )
-        )
-        for label in ("original", "calibrated"):
-            body = render_report(data[label], batch_origin=f"Reused batch: {label}")
-            for filename in ("summary.json", "diagnostics.npz"):
-                body = body.replace(f"]({filename})", f"](<{source_link}/{label}/{filename}>)")
-            body = body.replace("](sample_index.json)", f"](<{source_link}/sample_index.json>)")
-            lines.append(body)
-        lines.append(
-            evidence_tables(
-                {k: v for k, v in data["audit"].items() if k in ("all", "interpretation")},
-                "Recorded audit",
-            )
-        )
-        lines.append(
-            evidence_tables(
-                {k: v["all"] for k, v in data["distributions"].items()},
-                "Recomputed audit distributions",
-            )
-        )
-        lines.append(
-            "\nPer-scenario and per-planning-cycle evidence: [analysis.json](analysis.json)."
-        )
-    elif not scalar_comparison:
+    if not scalar_comparison:
         lines.append(evidence_tables(report_evidence(experiment, data)))
     (output / "report.md").write_text("\n".join(lines), encoding="utf-8")
 
@@ -142,11 +87,13 @@ def report_evidence(experiment: str, data: dict) -> dict:
             "runs": [{k: v for k, v in r.items() if k != "episodes"} for r in data["runs"]],
             "comparisons": {k: comparison(v) for k, v in data["comparisons"].items()},
         }
-    if experiment == "ppo-stability":
-        return {k: v for k, v in data.items() if k != "training_curves"}
     if experiment == "execution-backend":
         return {
             "modes": data["modes"],
             "recorded_provenance": data["recorded_comparison"].get("provenance"),
         }
     return data
+
+
+def number(value: float | None) -> str:
+    return "undefined" if value is None else f"{value:.9g}"

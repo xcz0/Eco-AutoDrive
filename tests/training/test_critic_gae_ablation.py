@@ -1,59 +1,33 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import torch
 
-from eco_planner.analysis.reporting.fixed import render_ablation_report
-from eco_planner.experiments.reward.critic_gae_ablation.diagnostics import (
+from eco_planner.experiments.credit.decisions import (
     CREDIT_FORMS,
-    AblationConfig,
-    analyze_critic_gae_ablation,
+    AttributionThresholds,
+    evaluate_attribution,
+)
+from eco_planner.rl.optimization import compute_episode_gae
+from eco_planner.rl.optimization.credit import (
     credit_batch,
     discounted_return_batch,
-    evaluate_attribution,
     zero_critic_values,
 )
-from eco_planner.rl.optimization import PPOUpdater, compute_episode_gae
-from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.rollout import (
     RolloutEpisodeBuilder,
     RolloutProvenance,
     build_training_decision,
 )
 from tests.training.test_ppo import (
-    _behavior_policy_episode,
     _context,
     _decision_audit,
     _execution_audit,
-    _policy_config,
     _ppo_config,
 )
-from tests.training.test_reward import _no_energy_config
-
-
-def _study(**overrides: object) -> AblationConfig:
-    values: dict[str, object] = {
-        "quantiles": [0.0, 0.5, 1.0],
-        "progress_target_score": 0.6,
-        "comfort_target_score": 0.6,
-        "calibration_match_tolerance": {"rtol": 1e-7, "atol": 1e-9},
-        "expected_calibration": {
-            "full_score_delta_m": 1.0,
-            "longitudinal_acceleration_limit_mps2": 3.0,
-            "lateral_acceleration_limit_mps2": 3.0,
-            "jerk_limit_mps3": 5.0,
-            "yaw_rate_limit_radps": 0.5,
-        },
-        "reference_match_tolerance": {"rtol": 1e-5, "atol": 1e-6},
-        "gate": {
-            "endpoint_max_actor_head_cosine": 0.99,
-            "min_normalized_advantage_rmse": 0.10,
-            "min_sign_flip_fraction": 0.05,
-        },
-    }
-    values.update(overrides)
-    return AblationConfig.model_validate(values)
 
 
 def _multi_step_episode(rewards: list[float], next_values: list[float], bootstrap: float):
@@ -144,108 +118,6 @@ def test_discounted_return_batch_matches_recursive_returns():
         np.testing.assert_allclose(batch["advantage"].reshape(-1), reward_only, rtol=1e-3)
 
 
-def test_ablation_structures_and_identities(monkeypatch):
-    torch.manual_seed(0)
-    policy = ExplorationPolicy(_policy_config())
-    updater = PPOUpdater(policy, _ppo_config().model_copy(update={"batch_size": 4}))
-    episodes = [
-        _behavior_policy_episode(policy, torch.tensor([action]), reward=0.5)
-        for action in [(-0.5, 0.2), (0.3, -0.7), (-0.1, -0.4), (0.6, 0.8)]
-    ]
-    progress = [0.2, 0.4, 0.6, 0.8]
-    energy = [0.9, 0.5, 0.7, 0.3]
-    gates = [1.0, 0.5, 1.0, 0.25]
-    for i, episode in enumerate(episodes):
-        episode.audit["reward_component_progress"].fill_(progress[i])
-        episode.audit["reward_component_energy"].fill_(energy[i])
-        episode.audit["reward_safety_gate"].fill_(gates[i])
-    snapshots = [(e.training.clone(), e.audit.clone()) for e in episodes]
-    parameters = {k: v.clone() for k, v in policy.state_dict().items()}
-    state_values = np.concatenate([e.training["state_value"].numpy().reshape(-1) for e in episodes])
-
-    def forbidden(*args, **kwargs):
-        pytest.fail("optimizer/scheduler step is forbidden")
-
-    monkeypatch.setattr(updater.optimizer, "step", forbidden)
-    monkeypatch.setattr(updater.scheduler, "step", forbidden)
-    study = _study()
-    summary, arrays = analyze_critic_gae_ablation(
-        updater,
-        episodes,
-        _no_energy_config(),
-        study.quantiles,
-        np.array([0, 0, 1, 1]),
-        study.gate,
-    )
-    assert [arm["label"] for arm in summary["arms"]] == ["r0", "energy_only"]
-    assert [pair["credit_form"] for pair in summary["pairs"]] == list(CREDIT_FORMS)
-    assert summary["optimizer_steps"] == 0
-
-    for arm_label in ("r0", "energy_only"):
-        for form in CREDIT_FORMS:
-            raw = arrays[f"arm_{arm_label}__{form}__raw_advantage"]
-            centered = arrays[f"arm_{arm_label}__{form}__center_advantage"]
-            normalized = arrays[f"arm_{arm_label}__{form}__normalized_advantage"]
-            np.testing.assert_allclose(centered, raw - raw.mean(), rtol=1e-6, atol=1e-9)
-            sigma = raw.std(ddof=1)
-            np.testing.assert_allclose(normalized, centered / sigma, rtol=1e-5, atol=1e-8)
-            np.testing.assert_allclose(
-                arrays[f"arm_{arm_label}__{form}__gradient_z_actor_head"],
-                arrays[f"arm_{arm_label}__{form}__gradient_center_actor_head"] / sigma,
-                rtol=1e-4,
-                atol=1e-9,
-            )
-        # Single-step terminated episodes: reward-only GAE and returns reduce to the reward,
-        # while standard GAE subtracts the critic value of the state.
-        np.testing.assert_allclose(
-            arrays[f"arm_{arm_label}__reward_only_gae__raw_advantage"],
-            arrays[f"arm_{arm_label}_reward"],
-            rtol=1e-6,
-            atol=1e-7,
-        )
-        np.testing.assert_allclose(
-            arrays[f"arm_{arm_label}__discounted_return__raw_advantage"],
-            arrays[f"arm_{arm_label}_reward"],
-            rtol=1e-6,
-            atol=1e-7,
-        )
-    np.testing.assert_allclose(
-        arrays["arm_r0__standard_gae__raw_advantage"],
-        arrays["arm_r0_reward"] - state_values,
-        rtol=1e-6,
-        atol=1e-7,
-    )
-
-    attribution = summary["attribution"]
-    assert attribution["attribution"] in {
-        "critic_gae_common_term_dominated",
-        "temporal_credit_structure_sensitivity",
-        "reward_batch_collinearity",
-        None,
-    }
-    assert (
-        attribution["gate_c_endpoint_identifiable_under_standard_gae"]
-        == attribution["endpoint"]["standard_gae"]["identifiable"]
-    )
-    for form in CREDIT_FORMS:
-        assert set(attribution["endpoint"][form]) == {
-            "actor_head_cosine",
-            "normalized_advantage_rmse",
-            "sign_flip_fraction",
-            "identifiable",
-        }
-    report = render_ablation_report(summary)
-    assert "Task C4: critic / GAE common-term ablation" in report
-    assert "C4 attribution:" in report
-    for episode, (training, audit) in zip(episodes, snapshots, strict=True):
-        assert (episode.training == training).all()
-        assert (episode.audit == audit).all()
-    assert all(torch.equal(v, parameters[k]) for k, v in policy.state_dict().items())
-    assert updater.optimizer.state == {}
-    assert updater.completed_optimizer_steps == 0
-    assert all(p.grad is None for p in policy.parameters())
-
-
 def _pair(cosine: float, *, rmse: float = 0.2, sign_flip: float = 0.0, form: str) -> dict:
     return {
         "credit_form": form,
@@ -268,13 +140,13 @@ def test_attribution_branches():
         thresholds,
     )
     assert dominated["attribution"] == "critic_gae_common_term_dominated"
-    assert not dominated["gate_c_endpoint_identifiable_under_standard_gae"]
+    assert not dominated["endpoint_identifiable_under_standard_gae"]
 
     collinear = evaluate_attribution(
         [_pair(**fails, form=form) for form in CREDIT_FORMS], thresholds
     )
     assert collinear["attribution"] == "reward_batch_collinearity"
-    assert not collinear["gate_c_endpoint_identifiable_under_standard_gae"]
+    assert not collinear["endpoint_identifiable_under_standard_gae"]
 
     temporal = evaluate_attribution(
         [
@@ -290,14 +162,17 @@ def test_attribution_branches():
         [_pair(**passes, form=form) for form in CREDIT_FORMS], thresholds
     )
     assert identifiable["attribution"] is None
-    assert identifiable["gate_c_endpoint_identifiable_under_standard_gae"]
+    assert identifiable["endpoint_identifiable_under_standard_gae"]
 
     with pytest.raises(ValueError, match="one endpoint pair per credit form"):
         evaluate_attribution([_pair(**fails, form="standard_gae")], thresholds)
 
 
-def test_ablation_config_rejects_invalid_axes():
-    with pytest.raises(ValueError, match="quantiles"):
-        _study(quantiles=[0.25, 1.0])
-    with pytest.raises(ValueError, match="quantiles"):
-        _study(quantiles=[0.0, 0.5, 0.5, 1.0])
+def _study():
+    return SimpleNamespace(
+        gate=AttributionThresholds(
+            endpoint_max_actor_head_cosine=0.95,
+            min_normalized_advantage_rmse=0.1,
+            min_sign_flip_fraction=0.1,
+        )
+    )

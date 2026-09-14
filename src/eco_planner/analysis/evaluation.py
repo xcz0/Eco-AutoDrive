@@ -35,6 +35,10 @@ def episode_records(summary: JobSummary) -> list[dict[str, Any]]:
                 out_of_road=episode.metrics.out_of_road,
                 wrong_direction=episode.metrics.wrong_direction,
                 arrive_dest=episode.metrics.arrive_dest,
+                mean_speed_mps=episode.metrics.speed_mps.mean,
+                distance_m=episode.metrics.distance_m,
+                stopped_fraction=episode.metrics.stopped_fraction,
+                energy_ml_per_km=episode.metrics.energy.ml_per_km,
             )
         else:
             row.update(
@@ -69,8 +73,17 @@ def paired(reference: JobSummary, comparison: JobSummary) -> dict[str, Any]:
                 "comparison": r,
                 "available": complete,
                 **{
-                    m + "_delta": r[m] - reference_row[m] if complete else None
-                    for m in ("energy_ml", "route_completion")
+                    m + "_delta": r[m] - reference_row[m]
+                    if complete and r[m] is not None and reference_row[m] is not None
+                    else None
+                    for m in (
+                        "energy_ml",
+                        "route_completion",
+                        "mean_speed_mps",
+                        "distance_m",
+                        "stopped_fraction",
+                        "energy_ml_per_km",
+                    )
                 },
             }
         )
@@ -121,7 +134,7 @@ def energy_sweep(source: Path) -> dict[str, Any]:
 
 
 @dataclass(frozen=True)
-class ScalarComparisonRun:
+class PolicyComparisonRun:
     arm: str
     checkpoint_label: str
     training: TrainingRunSummary
@@ -129,11 +142,14 @@ class ScalarComparisonRun:
 
 
 @dataclass(frozen=True)
-class ScalarComparison:
-    baseline: JobSummary
-    runs: tuple[ScalarComparisonRun, ...]
+class PolicyComparison:
+    baseline: JobSummary | None
+    runs: tuple[PolicyComparisonRun, ...]
     bootstrap: ScenarioBootstrapConfig
     training_seeds: tuple[int, ...]
+    contrasts: tuple[tuple[str, str], ...]
+    baseline_arm: str | None
+    source_directories: tuple[Path, ...] = ()
 
 
 def arm_outcomes(summary: JobSummary) -> dict:
@@ -170,7 +186,9 @@ def arm_outcomes(summary: JobSummary) -> dict:
     }
 
 
-def scalar_reward(comparison: ScalarComparison) -> dict[str, Any]:
+def scalar_reward(comparison: PolicyComparison) -> dict[str, Any]:
+    from .training import beta_probe_statistics, paired_beta_deltas
+
     baseline = comparison.baseline
     runs = []
     for run in comparison.runs:
@@ -181,10 +199,18 @@ def scalar_reward(comparison: ScalarComparison) -> dict[str, Any]:
                 "training_seed": training.training_seed,
                 "checkpoint_label": run.checkpoint_label,
                 "outcomes": arm_outcomes(summary),
-                "comparison": paired(baseline, summary),
+                "comparison": paired(baseline, summary) if baseline is not None else None,
                 "training_curve": {
                     "update": [u.update_index for u in training.updates],
                     "reward": [u.total_reward for u in training.updates],
+                },
+                "policy_probe": {
+                    "before": beta_probe_statistics(training.probe_before.model_dump(mode="json")),
+                    "after": beta_probe_statistics(training.probe_after.model_dump(mode="json")),
+                    "change": paired_beta_deltas(
+                        training.probe_before.model_dump(mode="json"),
+                        training.probe_after.model_dump(mode="json"),
+                    ),
                 },
             }
         )
@@ -192,19 +218,22 @@ def scalar_reward(comparison: ScalarComparison) -> dict[str, Any]:
         (r.arm, r.training.training_seed, r.checkpoint_label): r.evaluation for r in comparison.runs
     }
     contrasts = {}
-    for name, reference_arm, comparison_arm in (
-        ("a2-a1", "a1", "a2"),
-        ("a1-a0", "a0", "a1"),
-        ("a2-a0", "a0", "a2"),
-    ):
+    for reference_arm, comparison_arm in comparison.contrasts:
+        name = f"{comparison_arm}-{reference_arm}"
         checkpoints = {}
         for label in sorted({"final", *(r.checkpoint_label for r in comparison.runs)}):
             effects = []
             for seed in comparison.training_seeds:
                 reference = (
-                    baseline if reference_arm == "a0" else indexed.get((reference_arm, seed, label))
+                    baseline
+                    if reference_arm == comparison.baseline_arm
+                    else indexed.get((reference_arm, seed, label))
                 )
-                target = indexed.get((comparison_arm, seed, label))
+                target = (
+                    baseline
+                    if comparison_arm == comparison.baseline_arm
+                    else indexed.get((comparison_arm, seed, label))
+                )
                 pairs = (
                     paired(reference, target)
                     if reference is not None and target is not None
@@ -233,7 +262,8 @@ def scalar_reward(comparison: ScalarComparison) -> dict[str, Any]:
             checkpoints[label] = entry
         contrasts[name] = checkpoints
     return {
-        "baseline": arm_outcomes(baseline),
+        "baseline": arm_outcomes(baseline) if baseline is not None else None,
+        "baseline_arm": comparison.baseline_arm,
         "runs": runs,
         "contrasts": contrasts,
         "bootstrap": {

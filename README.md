@@ -70,7 +70,7 @@ PPO 默认记录到本地 MLflow（`outputs/mlflow/`）。在仓库根目录启�
 just mlflow ui --backend-store-uri sqlite:///outputs/mlflow/mlflow.db --host 127.0.0.1 --port 5000
 ```
 
-打开 `http://127.0.0.1:5000`，选择 `eco-autodrive-ppo` experiment，通过 `config.runtime.seed`、`reward_profile` 及 scalar-reward 入口写入的 `arm` / `protocol` 筛选 Run，并在 Compare 中对比 `ppo/*`、`reward/*`、`behavior/*` 和 `energy/*` 曲线。其他实验可使用 `+tracking.tags.study=...` 添加标识；`tracking.run_name=...` 指定显示名，`tracking.checkpoint_interval=5` 将 update checkpoint 上传间隔改为 5。
+打开 `http://127.0.0.1:5000`，选择 `eco-autodrive-ppo` experiment，通过 `config.runtime.seed`、`reward_profile` 及 comparison 入口写入的 `arm` / `protocol` 筛选 Run，并在 Compare 中对比 `ppo/*`、`reward/*`、`behavior/*` 和 `energy/*` 曲线。其他实验可使用 `+tracking.tags.study=...` 添加标识；`tracking.run_name=...` 指定显示名，`tracking.checkpoint_interval=5` 将 update checkpoint 上传间隔改为 5。
 
 `tracking.enabled=false` 显式关闭跟踪。连接远程服务时同时设置 `tracking.tracking_uri=https://... tracking.artifact_location=null`，让服务拥有 artifact 存储。从 `training.resume_checkpoint_path=...` 恢复会继续原 Run，目标 `training.update_count` 仍是累计 update 数；同一 Run 的实验参数必须保持一致。详细恢复及指标口径见[训练跟踪契约](docs/agents/contracts/training.md#训练实验跟踪)。
 
@@ -80,7 +80,7 @@ just mlflow ui --backend-store-uri sqlite:///outputs/mlflow/mlflow.db --host 127
 just benchmark run
 just benchmark run --config-name jobs/benchmark/throughput_traffic
 just benchmark run --config-name jobs/benchmark/rollout
-just experiment guidance energy-sweep run --output-dir outputs/energy_matrix/manual-run
+just exp guidance sweep run --output-dir outputs/energy_matrix/manual-run
 ```
 
 PlannerRFT reward sanity：
@@ -91,59 +91,54 @@ just validation reward run --output-dir outputs/reward_sanity/manual-run
 
 该命令只计算配置中声明的固定合成 reward case，不运行 PPO。
 
-实验统一使用 `just experiment <domain> <study> <action>`，对应
-`python -m scripts.experiments`（单文件入口）。单配置实验使用
-`configs/experiments/<domain>/<study>.yaml`；energy-sweep 保留含 evaluation 子配置的目录。
-可用 `--config` 指定；`just experiment <domain> <study> <action> --help` 查看参数。
+实验使用薄入口 `just exp ...`，对应 `python -m scripts.experiments`。工作流配置按
+comparison、reward、credit、guidance、training 五类职责组织；`--config` 显式选择配置，
+`just exp <工作流> <动作> --help` 查看参数。
 
-固定批次采集与诊断分开运行。先采集一次，再显式复用同一批次：
-
-```powershell
-just experiment reward fixed-batch collect --output-dir outputs/fixed-batch
-just experiment reward lambda-identifiability run --source-dir outputs/fixed-batch --output-dir outputs/lambda
-just experiment reward calibration run --source-dir outputs/fixed-batch --reference-dir outputs/lambda --output-dir outputs/calibration
-just experiment reward objective-decomposition run --source-dir outputs/fixed-batch --output-dir outputs/decomposition
-just experiment reward critic-gae-ablation run --source-dir outputs/fixed-batch --reference-dir outputs/decomposition --output-dir outputs/ablation
-```
-
-采集配置拥有 protocol、training seed 和 overrides；诊断配置拥有诊断轴、校准目标和阈值。
-分解/消融配置中的 expected calibration 是显式的来源校验值，应与所研究批次对应。
-参考目录必须来自同一批次、相同初始策略与样本顺序。
-
-代码与实验配置按 reward、guidance、training 三域组织。四类 reward diagnostics 保留独立
-协议并共享固定批次原语；软件验证与后端比较分别使用 validation 和 benchmark 入口。
-
-| 研究入口 | 可用动作 |
+| 工作流 | 动作 |
 | --- | --- |
-| reward scalar | run --operation train/evaluate；analyze |
-| reward fixed-batch | collect |
-| reward lambda-identifiability / calibration / objective-decomposition / critic-gae-ablation | run；analyze |
-| guidance energy-sweep / control-authority | run；analyze |
-| training stability | run --operation search/confirm/held-out/diagnostic；analyze |
-| training reproducibility | validate；analyze |
+| compare | train、eval、analyze |
+| reward | collect、run、analyze |
+| credit | run、analyze |
+| guidance authority / sweep | run、analyze |
+| training | grid、diagnose、eval、analyze |
 
-每次 run 只执行显式选择的操作，不自动串联整个研究流程。例如：
+先采集一次，再从相同源 batch 独立执行 reward 和 credit；校准尺度与 energy-band 阈值
+每次由该 batch 及配置推导，不需要前序诊断目录：
 
 ```powershell
-just experiment reward scalar run --operation evaluate --arm a0 --output-dir outputs/a0
-just experiment reward scalar run --operation train --arm a1 --training-seed 0 --output-dir outputs/a1
-just experiment reward scalar run --operation evaluate --arm a1 --checkpoint final --checkpoint-path outputs/a1/policy-final.pt --output-dir outputs/a1-evaluation
-just experiment training stability run --operation search --output-dir outputs/my-study
-just experiment training stability run --operation confirm --output-dir outputs/my-study
-just experiment training stability run --operation held-out --output-dir outputs/my-study
-just experiment training stability run --operation diagnostic --diagnostic gradient --output-dir outputs/my-study
-just experiment training reproducibility validate --source-dir outputs/training-runs --output-dir outputs/reproducibility
-just validation reward analyze --source-dir outputs/reward_sanity/manual-run --output-dir outputs/sanity-report
-just benchmark execution report --serial-dir outputs/serial --job-level-dir outputs/job --vector-dir outputs/vector --serial-wall-s 100 --job-level-wall-s 50 --vector-wall-s 40 --output-dir outputs/backend-comparison
-just benchmark execution analyze --source-dir outputs/backend-comparison --output-dir outputs/backend-report
+just exp reward collect --output-dir outputs/fixed-batch
+just exp reward run --source-dir outputs/fixed-batch --output-dir outputs/reward
+just exp credit run --config configs/experiments/credit/objectives.yaml --source-dir outputs/fixed-batch --output-dir outputs/credit
 ```
 
-scalar train 要求 a1/a2 和显式 training seed，可重复传入 `--override`；evaluate 的 a1/a2
-要求 initial/final checkpoint 标签和实际文件路径，a0 不接受 checkpoint 参数。
-stability 的 search/confirm/held-out 沿用原 A/B/C 预算和产物前置条件，只有 diagnostic
-接受 `--diagnostic`。analyze 将搜索汇总和报告写到独立目录，不修改源 study。
-软件验证配置位于 `configs/validation/reward/`。旧 CLI 与 Python 导入路径不提供别名；
-历史记录保留原命令，当前实现不提供历史产物兼容或迁移。
+`reward/collection.yaml` 指定 job 和 overrides；reward run 比较组件、权重和 energy
+representation，不执行 actor backward。credit 命名配置为 `sensitivity.yaml`、`objectives.yaml`、
+`ablation.yaml`、`energy-band.yaml`，显式指定 reward、advantage 和 credit 对照轴及本实验阈值。
+
+comparison 默认 frozen/A1/A2 三臂，也可通过 `comparison/calibrated.yaml` 选择 calibrated
+R0/stress 双臂。每次 train 指定 seed，eval 指定已训练 checkpoint（frozen arm 不带 checkpoint）：
+
+```powershell
+just exp compare eval --arm a0 --output-dir outputs/a0
+just exp compare train --arm a1 --training-seed 0 --output-dir outputs/a1
+just exp compare eval --arm a1 --checkpoint final --checkpoint-path outputs/a1/policy-final.pt --output-dir outputs/a1-evaluation
+just exp compare train --config configs/experiments/comparison/calibrated.yaml --arm rstress --training-seed 0 --output-dir outputs/stress
+just exp guidance authority run --output-dir outputs/authority
+just exp guidance sweep run --output-dir outputs/energy-matrix
+just exp training grid --output-dir outputs/optimizer-grid
+```
+
+training grid 使用显式 optimizer 笛卡尔积与预算，报告通过项或无候选；没有阶段晋升或回报排名。
+`training diagnose --config <文件>` 测量已有训练结果；配置包含 `training_summaries` 路径列表、
+`training_seeds` 列表、`mc_draws` 和 `mc_seed`。`training eval --config <文件>` 配置包含
+`protocol`、`policy_action_seeds` 及 `records`；每条记录显式提供 `arm`、`training_summary`、
+`checkpoint_label`、`checkpoint_path` 和可空的 `deterministic_evaluation_dir`。输入路径均相对
+该 YAML 解析，复用评测必须匹配 checkpoint 与随机条件。
+
+软件验证与后端比较继续使用 `just validation reward` 和 `just benchmark execution`。
+旧实验命令、Python import、stability 搜索与独立 reproducibility 工作流已移除；历史记录保留
+原命令、路径和结果，不提供迁移层。
 
 机器资源通过版本化 profile 选择，例如 `components/resources=rtx_a4000`；它只改变 worker、slot 和线程预算。CLI 与 study bootstrap 会按需读取仓库根目录的可选 `.env`，并以 `MACHINE_NAME` 自动选择同名的 `configs/components/resources/<机器名>.yaml`。进程中已有的 `MACHINE_NAME` 优先于 `.env`，显式 Hydra `components/resources=...` override 又优先于两者；可用值见该目录，`.env.example` 给出格式。
 
@@ -154,14 +149,14 @@ stability 的 search/confirm/held-out 沿用原 A/B/C 预算和产物前置条�
 运行产物默认写入 `outputs/`。
 
 实验运行/汇总入口默认生成 Markdown 报告与 SVG/PNG 图，`--no-figures` 可关闭出图。
-`fixed-batch collect` 只保存采集产物，不生成诊断或图表。
+`reward collect` 只保存采集产物，不生成诊断或图表。
 已有产物可通过统一入口重算描述统计并重绘，不重新运行环境、GAE 或训练：
 
 ```powershell
-just experiment reward lambda-identifiability analyze --source-dir outputs/lambda --output-dir outputs/lambda-report
-just experiment reward calibration analyze --source-dir outputs/calibration --output-dir outputs/calibration-report
-just experiment training stability analyze --source-dir outputs/my-study --output-dir outputs/study-report
-just experiment reward scalar analyze --source-dir outputs/my-protocol --config outputs/my-protocol/comparison.yaml --output-dir outputs/protocol-report
+just exp reward analyze --source-dir outputs/reward --output-dir outputs/reward-report
+just exp credit analyze --source-dir outputs/credit --output-dir outputs/credit-report
+just exp training analyze --source-dir outputs/optimizer-grid --output-dir outputs/grid-report
+just exp compare analyze --source-dir outputs/my-protocol --config outputs/my-protocol/comparison.yaml --output-dir outputs/protocol-report
 ```
 
 源目录与离线输出目录必须独立，不能相同或互相嵌套。实验类型、输入文件和比较配置见
@@ -184,3 +179,4 @@ just experiment reward scalar analyze --source-dir outputs/my-protocol --config 
 
 - [Diffusion Planner](https://github.com/ZhengYinan-AIR/Diffusion-Planner)：基础框架与初始权重
 - [MetaDrive](https://github.com/metadriverse/metadrive)：闭环仿真环境
+

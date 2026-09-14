@@ -1,30 +1,31 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import torch
 
-from eco_planner.analysis.reporting.fixed import render_report
-from eco_planner.experiments.reward.calibration import CalibrationConfig, dynamic_range_audit
-from eco_planner.experiments.reward.fixed_batch.artifacts import load_batch
-from eco_planner.experiments.reward.fixed_batch.calibration import (
+from eco_planner.analysis.reward import dynamic_range_audit
+from eco_planner.rl.artifacts import write_rollout_episode
+from eco_planner.rl.reward.calibration import (
+    MOTION_LIMITS,
     calibrate,
     raw_arrays,
     rescore,
     scored_arrays,
     verify_original_components,
 )
-from eco_planner.experiments.reward.fixed_batch.rewards import reward_profile
-from eco_planner.rl.artifacts import write_rollout_episode
 from eco_planner.rl.reward.components.comfort import component_score
+from eco_planner.rl.reward.reweighting import reward_profile
+from eco_planner.rl.rollout.fixed_batch import load_batch
 from tests.training.test_ppo import _episode
 from tests.training.test_reward import _no_energy_config
 
 
 def _study():
-    return CalibrationConfig(
+    return SimpleNamespace(
         progress_target_score=0.6,
         comfort_target_score=0.6,
         lambdas=[0.0, 1.0, 2.0, 4.0, 8.0, 16.0],
@@ -71,7 +72,15 @@ def test_comfort_physical_score_boundaries(value, expected):
 def test_audit_keeps_original_exceedances_and_counts_tied_minima():
     raw, base, study = _raw(), _no_energy_config(), _study()
     summary, arrays = dynamic_range_audit(
-        raw, base, calibrate(raw, base, study), study, np.array([0, 0, 1]), np.array([0, 1, 0])
+        raw,
+        base,
+        calibrate(raw, base, study),
+        study.quantiles,
+        scored_arrays(raw, base),
+        scored_arrays(raw, calibrate(raw, base, study)),
+        MOTION_LIMITS,
+        np.array([0, 0, 1]),
+        np.array([0, 1, 0]),
     )
     all_stats = summary["all"]
     assert all_stats["raw"]["jerk_mps3"]["original_limit_exceeded_fraction"] == 1
@@ -151,10 +160,3 @@ def test_calibration_rejects_absent_positive_progress_and_nonfinite_measurements
     raw["jerk_mps3"][0] = np.nan
     with pytest.raises(ValueError, match="finite motion"):
         calibrate(raw, _no_energy_config(), _study())
-
-
-def test_reused_batch_report_does_not_claim_new_collection():
-    summary = {"undefined_reason": "zero norm", "components": {}, "arms": [], "pairs": []}
-    assert "New batch;" in render_report(summary)
-    report = render_report(summary, batch_origin="Reused fixed source batch")
-    assert "Reused fixed source batch;" in report and "New batch;" not in report

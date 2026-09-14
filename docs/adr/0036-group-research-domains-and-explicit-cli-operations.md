@@ -1,5 +1,8 @@
 # Group research domains and expose explicit CLI operations
 
+> 关于机制归属、旧 CLI、强制参考链和历史工作流保留的决定已由 [ADR 0038](0038-consolidate-scientific-workflows.md) 取代；其他数值、配对与证据约束继续有效。
+
+
 **Status:** Accepted and implemented
 **Date:** 2026-09-10
 
@@ -34,3 +37,4 @@ Current commands are maintained in the README; artifact and numerical contracts 
 in [experiment analysis contract](../agents/contracts/experiments.md#实验离线分析与报告). Verification covers command
 routing and bootstrap, numerical and artifact regression, dependency boundaries and the
 simulator intervention-to-report path; it is not new research evidence.
+

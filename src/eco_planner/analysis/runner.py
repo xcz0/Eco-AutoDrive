@@ -3,8 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from .evaluation import ScalarComparison
-from .fixed_batch import calibration, recompute
+from .evaluation import PolicyComparison
 from .io import read_json, write_json
 from .reporting import write_report
 
@@ -15,11 +14,12 @@ def analyze(
     output: Path,
     *,
     figures: bool = True,
-    scalar_comparison: ScalarComparison | None = None,
+    scalar_comparison: PolicyComparison | None = None,
     source_file: Path | None = None,
 ) -> dict[str, Any]:
     source, output = source.resolve(strict=True), output.resolve()
-    if source == output or source.is_relative_to(output) or output.is_relative_to(source):
+    sources = (source, *(scalar_comparison.source_directories if scalar_comparison else ()))
+    if any(s == output or s.is_relative_to(output) or output.is_relative_to(s) for s in sources):
         raise ValueError("offline output must be separate from the source directory")
     return publish(
         experiment,
@@ -37,20 +37,22 @@ def publish(
     output: Path,
     *,
     figures: bool = True,
-    scalar_comparison: ScalarComparison | None = None,
+    scalar_comparison: PolicyComparison | None = None,
     source_file: Path | None = None,
 ) -> dict[str, Any]:
     """Also used by experiment writers, after all original artifacts and guards are complete."""
-    study = None
-    seed = 0
     if experiment == "guidance-control-authority":
         from .guidance import recompute as guidance_analysis
 
         data, episodes = guidance_analysis(source)
-    elif experiment in ("lambda-identifiability", "objective-decomposition", "critic-gae-ablation"):
-        data = recompute(source)
-    elif experiment == "reward-calibration":
-        data = calibration(source)
+    elif experiment in ("reward", "credit"):
+        from .workflows import fixed
+
+        data = fixed(source)
+    elif experiment == "training":
+        from .workflows import training
+
+        data = training(source)
     elif experiment == "energy-sweep":
         from .evaluation import energy_sweep
 
@@ -61,16 +63,8 @@ def publish(
         if scalar_comparison is None:
             raise ValueError("scalar-reward analysis requires a validated comparison")
         data = scalar_reward(scalar_comparison)
-    elif experiment == "ppo-stability":
-        from .stability import analyze as stability_analysis
-
-        data, study, seed = stability_analysis(source)
     elif experiment == "reward-sanity":
         data = read_json(source / "sanity_report.json")
-    elif experiment == "ppo-reproducibility":
-        from .simple import reproducibility
-
-        data = reproducibility(source)
     elif experiment == "execution-backend":
         from .simple import execution
 
@@ -78,8 +72,6 @@ def publish(
     else:
         raise ValueError(f"unsupported experiment: {experiment}")
     output.mkdir(parents=True, exist_ok=True)
-    if study is not None:
-        write_json(output / "stage-a-summary.json", data["search_summary"])
     if experiment == "guidance-control-authority":
         write_json(output / "summary.json", {"status": "completed", **data})
     files = []
@@ -95,12 +87,6 @@ def publish(
                 files = plot(data, episodes, output)
             else:
                 files = experiment_figures(experiment, data, output)
-            if study is not None:
-                from .reporting.stability import figures as stability_figures
-
-                rendered = stability_figures(data, study, seed, output)
-                files += rendered.files
-                data["unavailable_figures"] = rendered.unavailable
     payload = _write_analysis(output, data, files, experiment=experiment, source=source)
     if experiment == "guidance-control-authority":
         from .reporting.guidance import write_report as write_guidance_report
@@ -108,7 +94,7 @@ def publish(
         write_guidance_report(data, output, files)
         return {"status": "completed", "output_dir": str(output), "gate_d": data["gate_d"]}
     write_report(experiment, source, output, data, files)
-    return payload
+    return {"status": "completed", "output_dir": str(output), **payload}
 
 
 def _write_analysis(

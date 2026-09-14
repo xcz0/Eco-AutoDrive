@@ -93,8 +93,8 @@ benchmark action *arguments:
 
 # Forward experiment selection, actions and options to the unified CLI.
 [group('experiments')]
-experiment domain study action *arguments:
-    & {{ python }} -m scripts.experiments {{ domain }} {{ study }} {{ action }} {{ arguments }}
+exp +arguments:
+    & {{ python }} -m scripts.experiments {{ arguments }}
     exit $LASTEXITCODE
 
 # Run software correctness checks or regenerate their report.

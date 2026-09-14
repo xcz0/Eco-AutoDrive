@@ -1,4 +1,4 @@
-"""Task D Markdown presentation and response plots from prepared evidence."""
+"""Guidance authority presentation and response plots from prepared evidence."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import numpy as np
 
 def write_report(result: dict[str, Any], output: Path, files: list[str]) -> None:
     lines = [
-        "# Task D: Guidance control authority",
+        "# Guidance control authority",
         "",
         "Behavior link: follow imposed guidance through planner output to executed motion and "
         "energy response. This intervention tests control authority, not whether PPO learned "

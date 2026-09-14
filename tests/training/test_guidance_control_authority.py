@@ -17,12 +17,12 @@ from eco_planner.evaluation.inference.runtime import (
     FabricInferenceRuntime,
     validate_manual_guidance,
 )
-from eco_planner.experiments.guidance.control_authority.diagnostics import (
+from eco_planner.experiments.guidance.authority.diagnostics import (
     InterventionConfig,
     analyze_episodes,
     matched_statistics,
 )
-from eco_planner.experiments.guidance.control_authority.runner import collect_group, save_decisions
+from eco_planner.experiments.guidance.authority.runner import collect_group, save_decisions
 from eco_planner.models import PlannerInferenceResult, parse_guidance_config
 from eco_planner.models.guidance import zero_guidance_diagnostics
 from eco_planner.rl.reward.config import EnergyRewardConfig
@@ -31,9 +31,7 @@ from eco_planner.runtime.envs import VectorEnvScenario
 
 def study():
     return InterventionConfig.model_validate(
-        OmegaConf.to_container(
-            OmegaConf.load(CONFIG_ROOT / "experiments/guidance/control-authority.yaml")
-        )
+        OmegaConf.to_container(OmegaConf.load(CONFIG_ROOT / "experiments/guidance/authority.yaml"))
     )
 
 
@@ -214,7 +212,7 @@ def test_offline_recompute_matches_live_statistics(tmp_path, figures):
 
 
 def test_manual_cli_and_config(monkeypatch):
-    from eco_planner.experiments.guidance.control_authority import runner
+    from eco_planner.experiments.guidance.authority import runner
     from scripts import experiments as cli
 
     calls = []
@@ -222,7 +220,7 @@ def test_manual_cli_and_config(monkeypatch):
     args = cli.build_parser().parse_args(
         [
             "guidance",
-            "control-authority",
+            "authority",
             "run",
             "--output-dir",
             "out",

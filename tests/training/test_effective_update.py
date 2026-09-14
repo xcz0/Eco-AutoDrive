@@ -10,27 +10,25 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from eco_planner.experiments.training.effective_update.config import (
-    EffectiveUpdateStudyConfig,
+from eco_planner.analysis.training import beta_statistics, heldout_metric_values
+from eco_planner.experiments.training.config import (
     GateConfig,
     GridConfig,
+    TrainingGridConfig,
 )
-from eco_planner.experiments.training.effective_update.diagnostics import (
-    beta_statistics,
-    evaluate_gate_f,
-    evaluate_heldout_change,
+from eco_planner.experiments.training.decisions import evaluate_heldout_change, evaluate_update_gate
+from eco_planner.experiments.training.grid import (
+    arm_label,
+    compose_arm_overrides,
+)
+from eco_planner.rl.optimization.update_diagnostics import (
     extract_arm_metrics,
-    heldout_metric_values,
     parameter_delta_vs_reference,
     parameter_groups,
     policy_ratio_change,
     post_clip_gradient_norm,
     post_update_kl_series,
     probe_guidance_rms_shift,
-)
-from eco_planner.experiments.training.effective_update.runner import (
-    arm_label,
-    compose_arm_overrides,
 )
 from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.policy.distribution import AffineBeta
@@ -63,11 +61,13 @@ def _gate(**overrides: object) -> GateConfig:
     return GateConfig.model_validate(values)
 
 
-def _study(**overrides: object) -> EffectiveUpdateStudyConfig:
+def _study(**overrides: object) -> TrainingGridConfig:
     values: dict[str, object] = {
         "version": 1,
+        "mc_draws": 4096,
+        "mc_seed": 1000003,
         "study_name": "unit_effective_update",
-        "protocol": "experiments/reward/scalar.yaml",
+        "protocol": "experiments/comparison/default.yaml",
         "arm": "a1",
         "training_seed": 0,
         "update_count": 50,
@@ -81,7 +81,7 @@ def _study(**overrides: object) -> EffectiveUpdateStudyConfig:
         "selection": "lowest_learning_rate_then_epochs_then_max_gradient_norm",
     }
     values.update(overrides)
-    return EffectiveUpdateStudyConfig.model_validate(values)
+    return TrainingGridConfig.model_validate(values)
 
 
 def _metrics(**overrides: object) -> dict[str, Any]:
@@ -212,10 +212,10 @@ def test_arm_label_and_overrides_carry_grid_values() -> None:
 
 
 def test_gate_f_passes_effective_arm_and_flags_under_update() -> None:
-    effective = evaluate_gate_f(_metrics(), _gate())
+    effective = evaluate_update_gate(_metrics(), _gate())
     assert effective["passed_1_6"] is True
     assert effective["under_update"] is False
-    under = evaluate_gate_f(
+    under = evaluate_update_gate(
         _metrics(
             post_update_kl=[1.0e-08] * 50,
             post_update_kl_median=1.0e-08,
@@ -233,24 +233,26 @@ def test_gate_f_passes_effective_arm_and_flags_under_update() -> None:
 
 def test_gate_f_detects_runaway_tail() -> None:
     kl = [1.0e-05] * 40 + [1.0e-03] * 10
-    result = evaluate_gate_f(_metrics(post_update_kl=kl, post_update_kl_median=1.0e-05), _gate())
+    result = evaluate_update_gate(
+        _metrics(post_update_kl=kl, post_update_kl_median=1.0e-05), _gate()
+    )
     assert result["conditions"]["c2_kl_stable_within_target"] is False
     assert result["kl_runaway"] is True
 
 
 def test_gate_f_failed_arm_has_no_passing_condition() -> None:
-    result = evaluate_gate_f(None, _gate())
+    result = evaluate_update_gate(None, _gate())
     assert result["passed_1_6"] is False
     assert result["failure_reasons"] == ["training_run_failed"]
     assert all(value is False for value in result["conditions"].values())
 
 
 def test_gate_f_rejects_boundary_collapse_and_behavioral_collapse() -> None:
-    boundary = evaluate_gate_f(
+    boundary = evaluate_update_gate(
         _metrics(min_beta_alpha=0.05, probe_boundary_mass_max_after=0.4), _gate()
     )
     assert boundary["conditions"]["c5_no_beta_boundary_collapse"] is False
-    behavioral = evaluate_gate_f(
+    behavioral = evaluate_update_gate(
         _metrics(
             behavior={
                 "collision_count": 1,
@@ -362,7 +364,7 @@ def test_post_update_kl_series_recomputes_kl_on_persisted_updates(tmp_path: Path
     actor_key = next(key for key in perturbed if key.startswith("actor_head."))
     perturbed[actor_key] = perturbed[actor_key] + 1.0
     _write_kl_update(run_dir, 1, context, action, old_log_prob, alpha, beta, perturbed)
-    series = post_update_kl_series(run_dir, update_count=2)
+    series = post_update_kl_series(run_dir, update_count=2, mc_draws=4096, mc_seed=1000003)
     assert series["post_update_kl"][0] == pytest.approx(0.0, abs=1.0e-12)
     assert series["post_update_kl"][1] > 1.0e-03
     assert all(math.isfinite(value) for value in series["post_update_kl"])
@@ -375,7 +377,7 @@ def test_post_update_kl_series_recomputes_kl_on_persisted_updates(tmp_path: Path
         0.5 * (series["post_update_kl"][0] + series["post_update_kl"][1])
     )
     with pytest.raises(ValueError, match="no persisted rollout episodes"):
-        post_update_kl_series(run_dir, update_count=3)
+        post_update_kl_series(run_dir, update_count=3, mc_draws=4096, mc_seed=1000003)
 
 
 def _build_real_policy() -> ExplorationPolicy:

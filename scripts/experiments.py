@@ -1,4 +1,4 @@
-"""Thin, lazy command adapters for the three research domains."""
+"""Thin lazy CLI for current scientific workflows."""
 
 from __future__ import annotations
 
@@ -15,212 +15,97 @@ from eco_planner._repository import CONFIG_ROOT, LOCAL_ENVIRONMENT_PATH
 
 @dataclass(frozen=True)
 class Command:
-    evidence: str
     module: str
     function: str
-    actions: tuple[str, ...]
-    config: str | None = None
+    config: str | None
     source: bool = False
-    reference: bool = False
-    cuda: bool = False
     environment: bool = False
+    cuda: bool = False
 
 
 COMMANDS = {
-    ("reward", "scalar"): Command(
-        "scalar-reward",
-        "reward.scalar.runner",
-        "run_command",
-        ("run", "analyze"),
-        "scalar.yaml",
-        cuda=True,
-        environment=True,
+    ("compare", "train"): Command(
+        "comparison.runner", "run_command", "comparison/default.yaml", environment=True, cuda=True
     ),
-    ("reward", "fixed-batch"): Command(
-        "fixed-batch",
-        "reward.fixed_batch.collection",
-        "collect",
-        ("collect",),
-        "fixed-batch.yaml",
-        cuda=True,
-        environment=True,
+    ("compare", "eval"): Command(
+        "comparison.runner", "run_command", "comparison/default.yaml", environment=True, cuda=True
     ),
-    ("reward", "lambda-identifiability"): Command(
-        "lambda-identifiability",
-        "reward.lambda_identifiability",
-        "run",
-        ("run", "analyze"),
-        "lambda-identifiability.yaml",
-        source=True,
-        cuda=True,
+    ("compare", "analyze"): Command("comparison.inputs", "load_comparison", None, source=True),
+    ("reward", "collect"): Command(
+        "reward.runner", "collect", "reward/collection.yaml", environment=True, cuda=True
     ),
-    ("reward", "calibration"): Command(
-        "reward-calibration",
-        "reward.calibration",
-        "run",
-        ("run", "analyze"),
-        "calibration.yaml",
-        source=True,
-        reference=True,
-        cuda=True,
+    ("reward", "run"): Command("reward.runner", "run", "reward/default.yaml", source=True),
+    ("reward", "analyze"): Command("", "", None, source=True),
+    ("credit", "run"): Command(
+        "credit.runner", "run", "credit/objectives.yaml", source=True, cuda=True
     ),
-    ("reward", "objective-decomposition"): Command(
-        "objective-decomposition",
-        "reward.objective_decomposition.runner",
-        "run",
-        ("run", "analyze"),
-        "objective-decomposition.yaml",
-        source=True,
-        cuda=True,
+    ("credit", "analyze"): Command("", "", None, source=True),
+    ("guidance", "authority", "run"): Command(
+        "guidance.authority.runner", "run", "guidance/authority.yaml", environment=True, cuda=True
     ),
-    ("reward", "critic-gae-ablation"): Command(
-        "critic-gae-ablation",
-        "reward.critic_gae_ablation.runner",
-        "run",
-        ("run", "analyze"),
-        "critic-gae-ablation.yaml",
-        source=True,
-        reference=True,
-        cuda=True,
+    ("guidance", "authority", "analyze"): Command("", "", None, source=True),
+    ("guidance", "sweep", "run"): Command(
+        "guidance.sweep", "run_study", "guidance/energy-sweep/matrix.yaml", environment=True
     ),
-    ("guidance", "energy-sweep"): Command(
-        "energy-sweep",
-        "guidance.energy_sweep",
-        "run_study",
-        ("run", "analyze"),
-        "energy-sweep/matrix.yaml",
-        environment=True,
+    ("guidance", "sweep", "analyze"): Command("", "", None, source=True),
+    ("training", "grid"): Command(
+        "training.grid", "run", "training/grid.yaml", environment=True, cuda=True
     ),
-    ("guidance", "control-authority"): Command(
-        "guidance-control-authority",
-        "guidance.control_authority.runner",
-        "run",
-        ("run", "analyze"),
-        "control-authority.yaml",
-        cuda=True,
-        environment=True,
-    ),
-    ("training", "stability"): Command(
-        "ppo-stability",
-        "training.stability.runner",
-        "run_command",
-        ("run", "analyze"),
-        "stability.yaml",
-        cuda=True,
-        environment=True,
-    ),
-    ("training", "effective-update"): Command(
-        "ppo-effective-update",
-        "training.effective_update.runner",
-        "run",
-        ("run",),
-        "effective-update.yaml",
-        cuda=True,
-        environment=True,
-    ),
-    ("training", "positive-control"): Command(
-        "ppo-objective-positive-control",
-        "training.objective_positive_control.runner",
-        "run",
-        ("run",),
-        "objective-positive-control.yaml",
-        cuda=True,
-        environment=True,
-    ),
-    ("training", "evaluation-diagnostics"): Command(
-        "ppo-evaluation-diagnostics",
-        "training.evaluation_diagnostics.runner",
-        "run",
-        ("run",),
-        "evaluation-diagnostics.yaml",
-        source=True,
-        cuda=True,
-        environment=True,
-    ),
-    ("training", "reproducibility"): Command(
-        "ppo-reproducibility",
-        "training.reproducibility",
-        "summarize_and_write_training_runs",
-        ("validate", "analyze"),
-        source=True,
-    ),
+    ("training", "diagnose"): Command("training.runner", "diagnose", None),
+    ("training", "eval"): Command("training.runner", "evaluate", None, environment=True, cuda=True),
+    ("training", "analyze"): Command("", "", None, source=True),
 }
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run or analyze repository research studies")
+    parser = argparse.ArgumentParser(description="Run current research comparisons and diagnostics")
     domains = parser.add_subparsers(dest="domain", required=True)
-    for domain in ("reward", "guidance", "training"):
-        studies = domains.add_parser(domain).add_subparsers(dest="study", required=True)
-        for (owner, name), spec in COMMANDS.items():
-            if owner != domain:
+    for domain in ("compare", "reward", "credit", "guidance", "training"):
+        sub = domains.add_parser(domain).add_subparsers(required=True)
+        guidance = (
+            {
+                name: sub.add_parser(name).add_subparsers(required=True)
+                for name in ("authority", "sweep")
+            }
+            if domain == "guidance"
+            else {}
+        )
+        for key, spec in COMMANDS.items():
+            if key[0] != domain:
                 continue
-            actions = studies.add_parser(name).add_subparsers(dest="action", required=True)
-            for action in spec.actions:
-                command = actions.add_parser(action)
-                command.set_defaults(command=spec)
-                command.add_argument("--output-dir", type=Path, required=True)
-                if action != "collect":
-                    command.add_argument("--no-figures", action="store_true")
-                if action == "analyze":
-                    command.add_argument("--source-dir", type=Path, required=True)
-                    if spec.evidence == "scalar-reward":
-                        command.add_argument("--config", type=Path, required=True)
-                    continue
-                if spec.config:
-                    command.add_argument(
-                        "--config",
-                        type=Path,
-                        default=CONFIG_ROOT / "experiments" / domain / spec.config,
-                    )
-                if spec.source:
-                    command.add_argument("--source-dir", type=Path, required=True)
-                if spec.reference:
-                    command.add_argument("--reference-dir", type=Path, required=True)
-                if spec.evidence == "scalar-reward":
-                    command.add_argument(
-                        "--operation", choices=("train", "evaluate"), required=True
-                    )
-                    command.add_argument("--arm", choices=("a0", "a1", "a2"), required=True)
-                    command.add_argument("--training-seed", type=int)
+            parent = guidance[key[1]] if domain == "guidance" else sub
+            command = parent.add_parser(key[-1])
+            command.set_defaults(command=spec, key=key, action=key[-1])
+            command.add_argument("--output-dir", type=Path, required=True)
+            if key[-1] != "collect":
+                command.add_argument("--no-figures", action="store_true")
+            if spec.source:
+                command.add_argument("--source-dir", type=Path, required=True)
+            if spec.config:
+                command.add_argument(
+                    "--config", type=Path, default=CONFIG_ROOT / "experiments" / spec.config
+                )
+            elif key in (("compare", "analyze"), ("training", "diagnose"), ("training", "eval")):
+                command.add_argument("--config", type=Path, required=True)
+            if domain == "compare" and key[-1] != "analyze":
+                command.add_argument("--arm", required=True)
+                if key[-1] == "train":
+                    command.add_argument("--training-seed", type=int, required=True)
                     command.add_argument("--override", action="append", default=[])
+                else:
                     command.add_argument("--checkpoint", choices=("initial", "final"))
                     command.add_argument("--checkpoint-path", type=Path)
-                if spec.evidence == "ppo-stability":
-                    command.add_argument(
-                        "--operation",
-                        choices=("search", "confirm", "held-out", "diagnostic"),
-                        required=True,
-                    )
-                    command.add_argument("--diagnostic", choices=("gradient", "guidance"))
     return parser
 
 
 def validate_arguments(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    if args.action != "run":
-        return
-    if args.command.evidence == "scalar-reward":
-        if args.operation == "train":
-            if args.arm == "a0" or args.training_seed is None:
-                parser.error("train requires --arm a1/a2 and --training-seed")
-            if args.checkpoint is not None or args.checkpoint_path is not None:
-                parser.error("train does not accept checkpoint arguments")
-        else:
-            if args.training_seed is not None or args.override:
-                parser.error("evaluate does not accept training arguments")
-            if args.arm == "a0":
-                if args.checkpoint is not None or args.checkpoint_path is not None:
-                    parser.error("a0 does not accept checkpoint arguments")
-            elif args.checkpoint is None or args.checkpoint_path is None:
-                parser.error("a1/a2 evaluation requires --checkpoint and --checkpoint-path")
-    if args.command.evidence == "ppo-stability":
-        if (args.operation == "diagnostic") != (args.diagnostic is not None):
-            parser.error("--diagnostic is required only for --operation diagnostic")
+    if args.key == ("compare", "eval") and (
+        (args.checkpoint is None) != (args.checkpoint_path is None)
+    ):
+        parser.error("--checkpoint and --checkpoint-path must be supplied together")
 
 
 def bootstrap(args: argparse.Namespace) -> None:
-    if args.action in ("analyze", "validate"):
-        return
     if args.command.cuda:
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     if args.command.environment:
@@ -230,51 +115,43 @@ def bootstrap(args: argparse.Namespace) -> None:
 
 
 def dispatch(args: argparse.Namespace) -> dict[str, Any] | int:
-    spec = args.command
     figures = not getattr(args, "no_figures", False)
     if args.action == "analyze":
         from eco_planner.analysis.runner import analyze
 
+        evidence = {
+            ("guidance", "authority"): "guidance-control-authority",
+            ("guidance", "sweep"): "energy-sweep",
+        }
+        kind = evidence.get(
+            args.key[:-1], "scalar-reward" if args.domain == "compare" else args.domain
+        )
         comparison = None
-        if spec.evidence == "scalar-reward":
-            from eco_planner.experiments.reward.scalar.comparison import load_comparison
+        if args.domain == "compare":
+            from eco_planner.experiments.comparison.inputs import load_comparison
 
             comparison = load_comparison(args.config)
         return analyze(
-            spec.evidence,
-            args.source_dir,
-            args.output_dir,
-            figures=figures,
-            scalar_comparison=comparison,
+            kind, args.source_dir, args.output_dir, figures=figures, scalar_comparison=comparison
         )
-    function = getattr(import_module("eco_planner.experiments." + spec.module), spec.function)
-    if spec.evidence == "scalar-reward":
+    function = getattr(
+        import_module("eco_planner.experiments." + args.command.module), args.command.function
+    )
+    if args.domain == "compare":
+        kwargs = {"arm": args.arm, "figures": figures}
+        if args.action == "train":
+            kwargs.update(training_seed=args.training_seed, overrides=args.override)
+        else:
+            kwargs.update(checkpoint_label=args.checkpoint, checkpoint_path=args.checkpoint_path)
         return function(
-            args.operation,
+            "train" if args.action == "train" else "evaluate",
             args.config,
             args.output_dir,
-            figures=figures,
-            arm=args.arm,
-            training_seed=args.training_seed,
-            checkpoint_label=args.checkpoint,
-            checkpoint_path=args.checkpoint_path,
-            overrides=args.override,
-        )
-    if spec.evidence == "ppo-stability":
-        return function(
-            args.operation,
-            args.config,
-            args.output_dir,
-            args.diagnostic,
-            figures=figures,
+            **kwargs,
         )
     if args.action == "collect":
         return function(args.config, args.output_dir)
-    if args.action == "validate":
-        return function(args.source_dir, args.output_dir, figures=figures)
-    inputs = [args.source_dir] if spec.source else []
-    if spec.reference:
-        inputs.append(args.reference_dir)
+    inputs = [args.source_dir] if args.command.source else []
     return function(*inputs, args.config, args.output_dir, figures=figures)
 
 

@@ -8,8 +8,8 @@ import pytest
 from scipy.stats import bootstrap, pearsonr, spearmanr
 
 from eco_planner.analysis.evaluation import (
-    ScalarComparison,
-    ScalarComparisonRun,
+    PolicyComparison,
+    PolicyComparisonRun,
     paired,
     scalar_reward,
 )
@@ -64,7 +64,7 @@ def scenario_job(energies, *, failed=(), unsafe=()):
 
 
 def run(arm, seed, evaluation, label="final"):
-    return ScalarComparisonRun(arm, label, _training_summary(seed, 0), evaluation)
+    return PolicyComparisonRun(arm, label, _training_summary(seed, 0), evaluation)
 
 
 @pytest.fixture
@@ -80,7 +80,9 @@ def comparison():
         run("a1", 0, baseline, "initial"),
         run("a2", 0, scenario_job([20, 30, 40, 50]), "initial"),
     )
-    return ScalarComparison(baseline, runs, BOOTSTRAP, (0, 1, 2))
+    return PolicyComparison(
+        baseline, runs, BOOTSTRAP, (0, 1, 2), (("a1", "a2"), ("a0", "a1"), ("a0", "a2")), "a0"
+    )
 
 
 def test_scenario_bootstrap_matches_scipy_and_undefined_cases():
@@ -203,3 +205,28 @@ def test_scipy_correlations_preserve_ties_and_undefined():
     for a, b in ((np.ones(4), y), (np.array([1.0]), np.array([2.0]))):
         result = advantage_comparison(a, b)
         assert result["pearson"] is None and result["spearman"] is None
+
+
+def test_dual_reward_comparison_retains_missing_seed_and_initial_diagnostics(tmp_path):
+    comparison = PolicyComparison(
+        None,
+        (
+            run("r0", 0, scenario_job([10, 20])),
+            run("rstress", 0, scenario_job([8, 16])),
+            run("r0", 0, scenario_job([10, 20]), "initial"),
+            run("rstress", 0, scenario_job([10, 20]), "initial"),
+        ),
+        BOOTSTRAP,
+        (0, 1),
+        (("r0", "rstress"),),
+        None,
+    )
+    data = scalar_reward(comparison)
+    assert data["baseline"] is None
+    contrast = data["contrasts"]["rstress-r0"]
+    assert contrast["final"]["effects"][0]["estimate"] == -3
+    assert contrast["final"]["direction_counts"]["unavailable"] == 1
+    assert "direction_counts" not in contrast["initial"]
+    files = experiment_figures("scalar-reward", data, tmp_path)
+    write_report("scalar-reward", tmp_path, tmp_path, data, files)
+    assert "rstress-r0" in (tmp_path / "report.md").read_text(encoding="utf-8")
