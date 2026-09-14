@@ -14,6 +14,7 @@ from eco_planner.experiments.protocol.composition import (
     compose_a0_evaluation_config,
     compose_arm_training_config,
     compose_policy_evaluation_config,
+    validate_comparison_training_config,
 )
 from eco_planner.experiments.protocol.config import (
     ComparisonProtocol,
@@ -128,6 +129,25 @@ def test_arm_training_composition_passes_through_ppo_overrides() -> None:
     _, training = compose_arm_training_config(protocol, "a1", 0, ["ppo.learning_rate=1.6301e-5"])
 
     assert training.ppo.learning_rate == pytest.approx(1.6301e-5)
+
+
+def test_comparison_training_rejects_conditions_not_declared_by_protocol() -> None:
+    protocol = load_protocol(PROTOCOL_PATH)
+    _, declared = compose_arm_training_config(protocol, "a1", 0)
+    _, changed = compose_arm_training_config(protocol, "a1", 0, ["ppo.learning_rate=1.6301e-5"])
+
+    with pytest.raises(ValueError, match="declared in the protocol"):
+        validate_comparison_training_config(protocol, changed, declared)
+
+
+def test_comparison_training_requires_the_complete_protocol_pool() -> None:
+    raw = load_resolved_yaml_mapping(PROTOCOL_PATH)
+    raw["training"]["maps"].append("C")
+    protocol = ComparisonProtocol.model_validate(raw)
+    _, training = compose_arm_training_config(protocol, "a1", 0)
+
+    with pytest.raises(ValueError, match="scenarios must match"):
+        validate_comparison_training_config(protocol, training, training)
 
 
 def test_arm_training_composition_rejects_protocol_violations() -> None:
