@@ -1,0 +1,76 @@
+src/eco_planner/evaluation/episodes/serial.py
+  s_4961d60bb2773a::t_5a845cc082576e 79
+  s_4961d60bb2773a::t_056e9518b0839e 113-115
+configs/experiments/training/evaluation-diagnostics.yaml
+  s_4961d60bb2773a::t_47392588514e47 1-20
+src/eco_planner/experiments/training/stability/validation.py
+  s_4961d60bb2773a::t_209d17975a942b 82-83
+docs/experiments/README.md
+  s_4961d60bb2773a::t_b405b2aaf8015d 87
+src/eco_planner/evaluation/episodes/lifecycle.py
+  s_4961d60bb2773a::t_b189bf8b93cb51 52
+src/eco_planner/experiments/training/evaluation_diagnostics/config.py
+  s_4961d60bb2773a::t_b46245d872acf5 1-46
+src/eco_planner/experiments/reward/scalar/composition.py
+  s_4961d60bb2773a::t_c0c4e7300b71f3 71,80
+tests/training/test_evaluation_diagnostics.py
+  s_4961d60bb2773a::t_02148dc7f11abc 110
+  s_4961d60bb2773a::t_906b688a1bf8ac 1-109,111-171,173,175-183,185-249,251-252
+  s_4961d60bb2773a::t_5981d6cc58c3ee 172
+  s_4961d60bb2773a::t_6ef1d3c01b0464 174,250
+  s_4961d60bb2773a::t_f24347362d9475 184
+docs/experiments/records/e-041-issue94-task-h-evaluation-diagnostics.md
+  s_4961d60bb2773a::t_e9676e895a63db 1-179
+tests/configuration/test_scalar_reward.py
+  s_4961d60bb2773a::t_38179577964a6c 155-204
+scripts/experiments.py
+  s_4961d60bb2773a::t_904faaecbb4d5e 130-139
+src/eco_planner/experiments/training/evaluation_diagnostics/runner.py
+  s_4961d60bb2773a::t_6ef1d3c01b0464 57-64,75
+  s_4961d60bb2773a::t_ab540a7e03e30f 1-56,65-74,76-173
+src/eco_planner/evaluation/config.py
+  s_4961d60bb2773a::t_f1758173388ca9 150-163
+  s_4961d60bb2773a::t_48c7b423d4087f 94-95
+src/eco_planner/evaluation/engine.py
+  s_4961d60bb2773a::t_826387634ef90a 100,102-103
+  s_4961d60bb2773a::t_c5029354766d98 98-99,101,104-105,112-113
+configs/jobs/evaluation/no_traffic_heldout_policy.yaml
+  s_4961d60bb2773a::t_0a8216d99c0c74 5-10,29
+  s_4961d60bb2773a::t_0286b02d02eb6d 30-32
+src/eco_planner/evaluation/inference/agent.py
+  s_4961d60bb2773a::t_3bab906684c033 115-117,119-123,125-126
+  s_4961d60bb2773a::t_50b46095a00147 144-145,149-151
+  s_4961d60bb2773a::t_27b3ac4f28aefb 64-65,67-71
+  s_4961d60bb2773a::t_864316c4d22018 146-148
+  s_4961d60bb2773a::t_3d177cfb63db9b 7
+  s_4961d60bb2773a::t_9d567a0b2786a4 140-143,152,184-188,193-194,196-204
+src/eco_planner/experiments/training/evaluation_diagnostics/__init__.py
+  s_4961d60bb2773a::t_4e5bac8d4ca898 1-23
+tests/evaluation/test_policy_agent.py
+  s_4961d60bb2773a::t_66927e5e5000bb 1-12,14-76,81-111
+  s_4961d60bb2773a::t_71902d10187f0d 13
+  s_4961d60bb2773a::t_6ef1d3c01b0464 77-80
+src/eco_planner/experiments/training/evaluation_diagnostics/diagnostics.py
+  s_4961d60bb2773a::t_fb69393633e3c0 116-124,127-129
+  s_4961d60bb2773a::t_0171af619bcd7b 146-148
+  s_4961d60bb2773a::t_7af92cebbd2d0e 36-39
+  s_4961d60bb2773a::t_9dd0589d4c4805 70,74
+  s_4961d60bb2773a::t_edd469c654a4d3 1-35,40-56,58-69,71-73,75-89,91-98,100-115,125-126,130-145,149-315
+  s_4961d60bb2773a::t_6ef1d3c01b0464 57,90,99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "db7b6145e548a550f464edd07c4df0b2f1229767",
+  "prompts": {},
+  "sessions": {
+    "s_4961d60bb2773a": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f6f79c549ffeDZsVKRG0BUeexO",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
