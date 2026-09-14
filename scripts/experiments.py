@@ -127,6 +127,16 @@ COMMANDS = {
         cuda=True,
         environment=True,
     ),
+    ("training", "evaluation-diagnostics"): Command(
+        "ppo-evaluation-diagnostics",
+        "training.evaluation_diagnostics.runner",
+        "run",
+        ("run",),
+        "evaluation-diagnostics.yaml",
+        source=True,
+        cuda=True,
+        environment=True,
+    ),
     ("training", "reproducibility"): Command(
         "ppo-reproducibility",
         "training.reproducibility",

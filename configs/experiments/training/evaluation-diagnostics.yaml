@@ -1,0 +1,20 @@
+# Issue #94 Task H: evaluation diagnostics. Reuses the frozen E-040 Task G
+# artifacts (matched checkpoints, deterministic held-out evaluations, and
+# fixed-context Beta probes) and adds diagnostic stochastic held-out
+# evaluations with fixed policy-action seeds. The stochastic arm distinguishes
+# Beta-mean changes, Beta concentration/variance changes, and stochastic
+# behavior shifts not covered by the deterministic mean policy. It is a
+# diagnostic only: it does not replace the matched deterministic evaluation
+# and is not a Gate G pass basis.
+
+version: 1
+study_name: issue94_task_h_evaluation_diagnostics
+protocol: experiments/reward/scalar.yaml
+
+# Training seeds of the source study whose runs and held-out evaluations are
+# diagnosed.
+training_seeds: [0, 1]
+# Fixed policy-action seeds; each seed drives one full held-out stochastic
+# evaluation (initial / r0 / rstress per training seed) with a matched
+# per-episode policy RNG stream.
+policy_action_seeds: [810001, 810002, 810003]

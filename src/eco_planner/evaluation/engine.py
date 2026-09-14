@@ -95,12 +95,22 @@ def _create_policy_checkpoint_agent(
         path=str(policy_checkpoint_path),
         policy_hash=policy_state_hash(runtime.policy),
     )
+    # Sample-mode episodes draw Beta actions from one policy RNG stream per
+    # episode, seeded by the job's policy action seed and matched across arms.
+    policy_action_seed = config.policy_checkpoint.policy_action_seed
+    policy_action_seeds = (
+        tuple(policy_action_seed for _ in config.scenarios)
+        if policy_action_seed is not None
+        else ()
+    )
     return PolicyCheckpointEvaluationAgent(
         runtime=runtime,
         # Matched with the frozen-planner agent: every scenario draws from one
         # generator stream seeded by the job's runtime seed.
         noise_seeds=tuple(config.runtime.seed for _ in config.scenarios),
         policy_checkpoint=provenance,
+        action_mode=config.policy_checkpoint.action_mode,
+        policy_action_seeds=policy_action_seeds,
     )
 
 

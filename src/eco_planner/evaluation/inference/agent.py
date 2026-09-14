@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 import numpy as np
 import torch
@@ -61,8 +61,14 @@ class EvaluationAgent(Protocol):
 
     def noise_seed(self, scenario_index: int) -> int: ...
 
+    def new_policy_generator(self, scenario_index: int) -> torch.Generator | None: ...
+
     def decide_batch(
-        self, observation: TensorDictBase, generators: Sequence[torch.Generator]
+        self,
+        observation: TensorDictBase,
+        generators: Sequence[torch.Generator],
+        *,
+        policy_generators: Sequence[torch.Generator] | None = None,
     ) -> EvaluationDecision: ...
 
 
@@ -106,9 +112,18 @@ class DiffusionEvaluationAgent:
     def noise_seed(self, scenario_index: int) -> int:
         return self.runtime.report.seed
 
+    def new_policy_generator(self, scenario_index: int) -> torch.Generator | None:
+        return None
+
     def decide_batch(
-        self, observation: TensorDictBase, generators: Sequence[torch.Generator]
+        self,
+        observation: TensorDictBase,
+        generators: Sequence[torch.Generator],
+        *,
+        policy_generators: Sequence[torch.Generator] | None = None,
     ) -> InferenceDecision:
+        if policy_generators is not None:
+            raise ValueError("diffusion evaluation does not accept policy generators")
         if len(generators) == 1:
             return self.runtime.infer(observation, generators[0])
         noise = self.runtime.sample_noise(generators)
@@ -122,6 +137,19 @@ class PolicyCheckpointEvaluationAgent:
     runtime: FabricRolloutRuntime
     noise_seeds: tuple[int, ...]
     policy_checkpoint: PolicyCheckpointProvenance
+    action_mode: Literal["mean", "sample"]
+    policy_action_seeds: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if self.action_mode == "sample":
+            if not self.policy_action_seeds:
+                raise ValueError(
+                    "sample-mode evaluation requires one policy action seed per scenario"
+                )
+            if len(self.policy_action_seeds) != len(self.noise_seeds):
+                raise ValueError("policy action seeds must align with the noise seed per scenario")
+        elif self.policy_action_seeds:
+            raise ValueError("mean-mode evaluation must not configure policy action seeds")
 
     @property
     def planner_config(self) -> OfficialDiffusionPlannerConfig:
@@ -153,11 +181,24 @@ class PolicyCheckpointEvaluationAgent:
     def noise_seed(self, scenario_index: int) -> int:
         return self.noise_seeds[scenario_index]
 
+    def new_policy_generator(self, scenario_index: int) -> torch.Generator | None:
+        if self.action_mode == "mean":
+            return None
+        return self.runtime.new_policy_generator(self.policy_action_seeds[scenario_index])
+
     def decide_batch(
         self,
         observation: TensorDictBase,
         generators: Sequence[torch.Generator],
+        *,
+        policy_generators: Sequence[torch.Generator] | None = None,
     ) -> EvaluationDecision:
-        """Evaluate deterministic Beta-mean actions without consuming policy RNG."""
+        """Evaluate deterministic Beta-mean or seeded stochastic Beta actions."""
 
-        return self.runtime.decide_batch_mean(observation, tuple(generators))
+        if self.action_mode == "mean":
+            if policy_generators is not None:
+                raise ValueError("mean-mode evaluation does not accept policy generators")
+            return self.runtime.decide_batch_mean(observation, tuple(generators))
+        if policy_generators is None:
+            raise ValueError("sample-mode evaluation requires policy generators")
+        return self.runtime.decide_batch(observation, tuple(generators), tuple(policy_generators))

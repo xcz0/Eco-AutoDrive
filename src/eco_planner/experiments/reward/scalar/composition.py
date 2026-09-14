@@ -68,6 +68,7 @@ def compose_policy_evaluation_config(
     arm: ArmName,
     checkpoint_label: CheckpointLabel,
     checkpoint_path: Path,
+    overrides: Sequence[str] = (),
 ) -> tuple[DictConfig, EvaluationJobConfig]:
     """Compose a trained arm's held-out policy-checkpoint evaluation job."""
 
@@ -76,6 +77,7 @@ def compose_policy_evaluation_config(
         [
             f"evaluation.policy_checkpoint.label={checkpoint_label}",
             f"evaluation.policy_checkpoint.path={checkpoint_path.as_posix()}",
+            *overrides,
         ],
     )
     parsed = parse_evaluation_config(config)

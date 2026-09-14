@@ -152,6 +152,56 @@ def test_policy_heldout_job_requires_checkpoint_overrides() -> None:
         parse_evaluation_config(config)
 
 
+def test_policy_checkpoint_sample_mode_requires_seed_and_serial_execution(
+    compose_config: ComposeConfig,
+) -> None:
+    sampled = compose_config(
+        "jobs/evaluation/no_traffic_heldout_policy",
+        [
+            *CHECKPOINT_OVERRIDES,
+            "evaluation.policy_checkpoint.action_mode=sample",
+        ],
+    )
+    with pytest.raises(ValueError, match="policy_action_seed"):
+        parse_evaluation_config(sampled)
+
+    vector = compose_config(
+        "jobs/evaluation/no_traffic_heldout_policy",
+        [
+            *CHECKPOINT_OVERRIDES,
+            "evaluation.policy_checkpoint.action_mode=sample",
+            "evaluation.policy_checkpoint.policy_action_seed=810001",
+            "evaluation.execution.topology=vector",
+        ],
+    )
+    with pytest.raises(ValueError, match="serial"):
+        parse_evaluation_config(vector)
+
+    stochastic = compose_config(
+        "jobs/evaluation/no_traffic_heldout_policy",
+        [
+            *CHECKPOINT_OVERRIDES,
+            "evaluation.policy_checkpoint.action_mode=sample",
+            "evaluation.policy_checkpoint.policy_action_seed=810001",
+        ],
+    )
+    parsed = parse_evaluation_config(stochastic)
+    assert parsed.policy_checkpoint is not None
+    assert parsed.policy_checkpoint.action_mode == "sample"
+    assert parsed.policy_checkpoint.policy_action_seed == 810001
+
+
+def test_policy_checkpoint_mean_mode_rejects_policy_action_seed(
+    compose_config: ComposeConfig,
+) -> None:
+    seeded_mean = compose_config(
+        "jobs/evaluation/no_traffic_heldout_policy",
+        [*CHECKPOINT_OVERRIDES, "evaluation.policy_checkpoint.policy_action_seed=810001"],
+    )
+    with pytest.raises(ValueError, match="mean-mode"):
+        parse_evaluation_config(seeded_mean)
+
+
 def test_policy_checkpoint_constraints_reject_unmatched_components(
     compose_config: ComposeConfig,
 ) -> None:

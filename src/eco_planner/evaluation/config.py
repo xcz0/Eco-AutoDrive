@@ -91,6 +91,8 @@ class PolicyCheckpointConfig(_StrictModel):
 
     label: str = Field(min_length=1)
     path: str = Field(min_length=1)
+    action_mode: Literal["mean", "sample"]
+    policy_action_seed: StrictInt | None = None
 
 
 class EvaluationJobConfig(_StrictModel):
@@ -145,6 +147,20 @@ class EvaluationJobConfig(_StrictModel):
             raise ValueError("policy-checkpoint evaluation requires the ddim5 sampler")
         if self.sampler.ddim_stochasticity != 0.0:
             raise ValueError("policy-checkpoint evaluation requires ddim_stochasticity=0.0")
+        checkpoint = self.policy_checkpoint
+        if checkpoint.action_mode == "sample":
+            if checkpoint.policy_action_seed is None:
+                raise ValueError(
+                    "sample-mode policy-checkpoint evaluation requires a policy_action_seed"
+                )
+            if self.evaluation.execution.topology != "serial":
+                raise ValueError(
+                    "sample-mode policy-checkpoint evaluation requires serial execution"
+                )
+        elif checkpoint.policy_action_seed is not None:
+            raise ValueError(
+                "mean-mode policy-checkpoint evaluation must not set a policy_action_seed"
+            )
 
     def _validate_traffic_environment(self) -> None:
         if self.evaluation.history_warmup_steps != TRAFFIC_HISTORY_WARMUP_STEPS:

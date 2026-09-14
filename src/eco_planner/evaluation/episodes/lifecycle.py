@@ -49,6 +49,7 @@ class EpisodeState:
     anchor: np.ndarray
     route_length_m: float
     environment_map_audit: dict[str, object]
+    policy_generator: torch.Generator | None = None
     saw_traffic: bool = False
     plan_index: int = 0
 

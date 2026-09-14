@@ -76,6 +76,7 @@ def run_scenario(
             observation=None,
             traffic_audit=None,
             noise_generator=agent.new_noise_generator(scenario_index),
+            policy_generator=agent.new_policy_generator(scenario_index),
             trace=trace,
             anchor=reset.warmup_initial_state.copy(),
             route_length_m=episode_route_length_m,
@@ -109,6 +110,9 @@ def run_scenario(
             inference = agent.decide_batch(
                 cast(TensorDictBase, TensorDictBase.stack([raw_observation])),
                 (state.noise_generator,),
+                policy_generators=(
+                    None if state.policy_generator is None else (state.policy_generator,)
+                ),
             )
             state.anchor = current_slot_state.vehicle_state
             slot_step = env_slot.step(np.asarray(inference.ego_trajectories)[0])

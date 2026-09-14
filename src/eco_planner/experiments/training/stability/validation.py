@@ -79,6 +79,8 @@ def evaluate_policy_checkpoint(
             path=str(checkpoint_path),
             policy_hash=policy_state_hash(runtime.policy),
         ),
+        action_mode="mean",
+        policy_action_seeds=(),
     )
     job = run_evaluation_agent(
         _evaluation_job_config(config, scenarios, transitions_per_scenario),

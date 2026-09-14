@@ -2,9 +2,12 @@
 
 # Issue #81 Task B: matched held-out evaluation for trained exploration-policy
 # checkpoints (A1/A2 arms). Scenarios, runtime seed, sampler, and horizon are
-# identical to jobs/evaluation/no_traffic_heldout; actions come from the loaded
-# checkpoint's deterministic Beta mean, so the diffusion noise stream matches
-# the A0 arm. evaluation.policy_checkpoint.{label,path} are required overrides.
+# identical to jobs/evaluation/no_traffic_heldout; with action_mode=mean the
+# actions come from the loaded checkpoint's deterministic Beta mean, so the
+# diffusion noise stream matches the A0 arm. action_mode=sample (diagnostic
+# only, requires a policy_action_seed and serial execution) samples Beta
+# actions from a fixed per-episode policy RNG stream instead.
+# evaluation.policy_checkpoint.{label,path} are required overrides.
 
 defaults:
   - /components/evaluation
@@ -23,6 +26,10 @@ evaluation:
   policy_checkpoint:
     label: ???
     path: ???
+    action_mode: mean
+    # Required iff action_mode=sample; must stay null for the matched
+    # deterministic (mean) protocol.
+    policy_action_seed: null
 
 env:
   horizon: 300
