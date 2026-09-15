@@ -6,6 +6,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 import torch
+from tensordict import cat
 
 from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater, compute_episode_gae
@@ -179,7 +180,9 @@ def _behavior_policy_episode(
 ):
     context = _context()
     with torch.no_grad():
-        outputs = policy.forward_tensordict(policy_context_tensordict(context))
+        outputs = policy.forward_tensordict(
+            policy_context_tensordict(context).to(next(policy.parameters()).device)
+        ).cpu()
         distribution = policy.output_from_tensordict(outputs).distribution
         old_log_prob = distribution.log_prob(guidance_action)
     decision = build_training_decision(
@@ -207,21 +210,20 @@ def _behavior_policy_episode(
     return builder.finish("terminated", torch.zeros(1))
 
 
-def test_gae_uses_terminal_and_truncated_bootstrap_semantics() -> None:
+@pytest.mark.parametrize("truncated", [False, True])
+def test_gae_uses_terminal_and_nonterminal_tail_bootstrap_semantics(truncated) -> None:
     config = _ppo_config()
     terminal = compute_episode_gae(
         _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0), config
     )
-    truncated = compute_episode_gae(
-        _episode(reward=0.25, terminated=False, truncated=True, bootstrap=2.0), config
+    bootstrapped = compute_episode_gae(
+        _episode(reward=0.25, terminated=False, truncated=truncated, bootstrap=2.0), config
     )
 
     torch.testing.assert_close(terminal["advantage"], torch.tensor([[-0.75]]))
     torch.testing.assert_close(terminal["value_target"], torch.tensor([[0.25]]))
-    torch.testing.assert_close(truncated["advantage"], torch.tensor([[1.23]]))
-    torch.testing.assert_close(truncated["value_target"], torch.tensor([[2.23]]))
-    assert torch.isfinite(truncated["advantage"]).all()
-    assert torch.isfinite(truncated["value_target"]).all()
+    torch.testing.assert_close(bootstrapped["advantage"], torch.tensor([[1.23]]))
+    torch.testing.assert_close(bootstrapped["value_target"], torch.tensor([[2.23]]))
 
 
 def test_gae_treats_simultaneous_termination_and_truncation_as_terminal() -> None:
@@ -240,8 +242,6 @@ def test_gae_treats_simultaneous_termination_and_truncation_as_terminal() -> Non
 def test_combined_gae_matches_episode_reference_without_mutation() -> None:
     from torchrl.objectives.value import GAE
 
-    from eco_planner.rl.rollout.contracts import concatenate_tensordicts
-
     episodes = []
     references = []
     for length, (terminated, truncated) in enumerate(
@@ -253,13 +253,11 @@ def test_combined_gae_matches_episode_reference_without_mutation() -> None:
             truncated=truncated,
             bootstrap=0.0 if terminated else 2.0,
         )
-        training = concatenate_tensordicts([single.training] * length)
+        training = cat([single.training] * length)
         training["next", "done"][:-1] = False
         training["next", "terminated"][:-1] = False
         training["next", "truncated"][:-1] = False
-        episode = replace(
-            single, training=training, audit=concatenate_tensordicts([single.audit] * length)
-        )
+        episode = replace(single, training=training, audit=cat([single.audit] * length))
         episodes.append(episode)
         reference = training.select("state_value", "next").clone()
         GAE(
@@ -276,43 +274,63 @@ def test_combined_gae_matches_episode_reference_without_mutation() -> None:
         references.append(reference)
     snapshots = [(e.training.clone(), e.audit.clone()) for e in episodes]
     batch = build_ppo_batch(episodes, _ppo_config())
-    expected = concatenate_tensordicts(references)
+    expected = cat(references)
     for key in ("advantage", "value_target"):
-        torch.testing.assert_close(batch[key], expected[key], rtol=0, atol=0)
+        torch.testing.assert_close(batch[key], expected[key])
     for episode, (training, audit) in zip(episodes, snapshots, strict=True):
         assert (episode.training == training).all()
         assert (episode.audit == audit).all()
 
 
 @pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
-def test_replay_device_and_cpu_permutation_sequence(device) -> None:
-    from tensordict import TensorDict
-    from torchrl.data import LazyTensorStorage, TensorDictReplayBuffer
-    from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
-
-    config = _ppo_config().model_copy(update={"batch_size": 8})
-    updater = PPOUpdater(ExplorationPolicy(_policy_config()).to(device), config)
-    replay = updater._minibatch_replay_buffer
-    reference = TensorDictReplayBuffer(
-        storage=LazyTensorStorage(8),
-        sampler=SamplerWithoutReplacement(drop_last=True),
-        batch_size=2,
-        generator=torch.Generator().manual_seed(config.minibatch_seed),
+def test_minibatches_cover_each_update_and_use_independent_reproducible_rng(device) -> None:
+    config = _ppo_config().model_copy(
+        update={"batch_size": 4, "epochs": 2, "scheduler_total_optimizer_steps": 8}
     )
-    data = TensorDict({"sample": torch.arange(8)}, batch_size=[8])
-    replay.extend(data.to(device))
-    reference.extend(data)
-    for _ in range(2):
+    policy = ExplorationPolicy(_policy_config()).to(device)
+    replica = ExplorationPolicy(_policy_config()).to(device)
+    replica.load_state_dict(policy.state_dict())
+    updaters = [PPOUpdater(model, config) for model in (policy, replica)]
+    episodes = [
+        tuple(
+            _episode(reward=float(i + 1), terminated=True, truncated=False, bootstrap=0.0)
+            for i in range(start, start + 4)
+        )
+        for start in (0, 4)
+    ]
+    sequences = []
+    for updater in updaters:
         seen = []
-        for actual, expected in zip(replay, reference, strict=True):
-            assert actual["sample"].device.type == device
-            assert torch.equal(actual["sample"].cpu(), expected["sample"])
-            seen.extend(actual["sample"].tolist())
-        assert sorted(seen) == list(range(8))
+
+        def observe(module, args, updater=updater, seen=seen):
+            minibatch = args[0]
+            assert minibatch["value_target"].device == updater.device
+            seen.extend(minibatch["value_target"].flatten().tolist())
+
+        hook = updater.loss_module.register_forward_pre_hook(observe)
+        cpu_rng = torch.random.get_rng_state().clone()
+        cuda_rng = torch.cuda.get_rng_state().clone() if device == "cuda" else None
+        generator_before = updater.checkpoint_state()["minibatch_generator_state"].clone()
+        for batch in episodes:
+            updater.update(batch)
+        hook.remove()
+        assert torch.equal(torch.random.get_rng_state(), cpu_rng)
+        if cuda_rng is not None:
+            assert torch.equal(torch.cuda.get_rng_state(), cuda_rng)
+        assert not torch.equal(
+            updater.checkpoint_state()["minibatch_generator_state"], generator_before
+        )
+        for offset, expected in ((0, [1, 2, 3, 4]), (8, [5, 6, 7, 8])):
+            for epoch in range(2):
+                begin = offset + epoch * 4
+                assert sorted(seen[begin : begin + 4]) == expected
+        sequences.append(seen)
+    assert sequences[0] == sequences[1]
 
 
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
 @pytest.mark.parametrize("early_stop", [False, True])
-def test_next_update_and_checkpoint_preserve_minibatches(tmp_path, early_stop) -> None:
+def test_next_update_and_checkpoint_preserve_minibatches(tmp_path, early_stop, device) -> None:
     from lightning.fabric import Fabric
 
     from eco_planner.rl.optimization import load_training_checkpoint, save_training_checkpoint
@@ -325,7 +343,7 @@ def test_next_update_and_checkpoint_preserve_minibatches(tmp_path, early_stop) -
             "target_kl": 1e-12 if early_stop else None,
         }
     )
-    policy = ExplorationPolicy(_policy_config())
+    policy = ExplorationPolicy(_policy_config()).to(device)
     updater = PPOUpdater(policy, config)
     episodes = tuple(
         _episode(reward=float(i), terminated=True, truncated=False, bootstrap=0.0) for i in range(4)
@@ -335,7 +353,7 @@ def test_next_update_and_checkpoint_preserve_minibatches(tmp_path, early_stop) -
         assert first.optimizer_step_count == 0
         assert updater.scheduler.last_epoch == 0
     checkpoint = tmp_path / "state.ckpt"
-    fabric = Fabric(accelerator="cpu")
+    fabric = Fabric(accelerator=device)
     save_training_checkpoint(checkpoint, fabric, policy, updater, {"completed_updates": 1})
     # The next batch has unique actions, all paired with the updated behavior policy.
     next_episodes = tuple(
@@ -351,7 +369,7 @@ def test_next_update_and_checkpoint_preserve_minibatches(tmp_path, early_stop) -
     hook.remove()
     for offset in (0, 4):
         assert sorted(seen[offset : offset + 4]) == pytest.approx([0, 0.1, 0.2, 0.3])
-    restored = PPOUpdater(ExplorationPolicy(_policy_config()), updater.config)
+    restored = PPOUpdater(ExplorationPolicy(_policy_config()).to(device), updater.config)
     load_training_checkpoint(checkpoint, fabric, restored.policy, restored)
     replayed = []
     hook = restored.loss_module.register_forward_pre_hook(
@@ -363,6 +381,64 @@ def test_next_update_and_checkpoint_preserve_minibatches(tmp_path, early_stop) -
     for name, parameter in policy.state_dict().items():
         assert torch.equal(parameter, restored.policy.state_dict()[name])
     assert updater.scheduler.state_dict() == restored.scheduler.state_dict()
+    actual_optimizer = updater.optimizer.state_dict()
+    restored_optimizer = restored.optimizer.state_dict()
+    assert actual_optimizer["param_groups"] == restored_optimizer["param_groups"]
+    for key, state in actual_optimizer["state"].items():
+        for field, value in state.items():
+            torch.testing.assert_close(
+                value, restored_optimizer["state"][key][field], rtol=0, atol=0
+            )
+    assert torch.equal(
+        updater.checkpoint_state()["minibatch_generator_state"],
+        restored.checkpoint_state()["minibatch_generator_state"],
+    )
+
+
+def test_checkpoint_rejects_old_sampler_state() -> None:
+    updater = PPOUpdater(ExplorationPolicy(_policy_config()), _ppo_config())
+    old_state = {**updater.checkpoint_state(), "minibatch_sampler_state": {}}
+    with pytest.raises(ValueError, match="unexpected fields"):
+        updater.restore_checkpoint_state(old_state)
+
+
+def test_update_preserves_rollout_and_fixed_ppo_targets(monkeypatch) -> None:
+    from eco_planner.rl.optimization import ppo
+
+    config = _ppo_config().model_copy(
+        update={"batch_size": 4, "epochs": 2, "scheduler_total_optimizer_steps": 4}
+    )
+    episodes = tuple(
+        _episode(reward=float(i), terminated=True, truncated=False, bootstrap=0.0) for i in range(4)
+    )
+    snapshots = [(episode.training.clone(), episode.audit.clone()) for episode in episodes]
+    normalized_batches = []
+    normalize = ppo.normalize_full_batch_advantage
+
+    def capture_normalized_batch(batch):
+        normalize(batch)
+        normalized_batches.append((batch, batch.clone()))
+
+    monkeypatch.setattr(ppo, "normalize_full_batch_advantage", capture_normalized_batch)
+    updater = PPOUpdater(ExplorationPolicy(_policy_config()), config)
+    minibatches = []
+
+    def capture_minibatch(module, args):
+        minibatch = args[0].select(
+            "guidance_action", "old_joint_guidance_log_prob", "advantage", "value_target"
+        )
+        minibatches.append((minibatch, minibatch.clone()))
+
+    handle = updater.loss_module.register_forward_pre_hook(capture_minibatch)
+    updater.update(episodes)
+    handle.remove()
+    assert len(normalized_batches) == 1
+    assert len(minibatches) == 4
+    for actual, expected in normalized_batches + minibatches:
+        assert (actual == expected).all()
+    for episode, (training, audit) in zip(episodes, snapshots, strict=True):
+        assert (episode.training == training).all()
+        assert (episode.audit == audit).all()
 
 
 @pytest.mark.smoke

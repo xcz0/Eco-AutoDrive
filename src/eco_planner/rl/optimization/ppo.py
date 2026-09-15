@@ -5,10 +5,9 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import cast
 
 import torch
-from tensordict import TensorDictBase
+from tensordict import TensorDictBase, cat
 from tensordict.nn import (
     ProbabilisticTensorDictModule,
     ProbabilisticTensorDictSequential,
@@ -18,7 +17,6 @@ from torch import nn
 from torch.nn.utils import clip_grad_norm_
 from torchrl.data import LazyTensorStorage, TensorDictReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
-from torchrl.data.replay_buffers.storages import Storage
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 
@@ -33,14 +31,6 @@ from eco_planner.rl.rollout.contracts import (
 from eco_planner.rl.rollout.contracts import (
     TRAINING_KEYS,
     RolloutEpisode,
-    concatenate_tensordicts,
-)
-
-_PPO_IMMUTABLE_KEYS = (
-    "guidance_action",
-    "old_joint_guidance_log_prob",
-    "advantage",
-    "value_target",
 )
 
 _PPO_UPDATE_METRIC_NAMES = (
@@ -122,26 +112,6 @@ def _compute_gae(trajectory: TensorDictBase, config: PPOConfig) -> TensorDictBas
     return trajectory
 
 
-class _CPUPermutationSampler(SamplerWithoutReplacement):
-    """Keep the existing CPU permutation RNG while replay tensors reside on CUDA."""
-
-    def __init__(self) -> None:
-        super().__init__(drop_last=True)
-
-    def _get_sample_list(self, storage: Storage | None, len_storage: int, batch_size: int) -> None:
-        # TorchRL 0.14 otherwise couples randperm's device to the replay storage.
-        device = (
-            cast(LazyTensorStorage, storage).device
-            if storage is not None
-            else self._sample_list.device
-        )
-        # Transfer one permutation, not the same CPU indices for every TensorDict field.
-        self._sample_list = torch.randperm(len_storage, device="cpu", generator=self._rng).to(
-            device
-        )
-        self._remaining_batches = len_storage // batch_size
-
-
 class PPOUpdater:
     """Own TorchRL ClipPPOLoss plus Adam/cosine update and resume state."""
 
@@ -203,12 +173,8 @@ class PPOUpdater:
             T_max=config.scheduler_total_optimizer_steps,
             eta_min=config.scheduler_minimum_learning_rate,
         )
-        self._minibatch_generator = torch.Generator(device="cpu").manual_seed(config.minibatch_seed)
-        self._minibatch_replay_buffer = TensorDictReplayBuffer(
-            storage=LazyTensorStorage(config.batch_size, device=self.device),
-            sampler=_CPUPermutationSampler(),
-            batch_size=config.minibatch_size,
-            generator=self._minibatch_generator,
+        self._minibatch_generator = torch.Generator(device=self.device).manual_seed(
+            config.minibatch_seed
         )
         self._completed_optimizer_steps = 0
         self._kl_early_stop_count = 0
@@ -224,7 +190,6 @@ class PPOUpdater:
             "completed_optimizer_steps": self._completed_optimizer_steps,
             "kl_early_stop_count": self._kl_early_stop_count,
             "minibatch_generator_state": self._minibatch_generator.get_state(),
-            "minibatch_sampler_state": self._minibatch_replay_buffer.sampler.state_dict(),
         }
 
     def restore_checkpoint_state(self, state: Mapping[str, object]) -> None:
@@ -232,14 +197,12 @@ class PPOUpdater:
             "completed_optimizer_steps",
             "kl_early_stop_count",
             "minibatch_generator_state",
-            "minibatch_sampler_state",
         }
         if set(state) != expected:
             raise ValueError("PPO checkpoint state has unexpected fields")
         completed = state["completed_optimizer_steps"]
         early_stops = state["kl_early_stop_count"]
         generator_state = state["minibatch_generator_state"]
-        sampler_state = state["minibatch_sampler_state"]
         if (
             type(completed) is not int
             or not 0 <= completed <= self.config.scheduler_total_optimizer_steps
@@ -249,17 +212,9 @@ class PPOUpdater:
             raise ValueError("PPO checkpoint KL early-stop count is invalid")
         if not isinstance(generator_state, torch.Tensor) or generator_state.dtype != torch.uint8:
             raise TypeError("PPO checkpoint minibatch generator state must be uint8")
-        if not isinstance(sampler_state, Mapping):
-            raise TypeError("PPO checkpoint minibatch sampler state must be a mapping")
         self._completed_optimizer_steps = completed
         self._kl_early_stop_count = early_stops
         self._minibatch_generator.set_state(generator_state)
-        self._minibatch_replay_buffer.sampler.load_state_dict(
-            {
-                key: value.to(self.device) if isinstance(value, torch.Tensor) else value
-                for key, value in sampler_state.items()
-            }
-        )
 
     def update(self, episodes: Sequence[RolloutEpisode]) -> PPOUpdateReport:
         """Perform all configured PPO epochs over one immutable rollout batch."""
@@ -287,15 +242,20 @@ class PPOUpdater:
         value_target_std = float(value_target.std(correction=0))
         if not (math.isfinite(value_target_mean) and math.isfinite(value_target_std)):
             raise FloatingPointError("PPO value target statistics must be finite")
-        self._minibatch_replay_buffer.extend(batch)
-        frozen_inputs = {key: batch[key].clone() for key in _PPO_IMMUTABLE_KEYS}
+        replay = TensorDictReplayBuffer(
+            storage=LazyTensorStorage(sample_count, device=self.device),
+            sampler=SamplerWithoutReplacement(drop_last=True),
+            batch_size=self.config.minibatch_size,
+            generator=self._minibatch_generator,
+        )
+        replay.extend(batch)
         metrics = PPOMetrics(len(_PPO_UPDATE_METRIC_NAMES), self.device)
         gradient_totals = torch.zeros(6, device=self.device, dtype=torch.float64)
         evaluated_minibatches = 0
         optimizer_steps = 0
         early_stop_trigger: float | None = None
         for _epoch in range(self.config.epochs):
-            for sampled_minibatch in self._minibatch_replay_buffer:
+            for sampled_minibatch in replay:
                 minibatch = sampled_minibatch.exclude("index")
                 losses = self.loss_module(minibatch)
                 total_loss = (
@@ -343,12 +303,6 @@ class PPOUpdater:
                 metrics.gradient(gradient_norm)
             if early_stop_trigger is not None:
                 break
-        if early_stop_trigger is not None:
-            # Discard a partial permutation: the next update owns a new complete batch.
-            self._minibatch_replay_buffer.empty()
-        for key, expected in frozen_inputs.items():
-            if not torch.equal(batch[key], expected):
-                raise RuntimeError(f"PPO update mutated frozen batch field {key!r}")
         host_metrics = metrics.compute().cpu()
         if not torch.isfinite(host_metrics).all():
             raise FloatingPointError("PPO update diagnostics must be finite")
@@ -444,9 +398,7 @@ def build_ppo_batch(episodes: Sequence[RolloutEpisode], config: PPOConfig) -> Te
     episode_tuple = tuple(episodes)
     if not episode_tuple:
         raise ValueError("PPO update requires at least one rollout episode")
-    trajectory = concatenate_tensordicts(
-        [episode.training.select(*TRAINING_KEYS) for episode in episode_tuple]
-    )
+    trajectory = cat([episode.training.select(*TRAINING_KEYS) for episode in episode_tuple])
     return _compute_gae(trajectory, config).select(*PPO_BATCH_KEYS)
 
 

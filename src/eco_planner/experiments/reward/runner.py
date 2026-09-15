@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 from omegaconf import OmegaConf
+from tensordict import cat
 
 from eco_planner.analysis import publish
 from eco_planner.analysis.reward import dynamic_range_audit
@@ -25,7 +26,6 @@ from eco_planner.rl.reward.calibration import (
 from eco_planner.rl.reward.config import PlannerRFTNoEnergyRewardConfig
 from eco_planner.rl.reward.reweighting import COMPONENTS, reward_profile, reweight
 from eco_planner.rl.rollout.collection import collect as collect_batch
-from eco_planner.rl.rollout.contracts import concatenate_tensordicts
 from eco_planner.rl.rollout.fixed_batch import load_fixed_batch
 
 from .config import RewardStudyConfig
@@ -75,7 +75,7 @@ def run(source: Path, config_path: Path, output: Path, *, figures: bool = True) 
             selected = reward_profile(profile, weight)
             matched = [reweight(e, selected) for e in episodes]
             label = f"{representation}_lambda_{weight:g}"
-            values = concatenate_tensordicts([e.audit for e in matched])
+            values = cat([e.audit for e in matched])
             for key in (
                 *[f"reward_component_{c}" for c in COMPONENTS],
                 "reward_safety_gate",

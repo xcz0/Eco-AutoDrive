@@ -5,8 +5,9 @@ from dataclasses import replace
 
 import numpy as np
 import torch
+from tensordict import cat
 
-from eco_planner.rl import PlannerRFTNoEnergyRewardConfig, RolloutEpisode, concatenate_tensordicts
+from eco_planner.rl import PlannerRFTNoEnergyRewardConfig, RolloutEpisode
 from eco_planner.rl.reward import component_score, score_delta
 from eco_planner.rl.reward.calibration_config import CalibrationTargets, EnergyBandConfig
 from eco_planner.rl.reward.components.energy import calibrated_band_score
@@ -22,7 +23,7 @@ MOTION_LIMITS = {
 
 
 def raw_arrays(episodes: list[RolloutEpisode]) -> dict[str, np.ndarray]:
-    audit = concatenate_tensordicts([e.audit for e in episodes])
+    audit = cat([e.audit for e in episodes])
     return {
         key: audit[key].numpy().astype(np.float64).reshape(-1)
         for key in ("route_progress_delta_m", *MOTION_LIMITS)
@@ -124,7 +125,7 @@ def apply_energy_band(
     band: EnergyBandConfig,
 ) -> PlannerRFTNoEnergyRewardConfig:
     """Derive the energy representation from this batch's intensity distribution."""
-    audit = concatenate_tensordicts([episode.audit for episode in episodes])
+    audit = cat([episode.audit for episode in episodes])
     intensity = audit["executed_fuel_proxy_ml_per_km"].numpy().astype(np.float64).reshape(-1)
     full = float(np.quantile(intensity, band.full_score_intensity_quantile))
     zero = float(np.quantile(intensity, band.zero_score_intensity_quantile))

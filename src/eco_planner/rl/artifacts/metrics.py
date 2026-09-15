@@ -4,12 +4,12 @@ from dataclasses import asdict
 from typing import cast
 
 import torch
-from tensordict import TensorDictBase
+from tensordict import TensorDictBase, cat
 from torchmetrics import MaxMetric, MeanMetric, SumMetric
 
 from eco_planner.rl.artifacts.schema import TrainingUpdateSummary
 from eco_planner.rl.optimization.ppo import PPOUpdateReport
-from eco_planner.rl.rollout.contracts import RolloutEpisode, concatenate_tensordicts
+from eco_planner.rl.rollout.contracts import RolloutEpisode
 
 
 class RolloutMetrics:
@@ -47,7 +47,7 @@ def build_update_summary(
     if len(reward_profiles) != 1:
         raise ValueError("training update cannot mix rollout reward profiles")
     reward_profile = reward_profiles.pop()
-    trajectory = concatenate_tensordicts([episode.audit for episode in episodes])
+    trajectory = cat([episode.audit for episode in episodes])
     metrics = RolloutMetrics(trajectory)
     sample_count = trajectory.batch_size[0]
     episode_count = len(episodes)

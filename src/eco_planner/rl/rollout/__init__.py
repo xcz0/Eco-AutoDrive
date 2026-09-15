@@ -15,7 +15,6 @@ from .contracts import (
     RolloutProvenance,
     TailKind,
     build_training_decision,
-    concatenate_tensordicts,
     rollout_audit_keys,
 )
 from .runtime import FabricRolloutRuntime, create_fabric_rollout_runtime
@@ -35,7 +34,6 @@ __all__ = [
     "collect_rollout_episode",
     "collect_vector_rollout_episodes",
     "create_fabric_rollout_runtime",
-    "concatenate_tensordicts",
     "rollout_audit_keys",
     "RewardProfileName",
     "derive_rollout_seeds",

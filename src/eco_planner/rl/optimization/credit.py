@@ -4,14 +4,13 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 import torch
-from tensordict import TensorDictBase
+from tensordict import TensorDictBase, cat
 
 from eco_planner.rl import (
     PPO_BATCH_KEYS,
     PPOConfig,
     RolloutEpisode,
     build_ppo_batch,
-    concatenate_tensordicts,
 )
 
 
@@ -37,7 +36,7 @@ def discounted_return_batch(episodes: Sequence[RolloutEpisode], gamma: float) ->
         trajectory["advantage"] = returns.clone()
         trajectory["value_target"] = returns.clone()
         trajectories.append(trajectory)
-    return concatenate_tensordicts(trajectories).select(*PPO_BATCH_KEYS)
+    return cat(trajectories).select(*PPO_BATCH_KEYS)
 
 
 def credit_batch(

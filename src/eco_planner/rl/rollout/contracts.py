@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, cast
 
 import numpy as np
 import torch
-from tensordict import TensorDict, TensorDictBase
+from tensordict import TensorDict, TensorDictBase, cat
 
 from eco_planner.contracts import PLANNER_ACTOR_COUNT, PLANNER_HORIZON, PLANNER_STATE_DIM
 from eco_planner.rl.policy import ExplorationPolicyContext
@@ -399,10 +398,10 @@ def finalize_rollout_episode(
     bootstrap = tail_bootstrap_value.detach().to(device)
     set_training_transition_next_state_value(final_transition, bootstrap)
     final_transition["next", "done"] = _bool(True, device)
-    training = concatenate_tensordicts(training_transitions)
+    training = cat(training_transitions)
     return RolloutEpisode(
         training,
-        concatenate_tensordicts(audit_transitions),
+        cat(audit_transitions),
         tail_kind,
         bootstrap,
         reward_profile,
@@ -572,14 +571,6 @@ def _tensordict_device(trajectory: TensorDictBase) -> torch.device:
         if isinstance(value, torch.Tensor):
             return value.device
     raise ValueError("TensorDict must contain at least one tensor")
-
-
-def concatenate_tensordicts(values: Sequence[TensorDictBase], dim: int = 0) -> TensorDictBase:
-    """Concatenate TensorDicts through their registered torch dispatch."""
-
-    # TensorDict registers torch.cat at runtime, but torch's stubs only admit Tensor here.
-    result = torch.cat(values, dim=dim)  # pyright: ignore[reportCallIssue, reportArgumentType]
-    return cast(TensorDictBase, result)
 
 
 def _tensor(trajectory: TensorDictBase, key: str | tuple[str, ...]) -> torch.Tensor:
