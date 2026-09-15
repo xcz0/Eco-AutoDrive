@@ -66,6 +66,20 @@ def compose_arm_training_config(
     return config, parsed
 
 
+def validate_comparison_training_config(
+    protocol: ComparisonProtocol,
+    actual: TrainingJobConfig,
+    declared: TrainingJobConfig,
+) -> None:
+    """Require a comparison run to use exactly the protocol-declared training condition."""
+
+    actual_pairs = {(item.map, item.seed) for item in actual.scenarios}
+    if actual_pairs != protocol.training_pairs():
+        raise ValueError("comparison training scenarios must match the protocol pool")
+    if actual != declared:
+        raise ValueError("comparison training overrides must be declared in the protocol")
+
+
 def compose_policy_evaluation_config(
     protocol: ComparisonProtocol,
     arm: ArmName,

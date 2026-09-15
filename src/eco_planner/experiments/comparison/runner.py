@@ -11,6 +11,7 @@ from eco_planner.experiments.protocol.composition import (
     compose_a0_evaluation_config,
     compose_arm_training_config,
     compose_policy_evaluation_config,
+    validate_comparison_training_config,
 )
 from eco_planner.experiments.protocol.config import load_protocol
 from eco_planner.jobs import run_evaluation_job, run_training_job
@@ -55,7 +56,9 @@ def run_command(
     if action == "train":
         if training_seed is None:
             raise ValueError("train requires --training-seed")
-        config, _ = compose_arm_training_config(protocol, arm, training_seed, overrides)
+        config, parsed = compose_arm_training_config(protocol, arm, training_seed, overrides)
+        _, declared = compose_arm_training_config(protocol, arm, training_seed)
+        validate_comparison_training_config(protocol, parsed, declared)
         summary = run_training_job(config, output_dir)
         publish_scalar_run(output_dir, training=True, figures=figures)
         return {

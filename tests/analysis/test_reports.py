@@ -202,6 +202,19 @@ def test_scalar_explicit_grouping_and_checkpoint_validation(tmp_path, training_s
     )
     write_json(source / "a2/summary.json", policy.model_dump(mode="json"))
     write_json(source / "training.json", training_summary.model_dump(mode="json"))
+    OmegaConf.save(
+        OmegaConf.create(
+            {
+                "runtime": {"seed": 0},
+                "training": {"replay_id": 0},
+                "sampler": {"name": "ddim5"},
+                "reward": {"name": "plannerrft_energy_v1"},
+                "scenarios": [{"name": "curve", "map": "C", "seed": 1}],
+                "ppo": {"learning_rate": 2.5e-5, "epochs": 1},
+            }
+        ),
+        source / "resolved_config.yaml",
+    )
     config = {
         "protocol": "protocol.yaml",
         "baseline_evaluation_dir": "a0",
@@ -244,6 +257,13 @@ def test_scalar_explicit_grouping_and_checkpoint_validation(tmp_path, training_s
         with pytest.raises(ValueError, match=reason):
             load_comparison(source / "comparison.yaml")
     write_json(source / "training.json", training_summary.model_dump(mode="json"))
+    resolved = OmegaConf.load(source / "resolved_config.yaml")
+    resolved.scenarios[0].seed = 2
+    OmegaConf.save(resolved, source / "resolved_config.yaml")
+    with pytest.raises(ValueError, match="scenarios must match"):
+        load_comparison(source / "comparison.yaml")
+    resolved.scenarios[0].seed = 1
+    OmegaConf.save(resolved, source / "resolved_config.yaml")
     protocol.evaluation.seed = 99
     OmegaConf.save(protocol, source / "protocol.yaml")
     with pytest.raises(ValueError, match="seed differs"):
@@ -259,6 +279,35 @@ def test_scalar_explicit_grouping_and_checkpoint_validation(tmp_path, training_s
             tmp_path / "report",
             scalar_comparison=load_comparison(source / "comparison.yaml"),
         )
+
+    for arm, reward_profile, learning_rate in (
+        ("a1", "plannerrft_no_energy_v1", 2.5e-5),
+        ("a2", "plannerrft_energy_v1", 1.0e-4),
+    ):
+        training_dir = source / f"training-{arm}"
+        training_dir.mkdir()
+        arm_summary = training_summary.model_copy(update={"reward_profile": reward_profile})
+        write_json(training_dir / "summary.json", arm_summary.model_dump(mode="json"))
+        arm_resolved = OmegaConf.load(source / "resolved_config.yaml")
+        arm_resolved.reward.name = reward_profile
+        arm_resolved.ppo.learning_rate = learning_rate
+        OmegaConf.save(arm_resolved, training_dir / "resolved_config.yaml")
+        evaluation_dir = source / arm
+        if not evaluation_dir.exists():
+            evaluation_dir.mkdir()
+            write_json(evaluation_dir / "summary.json", policy.model_dump(mode="json"))
+    config["runs"] = [
+        {
+            "arm": arm,
+            "training_summary": f"training-{arm}/summary.json",
+            "checkpoint_label": "final",
+            "evaluation_dir": arm,
+        }
+        for arm in ("a1", "a2")
+    ]
+    OmegaConf.save(OmegaConf.create(config), source / "comparison.yaml")
+    with pytest.raises(ValueError, match="matched resolved training conditions"):
+        load_comparison(source / "comparison.yaml")
 
 
 def test_sanity_keeps_failed_checks(tmp_path):

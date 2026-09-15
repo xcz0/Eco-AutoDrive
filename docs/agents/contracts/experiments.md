@@ -22,7 +22,7 @@
 
 默认训练池为 S/SC map seeds 0–7，held-out 为 S/SC seeds 16–23；协议校验两池不相交。默认 held-out 为 no-traffic、300 步 horizon、DDIM5、runtime seed 760025，训练 seed namespace 和 PPO overrides 显式配置。每次 train 显式指定 seed，replay_id=0；组合后核验 reward、seed、sampler、scenario 池和 num_scenarios 覆盖。initial checkpoint 只作为诊断标签，没有独立 update0 协议字段。
 
-比较 YAML 中所有路径相对该文件解析，显式列出 protocol、可空的 baseline_evaluation_dir，以及 runs 的 arm/training_summary/checkpoint_label/evaluation_dir。有 frozen arm 时必须提供 baseline，无 frozen arm 时 baseline 为 null。训练 seed 和 reward 来自 typed summary；同 seed 各臂核验 initial policy、planner、probe 和随机流；评测 checkpoint hash/label 必须对应训练 summary 中的 initial/final 状态。held-out pool、seed、horizon 与 sampler 对照协议核验。没有按目录名推断或选取最佳 seed。
+比较 YAML 中所有路径相对该文件解析，显式列出 protocol、可空的 baseline_evaluation_dir，以及 runs 的 arm/training_summary/checkpoint_label/evaluation_dir。有 frozen arm 时必须提供 baseline，无 frozen arm 时 baseline 为 null。训练 seed 和 reward 来自 typed summary；每个训练目录的 resolved config 必须精确覆盖协议训练场景池，同 seed 各臂除 reward 与 tracking 元数据外的 resolved 训练条件必须相同，并核验 initial policy、planner、probe 和随机流。评测 checkpoint hash/label 必须对应训练 summary 中的 initial/final 状态。held-out pool、seed、horizon 与 sampler 对照协议核验。没有按目录名推断或选取最佳 seed。
 
 ## 固定批次 reward 与 credit
 

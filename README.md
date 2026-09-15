@@ -1,6 +1,6 @@
 # Eco-AutoDrive
 
-Eco-AutoDrive 研究如何在 MetaDrive 闭环中利用预训练 Diffusion Planner，并探索 guidance、强化学习和道路预瞄信息是否能够改善能耗表现。
+Eco-AutoDrive 研究如何在 MetaDrive 闭环中利用预训练 Diffusion Planner，并探索 guidance、强化学习和是否能够改善能耗表现。
 
 ## 项目进度与边界
 
@@ -91,9 +91,7 @@ just validation reward run --output-dir outputs/reward_sanity/manual-run
 
 该命令只计算配置中声明的固定合成 reward case，不运行 PPO。
 
-实验使用薄入口 `just exp ...`，对应 `python -m scripts.experiments`。工作流配置按
-comparison、reward、credit、guidance、training 五类职责组织；`--config` 显式选择配置，
-`just exp <工作流> <动作> --help` 查看参数。
+实验使用薄入口 `just exp ...`，对应 `python -m scripts.experiments`。工作流配置按 comparison、reward、credit、guidance、training 五类职责组织；`--config` 显式选择配置，`just exp <工作流> <动作> --help` 查看参数。
 
 | 工作流 | 动作 |
 | --- | --- |
@@ -103,21 +101,13 @@ comparison、reward、credit、guidance、training 五类职责组织；`--confi
 | guidance authority / sweep | run、analyze |
 | training | grid、diagnose、eval、analyze |
 
-先采集一次，再从相同源 batch 独立执行 reward 和 credit；校准尺度与 energy-band 阈值
-每次由该 batch 及配置推导，不需要前序诊断目录：
+完整工作流、输入契约和结果解释见[实验工具与离线分析契约](docs/agents/contracts/experiments.md)。常用入口示例：
 
 ```powershell
 just exp reward collect --output-dir outputs/fixed-batch
 just exp reward run --source-dir outputs/fixed-batch --output-dir outputs/reward
 just exp credit run --config configs/experiments/credit/objectives.yaml --source-dir outputs/fixed-batch --output-dir outputs/credit
 ```
-
-`reward/collection.yaml` 指定 job 和 overrides；reward run 比较组件、权重和 energy
-representation，不执行 actor backward。credit 命名配置为 `sensitivity.yaml`、`objectives.yaml`、
-`ablation.yaml`、`energy-band.yaml`，显式指定 reward、advantage 和 credit 对照轴及本实验阈值。
-
-comparison 默认 frozen/A1/A2 三臂，也可通过 `comparison/calibrated.yaml` 选择 calibrated
-R0/stress 双臂。每次 train 指定 seed，eval 指定已训练 checkpoint（frozen arm 不带 checkpoint）：
 
 ```powershell
 just exp compare eval --arm a0 --output-dir outputs/a0
@@ -129,16 +119,7 @@ just exp guidance sweep run --output-dir outputs/energy-matrix
 just exp training grid --output-dir outputs/optimizer-grid
 ```
 
-training grid 使用显式 optimizer 笛卡尔积与预算，报告通过项或无候选；没有阶段晋升或回报排名。
-`training diagnose --config <文件>` 测量已有训练结果；配置包含 `training_summaries` 路径列表、
-`training_seeds` 列表、`mc_draws` 和 `mc_seed`。`training eval --config <文件>` 配置包含
-`protocol`、`policy_action_seeds` 及 `records`；每条记录显式提供 `arm`、`training_summary`、
-`checkpoint_label`、`checkpoint_path` 和可空的 `deterministic_evaluation_dir`。输入路径均相对
-该 YAML 解析，复用评测必须匹配 checkpoint 与随机条件。
-
 软件验证与后端比较继续使用 `just validation reward` 和 `just benchmark execution`。
-旧实验命令、Python import、stability 搜索与独立 reproducibility 工作流已移除；历史记录保留
-原命令、路径和结果，不提供迁移层。
 
 机器资源通过版本化 profile 选择，例如 `components/resources=rtx_a4000`；它只改变 worker、slot 和线程预算。CLI 与 study bootstrap 会按需读取仓库根目录的可选 `.env`，并以 `MACHINE_NAME` 自动选择同名的 `configs/components/resources/<机器名>.yaml`。进程中已有的 `MACHINE_NAME` 优先于 `.env`，显式 Hydra `components/resources=...` override 又优先于两者；可用值见该目录，`.env.example` 给出格式。
 
@@ -148,9 +129,7 @@ training grid 使用显式 optimizer 笛卡尔积与预算，报告通过项或�
 
 运行产物默认写入 `outputs/`。
 
-实验运行/汇总入口默认生成 Markdown 报告与 SVG/PNG 图，`--no-figures` 可关闭出图。
-`reward collect` 只保存采集产物，不生成诊断或图表。
-已有产物可通过统一入口重算描述统计并重绘，不重新运行环境、GAE 或训练：
+实验运行/汇总入口默认生成 Markdown 报告与 SVG/PNG 图，`--no-figures` 可关闭出图。`reward collect` 只保存采集产物，不生成诊断或图表。已有产物可通过统一入口重算描述统计并重绘，不重新运行环境、GAE 或训练：
 
 ```powershell
 just exp reward analyze --source-dir outputs/reward --output-dir outputs/reward-report
@@ -159,8 +138,7 @@ just exp training analyze --source-dir outputs/optimizer-grid --output-dir outpu
 just exp compare analyze --source-dir outputs/my-protocol --config outputs/my-protocol/comparison.yaml --output-dir outputs/protocol-report
 ```
 
-源目录与离线输出目录必须独立，不能相同或互相嵌套。实验类型、输入文件和比较配置见
-[离线分析与报告契约](docs/agents/contracts/experiments.md#实验离线分析与报告)。
+源目录与离线输出目录必须独立，不能相同或互相嵌套。实验类型、输入文件和比较配置见[离线分析与报告契约](docs/agents/contracts/experiments.md#实验离线分析与报告)。
 
 ## 文档导航
 
@@ -179,4 +157,3 @@ just exp compare analyze --source-dir outputs/my-protocol --config outputs/my-pr
 
 - [Diffusion Planner](https://github.com/ZhengYinan-AIR/Diffusion-Planner)：基础框架与初始权重
 - [MetaDrive](https://github.com/metadriverse/metadrive)：闭环仿真环境
-
