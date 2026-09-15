@@ -92,6 +92,8 @@ def _train(
     tracking.runtime_metadata()
     diffusion_generators = tuple(runtime.new_noise_generator(seed) for seed in noise_seeds)
     policy_generators = tuple(runtime.new_policy_generator(seed) for seed in policy_seeds)
+    if config.training.resume_checkpoint_path is not None:
+        state.restore_rollout_rng(diffusion_generators, policy_generators)
     planner_hash_before = runtime.frozen_planner_hash()
     state.initial_policy_hash = state.initial_policy_hash or policy_state_hash(runtime.policy)
     if start_update == 0:
@@ -144,6 +146,7 @@ def _train(
             update_summary = build_update_summary(update_index, tuple(update_episodes), report)
             state.update_summaries.append(update_summary)
             state.completed_updates = update_index + 1
+            state.capture_rollout_rng(diffusion_generators, policy_generators)
             save_exploration_policy_checkpoint(
                 output_dir / f"policy-update-{update_index:03d}.pt", runtime.policy
             )

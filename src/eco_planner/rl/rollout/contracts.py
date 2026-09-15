@@ -12,6 +12,7 @@ from tensordict import TensorDict, TensorDictBase
 
 from eco_planner.contracts import PLANNER_ACTOR_COUNT, PLANNER_HORIZON, PLANNER_STATE_DIM
 from eco_planner.rl.policy import ExplorationPolicyContext
+from eco_planner.rl.policy.model import POLICY_CONTEXT_KEYS
 from eco_planner.rl.reward import RewardResult
 
 TailKind = Literal["terminated", "truncated", "rollout_limit"]
@@ -22,22 +23,22 @@ RewardProfileName = Literal[
     "plannerrft_no_energy_calibrated_v1",
 ]
 _CPU_DEVICE = torch.device("cpu")
-_CONTEXT_KEYS = (
-    "scene_tokens",
-    "scene_padding_mask",
-    "navigation_tokens",
-    "navigation_padding_mask",
-    "reference_trajectory",
+_CONTEXT_KEYS = POLICY_CONTEXT_KEYS
+PPO_BATCH_KEYS = (
+    *POLICY_CONTEXT_KEYS,
+    "guidance_action",
+    "old_joint_guidance_log_prob",
+    "advantage",
+    "value_target",
 )
-_TRAINING_KEYS = frozenset(
-    {
-        *_CONTEXT_KEYS,
-        "guidance_action",
-        "old_joint_guidance_log_prob",
-        "state_value",
-        "next",
-    }
+TRAINING_KEYS = (
+    *POLICY_CONTEXT_KEYS,
+    "guidance_action",
+    "old_joint_guidance_log_prob",
+    "state_value",
+    "next",
 )
+_TRAINING_KEYS = frozenset(TRAINING_KEYS)
 _NEXT_TRAINING_KEYS = frozenset(
     {
         "state_value",

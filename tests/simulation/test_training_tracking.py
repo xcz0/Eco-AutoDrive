@@ -11,6 +11,64 @@ from eco_planner.jobs import compose_job_config, run_training_job
 
 @pytest.mark.simulator
 @pytest.mark.gpu
+def test_update_boundary_resume_matches_continuous_training(tmp_path, monkeypatch):
+    import torch
+
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    overrides = [
+        "components/resources=rtx3050_laptop",
+        "runtime.seed=0",
+        "training.replay_id=0",
+        "training.transitions_per_environment=2",
+        "ppo.batch_size=4",
+        "ppo.minibatch_size=2",
+        "ppo.epochs=2",
+        "training.update_count=2",
+        "tracking.enabled=false",
+    ]
+    config = compose_job_config("jobs/training/ppo_energy_smoke", overrides)
+    continuous = run_training_job(config, tmp_path / "continuous")
+    first_config = compose_job_config(
+        "jobs/training/ppo_energy_smoke", [*overrides, "training.update_count=1"]
+    )
+    run_training_job(first_config, tmp_path / "first")
+    config.training.resume_checkpoint_path = (tmp_path / "first/training-state.ckpt").as_posix()
+    resumed = run_training_job(config, tmp_path / "resumed")
+    assert resumed == continuous
+    for expected in (tmp_path / "continuous/updates/update-001").glob("*.npz"):
+        with (
+            np.load(expected) as left,
+            np.load(tmp_path / "resumed/updates/update-001" / expected.name) as right,
+        ):
+            assert set(left.files) == set(right.files)
+            for key in left.files:
+                np.testing.assert_array_equal(left[key], right[key], err_msg=key)
+    left = torch.load(
+        tmp_path / "continuous/training-state.ckpt", weights_only=False, map_location="cpu"
+    )
+    right = torch.load(
+        tmp_path / "resumed/training-state.ckpt", weights_only=False, map_location="cpu"
+    )
+
+    def assert_equal(a, b):
+        if isinstance(a, torch.Tensor):
+            assert torch.equal(a, b)
+        elif isinstance(a, dict):
+            assert a.keys() == b.keys()
+            for key in a:
+                assert_equal(a[key], b[key])
+        elif isinstance(a, (tuple, list)):
+            assert len(a) == len(b)
+            for x, y in zip(a, b, strict=True):
+                assert_equal(x, y)
+        else:
+            assert a == b
+
+    assert_equal(left, right)
+
+
+@pytest.mark.simulator
+@pytest.mark.gpu
 def test_real_training_observer_and_mlflow_artifacts(tmp_path, monkeypatch):
     monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     config = compose_job_config(

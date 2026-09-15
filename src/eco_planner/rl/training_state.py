@@ -27,9 +27,36 @@ class TrainingLoopState:
     probe_contexts: tuple[ExplorationPolicyContext, ...] | None = None
     initial_policy_hash: str | None = None
     tracking: TrackingIdentity | None = None
+    diffusion_rng_states: tuple[torch.Tensor, ...] = ()
+    policy_rng_states: tuple[torch.Tensor, ...] = ()
+
+    def capture_rollout_rng(
+        self,
+        diffusion_generators: tuple[torch.Generator, ...],
+        policy_generators: tuple[torch.Generator, ...],
+    ) -> None:
+        self.diffusion_rng_states = tuple(g.get_state().clone() for g in diffusion_generators)
+        self.policy_rng_states = tuple(g.get_state().clone() for g in policy_generators)
+
+    def restore_rollout_rng(
+        self,
+        diffusion_generators: tuple[torch.Generator, ...],
+        policy_generators: tuple[torch.Generator, ...],
+    ) -> None:
+        for generators, states in (
+            (diffusion_generators, self.diffusion_rng_states),
+            (policy_generators, self.policy_rng_states),
+        ):
+            for generator, state in zip(generators, states, strict=True):
+                expected_seed = generator.initial_seed()
+                generator.set_state(state.cpu())
+                if generator.initial_seed() != expected_seed:
+                    raise ValueError("resume rollout RNG seed does not match its logical slot")
 
     def checkpoint_payload(self) -> dict[str, object]:
         return {
+            "diffusion_rng_states": self.diffusion_rng_states,
+            "policy_rng_states": self.policy_rng_states,
             "tracking": self.tracking.model_dump() if self.tracking is not None else None,
             "completed_updates": self.completed_updates,
             "initial_policy_hash": self.initial_policy_hash,
@@ -58,6 +85,8 @@ def resume_training_state(
     report, loop = load_training_checkpoint(
         checkpoint_path, runtime.fabric, runtime.policy, updater
     )
+    diffusion_rng_states = _rollout_rng_states(loop, "diffusion_rng_states", len(config.scenarios))
+    policy_rng_states = _rollout_rng_states(loop, "policy_rng_states", len(config.scenarios))
     if report.completed_updates > config.training.update_count:
         raise ValueError("resume checkpoint has more updates than the configured training job")
     summaries_payload = loop["update_summaries"]
@@ -99,7 +128,25 @@ def resume_training_state(
         probe_contexts=contexts,
         initial_policy_hash=initial_policy_hash,
         tracking=identity,
+        diffusion_rng_states=diffusion_rng_states,
+        policy_rng_states=policy_rng_states,
     )
+
+
+def _rollout_rng_states(
+    loop: dict[str, object], key: str, scenario_count: int
+) -> tuple[torch.Tensor, ...]:
+    if key not in loop:
+        raise ValueError(f"resume checkpoint is missing {key}; exact rollout resume is impossible")
+    states = loop[key]
+    if not isinstance(states, (tuple, list)) or len(states) != scenario_count:
+        raise ValueError(f"resume checkpoint {key} must match the logical scenario count")
+    if not all(
+        isinstance(state, torch.Tensor) and state.dtype == torch.uint8 and state.ndim == 1
+        for state in states
+    ):
+        raise TypeError(f"resume checkpoint {key} must contain one-dimensional uint8 RNG states")
+    return tuple(state.cpu().clone() for state in states)
 
 
 def _serialize_context(context: ExplorationPolicyContext) -> dict[str, torch.Tensor]:

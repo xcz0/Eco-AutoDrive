@@ -132,6 +132,25 @@ def trainer_policy():
     return ExplorationPolicy(_policy_config())
 
 
+def test_rollout_rng_restore_preserves_streams_and_rejects_reordered_slots():
+    diffusion = tuple(torch.Generator().manual_seed(i) for i in (10, 11))
+    policy = tuple(torch.Generator().manual_seed(i) for i in (20, 21))
+    for generator in (*diffusion, *policy):
+        torch.rand(7, generator=generator)
+    state = TrainingLoopState()
+    state.capture_rollout_rng(diffusion, policy)
+    expected = [torch.rand(5, generator=g) for g in (*diffusion, *policy)]
+    restored_diffusion = tuple(torch.Generator().manual_seed(i) for i in (10, 11))
+    restored_policy = tuple(torch.Generator().manual_seed(i) for i in (20, 21))
+    global_rng = torch.random.get_rng_state().clone()
+    state.restore_rollout_rng(restored_diffusion, restored_policy)
+    for generator, values in zip((*restored_diffusion, *restored_policy), expected, strict=True):
+        assert torch.equal(torch.rand(5, generator=generator), values)
+    assert torch.equal(global_rng, torch.random.get_rng_state())
+    with pytest.raises(ValueError, match="logical slot"):
+        state.restore_rollout_rng(restored_diffusion[::-1], restored_policy)
+
+
 def test_capture_uses_first_transition_of_first_episode_in_scenario_order():
     episodes = tuple(
         _episode(reward=1.0, terminated=True, truncated=False, bootstrap=0.0) for _ in range(3)

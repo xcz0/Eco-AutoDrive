@@ -9,6 +9,7 @@ import torch
 
 from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater, compute_episode_gae
+from eco_planner.rl.optimization.ppo import build_ppo_batch
 from eco_planner.rl.policy import (
     ExplorationPolicy,
     ExplorationPolicyConfig,
@@ -234,6 +235,134 @@ def test_gae_treats_simultaneous_termination_and_truncation_as_terminal() -> Non
     trajectory = compute_episode_gae(episode, _ppo_config())
     torch.testing.assert_close(trajectory["advantage"], torch.tensor([[-0.75]]))
     torch.testing.assert_close(trajectory["value_target"], torch.tensor([[0.25]]))
+
+
+def test_combined_gae_matches_episode_reference_without_mutation() -> None:
+    from torchrl.objectives.value import GAE
+
+    from eco_planner.rl.rollout.contracts import concatenate_tensordicts
+
+    episodes = []
+    references = []
+    for length, (terminated, truncated) in enumerate(
+        [(True, False), (False, True), (False, False), (True, True)], start=1
+    ):
+        single = _episode(
+            reward=100.0 * length,
+            terminated=terminated,
+            truncated=truncated,
+            bootstrap=0.0 if terminated else 2.0,
+        )
+        training = concatenate_tensordicts([single.training] * length)
+        training["next", "done"][:-1] = False
+        training["next", "terminated"][:-1] = False
+        training["next", "truncated"][:-1] = False
+        episode = replace(
+            single, training=training, audit=concatenate_tensordicts([single.audit] * length)
+        )
+        episodes.append(episode)
+        reference = training.select("state_value", "next").clone()
+        GAE(
+            gamma=0.99,
+            lmbda=0.95,
+            value_network=None,
+            average_gae=False,
+            differentiable=False,
+            vectorized=False,
+            skip_existing=False,
+            time_dim=0,
+            auto_reset_env=False,
+        )(reference)
+        references.append(reference)
+    snapshots = [(e.training.clone(), e.audit.clone()) for e in episodes]
+    batch = build_ppo_batch(episodes, _ppo_config())
+    expected = concatenate_tensordicts(references)
+    for key in ("advantage", "value_target"):
+        torch.testing.assert_close(batch[key], expected[key], rtol=0, atol=0)
+    for episode, (training, audit) in zip(episodes, snapshots, strict=True):
+        assert (episode.training == training).all()
+        assert (episode.audit == audit).all()
+
+
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
+def test_replay_device_and_cpu_permutation_sequence(device) -> None:
+    from tensordict import TensorDict
+    from torchrl.data import LazyTensorStorage, TensorDictReplayBuffer
+    from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
+
+    config = _ppo_config().model_copy(update={"batch_size": 8})
+    updater = PPOUpdater(ExplorationPolicy(_policy_config()).to(device), config)
+    replay = updater._minibatch_replay_buffer
+    reference = TensorDictReplayBuffer(
+        storage=LazyTensorStorage(8),
+        sampler=SamplerWithoutReplacement(drop_last=True),
+        batch_size=2,
+        generator=torch.Generator().manual_seed(config.minibatch_seed),
+    )
+    data = TensorDict({"sample": torch.arange(8)}, batch_size=[8])
+    replay.extend(data.to(device))
+    reference.extend(data)
+    for _ in range(2):
+        seen = []
+        for actual, expected in zip(replay, reference, strict=True):
+            assert actual["sample"].device.type == device
+            assert torch.equal(actual["sample"].cpu(), expected["sample"])
+            seen.extend(actual["sample"].tolist())
+        assert sorted(seen) == list(range(8))
+
+
+@pytest.mark.parametrize("early_stop", [False, True])
+def test_next_update_and_checkpoint_preserve_minibatches(tmp_path, early_stop) -> None:
+    from lightning.fabric import Fabric
+
+    from eco_planner.rl.optimization import load_training_checkpoint, save_training_checkpoint
+
+    config = _ppo_config().model_copy(
+        update={
+            "batch_size": 4,
+            "epochs": 2,
+            "scheduler_total_optimizer_steps": 16,
+            "target_kl": 1e-12 if early_stop else None,
+        }
+    )
+    policy = ExplorationPolicy(_policy_config())
+    updater = PPOUpdater(policy, config)
+    episodes = tuple(
+        _episode(reward=float(i), terminated=True, truncated=False, bootstrap=0.0) for i in range(4)
+    )
+    first = updater.update(episodes)
+    if early_stop:
+        assert first.optimizer_step_count == 0
+        assert updater.scheduler.last_epoch == 0
+    checkpoint = tmp_path / "state.ckpt"
+    fabric = Fabric(accelerator="cpu")
+    save_training_checkpoint(checkpoint, fabric, policy, updater, {"completed_updates": 1})
+    # The next batch has unique actions, all paired with the updated behavior policy.
+    next_episodes = tuple(
+        _behavior_policy_episode(policy, torch.tensor([[i / 10, -i / 10]]), float(i + 1))
+        for i in range(4)
+    )
+    updater.config = config.model_copy(update={"target_kl": None})
+    seen = []
+    hook = updater.loss_module.register_forward_pre_hook(
+        lambda module, args: seen.extend(args[0]["guidance_action"][:, 0].tolist())
+    )
+    expected = updater.update(next_episodes)
+    hook.remove()
+    for offset in (0, 4):
+        assert sorted(seen[offset : offset + 4]) == pytest.approx([0, 0.1, 0.2, 0.3])
+    restored = PPOUpdater(ExplorationPolicy(_policy_config()), updater.config)
+    load_training_checkpoint(checkpoint, fabric, restored.policy, restored)
+    replayed = []
+    hook = restored.loss_module.register_forward_pre_hook(
+        lambda module, args: replayed.extend(args[0]["guidance_action"][:, 0].tolist())
+    )
+    assert restored.update(next_episodes) == expected
+    hook.remove()
+    assert seen == replayed
+    for name, parameter in policy.state_dict().items():
+        assert torch.equal(parameter, restored.policy.state_dict()[name])
+    assert updater.scheduler.state_dict() == restored.scheduler.state_dict()
 
 
 @pytest.mark.smoke

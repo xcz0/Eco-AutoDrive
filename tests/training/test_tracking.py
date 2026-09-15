@@ -318,8 +318,9 @@ def test_logging_and_checkpoint_resume_preserve_optimizer_and_rng(tmp_path):
 
 
 @pytest.mark.parametrize("tracked", [False, True])
+@pytest.mark.parametrize("rng_error", [None, "missing", "count", "dtype"])
 def test_training_loop_restores_json_mode_summary_and_probe_from_checkpoint(
-    tmp_path, summary, tracked
+    tmp_path, summary, tracked, rng_error
 ):
     fabric = Fabric(accelerator="cpu")
     policy = ExplorationPolicy(_policy_config())
@@ -343,11 +344,23 @@ def test_training_loop_restores_json_mode_summary_and_probe_from_checkpoint(
         probe_contexts=(_context(),),
         initial_policy_hash="a" * 64,
         tracking=identity,
+        diffusion_rng_states=tuple(torch.Generator().manual_seed(i).get_state() for i in (1, 2)),
+        policy_rng_states=tuple(torch.Generator().manual_seed(i).get_state() for i in (3, 4)),
     ).checkpoint_payload()
     assert isinstance(loop["update_summaries"][0]["action_mean"], list)
+    if rng_error == "missing":
+        del loop["diffusion_rng_states"]
+    elif rng_error == "count":
+        loop["diffusion_rng_states"] = ()
+    elif rng_error == "dtype":
+        loop["diffusion_rng_states"] = (torch.zeros(3), torch.zeros(3))
     checkpoint = tmp_path / "training-state.ckpt"
     save_training_checkpoint(checkpoint, fabric, policy, updater, loop)
     config = _config(tmp_path, enabled=False, resume=str(checkpoint))
+    if rng_error:
+        with pytest.raises((TypeError, ValueError), match="diffusion_rng_states"):
+            resume_training_state(config, SimpleNamespace(fabric=fabric, policy=policy), updater)
+        return
     restored = resume_training_state(config, SimpleNamespace(fabric=fabric, policy=policy), updater)
     assert restored.completed_updates == 1
     assert restored.total_transitions == summary.sample_count

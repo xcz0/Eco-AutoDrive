@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import cast
 
 import torch
 from tensordict import TensorDictBase
@@ -17,6 +18,7 @@ from torch import nn
 from torch.nn.utils import clip_grad_norm_
 from torchrl.data import LazyTensorStorage, TensorDictReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
+from torchrl.data.replay_buffers.storages import Storage
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 
@@ -25,15 +27,15 @@ from eco_planner.rl.optimization.metrics import PPOMetrics
 from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.policy.distribution import AffineBeta
 from eco_planner.rl.policy.model import POLICY_CONTEXT_KEYS
-from eco_planner.rl.rollout.contracts import RolloutEpisode, concatenate_tensordicts
-
-PPO_BATCH_KEYS: tuple[str, ...] = (
-    *POLICY_CONTEXT_KEYS,
-    "guidance_action",
-    "old_joint_guidance_log_prob",
-    "advantage",
-    "value_target",
+from eco_planner.rl.rollout.contracts import (
+    PPO_BATCH_KEYS as PPO_BATCH_KEYS,
 )
+from eco_planner.rl.rollout.contracts import (
+    TRAINING_KEYS,
+    RolloutEpisode,
+    concatenate_tensordicts,
+)
+
 _PPO_IMMUTABLE_KEYS = (
     "guidance_action",
     "old_joint_guidance_log_prob",
@@ -101,7 +103,10 @@ class PPOUpdateReport:
 def compute_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> TensorDictBase:
     """Run TorchRL GAE and append its detached outputs to the PPO trajectory."""
 
-    tensordict = episode.training.select("state_value", "next").clone()
+    return _compute_gae(episode.training.select(*TRAINING_KEYS).clone(), config)
+
+
+def _compute_gae(trajectory: TensorDictBase, config: PPOConfig) -> TensorDictBase:
     estimator = GAE(
         gamma=config.gamma,
         lmbda=config.gae_lambda,
@@ -113,11 +118,28 @@ def compute_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> TensorDic
         time_dim=0,
         auto_reset_env=False,
     )
-    estimator(tensordict)
-    trajectory = episode.training.clone()
-    trajectory["advantage"] = tensordict["advantage"].detach().clone()
-    trajectory["value_target"] = tensordict["value_target"].detach().clone()
+    estimator(trajectory)
     return trajectory
+
+
+class _CPUPermutationSampler(SamplerWithoutReplacement):
+    """Keep the existing CPU permutation RNG while replay tensors reside on CUDA."""
+
+    def __init__(self) -> None:
+        super().__init__(drop_last=True)
+
+    def _get_sample_list(self, storage: Storage | None, len_storage: int, batch_size: int) -> None:
+        # TorchRL 0.14 otherwise couples randperm's device to the replay storage.
+        device = (
+            cast(LazyTensorStorage, storage).device
+            if storage is not None
+            else self._sample_list.device
+        )
+        # Transfer one permutation, not the same CPU indices for every TensorDict field.
+        self._sample_list = torch.randperm(len_storage, device="cpu", generator=self._rng).to(
+            device
+        )
+        self._remaining_batches = len_storage // batch_size
 
 
 class PPOUpdater:
@@ -183,8 +205,8 @@ class PPOUpdater:
         )
         self._minibatch_generator = torch.Generator(device="cpu").manual_seed(config.minibatch_seed)
         self._minibatch_replay_buffer = TensorDictReplayBuffer(
-            storage=LazyTensorStorage(config.batch_size),
-            sampler=SamplerWithoutReplacement(drop_last=True),
+            storage=LazyTensorStorage(config.batch_size, device=self.device),
+            sampler=_CPUPermutationSampler(),
             batch_size=config.minibatch_size,
             generator=self._minibatch_generator,
         )
@@ -232,13 +254,18 @@ class PPOUpdater:
         self._completed_optimizer_steps = completed
         self._kl_early_stop_count = early_stops
         self._minibatch_generator.set_state(generator_state)
-        self._minibatch_replay_buffer.sampler.load_state_dict(dict(sampler_state))
+        self._minibatch_replay_buffer.sampler.load_state_dict(
+            {
+                key: value.to(self.device) if isinstance(value, torch.Tensor) else value
+                for key, value in sampler_state.items()
+            }
+        )
 
     def update(self, episodes: Sequence[RolloutEpisode]) -> PPOUpdateReport:
         """Perform all configured PPO epochs over one immutable rollout batch."""
 
         self.policy.eval()
-        batch = build_ppo_batch(episodes, self.config)
+        batch = build_ppo_batch(episodes, self.config).to(self.device)
         sample_count = batch.batch_size[0]
         if sample_count != self.config.batch_size:
             raise ValueError(
@@ -261,7 +288,6 @@ class PPOUpdater:
         if not (math.isfinite(value_target_mean) and math.isfinite(value_target_std)):
             raise FloatingPointError("PPO value target statistics must be finite")
         self._minibatch_replay_buffer.extend(batch)
-        batch = batch.to(self.device)
         frozen_inputs = {key: batch[key].clone() for key in _PPO_IMMUTABLE_KEYS}
         metrics = PPOMetrics(len(_PPO_UPDATE_METRIC_NAMES), self.device)
         gradient_totals = torch.zeros(6, device=self.device, dtype=torch.float64)
@@ -269,8 +295,8 @@ class PPOUpdater:
         optimizer_steps = 0
         early_stop_trigger: float | None = None
         for _epoch in range(self.config.epochs):
-            for host_minibatch in self._minibatch_replay_buffer:
-                minibatch = host_minibatch.exclude("index").to(self.device)
+            for sampled_minibatch in self._minibatch_replay_buffer:
+                minibatch = sampled_minibatch.exclude("index")
                 losses = self.loss_module(minibatch)
                 total_loss = (
                     losses["loss_objective"] + losses["loss_critic"] + losses["loss_entropy"]
@@ -317,6 +343,9 @@ class PPOUpdater:
                 metrics.gradient(gradient_norm)
             if early_stop_trigger is not None:
                 break
+        if early_stop_trigger is not None:
+            # Discard a partial permutation: the next update owns a new complete batch.
+            self._minibatch_replay_buffer.empty()
         for key, expected in frozen_inputs.items():
             if not torch.equal(batch[key], expected):
                 raise RuntimeError(f"PPO update mutated frozen batch field {key!r}")
@@ -415,10 +444,10 @@ def build_ppo_batch(episodes: Sequence[RolloutEpisode], config: PPOConfig) -> Te
     episode_tuple = tuple(episodes)
     if not episode_tuple:
         raise ValueError("PPO update requires at least one rollout episode")
-    trajectories: list[TensorDictBase] = []
-    for episode in episode_tuple:
-        trajectories.append(compute_episode_gae(episode, config))
-    return concatenate_tensordicts(trajectories).select(*PPO_BATCH_KEYS)
+    trajectory = concatenate_tensordicts(
+        [episode.training.select(*TRAINING_KEYS) for episode in episode_tuple]
+    )
+    return _compute_gae(trajectory, config).select(*PPO_BATCH_KEYS)
 
 
 def normalize_full_batch_advantage(batch: TensorDictBase) -> None:
