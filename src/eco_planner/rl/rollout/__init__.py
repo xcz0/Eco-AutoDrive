@@ -7,7 +7,6 @@ from .collector import (
     collect_vector_rollout_episodes,
 )
 from .contracts import (
-    DecisionAudit,
     ExecutionTransitionAudit,
     RewardProfileName,
     RolloutEpisode,
@@ -21,7 +20,6 @@ from .runtime import FabricRolloutRuntime, create_fabric_rollout_runtime
 from .seeds import derive_rollout_seeds
 
 __all__ = [
-    "DecisionAudit",
     "ExecutionTransitionAudit",
     "FabricRolloutRuntime",
     "RolloutEpisode",

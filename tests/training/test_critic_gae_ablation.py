@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -33,7 +34,7 @@ from tests.training.test_ppo import (
 def _multi_step_episode(rewards: list[float], next_values: list[float], bootstrap: float):
     context = _context()
     builder = RolloutEpisodeBuilder()
-    for reward, next_value in zip(rewards, next_values, strict=True):
+    for reward in rewards:
         decision = build_training_decision(
             context,
             torch.tensor([[-0.5, 0.5]]),
@@ -46,8 +47,11 @@ def _multi_step_episode(rewards: list[float], next_values: list[float], bootstra
             _execution_audit(reward, terminated=False, truncated=False),
             RolloutProvenance(0, 1, 2, 0),
         )
-        builder.link_next_state_value(torch.tensor([[next_value]]))
-    return builder.finish("rollout_limit", torch.tensor([bootstrap]))
+    episode = builder.finish("rollout_limit", torch.tensor([bootstrap]))
+    # These synthetic critic diagnostics intentionally set arbitrary V(s') values.
+    training = episode.training.clone()
+    training["next", "state_value"] = torch.tensor([*next_values[:-1], bootstrap]).unsqueeze(-1)
+    return replace(episode, training=training)
 
 
 def test_zero_critic_values_removes_values_and_bootstrap_only():
@@ -99,6 +103,7 @@ def test_discounted_return_batch_matches_recursive_returns():
         _multi_step_episode([0.25, -0.5, 1.0], [0.7, -0.2, 0.3], 0.4),
         _multi_step_episode([0.1, 0.2], [-0.3, 0.5], -0.1),
     ]
+    snapshots = [(episode.training.clone(), episode.audit.clone()) for episode in episodes]
     batch = discounted_return_batch(episodes, config.gamma)
     assert batch.batch_size[0] == 5
     np.testing.assert_allclose(batch["value_target"], batch["advantage"], rtol=0, atol=0)
@@ -116,6 +121,29 @@ def test_discounted_return_batch_matches_recursive_returns():
     reward_only = credit_batch(episodes, config, "reward_only_gae")["advantage"].reshape(-1)
     with pytest.raises(AssertionError):
         np.testing.assert_allclose(batch["advantage"].reshape(-1), reward_only, rtol=1e-3)
+    for episode, (training, audit) in zip(episodes, snapshots, strict=True):
+        assert (episode.training == training).all()
+        assert (episode.audit == audit).all()
+
+
+def test_discounted_return_respects_every_tail_and_ignores_critic_bootstrap():
+    from tests.training.test_ppo import _episode
+
+    episodes = [
+        _episode(
+            reward=reward,
+            terminated=terminated,
+            truncated=truncated,
+            bootstrap=0.0 if terminated else 900.0,
+        )
+        for reward, (terminated, truncated) in enumerate(
+            [(True, False), (False, True), (False, False), (True, True)], start=1
+        )
+    ]
+    batch = discounted_return_batch(episodes, 0.5)
+    torch.testing.assert_close(batch["value_target"].flatten(), torch.tensor([1.0, 2.0, 3.0, 4.0]))
+    batch["advantage"].zero_()
+    torch.testing.assert_close(batch["value_target"].flatten(), torch.tensor([1.0, 2.0, 3.0, 4.0]))
 
 
 def _pair(cosine: float, *, rmse: float = 0.2, sign_flip: float = 0.0, form: str) -> dict:

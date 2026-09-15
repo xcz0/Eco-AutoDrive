@@ -10,12 +10,12 @@ from typing import Any
 import torch
 from hydra.utils import to_absolute_path
 
-from eco_planner.rl.artifacts.schema import PolicyProbeSummary, TrainingUpdateSummary
-from eco_planner.rl.config import TrainingJobConfig
-from eco_planner.rl.optimization import PPOUpdater, load_training_checkpoint
-from eco_planner.rl.policy import ExplorationPolicyContext
-from eco_planner.rl.rollout import FabricRolloutRuntime
-from eco_planner.rl.tracking import TrackingIdentity
+from .artifacts.schema import PolicyProbeSummary, TrainingUpdateSummary
+from .config import TrainingJobConfig
+from .optimization import PPOUpdater, load_training_checkpoint
+from .policy import ExplorationPolicyContext, policy_context_tensordict
+from .rollout import FabricRolloutRuntime
+from .tracking import TrackingIdentity
 
 
 @dataclass
@@ -150,13 +150,7 @@ def _rollout_rng_states(
 
 
 def _serialize_context(context: ExplorationPolicyContext) -> dict[str, torch.Tensor]:
-    return {
-        "scene_tokens": context.scene_tokens,
-        "scene_padding_mask": context.scene_padding_mask,
-        "navigation_tokens": context.navigation_tokens,
-        "navigation_padding_mask": context.navigation_padding_mask,
-        "reference_trajectory": context.reference_trajectory,
-    }
+    return policy_context_tensordict(context).to_dict()
 
 
 def _deserialize_context(payload: Any) -> ExplorationPolicyContext:

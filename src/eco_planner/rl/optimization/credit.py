@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import torch
 from tensordict import TensorDictBase, cat
+from torchrl.objectives.value.functional import td_lambda_return_estimate
 
 from eco_planner.rl import (
     PPO_BATCH_KEYS,
@@ -24,19 +25,20 @@ def zero_critic_values(episode: RolloutEpisode) -> RolloutEpisode:
 
 def discounted_return_batch(episodes: Sequence[RolloutEpisode], gamma: float) -> TensorDictBase:
     """Critic-free diagnostic: per-episode R_t = r_t + gamma * R_{t+1}, no bootstrap."""
-    trajectories = []
-    for episode in episodes:
-        reward = episode.training["next", "reward"]
-        returns = torch.zeros_like(reward)
-        running = torch.zeros_like(reward[0])
-        for step in reversed(range(reward.shape[0])):
-            running = reward[step] + gamma * running
-            returns[step] = running
-        trajectory = episode.training.clone()
-        trajectory["advantage"] = returns.clone()
-        trajectory["value_target"] = returns.clone()
-        trajectories.append(trajectory)
-    return cat(trajectories).select(*PPO_BATCH_KEYS)
+    trajectory = cat([episode.training for episode in episodes])
+    reward = trajectory["next", "reward"]
+    returns = td_lambda_return_estimate(
+        gamma=gamma,
+        lmbda=1.0,
+        next_state_value=torch.zeros_like(reward),
+        reward=reward,
+        done=trajectory["next", "done"],
+        terminated=trajectory["next", "terminated"],
+        time_dim=0,
+    )
+    trajectory["advantage"] = returns
+    trajectory["value_target"] = returns.clone()
+    return trajectory.select(*PPO_BATCH_KEYS)
 
 
 def credit_batch(

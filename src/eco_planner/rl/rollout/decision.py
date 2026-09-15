@@ -14,7 +14,7 @@ from eco_planner.rl.policy import (
     ExplorationPolicyContext,
     validate_exploration_policy_context,
 )
-from eco_planner.rl.rollout.contracts import DecisionAudit
+from eco_planner.rl.policy.model import POLICY_CONTEXT_KEYS
 from eco_planner.runtime.contracts import HostTrajectories
 from eco_planner.runtime.host_transfer import DeferredHostTensors, DeferredHostTransferTiming
 
@@ -26,16 +26,12 @@ class RolloutDecision:
         self,
         execution: HostTrajectories,
         resolve_audit: Callable[[], TensorDictBase],
-        diffusion_rng_state: torch.Tensor,
-        policy_rng_state: torch.Tensor,
         training_decision: TensorDictBase,
     ) -> None:
         self._execution = execution
         self._resolve_audit = resolve_audit
-        self._diffusion_rng_state = diffusion_rng_state
-        self._policy_rng_state = policy_rng_state
         self._training_decision = training_decision
-        self._audit: DecisionAudit | None = None
+        self._audit: TensorDictBase | None = None
 
     @property
     def ego_trajectory(self) -> np.ndarray:
@@ -47,31 +43,11 @@ class RolloutDecision:
 
         return self._training_decision
 
-    def audit_result(self) -> DecisionAudit:
+    def audit_result(self) -> TensorDictBase:
         """Wait for the stored PPO/replay payload after simulator execution."""
 
         if self._audit is None:
-            host = self._resolve_audit()
-            context = ExplorationPolicyContext(
-                scene_tokens=host["scene_tokens"],
-                scene_padding_mask=host["scene_padding_mask"],
-                navigation_tokens=host["navigation_tokens"],
-                navigation_padding_mask=host["navigation_padding_mask"],
-                reference_trajectory=host["reference_trajectory"],
-            )
-            self._audit = DecisionAudit(
-                prediction=host["prediction"].numpy(),
-                initial_noise=host["initial_noise"],
-                policy_context=context,
-                base_action=host["base_action"],
-                guidance_action=host["guidance_action"],
-                old_joint_guidance_log_prob=host["old_joint_guidance_log_prob"],
-                old_value=host["old_value"],
-                beta_alpha=host["beta_alpha"],
-                beta_beta=host["beta_beta"],
-                diffusion_rng_state=self._diffusion_rng_state,
-                policy_rng_state=self._policy_rng_state,
-            )
+            self._audit = self._resolve_audit()
         return self._audit
 
 
@@ -130,8 +106,6 @@ class BatchRolloutDecision:
             decision = RolloutDecision(
                 HostTrajectories(self.ego_trajectories[index : index + 1]),
                 lambda: _slice_tensordict(self._resolve_audit(), slice(index, index + 1)),
-                diffusion_rng_state=self._diffusion_rng_states[index],
-                policy_rng_state=self._policy_rng_states[index],
                 training_decision=_slice_tensordict(
                     self._training_decision, slice(index, index + 1)
                 ),
@@ -145,21 +119,23 @@ class BatchRolloutDecision:
             _validate_finite(host)
             validate_exploration_policy_context(
                 ExplorationPolicyContext(
-                    scene_tokens=host["scene_tokens"],
-                    scene_padding_mask=host["scene_padding_mask"],
-                    navigation_tokens=host["navigation_tokens"],
-                    navigation_padding_mask=host["navigation_padding_mask"],
-                    reference_trajectory=host["reference_trajectory"],
+                    **{key: host[key] for key in POLICY_CONTEXT_KEYS},
                 ),
                 self._policy_config,
             )
             self._audit = TensorDict(host, batch_size=[self.ego_trajectories.shape[0]])
+            self._audit["diffusion_rng_state"] = torch.stack(self._diffusion_rng_states)
+            self._audit["policy_rng_state"] = torch.stack(self._policy_rng_states)
         return self._audit
 
 
 def _validate_finite(tensors: Mapping[str, torch.Tensor]) -> None:
     for name, value in tensors.items():
-        if value.dtype.is_floating_point and not torch.isfinite(value).all():
+        if (
+            name not in POLICY_CONTEXT_KEYS
+            and value.dtype.is_floating_point
+            and not torch.isfinite(value).all()
+        ):
             raise RuntimeError(f"rollout host tensor {name!r} contains non-finite values")
 
 

@@ -5,23 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, cast
 
-import numpy as np
 import torch
-from tensordict import TensorDict, TensorDictBase, cat
+from tensordict import TensorDictBase, cat
 
 from eco_planner.contracts import PLANNER_ACTOR_COUNT, PLANNER_HORIZON, PLANNER_STATE_DIM
-from eco_planner.rl.policy import ExplorationPolicyContext
+from eco_planner.rl.policy import ExplorationPolicyContext, policy_context_tensordict
 from eco_planner.rl.policy.model import POLICY_CONTEXT_KEYS
 from eco_planner.rl.reward import RewardResult
+from eco_planner.rl.reward.result import RewardProfileName as RewardProfileName
 
 TailKind = Literal["terminated", "truncated", "rollout_limit"]
-RewardProfileName = Literal[
-    "plannerrft_energy_v1",
-    "plannerrft_energy_band_lam64_v1",
-    "plannerrft_no_energy_v1",
-    "plannerrft_no_energy_calibrated_v1",
-]
-_CPU_DEVICE = torch.device("cpu")
 _CONTEXT_KEYS = POLICY_CONTEXT_KEYS
 PPO_BATCH_KEYS = (
     *POLICY_CONTEXT_KEYS,
@@ -47,7 +40,7 @@ _NEXT_TRAINING_KEYS = frozenset(
         "truncated",
     }
 )
-_AUDIT_KEYS: tuple[str, ...] = (
+_DECISION_AUDIT_KEYS = (
     *_CONTEXT_KEYS,
     "base_action",
     "guidance_action",
@@ -58,73 +51,83 @@ _AUDIT_KEYS: tuple[str, ...] = (
     "initial_noise",
     "diffusion_rng_state",
     "policy_rng_state",
-    "reward_total",
-    "reward_base_total",
-    "reward_safety_gate",
-    "reward_component_ttc",
-    "reward_component_progress",
-    "reward_component_comfort",
-    "reward_component_speed",
-    "reward_component_energy",
-    "route_completion_delta",
-    "distance_m",
-    "speed_mps",
-    "stopped",
-    "position_error_m",
-    "heading_error_rad",
-    "arrive_dest",
-    "out_of_road",
-    "crash_vehicle",
-    "crash_object",
-    "crash_building",
-    "crash_human",
-    "crash_sidewalk",
-    "terminated",
-    "truncated",
-    "map_seed",
-    "noise_seed",
-    "policy_action_seed",
-    "planning_cycle_index",
-    "step_distance_m",
-    "native_step_energy_ml",
-    "native_episode_energy_ml",
-    "executed_fuel_proxy_step_energy_ml",
-    "executed_fuel_proxy_ml_per_km",
-    "energy_distance_valid",
-    "reward_diagnostic_collision_score",
-    "reward_diagnostic_drivable_score",
-    "reward_diagnostic_wrong_direction_score",
-    "has_ttc_candidate",
-    "min_ttc_s",
-    "route_progress_delta_m",
-    "speed_limit_mps",
-    "overspeed_mps",
-    "longitudinal_acceleration_mps2",
-    "lateral_acceleration_mps2",
-    "jerk_mps3",
-    "yaw_rate_radps",
 )
-
-
-@dataclass(frozen=True)
-class DecisionAudit:
-    """CPU data retained from one policy-guided planner decision."""
-
-    prediction: np.ndarray
-    initial_noise: torch.Tensor
-    policy_context: ExplorationPolicyContext
-    base_action: torch.Tensor
-    guidance_action: torch.Tensor
-    old_joint_guidance_log_prob: torch.Tensor
-    old_value: torch.Tensor
-    beta_alpha: torch.Tensor
-    beta_beta: torch.Tensor
-    diffusion_rng_state: torch.Tensor
-    policy_rng_state: torch.Tensor
-
-    @property
-    def ego_trajectory(self) -> np.ndarray:
-        return self.prediction[0, 0]
+# Source, artifact prefix, dtype, and the explicitly persisted source fields.
+_AUDIT_SCALAR_GROUPS = (
+    ("reward", "reward_", torch.float32, ("total", "base_total", "safety_gate")),
+    (
+        "components",
+        "reward_component_",
+        torch.float32,
+        ("ttc", "progress", "comfort", "speed", "energy"),
+    ),
+    (
+        "execution",
+        "",
+        torch.float32,
+        (
+            "route_completion_delta",
+            "distance_m",
+            "speed_mps",
+            "position_error_m",
+            "heading_error_rad",
+        ),
+    ),
+    (
+        "execution",
+        "",
+        torch.bool,
+        (
+            "stopped",
+            "arrive_dest",
+            "out_of_road",
+            "crash_vehicle",
+            "crash_object",
+            "crash_building",
+            "crash_human",
+            "crash_sidewalk",
+            "terminated",
+            "truncated",
+        ),
+    ),
+    (
+        "provenance",
+        "",
+        torch.int64,
+        ("map_seed", "noise_seed", "policy_action_seed", "planning_cycle_index"),
+    ),
+    (
+        "diagnostics",
+        "",
+        torch.float32,
+        (
+            "step_distance_m",
+            "native_step_energy_ml",
+            "native_episode_energy_ml",
+            "executed_fuel_proxy_step_energy_ml",
+            "executed_fuel_proxy_ml_per_km",
+            "min_ttc_s",
+            "route_progress_delta_m",
+            "speed_limit_mps",
+            "overspeed_mps",
+            "longitudinal_acceleration_mps2",
+            "lateral_acceleration_mps2",
+            "jerk_mps3",
+            "yaw_rate_radps",
+        ),
+    ),
+    ("diagnostics", "", torch.bool, ("energy_distance_valid", "has_ttc_candidate")),
+    (
+        "diagnostics",
+        "reward_diagnostic_",
+        torch.float32,
+        ("collision_score", "drivable_score", "wrong_direction_score"),
+    ),
+)
+_AUDIT_KEYS = (
+    *_DECISION_AUDIT_KEYS,
+    *(prefix + field for _, prefix, _, fields in _AUDIT_SCALAR_GROUPS for field in fields),
+)
 
 
 @dataclass(frozen=True)
@@ -197,13 +200,10 @@ class RolloutEpisodeBuilder:
     def empty(self) -> bool:
         return not self._training and not self._audit
 
-    def link_next_state_value(self, value: torch.Tensor) -> None:
-        set_training_transition_next_state_value(self._training[-1], value)
-
     def append(
         self,
         training_decision: TensorDictBase,
-        decision_audit: DecisionAudit,
+        decision_audit: TensorDictBase,
         execution: ExecutionTransitionAudit,
         provenance: RolloutProvenance,
     ) -> None:
@@ -212,23 +212,27 @@ class RolloutEpisodeBuilder:
             self._reward_profile = profile
         elif profile != self._reward_profile:
             raise ValueError("one rollout episode cannot mix reward profiles")
-        self._training.append(
-            build_training_transition(
-                training_decision,
-                reward=execution.reward_result.total,
-                terminated=execution.terminated,
-                truncated=execution.truncated,
-            )
-        )
+        self._training.append(training_decision)
         self._audit.append(build_rollout_audit(decision_audit, execution, provenance))
 
     def finish(self, tail_kind: TailKind, tail_bootstrap_value: torch.Tensor) -> RolloutEpisode:
-        return finalize_rollout_episode(
-            self._training,
-            self._audit,
-            tail_kind,
-            tail_bootstrap_value,
-            cast(RewardProfileName, self._reward_profile),
+        if self.empty:
+            raise ValueError("rollout episode must contain at least one transition")
+        training = cat(self._training)
+        audit = cat(self._audit)
+        device = training["state_value"].device
+        bootstrap = tail_bootstrap_value.detach().to(device)
+        next_transition = audit.select("reward_total", "terminated", "truncated").clone().to(device)
+        next_transition.rename_key_("reward_total", "reward")
+        next_transition["state_value"] = torch.cat(
+            (training["state_value"][1:], bootstrap.reshape(1, 1))
+        )
+        done = next_transition["terminated"] | next_transition["truncated"]
+        done[-1] = True
+        next_transition["done"] = done
+        training["next"] = next_transition
+        return RolloutEpisode(
+            training, audit, tail_kind, bootstrap, cast(RewardProfileName, self._reward_profile)
         )
 
 
@@ -240,172 +244,43 @@ def build_training_decision(
 ) -> TensorDictBase:
     """Detach compact PPO inputs on their collection device."""
 
-    values = {
-        "scene_tokens": policy_context.scene_tokens,
-        "scene_padding_mask": policy_context.scene_padding_mask,
-        "navigation_tokens": policy_context.navigation_tokens,
-        "navigation_padding_mask": policy_context.navigation_padding_mask,
-        "reference_trajectory": policy_context.reference_trajectory,
-        "guidance_action": guidance_action,
-        "old_joint_guidance_log_prob": old_joint_guidance_log_prob.reshape(-1),
-        "state_value": state_value.reshape(-1, 1),
-    }
-    batch = policy_context.reference_trajectory.shape[0]
-    return TensorDict(
-        {key: value.detach().clone() for key, value in values.items()}, batch_size=[batch]
+    return (
+        policy_context_tensordict(policy_context)
+        .update(
+            {
+                "guidance_action": guidance_action,
+                "old_joint_guidance_log_prob": old_joint_guidance_log_prob.reshape(-1),
+                "state_value": state_value.reshape(-1, 1),
+            }
+        )
+        .detach()
+        .clone()
     )
-
-
-def build_training_transition(
-    decision: TensorDictBase, *, reward: float, terminated: bool, truncated: bool
-) -> TensorDictBase:
-    """Create one root/next PPO transition from a detached policy decision."""
-
-    device = _tensordict_device(decision)
-    return TensorDict(
-        {
-            **{key: decision[key] for key in decision.keys()},
-            "next": TensorDict(
-                {
-                    "reward": _float(reward, device),
-                    "done": _bool(terminated or truncated, device),
-                    "terminated": _bool(terminated, device),
-                    "truncated": _bool(truncated, device),
-                },
-                batch_size=[1],
-            ),
-        },
-        batch_size=[1],
-    )
-
-
-def set_training_transition_next_state_value(
-    transition: TensorDictBase, next_state_value: torch.Tensor
-) -> None:
-    """Attach the frozen critic value already computed for a transition's next state."""
-
-    if transition.batch_size != torch.Size([1]):
-        raise ValueError("PPO training transition must have batch size [1]")
-    device = _tensordict_device(transition)
-    value = next_state_value.detach().clone().reshape(-1, 1)
-    if value.device != device or tuple(value.shape) != (1, 1):
-        raise ValueError("next PPO state value must match the transition device with shape [1, 1]")
-    transition["next", "state_value"] = value
 
 
 def build_rollout_audit(
-    decision: DecisionAudit,
+    decision: TensorDictBase,
     execution: ExecutionTransitionAudit,
     provenance: RolloutProvenance,
 ) -> TensorDictBase:
-    """Build one CPU audit transition; validate it when the episode closes."""
+    """Project one CPU decision and its scalar execution audit without changing the inputs."""
 
-    payload = {
-        "scene_tokens": decision.policy_context.scene_tokens,
-        "scene_padding_mask": decision.policy_context.scene_padding_mask,
-        "navigation_tokens": decision.policy_context.navigation_tokens,
-        "navigation_padding_mask": decision.policy_context.navigation_padding_mask,
-        "reference_trajectory": decision.policy_context.reference_trajectory,
-        "base_action": decision.base_action,
-        "guidance_action": decision.guidance_action,
-        "old_joint_guidance_log_prob": decision.old_joint_guidance_log_prob.reshape(1, 1),
-        "state_value": decision.old_value.reshape(1, 1),
-        "beta_alpha": decision.beta_alpha,
-        "beta_beta": decision.beta_beta,
-        "initial_noise": decision.initial_noise,
-        "diffusion_rng_state": decision.diffusion_rng_state.unsqueeze(0),
-        "policy_rng_state": decision.policy_rng_state.unsqueeze(0),
-        "reward_total": _float(execution.reward_result.total),
-        "reward_base_total": _float(execution.reward_result.base_total),
-        "reward_safety_gate": _float(execution.reward_result.safety_gate),
-        "reward_component_ttc": _float(execution.reward_result.components.ttc),
-        "reward_component_progress": _float(execution.reward_result.components.progress),
-        "reward_component_comfort": _float(execution.reward_result.components.comfort),
-        "reward_component_speed": _float(execution.reward_result.components.speed),
-        "reward_component_energy": _float(execution.reward_result.components.energy),
-        "route_completion_delta": _float(execution.route_completion_delta),
-        "distance_m": _float(execution.distance_m),
-        "speed_mps": _float(execution.speed_mps),
-        "stopped": _bool(execution.stopped),
-        "position_error_m": _float(execution.position_error_m),
-        "heading_error_rad": _float(execution.heading_error_rad),
-        "arrive_dest": _bool(execution.arrive_dest),
-        "out_of_road": _bool(execution.out_of_road),
-        "crash_vehicle": _bool(execution.crash_vehicle),
-        "crash_object": _bool(execution.crash_object),
-        "crash_building": _bool(execution.crash_building),
-        "crash_human": _bool(execution.crash_human),
-        "crash_sidewalk": _bool(execution.crash_sidewalk),
-        "terminated": _bool(execution.terminated),
-        "truncated": _bool(execution.truncated),
-        "map_seed": _integer(provenance.map_seed),
-        "noise_seed": _integer(provenance.noise_seed),
-        "policy_action_seed": _integer(provenance.policy_action_seed),
-        "planning_cycle_index": _integer(provenance.planning_cycle_index),
-        "step_distance_m": _float(execution.reward_result.diagnostics.step_distance_m),
-        "native_step_energy_ml": _float(execution.reward_result.diagnostics.native_step_energy_ml),
-        "native_episode_energy_ml": _float(
-            execution.reward_result.diagnostics.native_episode_energy_ml
-        ),
-        "executed_fuel_proxy_step_energy_ml": _float(
-            execution.reward_result.diagnostics.executed_fuel_proxy_step_energy_ml
-        ),
-        "executed_fuel_proxy_ml_per_km": _float(
-            execution.reward_result.diagnostics.executed_fuel_proxy_ml_per_km
-        ),
-        "energy_distance_valid": _bool(execution.reward_result.diagnostics.energy_distance_valid),
-        "reward_diagnostic_collision_score": _float(
-            execution.reward_result.diagnostics.collision_score
-        ),
-        "reward_diagnostic_drivable_score": _float(
-            execution.reward_result.diagnostics.drivable_score
-        ),
-        "reward_diagnostic_wrong_direction_score": _float(
-            execution.reward_result.diagnostics.wrong_direction_score
-        ),
-        "has_ttc_candidate": _bool(execution.reward_result.diagnostics.has_ttc_candidate),
-        "min_ttc_s": _float(execution.reward_result.diagnostics.min_ttc_s),
-        "route_progress_delta_m": _float(
-            execution.reward_result.diagnostics.route_progress_delta_m
-        ),
-        "speed_limit_mps": _float(execution.reward_result.diagnostics.speed_limit_mps),
-        "overspeed_mps": _float(execution.reward_result.diagnostics.overspeed_mps),
-        "longitudinal_acceleration_mps2": _float(
-            execution.reward_result.diagnostics.longitudinal_acceleration_mps2
-        ),
-        "lateral_acceleration_mps2": _float(
-            execution.reward_result.diagnostics.lateral_acceleration_mps2
-        ),
-        "jerk_mps3": _float(execution.reward_result.diagnostics.jerk_mps3),
-        "yaw_rate_radps": _float(execution.reward_result.diagnostics.yaw_rate_radps),
+    audit = decision.select(*_DECISION_AUDIT_KEYS)
+    sources = {
+        "execution": execution,
+        "reward": execution.reward_result,
+        "components": execution.reward_result.components,
+        "diagnostics": execution.reward_result.diagnostics,
+        "provenance": provenance,
     }
-    return TensorDict(payload, batch_size=[1])
-
-
-def finalize_rollout_episode(
-    training_transitions: list[TensorDictBase],
-    audit_transitions: list[TensorDictBase],
-    tail_kind: TailKind,
-    tail_bootstrap_value: torch.Tensor,
-    reward_profile: RewardProfileName,
-) -> RolloutEpisode:
-    """Join PPO and CPU audit data after attaching the final GAE boundary value."""
-
-    if not training_transitions or not audit_transitions:
-        raise ValueError("rollout episode must contain at least one transition")
-    final_transition = training_transitions[-1]
-    device = _tensordict_device(final_transition)
-    bootstrap = tail_bootstrap_value.detach().to(device)
-    set_training_transition_next_state_value(final_transition, bootstrap)
-    final_transition["next", "done"] = _bool(True, device)
-    training = cat(training_transitions)
-    return RolloutEpisode(
-        training,
-        cat(audit_transitions),
-        tail_kind,
-        bootstrap,
-        reward_profile,
+    audit.update(
+        {
+            prefix + field: torch.tensor([[getattr(sources[source], field)]], dtype=dtype)
+            for source, prefix, dtype, fields in _AUDIT_SCALAR_GROUPS
+            for field in fields
+        }
     )
+    return audit
 
 
 def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
@@ -552,18 +427,6 @@ def _validate_tail(trajectory: TensorDictBase, tail_kind: TailKind, value: torch
             raise ValueError("truncated tail must end in a non-terminal truncation")
     elif terminated or truncated:
         raise ValueError("rollout_limit tail must end before an episode boundary")
-
-
-def _float(value: float, device: torch.device = _CPU_DEVICE) -> torch.Tensor:
-    return torch.tensor([[value]], dtype=torch.float32, device=device)
-
-
-def _bool(value: bool, device: torch.device = _CPU_DEVICE) -> torch.Tensor:
-    return torch.tensor([[value]], dtype=torch.bool, device=device)
-
-
-def _integer(value: int) -> torch.Tensor:
-    return torch.tensor([[value]], dtype=torch.int64)
 
 
 def _tensordict_device(trajectory: TensorDictBase) -> torch.device:

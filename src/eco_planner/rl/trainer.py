@@ -11,7 +11,9 @@ from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import write_json
-from eco_planner.rl.artifacts import (
+from eco_planner.runtime.resources import ResourceProfileConfig
+
+from .artifacts import (
     PolicyProbeSummary,
     TrainingRunSummary,
     TrainingUpdateSummary,
@@ -20,23 +22,22 @@ from eco_planner.rl.artifacts import (
     write_rollout_episode,
     write_training_runtime_metadata,
 )
-from eco_planner.rl.config import TrainingJobConfig
-from eco_planner.rl.optimization import (
+from .config import TrainingJobConfig
+from .optimization import (
     PPOUpdater,
     save_exploration_policy_checkpoint,
     save_training_checkpoint,
 )
-from eco_planner.rl.policy import ExplorationPolicyContext
-from eco_planner.rl.probing import capture_probe_contexts, probe_policy
-from eco_planner.rl.rollout import (
+from .policy import ExplorationPolicyContext
+from .probing import capture_probe_contexts, probe_policy
+from .rollout import (
     RolloutEpisode,
     VectorRolloutCollector,
     create_fabric_rollout_runtime,
 )
-from eco_planner.rl.rollout.seeds import derive_rollout_seeds
-from eco_planner.rl.tracking import TrainingTracking
-from eco_planner.rl.training_state import resume_training_state
-from eco_planner.runtime.resources import ResourceProfileConfig
+from .rollout.seeds import derive_rollout_seeds
+from .tracking import TrainingTracking
+from .training_state import resume_training_state
 
 TrainingUpdateObserver = Callable[[TrainingUpdateSummary], None]
 

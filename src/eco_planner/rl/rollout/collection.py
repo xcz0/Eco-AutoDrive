@@ -20,7 +20,8 @@ from eco_planner.rl import (
     write_training_runtime_metadata,
 )
 from eco_planner.rl.config import TrainingJobConfig
-from eco_planner.rl.rollout.fixed_batch import write_batch
+
+from .fixed_batch import write_batch
 
 
 def collect(resolved: DictConfig, config: TrainingJobConfig, output_dir: Path) -> dict[str, Any]:

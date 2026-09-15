@@ -15,8 +15,9 @@ from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, ConfigDict, Field
 
 from eco_planner._repository import REPOSITORY_ROOT
-from eco_planner.rl.artifacts import PolicyProbeSummary, TrainingUpdateSummary
-from eco_planner.rl.config import TrainingJobConfig, parse_training_config
+
+from .artifacts import PolicyProbeSummary, TrainingUpdateSummary
+from .config import TrainingJobConfig, parse_training_config
 
 
 class TrackingIdentity(BaseModel):

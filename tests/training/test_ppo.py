@@ -3,10 +3,9 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
-import numpy as np
 import pytest
 import torch
-from tensordict import cat
+from tensordict import TensorDictBase, cat
 
 from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater, compute_episode_gae
@@ -20,7 +19,6 @@ from eco_planner.rl.policy import (
 from eco_planner.rl.reward import RewardComponents, RewardDiagnostics, RewardResult
 from eco_planner.rl.reward.result import RewardProfileName
 from eco_planner.rl.rollout import (
-    DecisionAudit,
     ExecutionTransitionAudit,
     RolloutEpisodeBuilder,
     RolloutProvenance,
@@ -76,20 +74,21 @@ def _context() -> ExplorationPolicyContext:
     )
 
 
-def _decision_audit() -> DecisionAudit:
+def _decision_audit() -> TensorDictBase:
     context = _context()
-    return DecisionAudit(
-        prediction=np.zeros((1, 11, 80, 4), dtype=np.float32),
-        initial_noise=torch.zeros((1, 11, 80, 4)),
-        policy_context=context,
-        base_action=torch.tensor([[0.25, 0.75]]),
-        guidance_action=torch.tensor([[-0.5, 0.5]]),
-        old_joint_guidance_log_prob=torch.tensor([0.5]),
-        old_value=torch.tensor([1.0]),
-        beta_alpha=torch.full((1, 2), 2.0),
-        beta_beta=torch.full((1, 2), 2.0),
-        diffusion_rng_state=torch.ones(5, dtype=torch.uint8),
-        policy_rng_state=torch.ones(5, dtype=torch.uint8),
+    return policy_context_tensordict(context).update(
+        dict(
+            prediction=torch.zeros((1, 11, 80, 4)),
+            initial_noise=torch.zeros((1, 11, 80, 4)),
+            base_action=torch.tensor([[0.25, 0.75]]),
+            guidance_action=torch.tensor([[-0.5, 0.5]]),
+            old_joint_guidance_log_prob=torch.tensor([[0.5]]),
+            state_value=torch.tensor([[1.0]]),
+            beta_alpha=torch.full((1, 2), 2.0),
+            beta_beta=torch.full((1, 2), 2.0),
+            diffusion_rng_state=torch.ones((1, 5), dtype=torch.uint8),
+            policy_rng_state=torch.ones((1, 5), dtype=torch.uint8),
+        )
     )
 
 
@@ -191,14 +190,15 @@ def _behavior_policy_episode(
         old_log_prob,
         outputs["state_value"],
     )
-    decision_audit = replace(
-        _decision_audit(),
-        base_action=(guidance_action + 1.0) / 2.0,
-        guidance_action=guidance_action,
-        old_joint_guidance_log_prob=old_log_prob,
-        old_value=outputs["state_value"].reshape(-1),
-        beta_alpha=outputs["alpha"],
-        beta_beta=outputs["beta"],
+    decision_audit = _decision_audit().update(
+        dict(
+            base_action=(guidance_action + 1.0) / 2.0,
+            guidance_action=guidance_action,
+            old_joint_guidance_log_prob=old_log_prob.reshape(-1, 1),
+            state_value=outputs["state_value"],
+            beta_alpha=outputs["alpha"],
+            beta_beta=outputs["beta"],
+        )
     )
     builder = RolloutEpisodeBuilder()
     builder.append(
