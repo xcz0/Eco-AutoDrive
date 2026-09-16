@@ -42,6 +42,7 @@ from eco_planner.evaluation.artifacts import (
 from eco_planner.models import CheckpointLoadReport, NoGuidanceConfig, SamplerReport
 from eco_planner.runtime.contracts import HostTrajectories
 from eco_planner.runtime.fabric import InferenceRuntimeReport
+from eco_planner.runtime.host_transfer import HostTransfer
 
 
 @pytest.mark.smoke
@@ -339,3 +340,14 @@ def test_execution_record_contains_only_execution_facts() -> None:
             "substep_metrics",
         }
     )
+
+
+def test_cpu_host_transfer_separates_execution_and_audit_payloads() -> None:
+    prediction = torch.arange(2 * 11 * 80 * 4, dtype=torch.float32).reshape(2, 11, 80, 4)
+    transfer = HostTransfer(torch.device("cpu"))
+
+    deferred = transfer.defer({"prediction": (prediction, torch.float32)})
+    trajectories = transfer.execution_trajectories(prediction)
+    assert trajectories.ego.shape == (2, 80, 4)
+    torch.testing.assert_close(torch.from_numpy(trajectories.ego), prediction[:, 0])
+    torch.testing.assert_close(deferred.resolve()["prediction"], prediction)

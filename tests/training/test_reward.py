@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pytest
+from omegaconf import OmegaConf
 
 from eco_planner.envs.domain import (
     MetaDriveFuelProxyProvider,
@@ -12,7 +14,13 @@ from eco_planner.envs.domain import (
     TransitionMetricInput,
     derive_transition_metrics,
 )
-from eco_planner.rl.reward import PlannerRFTEnergyRewardConfig, evaluate_plannerrft_energy_step
+from eco_planner.rl.reward import (
+    PlannerRFTEnergyRewardConfig,
+    PlannerRFTNoEnergyRewardConfig,
+    evaluate_plannerrft_energy_step,
+    evaluate_plannerrft_no_energy_step,
+)
+from eco_planner.rl.reward.components import calibrated_band_score
 
 
 def _config() -> PlannerRFTEnergyRewardConfig:
@@ -53,6 +61,21 @@ def _config() -> PlannerRFTEnergyRewardConfig:
             "energy": {"reference_ml_per_km": 50.0, "minimum_step_distance_m": 0.01},
         }
     )
+
+
+def _no_energy_config() -> PlannerRFTNoEnergyRewardConfig:
+    payload = _config().model_dump(mode="python")
+    payload["name"] = "plannerrft_no_energy_v1"
+    payload["weights"] = {
+        key: value for key, value in payload["weights"].items() if key != "energy"
+    }
+    return PlannerRFTNoEnergyRewardConfig.model_validate(payload)
+
+
+def _energy_config_with_weight(energy_weight: float) -> PlannerRFTEnergyRewardConfig:
+    payload = _config().model_dump(mode="python")
+    payload["weights"]["energy"] = energy_weight
+    return PlannerRFTEnergyRewardConfig.model_validate(payload)
 
 
 def _frame(
@@ -136,6 +159,70 @@ def test_energy_score_does_not_reward_a_stationary_transition() -> None:
     assert result.components.progress == 0.0
 
 
+def _band_config() -> PlannerRFTEnergyRewardConfig:
+    payload = _config().model_dump(mode="python")
+    payload["energy"] = {
+        "mode": "calibrated_band",
+        "reference_ml_per_km": 50.0,
+        "minimum_step_distance_m": 0.01,
+        "band_full_score_ml_per_km": 44.0,
+        "band_zero_score_ml_per_km": 50.0,
+    }
+    return PlannerRFTEnergyRewardConfig.model_validate(payload)
+
+
+def test_calibrated_band_score_direction_and_saturation() -> None:
+    assert calibrated_band_score(44.0, 44.0, 50.0) == 1.0
+    assert calibrated_band_score(43.0, 44.0, 50.0) == 1.0
+    assert calibrated_band_score(50.0, 44.0, 50.0) == 0.0
+    assert calibrated_band_score(51.0, 44.0, 50.0) == 0.0
+    assert calibrated_band_score(47.0, 44.0, 50.0) == pytest.approx(0.5)
+    assert calibrated_band_score(45.0, 44.0, 50.0) > calibrated_band_score(49.0, 44.0, 50.0)
+
+
+def test_plannerrft_band_energy_reward_scores_intensity_in_the_band() -> None:
+    result = evaluate_plannerrft_energy_step(_band_config(), _metrics())
+
+    intensity = 32.5 * math.exp(0.36)
+    assert result.diagnostics.energy_distance_valid
+    assert result.diagnostics.executed_fuel_proxy_ml_per_km == pytest.approx(intensity)
+    assert result.components.energy == pytest.approx(calibrated_band_score(intensity, 44.0, 50.0))
+    assert 0.0 < result.components.energy < 1.0
+
+
+def test_band_energy_score_does_not_reward_a_stationary_transition() -> None:
+    result = evaluate_plannerrft_energy_step(
+        _band_config(),
+        _metrics(
+            position_xy_m=(0.0, 0.0),
+            velocity_xy_mps=(0.0, 0.0),
+            route_progress_delta_m=0.0,
+            traffic_frame=_frame(),
+        ),
+    )
+
+    assert not result.diagnostics.energy_distance_valid
+    assert result.components.energy == 0.0
+
+
+def test_energy_band_config_validation() -> None:
+    payload = _band_config().model_dump(mode="python")
+    del payload["energy"]["band_zero_score_ml_per_km"]
+    with pytest.raises(ValueError, match="calibrated_band energy mode requires"):
+        PlannerRFTEnergyRewardConfig.model_validate(payload)
+
+    inverted = _band_config().model_dump(mode="python")
+    inverted["energy"]["band_full_score_ml_per_km"] = 50.0
+    inverted["energy"]["band_zero_score_ml_per_km"] = 44.0
+    with pytest.raises(ValueError, match="zero_score above full_score"):
+        PlannerRFTEnergyRewardConfig.model_validate(inverted)
+
+    leaked = _config().model_dump(mode="python")
+    leaked["energy"]["band_full_score_ml_per_km"] = 44.0
+    with pytest.raises(ValueError, match="only allowed in calibrated_band mode"):
+        PlannerRFTEnergyRewardConfig.model_validate(leaked)
+
+
 def test_ttc_and_terminal_gates_are_independent_auditable_components() -> None:
     lead = TrafficParticipantState(
         object_id="lead",
@@ -212,3 +299,254 @@ def test_wrong_direction_speed_and_comfort_scores_follow_configured_bounds() -> 
     assert result.diagnostics.longitudinal_acceleration_mps2 == pytest.approx(40.0)
     assert result.diagnostics.jerk_mps3 == pytest.approx(400.0)
     assert result.components.comfort == 0.0
+
+
+@pytest.mark.smoke
+def test_plannerrft_no_energy_reward_matches_the_worked_no_traffic_example() -> None:
+    result = evaluate_plannerrft_no_energy_step(_no_energy_config(), _metrics())
+
+    assert result.profile_name == "plannerrft_no_energy_v1"
+    assert result.safety_gate == 1.0
+    assert result.components.ttc == 1.0
+    assert result.components.progress == 1.0
+    assert result.components.comfort == 1.0
+    assert result.components.speed == 1.0
+    # Energy stays an audited, unweighted diagnostic with identical normalization.
+    assert result.components.energy == pytest.approx(math.exp(-(32.5 * math.exp(0.36)) / 50.0))
+    assert result.diagnostics.executed_fuel_proxy_ml_per_km == pytest.approx(32.5 * math.exp(0.36))
+    assert result.base_total == 1.0
+    assert result.total == 1.0
+
+
+def test_no_energy_reward_keeps_gate_semantics_and_stationary_progress_at_zero() -> None:
+    stationary = evaluate_plannerrft_no_energy_step(
+        _no_energy_config(),
+        _metrics(
+            position_xy_m=(0.0, 0.0),
+            previous_velocity_xy_mps=(0.0, 0.0),
+            velocity_xy_mps=(0.0, 0.0),
+            route_progress_delta_m=0.0,
+            traffic_frame=_frame(),
+        ),
+    )
+    tiny = evaluate_plannerrft_no_energy_step(
+        _no_energy_config(),
+        _metrics(
+            position_xy_m=(0.005, 0.0),
+            previous_velocity_xy_mps=(0.05, 0.0),
+            velocity_xy_mps=(0.05, 0.0),
+            route_progress_delta_m=0.005,
+        ),
+    )
+
+    assert stationary.components.progress == 0.0
+    assert not stationary.diagnostics.energy_distance_valid
+    assert stationary.total == pytest.approx((5.0 + 2.0 + 4.0) / 16.0)
+    assert tiny.components.progress == pytest.approx(0.005)
+    assert not tiny.diagnostics.energy_distance_valid
+
+
+def test_no_energy_reward_total_is_zeroed_by_terminal_gates() -> None:
+    collision = evaluate_plannerrft_no_energy_step(
+        _no_energy_config(), _metrics(crash_vehicle=True)
+    )
+    off_road = evaluate_plannerrft_no_energy_step(_no_energy_config(), _metrics(out_of_road=True))
+    wrong_direction = evaluate_plannerrft_no_energy_step(
+        _no_energy_config(), _metrics(route_heading_rad=math.pi)
+    )
+
+    assert collision.diagnostics.collision_score == 0.0
+    assert collision.safety_gate == 0.0
+    assert collision.total == 0.0
+    assert off_road.diagnostics.drivable_score == 0.0
+    assert off_road.safety_gate == 0.0
+    assert off_road.total == 0.0
+    assert wrong_direction.diagnostics.wrong_direction_score == 0.0
+    assert wrong_direction.safety_gate == 0.0
+    assert wrong_direction.total == 0.0
+
+
+@pytest.mark.parametrize("energy_weight", [0.5, 1.0, 2.0, 4.0])
+def test_energy_weight_lambda_changes_only_the_energy_term_and_denominator(
+    energy_weight: float,
+) -> None:
+    result = evaluate_plannerrft_energy_step(_energy_config_with_weight(energy_weight), _metrics())
+    reference = evaluate_plannerrft_no_energy_step(_no_energy_config(), _metrics())
+
+    assert result.profile_name == "plannerrft_energy_v1"
+    assert result.components == reference.components
+    assert result.diagnostics == reference.diagnostics
+    expected = (
+        5.0 * result.components.ttc
+        + 5.0 * result.components.progress
+        + 2.0 * result.components.comfort
+        + 4.0 * result.components.speed
+        + energy_weight * result.components.energy
+    ) / (16.0 + energy_weight)
+    assert result.base_total == pytest.approx(expected)
+    assert result.total == pytest.approx(result.safety_gate * expected)
+
+
+def test_energy_reward_converges_to_the_no_energy_profile_as_lambda_approaches_zero() -> None:
+    result = evaluate_plannerrft_energy_step(_energy_config_with_weight(1.0e-9), _metrics())
+    reference = evaluate_plannerrft_no_energy_step(_no_energy_config(), _metrics())
+
+    assert result.total == pytest.approx(reference.total, abs=1.0e-9)
+
+
+def test_no_energy_and_energy_profiles_differ_only_in_the_energy_objective_term() -> None:
+    config_root = Path(__file__).resolve().parents[2] / "configs" / "components" / "reward"
+    profiles = {
+        name: OmegaConf.to_container(OmegaConf.load(config_root / f"{name}.yaml"), resolve=True)
+        for name in ("plannerrft_energy_v1", "plannerrft_no_energy_v1")
+    }
+    energy = PlannerRFTEnergyRewardConfig.model_validate(profiles["plannerrft_energy_v1"])
+    no_energy = PlannerRFTNoEnergyRewardConfig.model_validate(profiles["plannerrft_no_energy_v1"])
+
+    assert energy.gates == no_energy.gates
+    assert energy.ttc == no_energy.ttc
+    assert energy.progress == no_energy.progress
+    assert energy.comfort == no_energy.comfort
+    assert energy.speed == no_energy.speed
+    assert energy.energy == no_energy.energy
+    assert (
+        energy.weights.ttc,
+        energy.weights.progress,
+        energy.weights.comfort,
+        energy.weights.speed,
+    ) == (
+        no_energy.weights.ttc,
+        no_energy.weights.progress,
+        no_energy.weights.comfort,
+        no_energy.weights.speed,
+    )
+    assert no_energy.weights.total == 16.0
+    assert energy.weights.total == pytest.approx(16.0 + energy.weights.energy)
+
+
+def _task_g_profile_payload(name: str) -> dict:
+    config_root = Path(__file__).resolve().parents[2] / "configs" / "components" / "reward"
+    payload = OmegaConf.to_container(OmegaConf.load(config_root / f"{name}.yaml"), resolve=True)
+    assert isinstance(payload, dict)
+    return payload
+
+
+def test_task_g_profiles_freeze_calibration_band_and_lambda_64() -> None:
+    r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
+        _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
+    )
+    rstress = PlannerRFTEnergyRewardConfig.model_validate(
+        _task_g_profile_payload("plannerrft_energy_band_lam64_v1")
+    )
+
+    assert r0.name == "plannerrft_no_energy_calibrated_v1"
+    assert rstress.name == "plannerrft_energy_band_lam64_v1"
+    assert r0.weights.total == 16.0
+    assert rstress.weights.energy == 64.0
+    assert rstress.weights.total == 80.0
+    # E-034 frozen calibration on Progress and Comfort.
+    assert r0.progress.full_score_delta_m == pytest.approx(1.7813475926717124)
+    assert r0.comfort.longitudinal_acceleration_limit_mps2 == pytest.approx(4.157548461641585)
+    assert r0.comfort.lateral_acceleration_limit_mps2 == pytest.approx(3.0)
+    assert r0.comfort.jerk_limit_mps3 == pytest.approx(111.70486995152065)
+    assert r0.comfort.yaw_rate_limit_radps == pytest.approx(0.5)
+    # E-038 frozen efficiency-band thresholds on the stress arm only.
+    assert r0.energy.mode == "reference_exponential"
+    assert r0.energy.band_full_score_ml_per_km is None
+    assert r0.energy.band_zero_score_ml_per_km is None
+    assert rstress.energy.mode == "calibrated_band"
+    assert rstress.energy.band_full_score_ml_per_km == pytest.approx(46.37086372375488)
+    assert rstress.energy.band_zero_score_ml_per_km == pytest.approx(48.7514030456543)
+    # The paired arms differ only in the energy objective term.
+    assert r0.gates == rstress.gates
+    assert r0.ttc == rstress.ttc
+    assert r0.progress == rstress.progress
+    assert r0.comfort == rstress.comfort
+    assert r0.speed == rstress.speed
+    assert (r0.weights.ttc, r0.weights.progress, r0.weights.comfort, r0.weights.speed) == (
+        rstress.weights.ttc,
+        rstress.weights.progress,
+        rstress.weights.comfort,
+        rstress.weights.speed,
+    )
+
+
+def test_task_g_rstress_reward_uses_band_energy_at_lambda_64() -> None:
+    rstress = PlannerRFTEnergyRewardConfig.model_validate(
+        _task_g_profile_payload("plannerrft_energy_band_lam64_v1")
+    )
+    r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
+        _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
+    )
+    rstress_result = evaluate_plannerrft_energy_step(rstress, _metrics())
+    r0_result = evaluate_plannerrft_no_energy_step(r0, _metrics())
+
+    intensity = 32.5 * math.exp(0.36)
+    band_full = 46.37086372375488
+    band_zero = 48.7514030456543
+    assert (
+        rstress_result.components.ttc,
+        rstress_result.components.progress,
+        rstress_result.components.comfort,
+        rstress_result.components.speed,
+    ) == (
+        r0_result.components.ttc,
+        r0_result.components.progress,
+        r0_result.components.comfort,
+        r0_result.components.speed,
+    )
+    assert rstress_result.diagnostics == r0_result.diagnostics
+    assert r0_result.components.energy == pytest.approx(math.exp(-intensity / 50.0))
+    assert rstress_result.components.energy == pytest.approx(
+        calibrated_band_score(intensity, band_full, band_zero)
+    )
+    expected_r0 = (
+        5.0 * r0_result.components.ttc
+        + 5.0 * r0_result.components.progress
+        + 2.0 * r0_result.components.comfort
+        + 4.0 * r0_result.components.speed
+    ) / 16.0
+    expected_rstress = (
+        5.0 * rstress_result.components.ttc
+        + 5.0 * rstress_result.components.progress
+        + 2.0 * rstress_result.components.comfort
+        + 4.0 * rstress_result.components.speed
+        + 64.0 * rstress_result.components.energy
+    ) / 80.0
+    assert r0_result.total == pytest.approx(expected_r0)
+    assert rstress_result.total == pytest.approx(expected_rstress)
+
+
+def test_reward_results_and_audit_schema_carry_the_configured_profile_name() -> None:
+    from eco_planner.rl.rollout import rollout_audit_keys
+
+    r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
+        _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
+    )
+    rstress = PlannerRFTEnergyRewardConfig.model_validate(
+        _task_g_profile_payload("plannerrft_energy_band_lam64_v1")
+    )
+
+    assert (
+        evaluate_plannerrft_no_energy_step(r0, _metrics()).profile_name
+        == "plannerrft_no_energy_calibrated_v1"
+    )
+    assert (
+        evaluate_plannerrft_energy_step(rstress, _metrics()).profile_name
+        == "plannerrft_energy_band_lam64_v1"
+    )
+    assert (
+        evaluate_plannerrft_no_energy_step(_no_energy_config(), _metrics()).profile_name
+        == "plannerrft_no_energy_v1"
+    )
+    assert (
+        evaluate_plannerrft_energy_step(_config(), _metrics()).profile_name
+        == "plannerrft_energy_v1"
+    )
+    # Every profile shares one rollout audit schema, including the Task G arms.
+    assert rollout_audit_keys("plannerrft_energy_band_lam64_v1") == rollout_audit_keys(
+        "plannerrft_energy_v1"
+    )
+    assert rollout_audit_keys("plannerrft_no_energy_calibrated_v1") == rollout_audit_keys(
+        "plannerrft_no_energy_v1"
+    )

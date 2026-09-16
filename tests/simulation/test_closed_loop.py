@@ -18,7 +18,6 @@ from eco_planner.envs.metadrive import MetaDriveBackend
 from eco_planner.rl.config import parse_rollout_config
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater
 from eco_planner.rl.reward import (
-    PlannerRFTEnergyRewardConfig,
     RewardProfileConfig,
     evaluate_plannerrft_energy_step,
 )
@@ -58,6 +57,77 @@ def _environment_config(
         "decision_repeat": 5,
         "programmatic_lane_speed_limit_kmh": 50.0,
     }
+
+
+@pytest.mark.simulator
+@pytest.mark.gpu
+def test_fixed_batch_collection_persists_seeds_and_episodes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, baseline_checkpoint_dir: Path
+) -> None:
+    import json
+
+    from eco_planner._repository import CONFIG_ROOT
+    from eco_planner.rl.rollout.collection import collect
+    from eco_planner.rl.rollout.fixed_batch import load_fixed_batch
+    from eco_planner.rl.rollout.seeds import derive_rollout_seeds
+
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    protocol = OmegaConf.load(CONFIG_ROOT / "experiments/comparison/default.yaml")
+    protocol.training.base_job = "jobs/training/ppo"
+    protocol_path = tmp_path / "protocol.yaml"
+    OmegaConf.save(protocol, protocol_path)
+    config_path = tmp_path / "collect.yaml"
+    OmegaConf.save(
+        OmegaConf.create(
+            {
+                "protocol": str(protocol_path),
+                "training_seed": 0,
+                "overrides": [
+                    "components/resources=rtx3050_laptop",
+                    "resources.rollout_worker_count=1",
+                    "resources.torch_threads_per_worker=1",
+                    "training.transitions_per_environment=1",
+                    "training.update_count=1",
+                    "ppo.batch_size=2",
+                    "ppo.minibatch_size=2",
+                    "ppo.epochs=1",
+                    "ppo.scheduler_total_optimizer_steps=1",
+                    "env.num_scenarios=8",
+                    f"model.args_path={(baseline_checkpoint_dir / 'args.json').as_posix()}",
+                    f"model.checkpoint_path={(baseline_checkpoint_dir / 'model.pth').as_posix()}",
+                ],
+            }
+        ),
+        config_path,
+    )
+    output = tmp_path / "batch"
+    from eco_planner.experiments.protocol.composition import compose_arm_training_config
+    from eco_planner.experiments.protocol.config import load_protocol
+
+    spec = OmegaConf.load(config_path)
+    resolved, parsed = compose_arm_training_config(
+        load_protocol(Path(spec.protocol)), "a1", spec.training_seed, spec.overrides
+    )
+    result = collect(resolved, parsed, output)
+    batch = load_fixed_batch(output)
+    summary = json.loads((output / "summary.json").read_text())
+    noise, policy = derive_rollout_seeds(0, 2)
+    assert summary["noise_seeds"] == list(noise)
+    assert summary["policy_action_seeds"] == list(policy)
+    assert result["sample_count"] == 2 and result["optimizer_steps"] == 0
+    assert summary["policy_unchanged"] and summary["planner_unchanged"]
+    assert summary["planner_gradients_absent"]
+    assert len(batch.episodes) == 2 and len(batch.samples) == 2
+    for episode, sample in zip(batch.episodes, batch.samples, strict=True):
+        slot = sample["scenario_index"]
+        assert episode.audit["noise_seed"].item() == noise[slot]
+        assert episode.audit["policy_action_seed"].item() == policy[slot]
+        assert episode.audit["map_seed"].item() == batch.config.scenarios[slot].seed
+    assert not (output / "diagnostics.npz").exists()
+    assert "arms" not in summary
+    assert not (output / "source").exists()
+    assert not (output / "tracked_diff.patch").exists()
+    assert "git_head" in batch.runtime_metadata
 
 
 def _straight_trajectory(speed_mps: float = 5.0) -> np.ndarray:
@@ -108,7 +178,7 @@ def _off_route_trajectory(env: MetaDriveBackend, query_radius_m: float) -> np.nd
     return trajectory
 
 
-def _reward_profile(name: str) -> PlannerRFTEnergyRewardConfig:
+def _reward_profile(name: str) -> RewardProfileConfig:
     config_root = Path(__file__).resolve().parents[2] / "configs" / "components" / "reward"
     raw = OmegaConf.to_container(OmegaConf.load(config_root / f"{name}.yaml"), resolve=True)
     return TypeAdapter(RewardProfileConfig).validate_python(raw)
@@ -378,6 +448,7 @@ def test_real_checkpoint_metadrive_rollout_updates_policy_without_changing_plann
         history_warmup_steps=parsed.rollout.history_warmup_steps,
         max_transitions=2,
         stopped_speed_threshold_mps=parsed.rollout.stopped_speed_threshold_mps,
+        reward_profile=_ENERGY_REWARD,
     )
     planner_hash = runtime.frozen_planner_hash()
     policy_before = {

@@ -10,6 +10,7 @@ defaults:
   - /components/policy
   - /components/reward: plannerrft_energy_v1
   - /components/ppo
+  - /components/tracking: mlflow
   - _self_
 
 map_query_radius_m: 100.0

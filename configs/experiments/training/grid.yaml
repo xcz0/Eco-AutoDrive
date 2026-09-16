@@ -1,0 +1,46 @@
+version: 1
+study_name: optimizer_grid
+protocol: experiments/comparison/default.yaml
+arm: a1
+training_seed: 0
+update_count: 50
+base_overrides:
+- components/resources=rtx_a4000
+- ppo.target_kl=0.006
+- ppo.batch_size=128
+- training.transitions_per_environment=8
+grid:
+  learning_rates:
+  - 1.6301e-05
+  - 5.0e-05
+  - 0.00015
+  - 0.00045
+  epochs:
+  - 1
+  - 2
+  max_gradient_norms:
+  - 0.5
+  - 1.0
+  - 2.0
+gate:
+  target_kl: 0.006
+  kl_floor: 1.0e-06
+  within_target_kl_fraction: 0.9
+  runaway_tail_updates: 10
+  runaway_tail_factor: 10.0
+  ratio_change_floor: 0.0001
+  guidance_rms_shift_floor: 0.01
+  beta_parameter_floor: 0.1
+  boundary_mass_ceiling: 0.2
+  episode_length_retention_floor: 0.5
+  collision_budget: 2
+  heldout_relative_change_floor: 0.001
+  heldout_metrics:
+  - mean_speed_mps
+  - distance_m
+  - route_completion
+  - energy_total_ml
+  - energy_ml_per_km
+selection: lowest_learning_rate_then_epochs_then_max_gradient_norm
+mc_draws: 4096
+mc_seed: 1000003

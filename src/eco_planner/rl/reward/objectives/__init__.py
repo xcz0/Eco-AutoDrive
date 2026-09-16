@@ -1,5 +1,8 @@
 """Reward objective formulations over reusable component scores."""
 
-from .plannerrft import evaluate_plannerrft_energy_step
+from .plannerrft import evaluate_plannerrft_energy_step, evaluate_plannerrft_no_energy_step
 
-__all__ = ["evaluate_plannerrft_energy_step"]
+__all__ = [
+    "evaluate_plannerrft_energy_step",
+    "evaluate_plannerrft_no_energy_step",
+]

@@ -1,6 +1,11 @@
 """Public planner-inference API for evaluation execution."""
 
-from .agent import DiffusionEvaluationAgent, EvaluationAgent, EvaluationDecision
+from .agent import (
+    DiffusionEvaluationAgent,
+    EvaluationAgent,
+    EvaluationDecision,
+    PolicyCheckpointEvaluationAgent,
+)
 from .decision import BatchInferenceTiming, InferenceDecision
 from .runtime import FabricInferenceRuntime, create_fabric_inference_runtime
 
@@ -11,5 +16,6 @@ __all__ = [
     "EvaluationDecision",
     "FabricInferenceRuntime",
     "InferenceDecision",
+    "PolicyCheckpointEvaluationAgent",
     "create_fabric_inference_runtime",
 ]

@@ -253,6 +253,8 @@ class EpisodeMetrics(ArtifactModel):
     arrive_dest: StrictBool
     collision: StrictBool
     out_of_road: StrictBool
+    wrong_direction: StrictBool
+    wrong_direction_fraction: StrictFloat = Field(ge=0.0, le=1.0)
 
 
 class CompletedEpisodeSummary(ArtifactModel):
@@ -304,12 +306,21 @@ EpisodeSummary = Annotated[
 ]
 
 
+class PolicyCheckpointProvenance(ArtifactModel):
+    """Provenance of one exploration-policy checkpoint driving an evaluation job."""
+
+    label: str = Field(min_length=1)
+    path: str = Field(min_length=1)
+    policy_hash: str = Field(min_length=64, max_length=64)
+
+
 class JobSummary(ArtifactModel):
     status: Literal["completed", "failed"]
     runtime: InferenceRuntimeSummary
     checkpoint: CheckpointSummary
     sampler: SamplerSummary
     guidance: GuidanceSummary
+    policy_checkpoint: PolicyCheckpointProvenance | None = None
     workload: EvaluationWorkload
     episodes: tuple[EpisodeSummary, ...]
 
@@ -338,6 +349,7 @@ class JobSummary(ArtifactModel):
 
 class RuntimeMetadata(ArtifactModel):
     git_head: str = Field(min_length=1)
+    git_branch: str = Field(min_length=1)
     git_status_short: tuple[str, ...]
     platform: str = Field(min_length=1)
     python: str = Field(min_length=1)

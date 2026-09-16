@@ -5,6 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+RewardProfileName = Literal[
+    "plannerrft_energy_v1",
+    "plannerrft_energy_band_lam64_v1",
+    "plannerrft_no_energy_v1",
+    "plannerrft_no_energy_calibrated_v1",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class RewardComponents:
@@ -46,7 +53,7 @@ class RewardDiagnostics:
 class RewardResult:
     """Final reward, objective components, and diagnostics from one evaluation."""
 
-    profile_name: Literal["plannerrft_energy_v1"]
+    profile_name: RewardProfileName
     total: float
     base_total: float
     safety_gate: float
@@ -54,4 +61,4 @@ class RewardResult:
     diagnostics: RewardDiagnostics
 
 
-__all__ = ["RewardComponents", "RewardDiagnostics", "RewardResult"]
+__all__ = ["RewardComponents", "RewardDiagnostics", "RewardProfileName", "RewardResult"]

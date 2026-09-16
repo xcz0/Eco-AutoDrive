@@ -1,0 +1,30 @@
+value_target_ddof: 0
+advantage_forms:
+- z
+credit_forms:
+- standard_gae
+quantiles:
+- 0.0
+- 0.25
+- 0.5
+- 0.75
+- 0.9
+- 0.95
+- 1.0
+calibration: null
+energy_band: null
+objective_gate: null
+attribution_gate: null
+arms:
+- label: lambda_0
+  weight: 0.0
+- label: lambda_1
+  weight: 1.0
+- label: lambda_2
+  weight: 2.0
+- label: lambda_4
+  weight: 4.0
+- label: lambda_8
+  weight: 8.0
+- label: lambda_16
+  weight: 16.0

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, model_validator
 
@@ -22,6 +22,17 @@ class RewardWeightsConfig(_StrictRewardModel):
     @property
     def total(self) -> float:
         return self.ttc + self.progress + self.comfort + self.speed + self.energy
+
+
+class NoEnergyRewardWeightsConfig(_StrictRewardModel):
+    ttc: StrictFloat = Field(gt=0.0)
+    progress: StrictFloat = Field(gt=0.0)
+    comfort: StrictFloat = Field(gt=0.0)
+    speed: StrictFloat = Field(gt=0.0)
+
+    @property
+    def total(self) -> float:
+        return self.ttc + self.progress + self.comfort + self.speed
 
 
 class RewardGatesConfig(_StrictRewardModel):
@@ -73,12 +84,31 @@ class SpeedRewardConfig(_StrictRewardModel):
 
 
 class EnergyRewardConfig(_StrictRewardModel):
+    mode: Literal["reference_exponential", "calibrated_band"] = "reference_exponential"
     reference_ml_per_km: StrictFloat = Field(gt=0.0)
     minimum_step_distance_m: StrictFloat = Field(gt=0.0)
+    band_full_score_ml_per_km: StrictFloat | None = None
+    band_zero_score_ml_per_km: StrictFloat | None = None
+
+    @model_validator(mode="after")
+    def validate_energy_band(self) -> EnergyRewardConfig:
+        if self.mode == "calibrated_band":
+            if self.band_full_score_ml_per_km is None or self.band_zero_score_ml_per_km is None:
+                raise ValueError(
+                    "calibrated_band energy mode requires band_full_score_ml_per_km "
+                    "and band_zero_score_ml_per_km"
+                )
+            if self.band_zero_score_ml_per_km <= self.band_full_score_ml_per_km:
+                raise ValueError("energy band requires zero_score above full_score")
+        elif (
+            self.band_full_score_ml_per_km is not None or self.band_zero_score_ml_per_km is not None
+        ):
+            raise ValueError("energy band thresholds are only allowed in calibrated_band mode")
+        return self
 
 
 class PlannerRFTEnergyRewardConfig(_StrictRewardModel):
-    name: Literal["plannerrft_energy_v1"]
+    name: Literal["plannerrft_energy_v1", "plannerrft_energy_band_lam64_v1"]
     weights: RewardWeightsConfig
     gates: RewardGatesConfig
     ttc: TTCRewardConfig
@@ -88,12 +118,31 @@ class PlannerRFTEnergyRewardConfig(_StrictRewardModel):
     energy: EnergyRewardConfig
 
 
+class PlannerRFTNoEnergyRewardConfig(_StrictRewardModel):
+    """No-energy R0 objective; `energy` only normalizes the audited diagnostic score."""
+
+    name: Literal["plannerrft_no_energy_v1", "plannerrft_no_energy_calibrated_v1"]
+    weights: NoEnergyRewardWeightsConfig
+    gates: RewardGatesConfig
+    ttc: TTCRewardConfig
+    progress: ProgressRewardConfig
+    comfort: ComfortRewardConfig
+    speed: SpeedRewardConfig
+    energy: EnergyRewardConfig
+
+
+RewardProfileConfig: TypeAlias = PlannerRFTEnergyRewardConfig | PlannerRFTNoEnergyRewardConfig
+
+
 __all__ = [
     "ComfortRewardConfig",
     "EnergyRewardConfig",
+    "NoEnergyRewardWeightsConfig",
     "PlannerRFTEnergyRewardConfig",
+    "PlannerRFTNoEnergyRewardConfig",
     "ProgressRewardConfig",
     "RewardGatesConfig",
+    "RewardProfileConfig",
     "RewardWeightsConfig",
     "SpeedRewardConfig",
     "TTCRewardConfig",

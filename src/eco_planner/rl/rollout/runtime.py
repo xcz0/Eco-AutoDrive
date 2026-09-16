@@ -33,18 +33,19 @@ from eco_planner.rl.policy.distribution import (
     AffineBetaParameters,
     ExplicitGeneratorBetaSampler,
 )
-from eco_planner.rl.rollout.contracts import build_training_decision
-from eco_planner.rl.rollout.decision import BatchRolloutDecision, RolloutDecision
-from eco_planner.rl.rollout.profiling import (
+from eco_planner.runtime.config import RuntimeConfig
+from eco_planner.runtime.fabric import InferenceRuntimeReport, create_single_device_fabric
+from eco_planner.runtime.host_transfer import HostTransfer
+from eco_planner.runtime.random import sample_batched_standard_normal
+
+from .contracts import build_training_decision
+from .decision import BatchRolloutDecision, RolloutDecision
+from .profiling import (
     RolloutPlannerTiming,
     finish_profile,
     profile_call,
     require_phase,
 )
-from eco_planner.runtime.config import RuntimeConfig
-from eco_planner.runtime.fabric import InferenceRuntimeReport, create_single_device_fabric
-from eco_planner.runtime.host_transfer import HostTransfer
-from eco_planner.runtime.random import sample_batched_standard_normal
 
 
 class FabricRolloutRuntime:
@@ -292,8 +293,11 @@ class FabricRolloutRuntime:
                 "reference_trajectory": (policy_context.reference_trajectory, torch.float32),
                 "base_action": (action.base_action, torch.float32),
                 "guidance_action": (action.guidance_action, torch.float32),
-                "old_joint_guidance_log_prob": (action.joint_guidance_log_prob, torch.float32),
-                "old_value": (output.value, torch.float32),
+                "old_joint_guidance_log_prob": (
+                    action.joint_guidance_log_prob.reshape(-1, 1),
+                    torch.float32,
+                ),
+                "state_value": (output.value.reshape(-1, 1), torch.float32),
                 "beta_alpha": (output.distribution.parameters.alpha, torch.float32),
                 "beta_beta": (output.distribution.parameters.beta, torch.float32),
             },

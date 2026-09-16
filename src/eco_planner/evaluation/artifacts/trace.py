@@ -74,6 +74,7 @@ _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
     "trajectory_target_headings": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "trajectory_position_errors_m": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "trajectory_heading_errors_rad": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
+    "executed_route_heading_errors_rad": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "traffic_selected_ids": TraceFieldSpec((_PLAN, AGENT_COUNT), np.dtype("<U64"), finite=False),
     "traffic_participant_counts": TraceFieldSpec((_PLAN,), np.dtype(np.int64), finite=False),
     "traffic_static_object_counts": TraceFieldSpec((_PLAN,), np.dtype(np.int64), finite=False),
@@ -243,6 +244,7 @@ def validate_trace_arrays(arrays: Mapping[str, np.ndarray]) -> None:
         "executed_native_episode_energy_ml",
         "executed_fuel_proxy_step_energy_ml",
         "executed_step_distance_m",
+        "executed_route_heading_errors_rad",
     ):
         if name in mapping and np.any(mapping[name] < 0):
             raise ValueError(f"trace array {name!r} must be non-negative")

@@ -1,6 +1,6 @@
 # Eco-AutoDrive
 
-Eco-AutoDrive 研究如何在 MetaDrive 闭环中利用预训练 Diffusion Planner，并探索 guidance、强化学习和道路预瞄信息是否能够改善能耗表现。
+Eco-AutoDrive 研究如何在 MetaDrive 闭环中利用预训练 Diffusion Planner，并探索 guidance、强化学习和是否能够改善能耗表现。
 
 ## 项目进度与边界
 
@@ -64,22 +64,62 @@ PPO closed-loop smoke training：
 just training run runtime.seed=0 training.replay_id=0
 ```
 
+PPO 默认记录到本地 MLflow（`outputs/mlflow/`）。在仓库根目录启动 UI：
+
+```powershell
+just mlflow ui --backend-store-uri sqlite:///outputs/mlflow/mlflow.db --host 127.0.0.1 --port 5000
+```
+
+打开 `http://127.0.0.1:5000`，选择 `eco-autodrive-ppo` experiment，通过 `config.runtime.seed`、`reward_profile` 及 comparison 入口写入的 `arm` / `protocol` 筛选 Run，并在 Compare 中对比 `ppo/*`、`reward/*`、`behavior/*` 和 `energy/*` 曲线。其他实验可使用 `+tracking.tags.study=...` 添加标识；`tracking.run_name=...` 指定显示名，`tracking.checkpoint_interval=5` 将 update checkpoint 上传间隔改为 5。
+
+`tracking.enabled=false` 显式关闭跟踪。连接远程服务时同时设置 `tracking.tracking_uri=https://... tracking.artifact_location=null`，让服务拥有 artifact 存储。从 `training.resume_checkpoint_path=...` 恢复会继续原 Run，目标 `training.update_count` 仍是累计 update 数；同一 Run 的实验参数必须保持一致。详细恢复及指标口径见[训练跟踪契约](docs/agents/contracts/training.md#训练实验跟踪)。
+
 可复用性能诊断与固定能耗矩阵：
 
 ```powershell
 just benchmark run
 just benchmark run --config-name jobs/benchmark/throughput_traffic
 just benchmark run --config-name jobs/benchmark/rollout
-just energy run --output-root outputs/energy_matrix/manual-run
+just exp guidance sweep run --output-dir outputs/energy_matrix/manual-run
 ```
 
 PlannerRFT reward sanity：
 
 ```powershell
-just reward-sanity run --output-root outputs/reward_sanity/manual-run
+just validation reward run --output-dir outputs/reward_sanity/manual-run
 ```
 
 该命令只计算配置中声明的固定合成 reward case，不运行 PPO。
+
+实验使用薄入口 `just exp ...`，对应 `python -m scripts.experiments`。工作流配置按 comparison、reward、credit、guidance、training 五类职责组织；`--config` 显式选择配置，`just exp <工作流> <动作> --help` 查看参数。
+
+| 工作流 | 动作 |
+| --- | --- |
+| compare | train、eval、analyze |
+| reward | collect、run、analyze |
+| credit | run、analyze |
+| guidance authority / sweep | run、analyze |
+| training | grid、diagnose、eval、analyze |
+
+完整工作流、输入契约和结果解释见[实验工具与离线分析契约](docs/agents/contracts/experiments.md)。常用入口示例：
+
+```powershell
+just exp reward collect --output-dir outputs/fixed-batch
+just exp reward run --source-dir outputs/fixed-batch --output-dir outputs/reward
+just exp credit run --config configs/experiments/credit/objectives.yaml --source-dir outputs/fixed-batch --output-dir outputs/credit
+```
+
+```powershell
+just exp compare eval --arm a0 --output-dir outputs/a0
+just exp compare train --arm a1 --training-seed 0 --output-dir outputs/a1
+just exp compare eval --arm a1 --checkpoint final --checkpoint-path outputs/a1/policy-final.pt --output-dir outputs/a1-evaluation
+just exp compare train --config configs/experiments/comparison/calibrated.yaml --arm rstress --training-seed 0 --output-dir outputs/stress
+just exp guidance authority run --output-dir outputs/authority
+just exp guidance sweep run --output-dir outputs/energy-matrix
+just exp training grid --output-dir outputs/optimizer-grid
+```
+
+软件验证与后端比较继续使用 `just validation reward` 和 `just benchmark execution`。
 
 机器资源通过版本化 profile 选择，例如 `components/resources=rtx_a4000`；它只改变 worker、slot 和线程预算。CLI 与 study bootstrap 会按需读取仓库根目录的可选 `.env`，并以 `MACHINE_NAME` 自动选择同名的 `configs/components/resources/<机器名>.yaml`。进程中已有的 `MACHINE_NAME` 优先于 `.env`，显式 Hydra `components/resources=...` override 又优先于两者；可用值见该目录，`.env.example` 给出格式。
 
@@ -88,6 +128,17 @@ just reward-sanity run --output-root outputs/reward_sanity/manual-run
 ## 结果与实验记录
 
 运行产物默认写入 `outputs/`。
+
+实验运行/汇总入口默认生成 Markdown 报告与 SVG/PNG 图，`--no-figures` 可关闭出图。`reward collect` 只保存采集产物，不生成诊断或图表。已有产物可通过统一入口重算描述统计并重绘，不重新运行环境、GAE 或训练：
+
+```powershell
+just exp reward analyze --source-dir outputs/reward --output-dir outputs/reward-report
+just exp credit analyze --source-dir outputs/credit --output-dir outputs/credit-report
+just exp training analyze --source-dir outputs/optimizer-grid --output-dir outputs/grid-report
+just exp compare analyze --source-dir outputs/my-protocol --config outputs/my-protocol/comparison.yaml --output-dir outputs/protocol-report
+```
+
+源目录与离线输出目录必须独立，不能相同或互相嵌套。实验类型、输入文件和比较配置见[离线分析与报告契约](docs/agents/contracts/experiments.md#实验离线分析与报告)。
 
 ## 文档导航
 

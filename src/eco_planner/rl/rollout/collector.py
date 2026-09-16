@@ -23,16 +23,6 @@ from eco_planner.rl.reward import (
     RewardProfileConfig,
     create_reward_evaluator,
 )
-from eco_planner.rl.rollout.contracts import (
-    ExecutionTransitionAudit,
-    RolloutEpisode,
-    RolloutEpisodeBuilder,
-    RolloutProvenance,
-    TailKind,
-)
-from eco_planner.rl.rollout.decision import RolloutDecision
-from eco_planner.rl.rollout.profiling import RolloutPlannerTiming
-from eco_planner.rl.rollout.runtime import FabricRolloutRuntime
 from eco_planner.runtime.envs import (
     VectorEnvScenario,
     VectorMetaDriveEnv,
@@ -40,6 +30,17 @@ from eco_planner.runtime.envs import (
     WorkerStepResult,
     operation_results,
 )
+
+from .contracts import (
+    ExecutionTransitionAudit,
+    RolloutEpisode,
+    RolloutEpisodeBuilder,
+    RolloutProvenance,
+    TailKind,
+)
+from .decision import RolloutDecision
+from .profiling import RolloutPlannerTiming
+from .runtime import FabricRolloutRuntime
 
 
 @dataclass(frozen=True)
@@ -63,16 +64,11 @@ class VectorRolloutRoundTiming:
 @dataclass
 class _EpisodeLifecycle:
     previous_route_completion: float
-    cycle: int = 0
     builder: RolloutEpisodeBuilder = field(default_factory=RolloutEpisodeBuilder)
 
     @property
     def empty(self) -> bool:
         return self.builder.empty
-
-    def link_next_state_value(self, decision: RolloutDecision) -> None:
-        if not self.builder.empty:
-            self.builder.link_next_state_value(decision.training_decision["state_value"])
 
     def append(
         self,
@@ -103,10 +99,9 @@ class _EpisodeLifecycle:
                 map_seed=map_seed,
                 noise_seed=noise_seed,
                 policy_action_seed=policy_action_seed,
-                planning_cycle_index=self.cycle,
+                planning_cycle_index=self.builder.transition_count,
             ),
         )
-        self.cycle += 1
         self.previous_route_completion = step.execution.route_completion
         if terminated:
             return "terminated"
@@ -119,14 +114,12 @@ class _EpisodeLifecycle:
     def finish(self, kind: TailKind, bootstrap_value: torch.Tensor) -> RolloutEpisode:
         episode = self.builder.finish(kind, bootstrap_value)
         self.builder = RolloutEpisodeBuilder()
-        self.cycle = 0
         return episode
 
     def reset(self, route_completion: float) -> None:
         if not self.builder.empty:
             raise RuntimeError("cannot reset an unfinished rollout episode")
         self.previous_route_completion = route_completion
-        self.cycle = 0
 
 
 def collect_rollout_episode(
@@ -185,7 +178,6 @@ def collect_rollout_episode(
         for cycle in range(max_transitions):
             observation = cast(TensorDictBase, TensorDictBase.stack([current_state.observation]))
             decision = runtime.decide(observation, diffusion_generator, policy_generator)
-            lifecycle.link_next_state_value(decision)
             slot_step = env_slot.step(decision.ego_trajectory)
             step = slot_step.execution
             terminated = step.terminated
@@ -414,8 +406,6 @@ class VectorRolloutCollector:
                     diffusion_generators,
                     timings=planner_timings if profile else None,
                 )
-            for slot, state in enumerate(states):
-                state.lifecycle.link_next_state_value(decision.slot(slot))
             planner_s = perf_counter() - planner_started if profile else 0.0
             environment_started = perf_counter() if profile else 0.0
             steps = self._envs.step(

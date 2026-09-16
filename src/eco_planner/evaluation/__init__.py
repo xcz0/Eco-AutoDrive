@@ -17,6 +17,7 @@ if TYPE_CHECKING:
         JobSummary,
         MapInputAudit,
         NoGuidanceSummary,
+        PolicyCheckpointProvenance,
         RuntimeMetadata,
         SamplerSummary,
         ScenarioSummary,
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
     )
     from .config import (
         EvaluationJobConfig,
+        PolicyCheckpointConfig,
         parse_evaluation_config,
     )
     from .engine import run_evaluation, run_evaluation_agent
@@ -42,6 +44,7 @@ if TYPE_CHECKING:
         EvaluationDecision,
         FabricInferenceRuntime,
         InferenceDecision,
+        PolicyCheckpointEvaluationAgent,
         create_fabric_inference_runtime,
     )
 
@@ -50,6 +53,8 @@ _EXPORTS = {
     "EvaluationAgent": (".inference", "EvaluationAgent"),
     "EvaluationDecision": (".inference", "EvaluationDecision"),
     "EvaluationJobConfig": (".config", "EvaluationJobConfig"),
+    "PolicyCheckpointConfig": (".config", "PolicyCheckpointConfig"),
+    "PolicyCheckpointEvaluationAgent": (".inference", "PolicyCheckpointEvaluationAgent"),
     "parse_evaluation_config": (".config", "parse_evaluation_config"),
     "run_evaluation": (".engine", "run_evaluation"),
     "run_evaluation_agent": (".engine", "run_evaluation_agent"),
@@ -67,6 +72,7 @@ _EXPORTS = {
     "JobSummary": (".artifacts", "JobSummary"),
     "MapInputAudit": (".artifacts", "MapInputAudit"),
     "NoGuidanceSummary": (".artifacts", "NoGuidanceSummary"),
+    "PolicyCheckpointProvenance": (".artifacts", "PolicyCheckpointProvenance"),
     "RuntimeMetadata": (".artifacts", "RuntimeMetadata"),
     "SamplerSummary": (".artifacts", "SamplerSummary"),
     "ScenarioSummary": (".artifacts", "ScenarioSummary"),
@@ -98,6 +104,9 @@ __all__ = [
     "JobSummary",
     "MapInputAudit",
     "NoGuidanceSummary",
+    "PolicyCheckpointConfig",
+    "PolicyCheckpointEvaluationAgent",
+    "PolicyCheckpointProvenance",
     "RuntimeMetadata",
     "SamplerSummary",
     "ScenarioSummary",

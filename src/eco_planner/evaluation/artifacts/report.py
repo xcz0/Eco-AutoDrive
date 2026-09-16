@@ -72,6 +72,7 @@ def _build_report(validated: ValidatedMatrix) -> dict[str, Any]:
                 "energy_ml_per_km": None if metrics is None else metrics.energy.ml_per_km,
                 "route_completion": None if metrics is None else metrics.route_completion,
                 "mean_speed_mps": None if metrics is None else metrics.speed_mps.mean,
+                "wrong_direction": None if metrics is None else metrics.wrong_direction,
             }
         )
     return {
@@ -166,7 +167,6 @@ def validate_matrix_artifacts(matrix_root: Path, *, partial: bool = False) -> Va
             raise ValueError(f"job {job_dir} resolved matrix specification disagrees")
         _require_nonempty(job_dir / ".hydra" / "overrides.yaml")
         metadata = load_runtime_metadata(job_dir / "runtime_metadata.json")
-        _require_file(job_dir / "tracked_diff.patch")
         if metadata.inference_runtime != job_summary.runtime:
             raise ValueError(f"job {job_dir} runtime metadata disagrees with summary")
         seed = job_summary.runtime.seed
@@ -264,6 +264,7 @@ def build_matrix_statistics(episodes: Sequence[EpisodeSummary]) -> dict[str, Any
             "arrive_rate": float(np.mean([item.arrive_dest for item in metrics])),
             "collision_rate": float(np.mean([item.collision for item in metrics])),
             "out_of_road_rate": float(np.mean([item.out_of_road for item in metrics])),
+            "wrong_direction_rate": float(np.mean([item.wrong_direction for item in metrics])),
         }
     return statistics
 

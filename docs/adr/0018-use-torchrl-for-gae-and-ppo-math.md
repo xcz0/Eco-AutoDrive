@@ -2,11 +2,11 @@
 
 Exploration Policy 的 PPO 更新使用 TorchRL/TensorDict 提供的 GAE 和 clipped PPO 数学实现，而不是在项目中维护另一套自定义 PPO 公式。
 
-每个 `RolloutEpisode` 独立执行 GAE。Episode 最后一个 transition 是递归边界：
+按 scenario、episode、transition 顺序拼接各 `RolloutEpisode` 的 training TensorDict 后，统一执行 GAE。每个 episode 最后一个 transition 的 `done=true` 是递归边界：
 
 - 真实 `terminated` transition 不进行 bootstrap；
 - truncation 或 rollout-limit tail 使用显式保存的 tail value bootstrap；
-- 不同 episode 只有在各自 GAE 完成后才能 flatten 或拼接。
+- 拼接后仍必须保留每个 episode 的递归边界，不能将相邻 episode 视为连续轨迹。
 
 因此，advantage 不得跨 collector 或 episode boundary 泄漏。
 
@@ -24,7 +24,7 @@ PPO ratio 使用 rollout 时保存的 transformed old log-probability 与当前 
 
 Diffusion/DDIM transition probability 不属于这个 PPO ratio。扩散规划器在这里提供被冻结的规划与 policy context，而 PPO 优化的随机策略是 Exploration Policy。
 
-GAE 产生的 advantage 在所有 episode 完成 GAE 并组成当前 PPO batch 后统一标准化一次。标准化使用 sample standard deviation。样本数不足、方差为零或出现非有限统计时直接失败，而不是通过 clamp 隐藏退化 batch。
+GAE 产生的 advantage 在当前完整 PPO batch 上统一标准化一次。标准化使用 sample standard deviation。样本数不足、方差为零或出现非有限统计时直接失败，而不是通过 clamp 隐藏退化 batch。
 
 Value objective 使用 unclipped L2。Policy loss、value loss 和 entropy term 的梯度共同更新 actor head、value head 以及共享 trunk。
 

@@ -1,69 +1,37 @@
-# Domain guidance for agents
+# 领域语义易错点
 
-本文件只保留**名称本身不足以避免误解、且容易导致实现或实验解释错误的领域语义 gotchas**。稳定术语的精确定义见 [`CONTEXT.md`](../../CONTEXT.md)；shape、时间频率、算法和运行时行为见 [`system-contract.md`](system-contract.md)。
+本文件只保留会导致实现或实验解释错误的概念区分。精确定义归 [CONTEXT.md](../../CONTEXT.md)，shape、公式和运行时参数归 [system contract](system-contract.md) 及其分篇。
 
-涉及 evaluation/rollout 时间语义、guidance/reference、随机种子、能耗、道路预瞄或研究结论时优先读取本文件。不要把它扩展成第二份 glossary 或 system contract。
+## Scenario、episode 与 evaluation job
 
-## 高风险语义区分
+Scenario 定义场景条件，episode 是单次闭环运行，job 是配置、运行时与产物的执行单位。job 级失败或结论不能下沉为 scenario 定义；报告应明确结果属于哪个 episode，避免用“场景结果”混淆层级。
 
-### Scenario、episode 与 evaluation job 是不同层级
+## Evaluation cycle 与 rollout transition
 
-- **scenario**：地图、交通条件和场景随机状态的定义。
-- **episode**：一个 scenario 从 reset 到终止、截断或运行错误的单次闭环运行。
-- **evaluation job**：一份 resolved config、一个运行时和一个独立产物目录；可顺序包含多个 episode。
+两条路径执行的轨迹前缀不同，reward、done、bootstrap、GAE 和 trace 索引必须按所在路径解释。即使使用同一 policy checkpoint，evaluation 也不沿用训练 transition 的时间尺度。精确频率见[坐标、时间与单位](system-contract.md#坐标时间与单位)。
 
-不要把 job 级配置、失败状态或实验结论下沉成 scenario 定义，也不要用“场景结果”含糊代替 episode 结果。
+## 随机种子的命名空间
 
-### Evaluation planning cycle 与 rollout transition 不可互换
+Map seed、diffusion noise seed 和 policy action seed 是独立实验变量。策略比较按实验设计配对相应随机流，不能用笼统的全局 seed 或共享 RNG 替代。相同 seed 不自动保证跨设备、跨 precision 逐位一致。
 
-现有 evaluation 每次规划后执行预测轨迹前 `0.5 s`；policy-guided rollout 的一个 MDP transition 只执行第一个 `0.1 s` 点。
+## Reference 与 guidance action
 
-reward、done、bootstrap、GAE 和 trace 索引依赖这一区分。涉及 horizon、transition 或终止语义时，先确认自己处于哪条路径。
+Reference 是同周期冻结 planner 在共享观测与扩散随机流下生成的预测，不能解释为中心线、专家/真值轨迹或安全 fallback。因此 reference-centered guidance 本身不构成道路几何约束或专家监督。
 
-### 随机种子属于不同命名空间
+Policy 的 base action 与仿射变换后的 guidance action 属于不同概率空间；log-prob、entropy 和 replay 必须与所用空间一致。固定 guidance/人工干预与 Beta policy sampling 的边界值约束也不同，见[规划 guidance](contracts/planner.md#reference-planner-与正交-guidance)和[Exploration Policy](contracts/training.md#exploration-policy)。
 
-`map seed`、diffusion `noise seed` 和 `policy action seed` 是不同实验变量。策略比较应按实验设计配对相应随机流；不要用一个笼统的全局 `seed` 或共享 RNG 替代它们。
+## 运动学执行与能耗结论
 
-相同 seed 也不自动保证跨设备、跨 precision 逐位一致。
+直接写入轨迹点的运动学闭环只能隔离规划行为，不能证明 steering、throttle、brake 控制下的动力学可跟踪性。
 
-### Reference trajectory 不是中心线、专家轨迹或 fallback
+MetaDrive proxy energy 只支持固定仿真和车辆条件下的相对比较；FASTSim 等精细模型有独立指标和累计边界。二者分别命名和记录，不能混为“真实能耗”；具体流见[能耗记录](system-contract.md#能耗记录)。
 
-reference trajectory 是同一规划周期内冻结 planner 在共享观测和扩散随机流下生成的预测。它不是：
+## 实现状态与研究结论
 
-- lane / route centerline；
-- expert / ground-truth trajectory；
-- safety fallback 或失败后的替代控制器。
+局部 route conditioning 已存在，不代表更长程或语义更明确的 road preview 已解决。Exploration Policy、PPO、guidance 和 reward 链路已实现，也不证明：
 
-因此 reference-centered guidance 不能被解释为道路几何约束或专家监督。
+- PPO 或当前 reward 是最终研究方法/节能目标；
+- 实现与论文未公开细节达到 parity；
+- 新增 preview 已被有效利用，或方法已经改善能耗。
 
-### Base action 与 guidance action 不是同一空间
-
-Exploration Policy 保存的 `base action u` 位于 `(0,1)^2`；实际 guidance action 为 `g = 2u - 1`，位于 `(-1,1)^2`。概率、log-prob、entropy 和 replay 记录必须使用各自对应的动作空间定义。
-
-### 运动学执行、proxy energy 与 high-fidelity energy 必须分开解释
-
-当前闭环直接写入规划轨迹点，不生成 steering、throttle 或 brake。它适合隔离规划行为，但不证明轨迹在真实或高保真车辆动力学下可跟踪。
-
-MetaDrive proxy energy 只支持固定仿真和车辆条件下的相对比较；FASTSim 等精细车辆模型属于另一指标与累计边界。二者必须分别命名、分别记录，不能合并成“真实能耗”。
-
-### 已有 route conditioning、guidance 或 PPO 不等于研究问题已经解决
-
-当前 planner 已消费局部 `route_lanes`，但更长程或语义更明确的 road preview 仍是独立研究问题。仓库中存在 Exploration Policy、PPO、guidance 或某种 reward，也只说明对应链路已经实现。
-
-没有实际实验记录支持时，不得声称：
-
-- PPO 是最终采用的方法；
-- 当前 reward 是最终 energy-oriented objective；
-- 当前实现与论文未公开细节达到 parity；
-- 新增 preview 已被模型有效利用；
-- 当前方法已经改善能耗。
-
-研究结论只能由 `docs/experiments/` 中实际运行证据支持；尚未回答的问题留在 `docs/research/`。
-
-## 维护规则
-
-- 稳定术语的新定义或定义变化写入 `CONTEXT.md`。
-- 只有某个概念即使名称正确仍容易被误解时，才在本文件增加 gotcha。
-- 当前实现行为变化写入 `system-contract.md`；研究设想变化写入 `docs/research/`；实验结论写入 `docs/experiments/`。
-- 实验 ID、Issue 标签、临时阶段名和历史 artifact-format 标签默认不是稳定领域术语。
-- 若拟议术语或行为与现有 ADR 冲突，显式指出，不要静默重新定义。
+结论由[实际实验记录](../experiments/README.md)支持；未回答的问题留在 [research](../research/)。新增内容只保留“名称正确仍容易误解”的区分，术语定义和实现细节回写各自权威位置。与 ADR 冲突时显式指出，不静默重定义。

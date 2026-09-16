@@ -1,0 +1,48 @@
+# @package reward
+
+# Issue #94 Task G R0 anchor: the no-energy PlannerRFT objective with the
+# E-034 frozen calibration applied to Progress and Comfort (Issue #94 Task B;
+# carried unchanged through the E-035/E-038 fixed-batch decomposition arms).
+# The energy block only normalizes the audited, unweighted energy diagnostic
+# score. Provisional smoke-only MetaDrive adaptation; not PlannerRFT/nuPlan
+# scorer parity.
+name: plannerrft_no_energy_calibrated_v1
+
+weights:
+  ttc: 5.0
+  progress: 5.0
+  comfort: 2.0
+  speed: 4.0
+
+gates:
+  collision_vehicle: true
+  collision_object: true
+  collision_building: true
+  collision_human: true
+  collision_sidewalk: true
+  wrong_direction_max_heading_error_rad: 1.5707963267948966
+
+ttc:
+  critical_ttc_s: 1.0
+  safe_ttc_s: 4.0
+  maximum_ttc_s: 10.0
+  minimum_closing_speed_mps: 0.1
+  lateral_margin_m: 0.5
+  longitudinal_margin_m: 0.5
+
+progress:
+  full_score_delta_m: 1.7813475926717124
+
+comfort:
+  longitudinal_acceleration_limit_mps2: 4.157548461641585
+  lateral_acceleration_limit_mps2: 3.0
+  jerk_limit_mps3: 111.70486995152065
+  yaw_rate_limit_radps: 0.5
+
+speed:
+  overspeed_margin_mps: 0.0
+  zero_score_overspeed_mps: 5.0
+
+energy:
+  reference_ml_per_km: 50.0
+  minimum_step_distance_m: 0.01

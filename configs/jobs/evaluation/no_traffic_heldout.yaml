@@ -1,0 +1,51 @@
+# @package _global_
+
+# Issue #81 Task B: matched held-out evaluation for the scalar-reward study.
+# This is the A0 arm (frozen Diffusion Planner, guidance=none). A1/A2 policy
+# checkpoints run jobs/evaluation/no_traffic_heldout_policy with identical
+# scenarios, runtime seed, sampler, and horizon so all three arms share one
+# protocol. Training uses S/SC map seeds 0-7; seeds 16-23 are held out.
+
+defaults:
+  - /components/evaluation
+  - override /components/sampler: ddim5
+  - _self_
+
+name: matched_no_traffic_heldout
+
+evaluation:
+  mode: no_traffic
+  profile: full
+  history_warmup_steps: 0
+  evaluated_horizon_steps: 300
+
+env:
+  horizon: 300
+  # MetaDrive treats the scenario seed as an index into [0, num_scenarios);
+  # the held-out pool must cover map seed 23.
+  num_scenarios: 24
+
+runtime:
+  seed: 760025
+
+scenarios:
+  - {name: s16, map: S, seed: 16}
+  - {name: s17, map: S, seed: 17}
+  - {name: s18, map: S, seed: 18}
+  - {name: s19, map: S, seed: 19}
+  - {name: s20, map: S, seed: 20}
+  - {name: s21, map: S, seed: 21}
+  - {name: s22, map: S, seed: 22}
+  - {name: s23, map: S, seed: 23}
+  - {name: sc16, map: SC, seed: 16}
+  - {name: sc17, map: SC, seed: 17}
+  - {name: sc18, map: SC, seed: 18}
+  - {name: sc19, map: SC, seed: 19}
+  - {name: sc20, map: SC, seed: 20}
+  - {name: sc21, map: SC, seed: 21}
+  - {name: sc22, map: SC, seed: 22}
+  - {name: sc23, map: SC, seed: 23}
+
+hydra:
+  run:
+    dir: outputs/evaluation/held-out/${now:%Y-%m-%d}/${now:%H-%M-%S}

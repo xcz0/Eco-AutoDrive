@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-from omegaconf import DictConfig
+from hydra.errors import MissingConfigException
+from omegaconf import DictConfig, OmegaConf
 
+from eco_planner import jobs
 from eco_planner.benchmarking.config import (
     EnvironmentBenchmarkJobConfig,
     RolloutBenchmarkConfig,
     ScalingBenchmarkConfig,
     parse_environment_job,
     split_benchmark_config,
+)
+from eco_planner.configuration import (
+    load_local_environment,
+    with_machine_resource_override,
 )
 from eco_planner.evaluation import EvaluationJobConfig, parse_evaluation_config
 from eco_planner.rl.config import (
@@ -22,6 +31,128 @@ from eco_planner.rl.config import (
 
 ComposeConfig = Callable[[str, list[str] | None], DictConfig]
 RESOURCE_OVERRIDE = "components/resources=rtx3050_laptop"
+
+
+def test_missing_local_environment_is_optional(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("MACHINE_NAME", raising=False)
+
+    load_local_environment(tmp_path / "missing.env")
+
+    assert "MACHINE_NAME" not in os.environ
+
+
+def test_process_environment_wins_over_local_environment(monkeypatch, tmp_path: Path) -> None:
+    env_path = tmp_path / ".env"
+    env_path.write_text("MACHINE_NAME=rtx3050_laptop\n", encoding="utf-8")
+    monkeypatch.setenv("MACHINE_NAME", "rtx_a4000")
+
+    load_local_environment(env_path)
+
+    assert with_machine_resource_override([]) == ["components/resources=rtx_a4000"]
+
+
+def test_compose_job_config_uses_the_shared_hydra_boundary(monkeypatch) -> None:
+    monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
+
+    config = jobs.compose_job_config(
+        "jobs/training/ppo",
+        ("runtime.seed=17", "training.replay_id=3"),
+    )
+
+    assert config.runtime.seed == 17
+    assert config.training.replay_id == 3
+    assert config.resources.name == "rtx3050_laptop"
+    assert config.resources.rollout_worker_count == 4
+    assert config.resources.evaluation_job_worker_count == 2
+    assert config.resources.evaluation_vector_env_slots == 4
+    assert config.resources.torch_threads_per_worker == 8
+
+
+def test_compose_job_config_preserves_an_explicit_resource_override(monkeypatch) -> None:
+    monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
+
+    config = jobs.compose_job_config(
+        "jobs/training/ppo",
+        (
+            "components/resources=rtx_a4000",
+            "runtime.seed=17",
+            "training.replay_id=3",
+        ),
+    )
+
+    assert config.resources.name == "rtx_a4000"
+
+
+def test_compose_job_config_without_a_machine_profile(monkeypatch) -> None:
+    monkeypatch.delenv("MACHINE_NAME", raising=False)
+
+    config = jobs.compose_job_config(
+        "jobs/training/ppo",
+        ("runtime.seed=17", "training.replay_id=3"),
+    )
+
+    assert "resources" not in config
+
+
+def test_unknown_machine_profile_is_reported_by_hydra(monkeypatch) -> None:
+    monkeypatch.setenv("MACHINE_NAME", "unknown-machine")
+
+    with pytest.raises(MissingConfigException, match="components/resources/unknown-machine"):
+        jobs.compose_job_config(
+            "jobs/training/ppo",
+            ("runtime.seed=17", "training.replay_id=3"),
+        )
+
+
+def test_typed_job_runners_parse_before_invoking_domain_execution(
+    monkeypatch, tmp_path: Path
+) -> None:
+    evaluation_config = OmegaConf.create({"evaluation": "raw"})
+    training_config = OmegaConf.create({"training": "raw"})
+    resource_profile = object()
+    evaluation_summary = SimpleNamespace(resources=resource_profile)
+    training_summary = SimpleNamespace(resources=resource_profile)
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(jobs, "parse_evaluation_config", lambda config: evaluation_summary)
+    monkeypatch.setattr(
+        jobs,
+        "run_evaluation",
+        lambda config, output_dir: (
+            seen.update(evaluation=(config, output_dir)) or evaluation_summary
+        ),
+    )
+    monkeypatch.setattr(jobs, "parse_training_config", lambda config: training_summary)
+    monkeypatch.setattr(
+        jobs,
+        "train",
+        lambda config, output_dir, update_observer=None: (
+            seen.update(training=(config, output_dir, update_observer)) or training_summary
+        ),
+    )
+
+    assert jobs.run_evaluation_job(evaluation_config, tmp_path / "evaluation") is evaluation_summary
+    assert jobs.run_training_job(training_config, tmp_path / "training") is training_summary
+    assert seen["evaluation"] == (evaluation_summary, tmp_path / "evaluation")
+    assert seen["training"] == (training_summary, tmp_path / "training", None)
+    assert (tmp_path / "training" / "resolved_config.yaml").is_file()
+
+
+@pytest.mark.parametrize("runner_name", ["run_evaluation_job", "run_training_job"])
+def test_job_execution_requires_a_resource_profile(
+    monkeypatch, tmp_path: Path, runner_name: str
+) -> None:
+    config = OmegaConf.create({"job": "raw"})
+    parsed = SimpleNamespace(resources=None)
+    parse_name = (
+        "parse_evaluation_config"
+        if runner_name == "run_evaluation_job"
+        else "parse_training_config"
+    )
+    monkeypatch.setattr(jobs, parse_name, lambda raw: parsed)
+
+    with pytest.raises(ValueError, match="execution requires a resource profile"):
+        getattr(jobs, runner_name)(config, tmp_path / runner_name)
 
 
 @pytest.mark.parametrize(
@@ -108,8 +239,6 @@ def test_conservative_training_job_composes_into_typed_boundaries(
 @pytest.mark.parametrize(
     "config_name",
     [
-        "jobs/training/ppo",
-        "jobs/training/ppo_conservative",
         "jobs/training/ppo_energy_smoke",
     ],
 )

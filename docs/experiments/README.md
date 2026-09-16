@@ -9,13 +9,17 @@
 每次用于研究结论的运行至少记录：
 
 - 实验 ID、日期、目的和状态（诊断/本机验证/正式基线）；
-- Git commit 和运行时未提交 diff；若当时未采集，明确写“未记录”；
+- Git commit、branch 和运行时 dirty status；正式结果必须从 clean commit 运行；
 - 上游源码 commit、依赖环境、设备；
 - 数据集或程序化地图、场景 seed、噪声 seed；
 - checkpoint 路径和参数量；
 - resolved config、全部 Hydra overrides 和运行命令；
 - 主要结果、失败状态、可支持的结论和不能支持的结论；
 - `summary.json`、`trace.npz`、视频和外部归档位置。
+
+运行产物不再复制 Python source 或保存 tracked diff，继续保存现有 runtime metadata。
+开发诊断允许 dirty 工作区，但不得据此登记正式结果；不增加自动 preflight 或补偿性来源文件。
+历史记录保留当时实际保存的 provenance，未记录的事实不得事后补造。
 
 实验目录应由 Hydra 独立创建，不覆盖旧结果。计划但未运行的工作由项目 GitHub Issues 跟踪，不在本目录伪装成实验记录。
 
@@ -67,6 +71,21 @@
 | [E-027](records/e-027-issue74-rollout-hotpath-optimization.md) | 2026-08-28 | 本机优化验证 | Issue #74 的局部 DiT 编译、同步与 DDIM allocation 优化 | 编译因 Windows 无可用 Triton 未过门槛，保持 eager 默认；两项等价微优化落地，不主张全局吞吐改善 |
 | [E-028](records/e-028-runtime-ownership-refactor.md) | 2026-09-01 | 本机实现验证与诊断复测 | runtime ownership、evaluation topology、rollout/worker 分层与 CUDA audit stream 候选 | 正确性验证通过；性能受机器状态影响，不作加速结论；最终不复用 audit stream |
 | [E-028](records/e-028-issue76-ppo-stability-search.md) | 2026-09-01 | 远程训练机正式搜索 | Issue #76 reset 修复后的 P0/P1 复验与 Optuna Stage A/B/C 分层稳定超参数搜索 | P0/P1 修复后均稳定（E-026 式退化归因 reset bug）；config-0001（batch=128、epochs=1、lr=1.63e-5）为唯一 3 seeds × 100 updates 稳定候选；主要失败模式为 epochs=3 × 高 lr 的 Beta 边界塌缩 |
+| [E-029](records/e-029-issue81-a0-frozen-baseline.md) | 2026-09-07 | 正式基线 | Issue #81 matched 协议下当前 commit 的 A0 frozen planner held-out 基线（S/SC seeds 16–23） | A0 baseline 可复现：13/16 arrive、无失败终止；供 A1/A2 matched 对照，不构成节能结论 |
+| [E-030](records/e-030-issue93-mlflow-training-tracking.md) | 2026-09-08 | 本机实现验收 | Issue #93：两个 seed 的 32-transition PPO update、同 Run checkpoint 恢复与 MLflow 指标/artifacts | 全部记录匹配；修复并回归验证原 checkpoint JSON/tuple 恢复问题；不构成节能结论 |
+| [E-030](records/e-030-issue81-ppo-transfer-gate.md) | 2026-09-07 | transfer gate | Issue #81 Task D：PPO 广播修复后 E-028 config-0001 迁移到 R0 / Rλ=1 各 1 seed × 20 updates | 两臂机械有效性与短程稳定性全部通过（clip frac=0 与 ratio≈1 自洽）；不支持 energy improvement 结论 |
+| [E-031](records/e-031-issue82-task-a-r0-multiseed-anchor.md) | 2026-09-07 | 正式运行 | Issue #82 Task A：R0 多 seed anchor，A1 = PPO + `plannerrft_no_energy_v1`，3 seeds × 100 updates + final checkpoint matched held-out evaluation | A1 anchor 成立（机械健康、可复现）；A1 vs A0 在该预算下无 measurable learned behavioral effect（聚合差异 ≤ 0.1%）；Task B 的 λ 主效应可测性存在真实风险 |
+| [E-032](records/e-032-issue82-task-b-lam-sweep.md) | 2026-09-07 | 正式运行（coarse sweep） | Issue #82 Task B：energy weight λ ∈ {1,2,4,8}，1 seed × 50 updates + final checkpoint matched held-out evaluation | sweep artifact 成立（匹配协议逐项满足、机械健康）；该预算下所有 λ 与 R0 及彼此不可区分（`no measurable energy-term effect`），Task C 候选筛选依据本 artifact |
+| [E-033](records/e-033-issue94-task-a-lambda-identifiability.md) | 2026-09-09 | 正式固定批次诊断 | Issue #94 Task A：同一新采集 update-0 batch 上离线比较 λ={0,1,2,4,8,16} 的 reward、normalized advantage 与 actor gradient | λ0→16 无 sign flip，Pearson 0.999952、actor-head cosine 0.999975；差异很小且与“不易辨识”模式一致，连续诊断不自动裁定 Task B/C |
+| [E-034](records/e-034-issue94-task-b-reward-calibration.md) | 2026-09-09 | 正式离线固定批次诊断 | Issue #94 Task B：复用 E-033 审计并校准 Progress/Comfort，配对重跑 Task A | Progress/Comfort 恢复方差；λ0→16 仍无 sign flip，actor-head cosine 0.999973，norm ratio 0.970824；未观察到明显方向分离，Task C 由用户裁定 |
+| [E-035](records/e-035-issue94-task-c-objective-decomposition.md) | 2026-09-09 | 正式离线固定批次诊断 | Issue #94 Task C：同协议重采源 batch（hash 与 E-033 一致）上比较校准 R0 / λ={16,64,256} / Energy-only，三种 advantage 形式归因 + Gate C | R0 vs Energy-only 在 raw/center/z 下均共线（head cosine ≥0.997），λ stress 单调且达 endpoint 分离的 31–88%；Gate C FAILED，归因 `objective/batch collinearity`（共享 value/GAE 结构主导，非 normalization 压缩） |
+| [E-036](records/e-036-issue94-task-c4-critic-gae-common-term-ablation.md) | 2026-09-09 | 正式离线固定批次诊断 | Issue #94 Task C4：复用 E-035 fixed batch 的 critic/GAE common-term ablation（standard GAE / V=0 reward-only GAE / discounted return，standard arm 与 E-035 逐位一致） | 三种 temporal-credit 形式下 R0 vs Energy-only 均共线（head cosine ≥0.9997）；共享 critic 项在 arm 间差分中严格抵消，归因 `reward/batch collinearity`，Gate C 维持 FAILED；下一步 Task D |
+| [E-037](records/e-037-issue94-task-d-guidance-control-authority.md) | 2026-09-10 | 正式配对闭环人工干预 | Issue #94 Task D：S/SC × seeds 0–7 × 3 noise repeats × 5 longitudinal arms，0.1 s / 2 s 响应 | Gate D PASSED：2 s 执行速度在 12/16 场景负方向通过，Energy intensity 8/16 未过多数门槛；完整预测正响应与首点执行负响应并存，无安全失效；未执行 Task E–H |
+| [E-038](records/e-038-issue94-task-e-energy-representation.md) | 2026-09-10 | 正式离线固定批次诊断 | Issue #94 Task E：Energy objective 换为 calibrated efficiency-band 表示（强度 P10/P90 双侧饱和，预冻结阈值守卫），同协议重采源 batch 上重跑完整 Task C 分解 | Gate E（=Gate C 判定）PASSED：R0 vs band Energy-only 的 z 形式 head cosine 0.9765、sign-flip 25.8%、RMSE 0.772，raw 形式同样可分；λ64/λ256 达 endpoint 分离的 74%/92%；非仿射表示通过防作弊条款；C4 未重跑（无未决归因，见记录）；Task F–H 未执行 |
+| [E-039](records/e-039-issue94-task-f-effective-update-region.md) | 2026-09-11 | 正式训练网格搜索 | Issue #94 Task F：R0 objective + matched fixed-batch 协议下扫描 lr×epochs×max-grad-norm 24 arms（seed 0 × 50 updates），Gate F 判定有效 update 区域 | Gate F PASSED：选定 lr=1.5e-04/epochs=1/mgn=0.5（7/7 条件；MC post-update KL median 1.16e-6，held-out speed 变化 0.14%>噪声界）；control lr 确认 under-update，lr≥1.5e-04@epochs2 或 4.5e-04 训练内 Beta 边界塌缩；发现 torchrl kl_approx 在单 minibatch 协议下结构性≈0 的测量伪影，Gate 改用持久化 old Beta 参数的 seeded MC 重算；修复 RuntimeMetadata 缺 git_branch 字段的既有崩溃；Task G/H 未执行 |
+| [E-040](records/e-040-issue94-task-g-objective-positive-control.md) | 2026-09-11 | 正式配对闭环训练对照 | Issue #94 Task G：E-039 冻结 PPO 区域内 R0（校准）vs Rstress（band-energy λ=64）matched 闭环 PPO 训练（seeds {0,1} × 50 updates）+ Gate G 判定 | Gate G FAILED（仅 c4）：闭环可分且双 seed 方向复现（speed +1.06%/+1.41%、energy +0.41%/+0.53% 均超噪声界），但方向与 energy 目标相反——Rstress 更快且单位里程能耗更高；真实负结果，非机械故障；首跑 4 runs 挂在 reward_profile Literal 缺口（修复三处实现 bug + 回归测试后 clean 重跑）；Task H 未执行 |
+| [E-041](records/e-041-issue94-task-h-evaluation-diagnostics.md) | 2026-09-11 | 正式诊断评测 | Issue #94 Task H：复用 E-040 冻结产物，新增固定 policy-action seeds {810001,810002,810003} 的 diagnostic stochastic held-out 评测（2 seeds × {initial,r0,rst} × 3 action seeds）+ matched probe Beta 分布三层归因 | 三层区分明确：Beta mean 迁移（paired RMS 0.062/0.083）、concentration/variance 基本未变（≈4.0/0.200，Δ≤2%）、Beta 采样造成系统性 sto−det 偏移（speed +1.2%、energy +0.8%，含 initial）；rstress−r0 分离在 stochastic 评测下 6/6 同向复现——分离是稳定 mean-policy 性质，c4 反向裁定不变；无 gate 判定，不替代 deterministic 主评测 |
+| [E-042](records/e-042-issue99-torchrl-data-and-resume.md) | 2026-09-15 | 本机实现验收与性能诊断 | Issue #99：统一 GAE、device-resident PPO replay、逐 slot RNG checkpoint 与真实续训对照 | 正确性通过；短测 PPO wall +16.45%、peak allocated +2.14 MiB，不支持性能提升结论 |
 
 ## 服务器训练与正式实验登记模板
 

@@ -37,6 +37,7 @@ def collect_repository_metadata(repository_root: Path) -> dict[str, object]:
 
     return {
         "git_head": _git_output(repository_root, "rev-parse", "HEAD").strip(),
+        "git_branch": _git_output(repository_root, "rev-parse", "--abbrev-ref", "HEAD").strip(),
         "git_status_short": tuple(_git_output(repository_root, "status", "--short").splitlines()),
         "platform": platform.platform(),
         "python": sys.version,
@@ -45,14 +46,6 @@ def collect_repository_metadata(repository_root: Path) -> dict[str, object]:
         "metadrive": version("metadrive-simulator"),
         "pydantic": version("pydantic"),
     }
-
-
-def write_tracked_diff(path: Path, repository_root: Path) -> None:
-    """Persist the tracked source diff associated with an artifact run."""
-
-    path.write_text(
-        _git_output(repository_root, "diff", "--binary", "--no-ext-diff"), encoding="utf-8"
-    )
 
 
 def _git_output(repository_root: Path, *arguments: str) -> str:

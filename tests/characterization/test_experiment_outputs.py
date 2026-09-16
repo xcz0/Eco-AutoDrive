@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
 
 import eco_planner.evaluation.artifacts.report as evaluation_report
@@ -25,12 +24,7 @@ from eco_planner.evaluation import (
     TrafficObservationSummary,
     WarmupSummary,
 )
-from eco_planner.experiments import energy_sweep as energy_study
-from eco_planner.experiments import ppo_reproducibility as training_analysis
-from eco_planner.experiments.ppo_stability.validation import (
-    PolicyEvaluationSummary,
-    compare_policy_evaluations,
-)
+from eco_planner.experiments.guidance import sweep as energy_study
 from eco_planner.rl.artifacts import PolicyProbeSummary, TrainingRunSummary, TrainingUpdateSummary
 
 
@@ -69,6 +63,8 @@ def _episode(*, seed: int, distance_m: float, energy_ml: float) -> CompletedEpis
             arrive_dest=seed == 1,
             collision=False,
             out_of_road=False,
+            wrong_direction=False,
+            wrong_direction_fraction=0.0,
         ),
         crash_vehicle=False,
         crash_object=False,
@@ -167,6 +163,7 @@ def test_evaluation_matrix_summary_schema_and_statistics_are_stable(
             "energy_ml_per_km": 100.0,
             "route_completion": 0.4,
             "mean_speed_mps": 6.0,
+            "wrong_direction": False,
         },
         {
             "scenario": "traffic",
@@ -181,12 +178,14 @@ def test_evaluation_matrix_summary_schema_and_statistics_are_stable(
             "energy_ml_per_km": 150.0,
             "route_completion": 0.5,
             "mean_speed_mps": 7.0,
+            "wrong_direction": False,
         },
     ]
     statistics = report["statistics"]
     assert statistics["traffic/density_0.20"]["metrics"]["distance_m"]["mean"] == 150.0
     assert statistics["traffic/density_0.20"]["metrics"]["energy_total_ml"]["median"] == 20.0
     assert statistics["traffic/density_0.20"]["arrive_rate"] == 0.5
+    assert statistics["traffic/density_0.20"]["wrong_direction_rate"] == 0.0
 
 
 def test_energy_study_run_record_schema_preserves_episode_and_traffic_context(
@@ -334,118 +333,3 @@ def _training_summary(
         updates=(_update(0, 1.0), post_update or _update(1, 2.0)),
         reward_profile="plannerrft_energy_v1",
     )
-
-
-def _policy_summary(
-    label: str,
-    *,
-    episodes: float,
-    progress: float,
-    collisions: int = 0,
-) -> PolicyEvaluationSummary:
-    return PolicyEvaluationSummary.model_validate(
-        {
-            "checkpoint_label": label,
-            "checkpoint_path": f"{label}.pt",
-            "policy_hash": "a" * 64,
-            "evaluation_seed": 760025,
-            "scenarios": ("held-out:S:16",),
-            "noise_seeds": (1,),
-            "transition_count": 100,
-            "episode_count": 1,
-            "mean_episode_length": episodes,
-            "collision_count": collisions,
-            "out_of_road_count": 0,
-            "route_completion_delta": progress,
-            "distance_m": 100.0,
-            "mean_speed_mps": 5.0,
-            "stopped_fraction": 0.0,
-        }
-    )
-
-
-def test_ppo_stability_comparison_payload_freezes_acceptance_fields() -> None:
-    comparison = compare_policy_evaluations(
-        _policy_summary("initial", episodes=100.0, progress=10.0),
-        _policy_summary("final", episodes=95.0, progress=9.5),
-    )
-
-    payload = comparison.model_dump(mode="json")
-
-    assert set(payload) == {
-        "initial",
-        "final",
-        "episode_length_retention",
-        "route_progress_retention",
-        "collision_count_not_increased",
-        "out_of_road_count_not_increased",
-        "passed",
-    }
-    assert payload["episode_length_retention"] == 0.95
-    assert payload["route_progress_retention"] == 0.95
-    assert payload["collision_count_not_increased"] is True
-    assert payload["out_of_road_count_not_increased"] is True
-    assert payload["passed"] is True
-
-
-def test_training_reproducibility_acceptance_report_schema_is_stable(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    summaries = {
-        (seed, replay): _training_summary(seed, replay) for seed in (0, 1) for replay in (0, 1)
-    }
-    for seed, replay in summaries:
-        run = tmp_path / f"seed-{seed}-replay-{replay}"
-        (run / "updates" / "update-000").mkdir(parents=True)
-        (run / "summary.json").write_text(
-            json.dumps({"seed": seed, "replay": replay}), encoding="utf-8"
-        )
-        np.savez(run / "updates" / "update-000" / "episode.npz", values=np.asarray([seed, 1]))
-
-    def load_summary(content: str, *_args: object, **_kwargs: object) -> TrainingRunSummary:
-        record = json.loads(content)
-        return summaries[(record["seed"], record["replay"])]
-
-    monkeypatch.setattr(
-        training_analysis.TrainingRunSummary,
-        "model_validate_json",
-        staticmethod(load_summary),
-    )
-
-    report = training_analysis.summarize_training_runs(tmp_path)
-
-    assert report == {
-        "status": "passed",
-        "total_runs": 4,
-        "total_transitions": 16,
-        "replay_checks": [
-            {"training_seed": 0, "exact": True},
-            {"training_seed": 1, "exact": True},
-        ],
-        "runs": [
-            {
-                "training_seed": 0,
-                "replay_id": 0,
-                "reward_sequence": [1.0, 2.0],
-                "final_policy_hash": "b" * 64,
-            },
-            {
-                "training_seed": 0,
-                "replay_id": 1,
-                "reward_sequence": [1.0, 2.0],
-                "final_policy_hash": "b" * 64,
-            },
-            {
-                "training_seed": 1,
-                "replay_id": 0,
-                "reward_sequence": [1.0, 2.0],
-                "final_policy_hash": "b" * 64,
-            },
-            {
-                "training_seed": 1,
-                "replay_id": 1,
-                "reward_sequence": [1.0, 2.0],
-                "final_policy_hash": "b" * 64,
-            },
-        ],
-    }

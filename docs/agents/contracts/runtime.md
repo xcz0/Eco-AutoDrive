@@ -1,0 +1,33 @@
+# 运行时与配置契约
+
+涉及 job composition、资源预算、Fabric、环境并行、host transfer 或 benchmark 时读取。这是 [system contract](../system-contract.md) 的分篇，遵循入口中的使用与维护规则。
+
+## 配置 composition 与所有权
+
+Hydra/OmegaConf 只存在于配置 composition 边界。CLI 与内部 study workflow 都必须通过 `eco_planner.jobs.compose_job_config` 组合一个 job；随后由 `run_evaluation_job` 或 `run_training_job` 解析严格 typed config 并执行领域 engine。engine、episode 和 runtime 组件只接收对应的 typed config 或其子模型，不读取 `DictConfig`。`env` 子树是传给 MetaDrive 的开放第三方配置，保留为普通映射；本项目消费的 horizon、traffic 和 evaluation 字段仍必须由顶层模型交叉校验。
+
+跨 evaluation、RL 与 benchmarking 使用的 `ScenarioConfig` 和 `ModelPathsConfig` 归根级 `eco_planner.configuration`；这些模块不得从 `evaluation` 反向导入共享配置类型。evaluation 自身只拥有固定评测协议、作业配置、episode 生命周期与产物。
+
+semantic job 的 resources config group 使用 null 占位，因此不依赖 `.env` 或 `MACHINE_NAME` 即可 compose 和 typed validate。CLI 与 study bootstrap 可选读取仓库根目录 `.env`；共享 composition helper 在调用方没有显式 `components/resources=...` override 时，以现有环境或 `.env` 的 `MACHINE_NAME` 注入同名版本化 profile。已有进程环境不被 `.env` 覆盖，显式 Hydra override 优先于自动选择。需要 worker、slot 或线程预算的 execution boundary 必须取得 profile，否则直接失败，不合成默认预算。
+
+`jobs` 是完整 semantic job 的唯一声明位置；`experiments` 只选择 job，并声明 experiment-specific pairing、搜索、ranking 或显式 overrides。experiment manifest 目前保留在 `configs/experiments/`，不得复制 job 的 scenario、runtime、sampler 或 environment 字段后再与 resolved config 对账。
+
+## Fabric、环境 slot 与设备传输
+
+推理由单进程、单设备 Lightning Fabric 运行时装配，不使用 Trainer。evaluation 与 policy rollout 共用 `eco_planner.runtime` 中的 runtime/resource config、Fabric 解析/seed、逐 generator batched standard-normal sampler，以及 `HostTrajectories`/`HostTransfer` CUDA→host contract；MetaDrive observation pipeline 只生成 CPU raw TensorDict；Fabric 统一负责观测传输、模型设备和 forward 精度。Serial evaluation、single-environment rollout 与 vector execution 共用 `MetaDriveEnvSlot` 的原子生命周期：reset 完成 simulator reset、stationary warmup 和首个 observation，step 完成固定 trajectory prefix 并返回下一 observation。两者都返回车辆状态、route completion、traffic audit 和分阶段 timing；warmup execution 作为 reset 事实返回。slot 组合一个内部 `MetaDriveBackend`、trajectory executor、统一 traffic/no-traffic observation pipeline、traffic history 和 map cache。backend 只推进单个 MetaDrive transition，executor 负责固定 trajectory prefix，evaluation artifact 与 RL transition 语义仍由调用方拥有。`TorchRLMetaDriveEnv` 以 CPU TensorDict 暴露单一 slot 的 raw observation、`float32 [80,4]` action 与 done/terminated/truncated specs；TorchRL 要求的 reward tensor 固定为 objective-neutral 零占位，训练 collector 不消费它。
+
+生产 `VectorMetaDriveEnv` 与 TorchRL adapter/worker/result contracts 位于 `eco_planner.runtime.envs`，由 TorchRL 0.13.3 `ParallelEnv` 实现，固定使用 CPU、Windows `spawn`、`shared_memory=true`、`use_buffers=true` 和 `serial_for_single=false`；B=1 也必须使用独立 worker 进程。TorchRL 负责进程健康检查、共享 TensorDict buffer、partial `_reset`/`_step` 调度以及 close/join/terminate 生命周期。项目 façade 持有完整 scenario catalog，将 scenario 编码为 `int64 [B,1]` index，将请求的物理 slot 子集编码为 bool mask，并始终按请求 slot 顺序恢复结果。`reset(..., slots=...)` 与 `step(..., slots=...)` 返回请求 slot 的批 TensorDict：planner 输入位于嵌套 `observation`，step 只保留 objective-neutral reward 占位和原始 done/terminated/truncated；不再提供逐 slot reset/step wrapper。由于固定的 TensorDict 0.13.0 对 partial mask 与 `NonTensor` output 的组合存在内部错误，reset/step/traffic audit 等 domain dataclass 以及可捕获 failure 先通过 TorchRL remote-method channel、在同一 façade 操作锁内读取，再作为父进程专用 `operation_results` NonTensor 附加到已从共享 buffer clone 的返回 batch；sidecar 不进入 worker shared buffer 或 Fabric device transfer。step failure output 必须保留完整 zero nested observation、done/terminated/truncated 和 `float32 [1]` reward Tensor，再保存原始 operation 与 traceback；façade 标注 slot、关闭整个 pool 并抛出 `VectorMetaDriveWorkerError`。硬进程退出只包装 TorchRL 原始错误并标注当前 operation，不伪造远端 traceback；close 保持幂等。
+
+evaluation job 以 `evaluation.execution.topology=serial | vector | job_parallel` 选择执行拓扑，resource profile 只提供 job worker、vector slot 和 worker thread 数值。`serial` 保持单环境串行；`vector` 在同一 job 使用一个持久 `VectorMetaDriveEnv` pool，以 profile 的固定物理 slots 从 scenario 队列动态 refill，并由同一主进程 planner runtime 做 batch inference；`job_parallel` 在每个 Hydra job 内保持串行环境，由 Joblib 在 jobs 之间并行。Policy rollout 保留逻辑 wave、per-slot RNG、episode/GAE/bootstrap 与 audit TensorDict 所有权，只把物理 reset/step 交给同一 façade。每个 worker 只持有 `MetaDriveEnvSlot`，不加载 planner 或 CUDA state。vector 与 job-parallel evaluation 必须关闭 video，两者不得嵌套。
+
+raw observation 在 CPU 边界按当前 observation/trace 契约的 shape、dtype 和有限性完整校验并原值写入 trace；Fabric 设备副本只供计算使用，可按 resolved mixed precision 转为 FP16/BF16。batch runtime 每个规划周期只同步把 ego execution trajectories `[B,T,4]` 转为执行所需的 host `float32`；串行 evaluation 与 rollout 入口从该 batch result 取其唯一 slot。完整 prediction、初始噪声、reference 与 guidance diagnostics 则在独立 CUDA transfer stream 排队，并由 artifact/replay 调用方在 simulator step 后显式取得 audit result、转为 trace 约定 dtype 后检查有限性。
+
+## Benchmark 与计时
+
+Benchmark 是 `eco_planner.benchmarking` 下的 repository-internal application logic，由 `scripts.benchmark` 薄 CLI adapter 启动，不属于 evaluation 或 RL 的稳定公共 API。它只通过显式关闭的 profiling hook 在现有 planner、vector environment 和 PPO 边界计时，不改变随机流或数值语义；关闭 profiling 时不得创建 CUDA Event、增加 CUDA 同步或改变调度。rollout profiling 在 CUDA 上用 Event 记录各 current-stream accelerator phase，并另记对应 host call wall；CPU 上 accelerator phase 等于同步 call wall。两类时间以及跨 stream 时间不是互斥分解，不得直接相加。profiled bootstrap 可在返回前增加一次 terminal stream synchronization 以取得完整 accelerator 时间，但该同步不得进入普通 collection。planner 的同步 execution trajectory device→CPU、独立 transfer stream 上的延迟 audit copy 及 resolve 时剩余的 host wait 必须分开解释；CPU collate 也不得计入 planner wall。
+
+`VectorEnvTiming` 只保存单 worker 的 `environment_s` 与 `observation_s`；调用方另计 batch wall，并令 `worker_busy_s = environment_s + observation_s`、`transport_sync_s = max(0, batch_wall_s - max(worker_busy_s))`，同时独立记录 busy imbalance。不得沿用或重新引入 `ipc_send_s`、`ipc_receive_s`、`worker_wait_s` 名称。policy rollout 的 decision 与 bootstrap batch 必须分开统计；collection residual 只表示未归入已列 host-wall 边界的时间，不得命名或解释为 planner/environment overhead。rollout benchmark 显式配置 PPO epochs 与 minibatch size，scheduler horizon 严格等于 `update_count * epochs * (batch_size / minibatch_size)` 个 optimizer steps。serial/vector 对照必须调用各自真实 collector。evaluation 模式汇总只接受 execution topology 与 resolved config/runtime metadata 一致、且 scenario workload 完全相同的输入。所有测量规模、warmup、正式样本和 repeats 均由 benchmark 配置显式给出，保留原始样本及统计中位数/极值；结果不得反向成为未验证的运行时默认值。
+
+## 作业级并行
+
+跨评测作业的进程并行由 ADR 0012 定义。`job_parallel` topology 的 Joblib `loky` worker 数仅由 resolved resource profile 的 `evaluation_job_worker_count` 决定；launcher 的 `n_jobs`、每个 job 的 CPU 线程预算验证和 runtime metadata 的 `worker_count` 都使用该值。每个进程仍保持一个 MetaDrive、一个单设备 Fabric runtime 和一个 artifact writer。CPU 显式验证 worker 数与每 worker PyTorch 线程数的乘积；CUDA 只允许这些进程共享一张可见 GPU，并要求确定性配置和正式运行前显存 preflight。显式 `deterministic=true` 在 serial、vector 和 job-level CUDA 路径都启用同一 PyTorch/CuDNN/CUBLAS 确定性设置，job-level 另要求该字段为真。smoke、no-traffic 和普通 full 运行保持串行，多 GPU 调度不属于该入口。
