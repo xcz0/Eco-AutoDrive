@@ -239,11 +239,10 @@ def test_gae_treats_simultaneous_termination_and_truncation_as_terminal() -> Non
     torch.testing.assert_close(trajectory["value_target"], torch.tensor([[0.25]]))
 
 
-def test_combined_gae_matches_episode_reference_without_mutation() -> None:
-    from torchrl.objectives.value import GAE
-
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
+def test_combined_gae_respects_episode_boundaries_without_mutation(device) -> None:
     episodes = []
-    references = []
+    expected_advantages = []
     for length, (terminated, truncated) in enumerate(
         [(True, False), (False, True), (False, False), (True, True)], start=1
     ):
@@ -257,26 +256,22 @@ def test_combined_gae_matches_episode_reference_without_mutation() -> None:
         training["next", "done"][:-1] = False
         training["next", "terminated"][:-1] = False
         training["next", "truncated"][:-1] = False
+        training["next", "state_value"][:-1] = training["state_value"][1:]
         episode = replace(single, training=training, audit=cat([single.audit] * length))
         episodes.append(episode)
-        reference = training.select("state_value", "next").clone()
-        GAE(
-            gamma=0.99,
-            lmbda=0.95,
-            value_network=None,
-            average_gae=False,
-            differentiable=False,
-            vectorized=False,
-            skip_existing=False,
-            time_dim=0,
-            auto_reset_env=False,
-        )(reference)
-        references.append(reference)
+        # Constant V=1: internal delta=r+gamma-1; only the tail may bootstrap V=2.
+        advantage = 100.0 * length - 1.0 + (0.0 if terminated else 0.99 * 2.0)
+        episode_advantages = [advantage]
+        for _ in range(length - 1):
+            advantage = 100.0 * length + 0.99 - 1.0 + 0.99 * 0.95 * advantage
+            episode_advantages.insert(0, advantage)
+        expected_advantages.extend(episode_advantages)
     snapshots = [(e.training.clone(), e.audit.clone()) for e in episodes]
-    batch = build_ppo_batch(episodes, _ppo_config())
-    expected = cat(references)
-    for key in ("advantage", "value_target"):
-        torch.testing.assert_close(batch[key], expected[key])
+    batch = build_ppo_batch(episodes, _ppo_config(), device=torch.device(device))
+    expected = torch.tensor(expected_advantages, device=device).unsqueeze(-1)
+    torch.testing.assert_close(batch["advantage"], expected)
+    torch.testing.assert_close(batch["value_target"], expected + 1.0)
+    assert all(value.device.type == device for value in batch.values())
     for episode, (training, audit) in zip(episodes, snapshots, strict=True):
         assert (episode.training == training).all()
         assert (episode.audit == audit).all()
@@ -402,7 +397,8 @@ def test_checkpoint_rejects_old_sampler_state() -> None:
         updater.restore_checkpoint_state(old_state)
 
 
-def test_update_preserves_rollout_and_fixed_ppo_targets(monkeypatch) -> None:
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
+def test_update_shares_batch_storage_and_preserves_fixed_ppo_targets(monkeypatch, device) -> None:
     from eco_planner.rl.optimization import ppo
 
     config = _ppo_config().model_copy(
@@ -414,13 +410,26 @@ def test_update_preserves_rollout_and_fixed_ppo_targets(monkeypatch) -> None:
     snapshots = [(episode.training.clone(), episode.audit.clone()) for episode in episodes]
     normalized_batches = []
     normalize = ppo.normalize_full_batch_advantage
+    storages = []
+    tensor_storage = ppo.TensorStorage
+
+    def capture_storage(batch, **kwargs):
+        storage = tensor_storage(batch, **kwargs)
+        stored = storage.get(slice(None))
+        assert len(storage) == config.batch_size
+        for key in batch.keys():
+            assert stored[key].data_ptr() == batch[key].data_ptr()
+            assert stored[key].device.type == device
+        storages.append(storage)
+        return storage
 
     def capture_normalized_batch(batch):
         normalize(batch)
         normalized_batches.append((batch, batch.clone()))
 
     monkeypatch.setattr(ppo, "normalize_full_batch_advantage", capture_normalized_batch)
-    updater = PPOUpdater(ExplorationPolicy(_policy_config()), config)
+    monkeypatch.setattr(ppo, "TensorStorage", capture_storage)
+    updater = PPOUpdater(ExplorationPolicy(_policy_config()).to(device), config)
     minibatches = []
 
     def capture_minibatch(module, args):
@@ -433,12 +442,42 @@ def test_update_preserves_rollout_and_fixed_ppo_targets(monkeypatch) -> None:
     updater.update(episodes)
     handle.remove()
     assert len(normalized_batches) == 1
+    assert len(storages) == 1
     assert len(minibatches) == 4
     for actual, expected in normalized_batches + minibatches:
         assert (actual == expected).all()
     for episode, (training, audit) in zip(episodes, snapshots, strict=True):
         assert (episode.training == training).all()
         assert (episode.audit == audit).all()
+
+
+def test_ratio_diagnostics_cover_full_batch_with_bounded_forward_size(monkeypatch) -> None:
+    policy = ExplorationPolicy(_policy_config())
+    updater = PPOUpdater(policy, _ppo_config())
+    episodes = tuple(
+        _behavior_policy_episode(policy, torch.tensor([[i / 10, -i / 10]]), float(i))
+        for i in range(5)
+    )
+    batch = build_ppo_batch(episodes, _ppo_config())
+    ratios = torch.tensor([0.5, 1.0, 2.0, 4.0, 8.0])
+    batch["old_joint_guidance_log_prob"] -= ratios.log()
+    snapshot = batch.clone()
+    sizes = []
+    forward = policy.forward_tensordict
+
+    def observe(context):
+        sizes.append(context.batch_size[0])
+        assert not torch.is_grad_enabled()
+        return forward(context)
+
+    monkeypatch.setattr(policy, "forward_tensordict", observe)
+    statistics = updater._policy_ratio_statistics(batch)
+
+    assert sizes == [2, 2, 1]
+    assert statistics == pytest.approx(
+        (ratios.mean(), ratios.std(correction=0), torch.quantile(ratios, 0.95), ratios.max())
+    )
+    assert (batch == snapshot).all()
 
 
 @pytest.mark.smoke
