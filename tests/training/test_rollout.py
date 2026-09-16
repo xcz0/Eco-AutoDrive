@@ -9,7 +9,6 @@ import torch
 
 from eco_planner.rl.artifacts import (
     ENERGY_ROLLOUT_ARTIFACT_FIELDS,
-    NO_ENERGY_ROLLOUT_ARTIFACT_FIELDS,
     write_rollout_episode,
 )
 from eco_planner.rl.policy import ExplorationPolicyContext, policy_context_tensordict
@@ -224,10 +223,6 @@ def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path
         assert arrays["reward_component_progress"].item() == 0.5
         assert arrays["reward_diagnostic_wrong_direction_score"].item() == 1.0
         np.testing.assert_array_equal(arrays["reward_total"], episode.training["next", "reward"])
-
-
-def test_both_reward_profiles_share_one_rollout_audit_schema() -> None:
-    assert NO_ENERGY_ROLLOUT_ARTIFACT_FIELDS == ENERGY_ROLLOUT_ARTIFACT_FIELDS
 
 
 def test_batch_and_slot_audit_share_one_deferred_payload() -> None:

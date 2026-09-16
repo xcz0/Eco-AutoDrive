@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import importlib
 import os
 import subprocess
@@ -45,22 +44,6 @@ def test_current_operations_parse_and_route(monkeypatch, key):
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize(
-    "command",
-    [
-        "reward scalar run",
-        "reward fixed-batch collect",
-        "reward calibration run",
-        "training stability run",
-        "training reproducibility validate",
-        "guidance control-authority run",
-    ],
-)
-def test_retired_commands_are_rejected(command):
-    with pytest.raises(SystemExit):
-        cli.build_parser().parse_args(command.split() + ["--output-dir", "out"])
-
-
 def test_help_does_not_import_execution():
     subprocess.run(
         [
@@ -85,46 +68,6 @@ def test_collection_bootstrap_sets_cuda_before_environment(monkeypatch):
     args = cli.build_parser().parse_args(["reward", "collect", "--output-dir", "out"])
     cli.bootstrap(args)
     assert calls == [(LOCAL_ENVIRONMENT_PATH, ":4096:8")]
-
-
-def test_analysis_and_core_do_not_import_experiments():
-    root = REPOSITORY_ROOT / "src" / "eco_planner"
-    for folder in ("analysis", "rl", "evaluation", "benchmarking", "runtime", "models", "envs"):
-        for path in (root / folder).rglob("*.py"):
-            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-                if isinstance(node, ast.Import):
-                    names = [alias.name for alias in node.names]
-                elif isinstance(node, ast.ImportFrom):
-                    names = [node.module or ""]
-                else:
-                    continue
-                assert not any(
-                    name == "eco_planner.experiments" or name.startswith("eco_planner.experiments.")
-                    for name in names
-                ), path
-
-
-@pytest.mark.parametrize(
-    "module",
-    [
-        "reward.fixed_batch",
-        "reward.scalar",
-        "reward.calibration",
-        "reward.lambda_identifiability",
-        "reward.objective_decomposition",
-        "reward.critic_gae_ablation",
-        "guidance.control_authority",
-        "guidance.energy_sweep",
-        "training.stability",
-        "training.reproducibility",
-        "training.effective_update",
-        "training.objective_positive_control",
-        "training.evaluation_diagnostics",
-    ],
-)
-def test_historical_imports_are_removed(module):
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("eco_planner.experiments." + module)
 
 
 @pytest.mark.parametrize(

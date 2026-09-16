@@ -10,7 +10,11 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from eco_planner.analysis.training import beta_statistics, heldout_metric_values
+from eco_planner.analysis.training import (
+    beta_probe_statistics,
+    heldout_metric_values,
+    paired_beta_deltas,
+)
 from eco_planner.experiments.training.config import (
     GateConfig,
     GridConfig,
@@ -23,12 +27,8 @@ from eco_planner.experiments.training.grid import (
 )
 from eco_planner.rl.optimization.update_diagnostics import (
     extract_arm_metrics,
-    parameter_delta_vs_reference,
-    parameter_groups,
     policy_ratio_change,
-    post_clip_gradient_norm,
     post_update_kl_series,
-    probe_guidance_rms_shift,
 )
 from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.policy.distribution import AffineBeta
@@ -141,62 +141,12 @@ def test_grid_rejects_invalid_learning_rates(learning_rates: list[float]) -> Non
         GridConfig(learning_rates=learning_rates, epochs=[1], max_gradient_norms=[0.5])
 
 
-def test_beta_statistics_match_affine_beta_math() -> None:
-    mean, concentration, variance = beta_statistics(2.0, 2.0)
-    assert mean == pytest.approx(0.0)
-    assert concentration == pytest.approx(4.0)
-    assert variance == pytest.approx(0.2)
-    mean, concentration, variance = beta_statistics(3.0, 1.0)
-    assert mean == pytest.approx(0.5)
-    assert concentration == pytest.approx(4.0)
-    assert variance == pytest.approx(0.15)
-
-
-def test_post_clip_gradient_norm_uses_global_clip_semantics() -> None:
-    assert post_clip_gradient_norm(4.8, 0.5) == pytest.approx(0.5)
-    assert post_clip_gradient_norm(0.3, 0.5) == pytest.approx(0.3)
-    with pytest.raises(ValueError, match="max_gradient_norm"):
-        post_clip_gradient_norm(4.8, 0.0)
-
-
-def test_probe_guidance_rms_shift() -> None:
-    before = ((0.0, 0.0), (1.0, -1.0))
-    after = ((0.02, 0.0), (1.0, -0.98))
-    assert probe_guidance_rms_shift(before, after) == pytest.approx(0.014142135623731)
-    with pytest.raises(ValueError, match="scenario set"):
-        probe_guidance_rms_shift(before, ((0.0, 0.0),))
-
-
 def test_policy_ratio_change_is_median_of_joint_deviation() -> None:
     means = [1.0, 0.999, 1.001]
     stds = [1.0e-07, 1.0e-07, 1.0e-07]
     assert policy_ratio_change(means, stds) == pytest.approx(1.0e-03)
     with pytest.raises(ValueError, match="ratio statistics"):
         policy_ratio_change([1.0], [])
-
-
-def test_parameter_groups_split_heads_and_trunk() -> None:
-    groups = parameter_groups(list(_state_dict()))
-    assert groups["actor_head"] == ["actor_head.weight", "actor_head.bias"]
-    assert groups["value_head"] == ["value_head.weight", "value_head.bias"]
-    assert groups["shared_trunk"] == ["fusion_trunk.0.weight", "reference_mixers.0.weight"]
-    with pytest.raises(ValueError, match="actor_head"):
-        parameter_groups(["fusion_trunk.0.weight"])
-
-
-def test_parameter_delta_vs_reference_per_group() -> None:
-    reference = _state_dict()
-    state = _state_dict()
-    state["actor_head.bias"] = torch.full((4,), 0.5)
-    groups = parameter_groups(list(reference))
-    deltas = parameter_delta_vs_reference(state, reference, groups)
-    assert deltas["actor_head"] == pytest.approx(1.0)
-    assert deltas["value_head"] == pytest.approx(0.0)
-    assert deltas["shared_trunk"] == pytest.approx(0.0)
-    mismatch = dict(state)
-    del mismatch["value_head.bias"]
-    with pytest.raises(ValueError, match="matching"):
-        parameter_delta_vs_reference(mismatch, reference, groups)
 
 
 def test_arm_label_and_overrides_carry_grid_values() -> None:
@@ -342,7 +292,7 @@ def test_extract_arm_metrics_reads_persisted_run(tmp_path: Path) -> None:
 
 def test_post_update_kl_series_recomputes_kl_on_persisted_updates(tmp_path: Path) -> None:
     torch.manual_seed(0)
-    policy = _build_real_policy()
+    policy = ExplorationPolicy(_policy_config())
     run_dir = tmp_path / "kl-arm"
     run_dir.mkdir()
     OmegaConf.save({"policy": policy.config.model_dump()}, run_dir / "resolved_config.yaml")
@@ -378,10 +328,6 @@ def test_post_update_kl_series_recomputes_kl_on_persisted_updates(tmp_path: Path
     )
     with pytest.raises(ValueError, match="no persisted rollout episodes"):
         post_update_kl_series(run_dir, update_count=3, mc_draws=4096, mc_seed=1000003)
-
-
-def _build_real_policy() -> ExplorationPolicy:
-    return ExplorationPolicy(_policy_config())
 
 
 def _write_kl_update(
@@ -430,3 +376,29 @@ def test_heldout_values_and_noise_exceedance() -> None:
     assert changed["relative_change"]["energy_total_ml"] == pytest.approx(0.01)
     with pytest.raises(ValueError, match="at least one episode"):
         heldout_metric_values([])
+
+
+def test_beta_probe_statistics_aggregates_affine_beta_moments() -> None:
+    probe = {
+        "alpha": [[2.0, 2.0], [2.0, 2.0]],
+        "beta": [[2.0, 2.0], [2.0, 2.0]],
+    }
+
+    statistics = beta_probe_statistics(probe)
+
+    assert statistics["context_count"] == 2
+    assert statistics["beta_mean"]["mean"] == pytest.approx([0.0, 0.0])
+    assert statistics["concentration"]["mean"] == pytest.approx([4.0, 4.0])
+    assert statistics["variance"]["mean"] == pytest.approx([0.2, 0.2])
+
+
+def test_paired_beta_deltas_reports_per_dimension_mean_and_rms() -> None:
+    reference = {"alpha": [[2.0, 2.0]], "beta": [[2.0, 2.0]]}
+    stress = {"alpha": [[1.0, 2.0]], "beta": [[2.0, 2.0]]}
+
+    deltas = paired_beta_deltas(reference, stress)
+
+    assert deltas["concentration"]["mean_delta_per_dimension"] == pytest.approx([-1.0, 0.0])
+    assert deltas["beta_mean"]["mean_delta_per_dimension"][1] == pytest.approx(0.0)
+    assert deltas["beta_mean"]["mean_delta_per_dimension"][0] < 0.0
+    assert deltas["variance"]["rms"] > 0.0

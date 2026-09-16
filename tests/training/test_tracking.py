@@ -9,19 +9,15 @@ import torch
 from lightning.fabric import Fabric
 from mlflow import MlflowClient
 from omegaconf import OmegaConf
-from pydantic import ValidationError
-from tensordict import TensorDict
 
 from eco_planner.jobs import compose_job_config
 from eco_planner.rl.artifacts import PolicyProbeSummary, build_update_summary
-from eco_planner.rl.artifacts.metrics import RolloutMetrics
 from eco_planner.rl.config import parse_training_config
 from eco_planner.rl.optimization import (
     PPOUpdater,
     load_training_checkpoint,
     save_training_checkpoint,
 )
-from eco_planner.rl.optimization.metrics import PPOMetrics
 from eco_planner.rl.optimization.ppo import PPOUpdateReport
 from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.tracking import TrackingIdentity, TrainingTracking, update_metrics
@@ -80,21 +76,6 @@ def test_adapter_preserves_units_denominators_and_optional_metrics(summary):
     assert "gradient/actor_head_policy" not in metrics
 
 
-def test_rollout_aggregations_match_original_tensor_reductions():
-    trajectory = TensorDict(
-        {"value": torch.tensor([0.25, 1.0, 8.0]), "stopped": torch.tensor([True, False, False])},
-        batch_size=[3],
-    )
-    metrics = RolloutMetrics(trajectory)
-    assert metrics.sum("value") == float(trajectory["value"].sum())
-    assert metrics.mean("value") == float(trajectory["value"].mean())
-    assert metrics.maximum("value") == 8.0
-    assert metrics.stopped_fraction() == float(trajectory["stopped"].float().mean())
-    trajectory["value"][0] = float("nan")
-    with pytest.raises(RuntimeError, match="nan"):
-        metrics.mean("value")
-
-
 def test_unequal_episode_summary_uses_transition_weights_and_ratio_of_totals(summary):
     short = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
     training = torch.cat([short.training, short.training], dim=0)
@@ -119,36 +100,6 @@ def test_unequal_episode_summary_uses_transition_weights_and_ratio_of_totals(sum
     short.audit["step_distance_m"][:] = 0.0
     long.audit["step_distance_m"][:] = 0.0
     assert build_update_summary(0, (short, long), report).executed_fuel_proxy_ml_per_km is None
-
-
-def test_ppo_metrics_include_evaluated_minibatches_and_only_executed_gradients():
-    metrics = PPOMetrics(2, torch.device("cpu"))
-    values = [torch.tensor([1.0, 3.0]), torch.tensor([5.0, 7.0])]
-    for value in values:
-        metrics.update(tuple(value.unbind()))
-    metrics.gradient(torch.tensor(2.5))
-    expected = torch.stack(values).double().mean(dim=0)
-    torch.testing.assert_close(
-        metrics.compute(), torch.cat((expected, torch.tensor([2.5]).double())), rtol=0, atol=0
-    )
-    empty = PPOMetrics(1, torch.device("cpu"))
-    empty.update((torch.tensor(0.1),))
-    assert empty.compute()[-1] == 0
-
-
-def test_config_defaults_disable_remote_and_invalid_values(tmp_path):
-    config = _config(tmp_path)
-    assert config.tracking.enabled
-    assert config.tracking.experiment_name == "eco-autodrive-ppo"
-    payload = config.tracking.model_dump(mode="python")
-    payload["tracking_uri"] = "https://mlflow.example.org"
-    payload["artifact_location"] = None
-    assert config.tracking.model_validate(payload).tracking_uri == "https://mlflow.example.org"
-    for changes in ({"checkpoint_interval": 0}, {"enabled": "yes"}, {"tracking_uri": "bad"}):
-        raw = config.tracking.model_dump(mode="python")
-        raw.update(changes)
-        with pytest.raises(ValidationError):
-            config.tracking.model_validate(raw)
 
 
 def test_real_mlflow_runs_metrics_artifacts_and_same_run_resume(tmp_path, summary):

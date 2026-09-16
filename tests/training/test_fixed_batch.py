@@ -8,6 +8,7 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import write_json
+from eco_planner.jobs import compose_job_config
 from eco_planner.rl.artifacts import policy_state_hash
 from eco_planner.rl.config import parse_training_config
 from eco_planner.rl.optimization import save_exploration_policy_checkpoint
@@ -25,8 +26,8 @@ from tests.training.test_reward import _no_energy_config
 
 
 @pytest.fixture
-def fixed_source(tmp_path, compose_config):
-    raw = compose_config(
+def fixed_source(tmp_path):
+    raw = compose_job_config(
         "jobs/training/ppo",
         [
             "components/resources=rtx3050_laptop",

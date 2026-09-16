@@ -25,6 +25,8 @@ just check
 
 `just --list` 查看全部开发、评测、训练、benchmark 和实验入口。
 
+测试以回归、集成和功能验证为主，目录职责与运行入口见 [tests/README.md](tests/README.md)。
+
 ## 常用工作流
 
 快速闭环评测：

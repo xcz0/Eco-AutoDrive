@@ -11,7 +11,7 @@ from eco_planner.evaluation.artifacts.models import PolicyCheckpointProvenance
 from eco_planner.experiments.protocol.config import DEFAULT_PROTOCOL
 from eco_planner.experiments.training import grid, runner
 from tests.analysis.test_reports import job
-from tests.characterization.test_experiment_outputs import _training_summary
+from tests.evaluation.test_artifacts import _training_summary
 from tests.training.test_effective_update import _metrics, _study
 from tests.training.test_tracking import summary as update_fixture
 

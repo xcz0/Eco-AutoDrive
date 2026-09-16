@@ -26,7 +26,7 @@ from eco_planner.evaluation.artifacts.models import (
     PolicyCheckpointProvenance,
     WorkloadScenario,
 )
-from tests.characterization.test_experiment_outputs import _episode, _training_summary
+from tests.evaluation.test_artifacts import _episode, _training_summary
 
 
 def assert_report(output: Path, *, figures: bool) -> None:

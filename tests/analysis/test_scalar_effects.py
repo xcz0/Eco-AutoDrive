@@ -22,7 +22,7 @@ from eco_planner.analysis.statistics import (
 )
 from eco_planner.evaluation.artifacts.models import FailedEpisodeSummary
 from tests.analysis.test_reports import job
-from tests.characterization.test_experiment_outputs import _episode, _training_summary
+from tests.evaluation.test_artifacts import _episode, _training_summary
 
 BOOTSTRAP = ScenarioBootstrapConfig(confidence_level=0.95, n_resamples=10000, bootstrap_seed=0)
 

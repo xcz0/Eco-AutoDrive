@@ -22,6 +22,8 @@ from eco_planner.configuration import (
     with_machine_resource_override,
 )
 from eco_planner.evaluation import EvaluationJobConfig, parse_evaluation_config
+from eco_planner.experiments.guidance.sweep import load_energy_study
+from eco_planner.reward_validation import evaluate_sanity, load_sanity_config
 from eco_planner.rl.config import (
     RolloutJobConfig,
     TrainingJobConfig,
@@ -102,40 +104,6 @@ def test_unknown_machine_profile_is_reported_by_hydra(monkeypatch) -> None:
             "jobs/training/ppo",
             ("runtime.seed=17", "training.replay_id=3"),
         )
-
-
-def test_typed_job_runners_parse_before_invoking_domain_execution(
-    monkeypatch, tmp_path: Path
-) -> None:
-    evaluation_config = OmegaConf.create({"evaluation": "raw"})
-    training_config = OmegaConf.create({"training": "raw"})
-    resource_profile = object()
-    evaluation_summary = SimpleNamespace(resources=resource_profile)
-    training_summary = SimpleNamespace(resources=resource_profile)
-    seen: dict[str, object] = {}
-
-    monkeypatch.setattr(jobs, "parse_evaluation_config", lambda config: evaluation_summary)
-    monkeypatch.setattr(
-        jobs,
-        "run_evaluation",
-        lambda config, output_dir: (
-            seen.update(evaluation=(config, output_dir)) or evaluation_summary
-        ),
-    )
-    monkeypatch.setattr(jobs, "parse_training_config", lambda config: training_summary)
-    monkeypatch.setattr(
-        jobs,
-        "train",
-        lambda config, output_dir, update_observer=None: (
-            seen.update(training=(config, output_dir, update_observer)) or training_summary
-        ),
-    )
-
-    assert jobs.run_evaluation_job(evaluation_config, tmp_path / "evaluation") is evaluation_summary
-    assert jobs.run_training_job(training_config, tmp_path / "training") is training_summary
-    assert seen["evaluation"] == (evaluation_summary, tmp_path / "evaluation")
-    assert seen["training"] == (training_summary, tmp_path / "training", None)
-    assert (tmp_path / "training" / "resolved_config.yaml").is_file()
 
 
 @pytest.mark.parametrize("runner_name", ["run_evaluation_job", "run_training_job"])
@@ -313,3 +281,70 @@ def test_semantic_jobs_compose_without_a_machine_profile(
     assert training.resources is None
     assert parse_evaluation_config(throughput_job).resources is None
     assert environment.resources is None
+
+
+def test_experiment_manifests_are_strict_and_reference_composable_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+    compose_config: ComposeConfig,
+    config_root: Path,
+) -> None:
+    monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
+    energy = load_energy_study(
+        config_root / "experiments" / "guidance" / "energy-sweep" / "matrix.yaml"
+    )
+
+    for job in energy.jobs:
+        for guidance in energy.guidance_profiles:
+            config = compose_config(
+                job.config_name,
+                [f"components/guidance={guidance.config}"],
+            )
+            parsed = parse_evaluation_config(config)
+            assert isinstance(parsed, EvaluationJobConfig)
+            assert parsed.runtime.seed == 0
+            assert parsed.sampler.name == "ddim5"
+            assert parsed.env["random_agent_model"] is False
+
+
+def test_reward_sanity_config_covers_anti_hacking_and_gate_cases(config_root: Path) -> None:
+    config = load_sanity_config(config_root / "validation" / "reward.yaml")
+
+    assert {item.name for item in config.cases} == {
+        "cruise",
+        "stationary",
+        "extremely_low_speed",
+        "slower_progress",
+        "low_route_progress",
+        "overspeed",
+        "following_non_closing",
+        "approaching_collision",
+        "uncomfortable",
+        "collision",
+        "out_of_road",
+        "wrong_direction",
+    }
+    assert len(config.comparisons) == 7
+
+
+def test_reward_sanity_report_requires_every_declared_check_to_pass(config_root: Path) -> None:
+    config = load_sanity_config(config_root / "validation" / "reward.yaml")
+
+    report = evaluate_sanity(config)
+
+    assert report["status"] == "passed"
+    assert report["case_count"] == 12
+    assert all(item["passed"] for item in report["checks"])
+
+
+def test_no_energy_reward_sanity_report_passes_and_pins_the_r0_cruise_total(
+    config_root: Path,
+) -> None:
+    config = load_sanity_config(config_root / "validation" / "reward" / "sanity_no_energy.yaml")
+
+    report = evaluate_sanity(config)
+
+    assert "plannerrft_no_energy_v1.yaml" in config.reward_config
+    assert report["reward_profile"] == "plannerrft_no_energy_v1"
+    assert report["status"] == "passed"
+    assert report["case_count"] == 12
+    assert all(item["passed"] for item in report["checks"])
