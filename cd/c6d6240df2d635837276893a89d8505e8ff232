@@ -1,0 +1,77 @@
+src/eco_planner/envs/metadrive/slot.py
+  s_daedbfe9cd8a14::t_bdba658f8358f3 84,97
+src/eco_planner/analysis/horizon.py
+  s_daedbfe9cd8a14::t_e02b0ce34d51a0 1-52,54-129,131-208,210-214,217
+  s_daedbfe9cd8a14::t_76bc35d3502c84 53,130
+  s_daedbfe9cd8a14::t_ed4dc807a8da49 215-216
+  s_daedbfe9cd8a14::t_95fcc0ed81a4d3 209
+src/eco_planner/runtime/envs/vector.py
+  s_daedbfe9cd8a14::t_907f735234f428 103
+  s_daedbfe9cd8a14::t_6802271b6f1c3a 63,72-75
+src/eco_planner/runtime/envs/worker.py
+  s_daedbfe9cd8a14::t_7c5028b0fc1275 172,181
+src/eco_planner/analysis/reporting/horizon.py
+  s_daedbfe9cd8a14::t_925c5ce2c03754 1-172
+src/eco_planner/analysis/runner.py
+  s_daedbfe9cd8a14::t_60bd8ba3ca11f0 79,91-93,104-108
+  s_daedbfe9cd8a14::t_e8716f6e80de18 48-51,94
+scripts/experiments.py
+  s_daedbfe9cd8a14::t_349b94289a597c 128
+  s_daedbfe9cd8a14::t_9d44f3864295df 47-50
+  s_daedbfe9cd8a14::t_19196688aa2f63 72
+tests/training/test_guidance_control_authority.py
+  s_daedbfe9cd8a14::t_6de399324ef560 329-336,343
+  s_daedbfe9cd8a14::t_05fdc7ccb47f84 20
+src/eco_planner/experiments/guidance/horizon/runner.py
+  s_daedbfe9cd8a14::t_3d842d4a67dc56 179-181
+  s_daedbfe9cd8a14::t_7d022d31adc735 1-160,167-178,182,184-186
+  s_daedbfe9cd8a14::t_48ad460bab6109 161-166
+  s_daedbfe9cd8a14::t_76bc35d3502c84 183
+docs/experiments/records/e-043-issue98-task-a-execution-horizon.md
+  s_daedbfe9cd8a14::t_ea1937d0cc771f 1-38,42-130
+  s_daedbfe9cd8a14::t_4c39b0dbfe8251 39-41
+docs/experiments/README.md
+  s_daedbfe9cd8a14::t_cc72e45acda689 89
+docs/agents/system-contract.md
+  s_daedbfe9cd8a14::t_b7c3d281b48d8b 36
+tests/training/test_guidance_horizon.py
+  s_daedbfe9cd8a14::t_59776ffcfdfadb 1-220
+configs/experiments/guidance/horizon.yaml
+  s_daedbfe9cd8a14::t_e157f04b5fe583 1-26
+src/eco_planner/envs/metadrive/execution.py
+  s_daedbfe9cd8a14::t_6a5dd51e096fce 38-39
+  s_daedbfe9cd8a14::t_b4ae81817eb3e3 10
+src/eco_planner/experiments/guidance/horizon/diagnostics.py
+  s_daedbfe9cd8a14::t_5e194d5d64d666 1-144
+src/eco_planner/experiments/guidance/horizon/__init__.py
+  s_daedbfe9cd8a14::t_9e7a3e947b0352 1
+tests/simulation/test_closed_loop.py
+  s_daedbfe9cd8a14::t_58613e92de3760 253-272
+docs/agents/contracts/experiments.md
+  s_daedbfe9cd8a14::t_562a317c426f22 73
+  s_daedbfe9cd8a14::t_42db104425dc90 17
+  s_daedbfe9cd8a14::t_7b1d1d10cdff78 49-54
+src/eco_planner/evaluation/intervention.py
+  s_daedbfe9cd8a14::t_1d016cb4b01b81 197,226-227,229-240
+  s_daedbfe9cd8a14::t_222b8d103c2914 7,15-18,32-33,39-61,65-66,70-72,74,78,89-91,94-95,121-126
+  s_daedbfe9cd8a14::t_5bcf1d58ea4e07 182-183,188
+  s_daedbfe9cd8a14::t_260a86864232ec 113-114
+src/eco_planner/experiments/guidance/authority/runner.py
+  s_daedbfe9cd8a14::t_4adc54e749da53 105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "cdc6d6240df2d635837276893a89d8505e8ff232",
+  "prompts": {},
+  "sessions": {
+    "s_daedbfe9cd8a14": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f5680f315ffed9kP40H0JCCazC",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
