@@ -1,0 +1,71 @@
+src/eco_planner/rl/artifacts/__init__.py
+  s_73f9ea0f7a8a0f::t_2e66defa9f0528 9
+  s_73f9ea0f7a8a0f::t_f2fc3e27961174 30
+  s_73f9ea0f7a8a0f::t_42b6ffaa55afa4 46
+docs/experiments/README.md
+  s_73f9ea0f7a8a0f::t_3f8dbb24f76aa0 92
+docs/experiments/records/e-046-issue98-task-d-training-adequacy.md
+  s_73f9ea0f7a8a0f::t_c165d555f11437 1-187
+src/eco_planner/experiments/training/critic_attribution/__init__.py
+  s_73f9ea0f7a8a0f::t_8952867304f80b 1
+src/eco_planner/experiments/training/critic_attribution/diagnostics.py
+  s_73f9ea0f7a8a0f::t_b90461bc6888a0 1-157
+src/eco_planner/analysis/critic_attribution.py
+  s_73f9ea0f7a8a0f::t_bcb42cd0c23e31 1-83
+scripts/experiments.py
+  s_73f9ea0f7a8a0f::t_7ddf193ac68414 72-78
+  s_73f9ea0f7a8a0f::t_ad9559b6bb4ebd 88-89,93-100,104
+  s_73f9ea0f7a8a0f::t_347a2e914c90cf 156
+src/eco_planner/rl/artifacts/io.py
+  s_73f9ea0f7a8a0f::t_748fac3a8a924c 60-85,87-93
+  s_73f9ea0f7a8a0f::t_75fc383300ec65 86
+  s_73f9ea0f7a8a0f::t_235a1b57ce8198 13,18-19,22
+src/eco_planner/experiments/training/critic_attribution/runner.py
+  s_73f9ea0f7a8a0f::t_75fc383300ec65 192
+  s_73f9ea0f7a8a0f::t_528b671296d871 105-107
+  s_73f9ea0f7a8a0f::t_85f68357edc336 1-104,108-191,193-281
+tests/training/test_critic_attribution.py
+  s_73f9ea0f7a8a0f::t_faeeea50a90f7d 115
+  s_73f9ea0f7a8a0f::t_6a0e73c1aecbc5 97-98
+  s_73f9ea0f7a8a0f::t_75fc383300ec65 186,193
+  s_73f9ea0f7a8a0f::t_d3c127bcf8754b 1-76,80-96,99-114,116-185,187-192,194-221,225-237,241-305
+  s_73f9ea0f7a8a0f::t_7a968b7b77a237 222-224
+  s_73f9ea0f7a8a0f::t_61fc1955fc9410 77-79
+  s_73f9ea0f7a8a0f::t_56512607669ded 238-240
+configs/experiments/training/critic-attribution.yaml
+  s_73f9ea0f7a8a0f::t_62eba74079c406 1-83
+src/eco_planner/analysis/runner.py
+  s_73f9ea0f7a8a0f::t_b8c540e3640e3f 64-67
+  s_73f9ea0f7a8a0f::t_7b6be52228f10c 152-156
+  s_73f9ea0f7a8a0f::t_d66a72a2dd64e6 148-151
+  s_73f9ea0f7a8a0f::t_1ac16693b64223 121-124
+src/eco_planner/rl/__init__.py
+  s_73f9ea0f7a8a0f::t_b18929923b3007 41
+  s_73f9ea0f7a8a0f::t_9028a50c6fd894 11
+  s_73f9ea0f7a8a0f::t_82724df6919f70 78
+src/eco_planner/analysis/reporting/critic_attribution.py
+  s_73f9ea0f7a8a0f::t_ea1f7530ac9ec3 1-5,7-77,79-178
+  s_73f9ea0f7a8a0f::t_11b19176671f8e 179
+  s_73f9ea0f7a8a0f::t_49d5b289ed50b0 6
+  s_73f9ea0f7a8a0f::t_af5480fd2d7da0 78
+docs/agents/contracts/experiments.md
+  s_73f9ea0f7a8a0f::t_efedddc75ab5ed 17
+  s_73f9ea0f7a8a0f::t_6f427d77b0136e 96
+  s_73f9ea0f7a8a0f::t_83e33ca8b138b1 75-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "b1d9639f53d12f05288a79c5c9d731adce8836f7",
+  "prompts": {},
+  "sessions": {
+    "s_73f9ea0f7a8a0f": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f51cd17c9ffeP35X0n1j9HE6RD",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
