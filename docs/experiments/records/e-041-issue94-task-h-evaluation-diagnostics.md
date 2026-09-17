@@ -127,6 +127,12 @@ energy 均为正）；action-seed 间散布（同一 policy 的 sto speed min-ma
 
 （conc / var 为两维均值；mean Δ 为 rstress−r0 final 的 per-dimension 均值差。）
 
+> **Errata（2026-09-17，E-044）**：上表 `paired mean Δ (lon, lat)` 的标签与数值顺序互换。
+> 权威 guidance 顺序为 `[lateral, longitudinal]`（`src/eco_planner/models/guidance.py:135,153`、
+> `src/eco_planner/rl/optimization/gradients.py:43-44`），因此 seed0 `(+0.0253, +0.0838)`、
+> seed1 `(+0.0239, +0.1146)` 实为 `(lateral, longitudinal)`——**较大迁移是纵向**。
+> 上表数字未改，仅更正标签；E-044 的臂构造已按正确顺序执行。
+
 - Beta mean：两 arm final 均相对 initial 迁移，且 rstress−r0 出现 seed 间方向
   一致的 paired 差异——行为分离的第一层来源；
 - concentration / variance：所有 arm 的 final−initial 与 paired 差异都在

@@ -34,8 +34,9 @@ PLANNER_RESPONSE_CHECKPOINT_STEPS: Final = (1, 2, 5, 10, 20, 40, 80)
 
 @dataclass(frozen=True)
 class InterventionExecution:
-    longitudinal_actions: tuple[float, ...]
-    lateral_action: float
+    """Per-arm manual guidance actions ordered ``(lateral, longitudinal)``."""
+
+    arm_actions: tuple[tuple[float, float], ...]
     cycles: int
     execution_steps: int
 
@@ -113,6 +114,7 @@ def transition_record(
         "terminated": bool(e.substep_terminated[substep]),
         "truncated": bool(e.substep_truncated[substep]),
         "arrive_dest": e.arrive_dest,
+        "route_completion": e.route_completion,
         "max_step": e.max_step,
         "planner_first_speed_mps": float(guided[0]),
         "planner_mean_speed_mps": float(guided.mean()),
@@ -143,7 +145,7 @@ def collect_group(
     baseline_observation: TensorDictBase | None = None
     baseline_state: list[np.ndarray] | None = None
     baseline_noises: list[np.ndarray] = []
-    for arm, action in enumerate(config.longitudinal_actions):
+    for arm, (lateral_action, longitudinal_action) in enumerate(config.arm_actions):
         folder = output / "raw" / f"group-{group:03d}-arm-{arm}"
         folder.mkdir(parents=True)
         generators = tuple(
@@ -177,8 +179,8 @@ def collect_group(
                 "simulator_seed": spec.seed,
                 "noise_seed": noise_seed,
                 "physical_slot": i,
-                "g_lon": action,
-                "g_lat": config.lateral_action,
+                "g_lat": lateral_action,
+                "g_lon": longitudinal_action,
                 "execution_horizon": config.execution_steps,
                 "cycles": config.cycles,
                 "raw_dir": folder.relative_to(output).as_posix(),
@@ -191,7 +193,9 @@ def collect_group(
         ]
         active = list(range(batch))
         actions = torch.tensor(
-            [[config.lateral_action, action]] * batch, dtype=torch.float32, device=runtime.device
+            [[lateral_action, longitudinal_action]] * batch,
+            dtype=torch.float32,
+            device=runtime.device,
         )
         try:
             for cycle in range(config.cycles):

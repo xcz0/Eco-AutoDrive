@@ -328,8 +328,7 @@ def test_real_rollout_intervention_window_and_noise_pairing(tmp_path, horizon):
         all_rows = []
         authority = study()
         execution = InterventionExecution(
-            tuple(authority.longitudinal_actions),
-            authority.lateral_action,
+            tuple((authority.lateral_action, action) for action in authority.longitudinal_actions),
             authority.window_steps,
             1,
         )

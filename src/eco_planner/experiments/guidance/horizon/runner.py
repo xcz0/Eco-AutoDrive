@@ -106,8 +106,10 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
                             batch,
                             seed,
                             InterventionExecution(
-                                tuple(study.longitudinal_actions),
-                                study.lateral_action,
+                                tuple(
+                                    (study.lateral_action, action)
+                                    for action in study.longitudinal_actions
+                                ),
                                 study.total_window_steps // horizon,
                                 horizon,
                             ),

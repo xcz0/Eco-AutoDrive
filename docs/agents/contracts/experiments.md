@@ -14,7 +14,7 @@
 | `evaluation.intervention` | 已准备的 runtime、环境、场景、动作与窗口；reset/step、固定噪声、终止处理和部分原始证据 |
 | `analysis` | 已保存结果、统计、matched 差值、逐 seed 汇总和报告再生成；不执行训练、backward 或 gate 裁定 |
 
-`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
+`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance decomposition run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
 
 ## Comparison matched protocol
 
@@ -40,7 +40,7 @@ credit 配置显式声明 reward arms、raw/center/z advantage forms 和 standar
 
 ## Guidance control-authority intervention
 
-authority 的实验层选择 matched groups、干预值和裁定规则。`evaluation.intervention` 接收准备好的 runtime/环境及 InterventionExecution；设备上有限 float32 [B,2] 动作允许闭区间 ±1，直接用于 orthogonal_policy，不经过 Beta 分布或 log-prob。
+authority 的实验层选择 matched groups、干预值和裁定规则。`evaluation.intervention` 接收准备好的 runtime/环境及 InterventionExecution；InterventionExecution 携带每 arm 的显式 2D `(lateral, longitudinal)` 常量动作，按设备上有限 float32 [B,2] 构造，允许闭区间 ±1，直接用于 orthogonal_policy，不经过 Beta 分布或 log-prob。
 
 每组固定场景、reset seed、slot、batch shape 与 noise seed；每 arm 独立 reset，核对初始 observation、simulator state 与逐周期 initial noise。DDIM stochasticity=0。使用 ROLLOUT 每周期执行 0.1 s；默认首步 immediate、20 步为 2 s 窗口，env horizon 大于窗口。提前终止的 slot 不再 step、不补零，但保持 inference batch 与 noise draw 次数，终止后的 planner audit 不进入执行指标。异常时保存当前 arm 的部分证据并抛出。普通 evaluation（含 guidance sweep 与 policy evaluation）仍每周期执行 0.5 s。
 
@@ -51,6 +51,12 @@ authority 的实验层选择 matched groups、干预值和裁定规则。`evalua
 `guidance horizon` 复用 authority 的 matched-group 机制，但把“每次规划后连续执行多少 waypoint 再重规划”作为唯一诊断轴。实验层声明 `total_window_steps`（固定 2 s 窗口）与 `execution_horizons`；每个 horizon k 必须整除总窗口且 `k < PLANNER_HORIZON`，`replan 次数 = total_window_steps / k`。`evaluation.intervention` 每周期一次规划、执行 `execution_steps=k` 个 0.1 s 子步；提前终止的 slot 不再 step，剩余子步不补零，终止后的 planner audit 不进入执行指标。首次规划的完整 8 s 预测前向位移在固定 checkpoint（0.1/0.2/0.5/1/2/4/8 s）记录，并在跨 horizon 之间核对匹配。
 
 统计按 horizon 分组：执行窗口 speed/endpoint speed/distance/progress/energy intensity/tracking error 的逐场景 Spearman、±1 endpoint 差与重复噪声；`planner_response` 为首次规划位移的 matched 差。预声明方向判据与 authority 相同，并据此给出 `gate_a.status`（`strong_evidence_for_receding_horizon_mismatch` / `sign_unchanged_by_horizon` / `mixed_or_inconclusive` / `safety_or_proxy_failure`）。该工作流是 diagnostic causal intervention，不修改 reward、PPO 或 baseline 执行方案；显式 `execution_steps` 覆盖仅是该诊断入口。
+
+## Guidance lon/lat component decomposition
+
+`guidance decomposition` 复用 authority/horizon 的 matched-group 机制，把每个 training seed 的四个常量 guidance 臂（`r0`、`lon`、`lat`、`joint`，原生 `(lateral, longitudinal)` 顺序）作为唯一诊断轴；臂常量来自 E-041 frozen final-policy Beta mean。runner 组合 held-out evaluation job（`jobs/evaluation/no_traffic_heldout_manual`，E-040 matched 协议 + orthogonal_policy），只加载冻结 planner，不加载 policy。每个 (worker batch, training seed, noise seed) 为一个 group，四臂顺序固定 r0/lon/lat/joint；每周期执行 1 个 0.1 s 子步（ROLLOUT），episode 可变长。配置 validator 要求 `lon` 只在纵向维、`lat` 只在横向维偏离 `r0`，且 `joint == r0 + (lon-r0) + (lat-r0)`，值域 ±1。
+
+统计按 (seed, scenario, arm) 配对：逐场景计算相对 `r0` 的 effect 与 `interaction = joint - lon - lat`，各 arm 方向由多数场景门槛决定。attribution verdict（`longitudinal-dominated` / `lateral-dominated` / `nonlinear-interaction` / `not-reproduced-state-dependent`）由预声明 `dominance_share` 与 `expected_joint_direction` 判定；overall 在 seed 不一致时为 `mixed-across-seeds`。该工作流是 diagnostic causal intervention，不修改 reward、PPO 或 baseline。
 
 ## Training
 
@@ -70,6 +76,7 @@ training eval 显式配置 protocol、records（arm、training_summary、checkpo
 | credit | summary.json、diagnostics.npz、sample_index.json，含实际校准配置和原 gate |
 | comparison | YAML 显式列出的 protocol、typed training/evaluation summaries |
 | guidance authority | episodes.json、intervention_config.json、scenarios.json、decisions.json |
+| guidance decomposition | episodes.json、intervention_config.json、scenarios.json、decisions.json |
 | guidance horizon | episodes.json、intervention_config.json、scenarios.json、decisions.json |
 | guidance sweep | matrix_summary.json 和各 evaluation summaries |
 | training | summary.json 中已持久化的 grid/diagnostics/evaluation 测量及各运行事实 |

@@ -1,0 +1,35 @@
+# Issue #98 Task B: fixed-constant lon/lat guidance decomposition over the E-040
+# held-out protocol. Arm constants are the exact E-041 final-policy Beta means
+# in the authoritative [lateral, longitudinal] order:
+#   r0    = R0 final Beta mean
+#   lon   = r0 + (0, delta_longitudinal)
+#   lat   = r0 + (delta_lateral, 0)
+#   joint = R0 + delta = Rstress final Beta mean
+# Injection reuses the frozen planner only; no policy is loaded at run time.
+
+protocol: configs/experiments/comparison/calibrated.yaml
+job: jobs/evaluation/no_traffic_heldout_manual
+runtime_seed: 760025
+noise_seeds:
+- 760025
+training_seeds:
+- 0
+- 1
+seed_arms:
+- seed: 0
+  arms:
+  - {name: r0, lateral: -0.04068837977042985, longitudinal: -0.025266034415357574}
+  - {name: lon, lateral: -0.04068837977042985, longitudinal: 0.058510644552303986}
+  - {name: lat, lateral: -0.015434362274986826, longitudinal: -0.025266034415357574}
+  - {name: joint, lateral: -0.015434362274986825, longitudinal: 0.05851064455230397}
+- seed: 1
+  arms:
+  - {name: r0, lateral: 0.03780415637588301, longitudinal: -0.05099847400653277}
+  - {name: lon, lateral: 0.03780415637588301, longitudinal: 0.06364626040828059}
+  - {name: lat, lateral: 0.061707102750171675, longitudinal: -0.05099847400653277}
+  - {name: joint, lateral: 0.061707102750171675, longitudinal: 0.06364626040828059}
+expected_joint_direction: positive
+dominance_share: 0.75
+required_scenarios: 9
+overrides:
+- components/resources=rtx_a4000
