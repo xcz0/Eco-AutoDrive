@@ -48,6 +48,10 @@ COMMANDS = {
         "guidance.horizon.runner", "run", "guidance/horizon.yaml", environment=True, cuda=True
     ),
     ("guidance", "horizon", "analyze"): Command("", "", None, source=True),
+    ("guidance", "deferral", "run"): Command(
+        "guidance.deferral.runner", "run", "guidance/deferral.yaml", environment=True, cuda=True
+    ),
+    ("guidance", "deferral", "analyze"): Command("", "", None, source=True),
     ("guidance", "decomposition", "run"): Command(
         "guidance.decomposition.runner",
         "run",
@@ -77,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
         guidance = (
             {
                 name: sub.add_parser(name).add_subparsers(required=True)
-                for name in ("authority", "decomposition", "horizon", "sweep")
+                for name in ("authority", "decomposition", "deferral", "horizon", "sweep")
             }
             if domain == "guidance"
             else {}
@@ -134,6 +138,7 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | int:
         evidence = {
             ("guidance", "authority"): "guidance-control-authority",
             ("guidance", "horizon"): "guidance-horizon",
+            ("guidance", "deferral"): "guidance-deferral",
             ("guidance", "decomposition"): "guidance-decomposition",
             ("guidance", "sweep"): "energy-sweep",
         }

@@ -14,7 +14,7 @@
 | `evaluation.intervention` | 已准备的 runtime、环境、场景、动作与窗口；reset/step、固定噪声、终止处理和部分原始证据 |
 | `analysis` | 已保存结果、统计、matched 差值、逐 seed 汇总和报告再生成；不执行训练、backward 或 gate 裁定 |
 
-`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance decomposition run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
+`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance deferral run/analyze、guidance decomposition run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
 
 ## Comparison matched protocol
 
@@ -52,6 +52,12 @@ authority 的实验层选择 matched groups、干预值和裁定规则。`evalua
 
 统计按 horizon 分组：执行窗口 speed/endpoint speed/distance/progress/energy intensity/tracking error 的逐场景 Spearman、±1 endpoint 差与重复噪声；`planner_response` 为首次规划位移的 matched 差。预声明方向判据与 authority 相同，并据此给出 `gate_a.status`（`strong_evidence_for_receding_horizon_mismatch` / `sign_unchanged_by_horizon` / `mixed_or_inconclusive` / `safety_or_proxy_failure`）。该工作流是 diagnostic causal intervention，不修改 reward、PPO 或 baseline 执行方案；显式 `execution_steps` 覆盖仅是该诊断入口。
 
+## Guidance replanning-deferral trace
+
+`guidance deferral` 复用 authority/horizon 的 matched-group 机制，固定 baseline 0.1 s receding-horizon execution（每周期执行 1 个 0.1 s 子步再重规划），把“连续 replanning cycle 的逐 waypoint guidance effect 是否被反复推迟到执行 prefix 之外”作为唯一诊断轴。实验层声明 `total_window_steps`（固定 2 s 窗口）、`execution_steps`（必须为 1）与 5 个固定 longitudinal 臂；`replan 次数 = total_window_steps`。runner 只加载冻结 planner，不加载 policy；`collect_group` 以 opt-in `include_waypoints=True` 保存每周期的完整 80 waypoint 前向位移（默认关闭，其它 workflow 产物不变）。
+
+统计以 matched 端点差 `Δ = D(g=+1) − D(g=-1)` 表示，先把逐 noise repeat 取中位，再逐 cycle 计算：首点（0.1 s）效应、8 s full-horizon 效应、首个正 response 的 zero-crossing waypoint step，以及跨 cycle 的稳定性。预声明场景判定要求多数 cycle 首点 ≤ 0、full-horizon > 0、正 response 越过执行 prefix 且 zero-crossing step 稳定；场景多数满足即 `gate_c.status = repeated_deferral`，首点多数为正为 `deferral_absent`，否则 `mixed_or_inconclusive`，安全/完整性或 proxy 失败覆盖为 `safety_or_proxy_failure`。该工作流是 diagnostic causal intervention，不修改 reward、PPO 或 baseline 执行方案。
+
 ## Guidance lon/lat component decomposition
 
 `guidance decomposition` 复用 authority/horizon 的 matched-group 机制，把每个 training seed 的四个常量 guidance 臂（`r0`、`lon`、`lat`、`joint`，原生 `(lateral, longitudinal)` 顺序）作为唯一诊断轴；臂常量来自 E-041 frozen final-policy Beta mean。runner 组合 held-out evaluation job（`jobs/evaluation/no_traffic_heldout_manual`，E-040 matched 协议 + orthogonal_policy），只加载冻结 planner，不加载 policy。每个 (worker batch, training seed, noise seed) 为一个 group，四臂顺序固定 r0/lon/lat/joint；每周期执行 1 个 0.1 s 子步（ROLLOUT），episode 可变长。配置 validator 要求 `lon` 只在纵向维、`lat` 只在横向维偏离 `r0`，且 `joint == r0 + (lon-r0) + (lat-r0)`，值域 ±1。
@@ -77,6 +83,7 @@ training eval 显式配置 protocol、records（arm、training_summary、checkpo
 | comparison | YAML 显式列出的 protocol、typed training/evaluation summaries |
 | guidance authority | episodes.json、intervention_config.json、scenarios.json、decisions.json |
 | guidance decomposition | episodes.json、intervention_config.json、scenarios.json、decisions.json |
+| guidance deferral | episodes.json、intervention_config.json、scenarios.json、decisions.json |
 | guidance horizon | episodes.json、intervention_config.json、scenarios.json、decisions.json |
 | guidance sweep | matrix_summary.json 和各 evaluation summaries |
 | training | summary.json 中已持久化的 grid/diagnostics/evaluation 测量及各运行事实 |

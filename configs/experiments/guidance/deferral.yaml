@@ -1,0 +1,27 @@
+# Issue #98 Task C: replanning-deferral / temporal-consistency trace.
+# Frozen planner only (no policy/optimizer). Same matched protocol, arms, window
+# and noise seeds as Task A (E-043) so the first plan is directly comparable;
+# the only axis is the baseline receding-horizon execution (one 0.1 s waypoint
+# per plan) observed across consecutive replanning cycles.
+
+protocol: configs/experiments/comparison/default.yaml
+runtime_seed: 0
+noise_seeds:
+- 0
+- 1
+- 2
+longitudinal_actions:
+- -1.0
+- -0.5
+- 0.0
+- 0.5
+- 1.0
+lateral_action: 0.0
+total_window_steps: 20
+execution_steps: 1
+required_scenarios: 9
+majority_fraction: 0.5
+crossing_tolerance_steps: 1
+overrides:
+- components/resources=rtx_a4000
+- env.horizon=21

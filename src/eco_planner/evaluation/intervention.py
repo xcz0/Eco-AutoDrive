@@ -48,11 +48,13 @@ def _along_speed(trajectory: np.ndarray) -> np.ndarray:
     return np.sum(velocity * tangent, axis=1)
 
 
-def planner_cycle_record(audit: TensorDictBase, slot: int) -> dict[str, Any]:
+def planner_cycle_record(
+    audit: TensorDictBase, slot: int, *, include_waypoints: bool = False
+) -> dict[str, Any]:
     """Summarize one plan's predicted forward response at fixed checkpoints."""
     guided = _along_speed(audit["prediction"][slot].numpy())
     displacement = np.cumsum(guided * SIMULATOR_STEP_S)
-    return {
+    record = {
         "checkpoint_steps": list(PLANNER_RESPONSE_CHECKPOINT_STEPS),
         "forward_displacement_m": [
             float(displacement[step - 1]) for step in PLANNER_RESPONSE_CHECKPOINT_STEPS
@@ -60,6 +62,9 @@ def planner_cycle_record(audit: TensorDictBase, slot: int) -> dict[str, Any]:
         "first_speed_mps": float(guided[0]),
         "mean_speed_mps": float(guided.mean()),
     }
+    if include_waypoints:
+        record["waypoint_forward_displacement_m"] = [float(value) for value in displacement]
+    return record
 
 
 def transition_record(
@@ -138,6 +143,8 @@ def collect_group(
     energy_config: EnergyRewardConfig,
     output: Path,
     group: int,
+    *,
+    include_waypoints: bool = False,
 ) -> list[dict[str, Any]]:
     """Keep the inference batch fixed even after a terminal slot stops executing."""
     batch = len(scenarios)
@@ -228,7 +235,12 @@ def collect_group(
                 for local, slot in enumerate(active):
                     result = results[local].step
                     episodes[slot]["planner_cycles"].append(
-                        {"plan_cycle": cycle, **planner_cycle_record(audit, slot)}
+                        {
+                            "plan_cycle": cycle,
+                            **planner_cycle_record(
+                                audit, slot, include_waypoints=include_waypoints
+                            ),
+                        }
                     )
                     for substep, metric in enumerate(result.metrics):
                         episodes[slot]["steps"].append(

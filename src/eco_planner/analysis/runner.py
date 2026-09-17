@@ -49,6 +49,10 @@ def publish(
         from .horizon import recompute as horizon_analysis
 
         data, episodes = horizon_analysis(source)
+    elif experiment == "guidance-deferral":
+        from .deferral import recompute as deferral_analysis
+
+        data, episodes = deferral_analysis(source)
     elif experiment == "guidance-decomposition":
         from .decomposition import recompute as decomposition_analysis
 
@@ -80,7 +84,12 @@ def publish(
     else:
         raise ValueError(f"unsupported experiment: {experiment}")
     output.mkdir(parents=True, exist_ok=True)
-    if experiment in ("guidance-control-authority", "guidance-horizon", "guidance-decomposition"):
+    if experiment in (
+        "guidance-control-authority",
+        "guidance-horizon",
+        "guidance-deferral",
+        "guidance-decomposition",
+    ):
         write_json(output / "summary.json", {"status": "completed", **data})
     files = []
     if figures:
@@ -95,6 +104,10 @@ def publish(
                 files = plot(data, episodes, output)
             elif experiment == "guidance-horizon":
                 from .reporting.horizon import plot
+
+                files = plot(data, episodes, output)
+            elif experiment == "guidance-deferral":
+                from .reporting.deferral import plot
 
                 files = plot(data, episodes, output)
             elif experiment == "guidance-decomposition":
@@ -114,6 +127,11 @@ def publish(
 
         write_horizon_report(data, output, files)
         return {"status": "completed", "output_dir": str(output), "gate_a": data["gate_a"]}
+    if experiment == "guidance-deferral":
+        from .reporting.deferral import write_report as write_deferral_report
+
+        write_deferral_report(data, output, files)
+        return {"status": "completed", "output_dir": str(output), "gate_c": data["gate_c"]}
     if experiment == "guidance-decomposition":
         from .reporting.decomposition import write_report as write_decomposition_report
 
