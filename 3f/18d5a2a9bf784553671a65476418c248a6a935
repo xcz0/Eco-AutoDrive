@@ -1,0 +1,82 @@
+src/eco_planner/experiments/guidance/horizon/runner.py
+  s_bd8858e4960f2b::t_d328eb80e6e832 109-112
+src/eco_planner/analysis/decomposition.py
+  s_bd8858e4960f2b::t_53d2ed95359880 212-213
+  s_bd8858e4960f2b::t_9d083074c4f023 1-43,48-49,51-53,55-59,62-63,66-75,78-79,81-90,93-96,126-132,134-180,182-184,202-205,207-209,211,219-224,226-232,234-251
+  s_bd8858e4960f2b::t_a34049843cfaac 44-47,50,54,60-61,64-65,76-77,80,91-92,97-125,133,181,185-187,191-194,198-201,206,210,214-218,225,233
+  s_bd8858e4960f2b::t_fb064b5b124806 188-190
+  s_bd8858e4960f2b::t_f61d23f42b79e0 195-197
+src/eco_planner/experiments/guidance/decomposition/runner.py
+  s_bd8858e4960f2b::t_9473231bdf7726 44
+  s_bd8858e4960f2b::t_49d6cc533d3bc8 1-43,45-159
+src/eco_planner/analysis/reporting/decomposition.py
+  s_bd8858e4960f2b::t_b095fa671525f8 1-143
+tests/training/test_guidance_decomposition.py
+  s_bd8858e4960f2b::t_cbd43584a7cca0 1-105,110-149,151,154-157,159-188,190-211,213-268
+  s_bd8858e4960f2b::t_ea82a6a727ed2b 158
+  s_bd8858e4960f2b::t_de59ce6f0dbda1 212
+  s_bd8858e4960f2b::t_74e5572d9f53a6 152-153
+  s_bd8858e4960f2b::t_9bd7bc9b7410e2 189
+  s_bd8858e4960f2b::t_b5e6f9743c519b 106-109
+  s_bd8858e4960f2b::t_d1bed4ce6cc808 150
+docs/agents/contracts/experiments.md
+  s_bd8858e4960f2b::t_8e9f7a97839950 55-60
+  s_bd8858e4960f2b::t_ceed5b74084c34 43
+  s_bd8858e4960f2b::t_124c516af6de77 79
+  s_bd8858e4960f2b::t_6ca73f66574a61 17
+configs/experiments/guidance/decomposition.yaml
+  s_bd8858e4960f2b::t_0fe83e85857c6c 1-35
+configs/jobs/evaluation/no_traffic_heldout_manual.yaml
+  s_bd8858e4960f2b::t_3b5b5045047447 1-52
+scripts/experiments.py
+  s_bd8858e4960f2b::t_2e81482e3c977f 51-58
+  s_bd8858e4960f2b::t_20fbf0bd3b346f 80
+  s_bd8858e4960f2b::t_26a2db344fdf80 137
+tests/training/test_guidance_control_authority.py
+  s_bd8858e4960f2b::t_fdb0996801ca4a 331
+src/eco_planner/evaluation/intervention.py
+  s_bd8858e4960f2b::t_5b6a1375770933 148
+  s_bd8858e4960f2b::t_43c22836c1db0d 37-39
+  s_bd8858e4960f2b::t_da1f70a902fc4a 117
+  s_bd8858e4960f2b::t_bd93b0e12b12f5 196-198
+  s_bd8858e4960f2b::t_3b9fb2d85ba3a3 182-183
+src/eco_planner/experiments/guidance/authority/runner.py
+  s_bd8858e4960f2b::t_e539fae6fdb402 102-105
+docs/experiments/records/e-044-issue98-task-b-guidance-decomposition.md
+  s_bd8858e4960f2b::t_2179f13dd730cd 63
+  s_bd8858e4960f2b::t_1bb4243302bfce 1-62,64-164
+src/eco_planner/experiments/guidance/decomposition/__init__.py
+  s_bd8858e4960f2b::t_9ed7a55c31b144 1
+src/eco_planner/analysis/runner.py
+  s_bd8858e4960f2b::t_46ac80afdaead5 83
+  s_bd8858e4960f2b::t_306081df3aa0cf 52-55,99
+  s_bd8858e4960f2b::t_25efdbf439a818 100-102
+  s_bd8858e4960f2b::t_e8c762b9ea9f6b 117-121
+docs/experiments/README.md
+  s_bd8858e4960f2b::t_2f4423ad533a3e 90
+docs/experiments/records/e-041-issue94-task-h-evaluation-diagnostics.md
+  s_bd8858e4960f2b::t_7b63a1ed09c2c8 130-135
+docs/能耗优化_0914汇报.md
+  s_bd8858e4960f2b::t_3cfebd736ee33f 253,255
+src/eco_planner/experiments/guidance/decomposition/diagnostics.py
+  s_bd8858e4960f2b::t_0a36ca21bb844f 1-12,15-89,91-139,143-165
+  s_bd8858e4960f2b::t_1bcb69122eef44 13-14
+  s_bd8858e4960f2b::t_16a122ccaf548a 140-142
+  s_bd8858e4960f2b::t_fdb0996801ca4a 90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "3f18d5a2a9bf784553671a65476418c248a6a935",
+  "prompts": {},
+  "sessions": {
+    "s_bd8858e4960f2b": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f52c2147fffeutAS201iln5emc",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
