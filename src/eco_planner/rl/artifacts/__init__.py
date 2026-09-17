@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from eco_planner.rl.artifacts.io import (
         policy_state_hash,
+        read_rollout_episode,
         write_rollout_episode,
         write_training_runtime_metadata,
     )
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 
 _EXPORTS = {
     "policy_state_hash": "eco_planner.rl.artifacts.io",
+    "read_rollout_episode": "eco_planner.rl.artifacts.io",
     "write_rollout_episode": "eco_planner.rl.artifacts.io",
     "write_training_runtime_metadata": "eco_planner.rl.artifacts.io",
     "build_update_summary": "eco_planner.rl.artifacts.metrics",
@@ -41,6 +43,7 @@ _EXPORTS = {
 }
 __all__ = [
     "policy_state_hash",
+    "read_rollout_episode",
     "write_rollout_episode",
     "write_training_runtime_metadata",
     "build_update_summary",

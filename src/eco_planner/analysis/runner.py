@@ -61,6 +61,10 @@ def publish(
         from .workflows import fixed
 
         data = fixed(source)
+    elif experiment == "training-critic-attribution":
+        from .critic_attribution import recompute as critic_attribution_analysis
+
+        data = critic_attribution_analysis(source)
     elif experiment == "training":
         from .workflows import training
 
@@ -114,6 +118,10 @@ def publish(
                 from .reporting.decomposition import plot
 
                 files = plot(data, episodes, output)
+            elif experiment == "training-critic-attribution":
+                from .reporting.critic_attribution import plot as plot_critic_attribution
+
+                files = plot_critic_attribution(data, output)
             else:
                 files = experiment_figures(experiment, data, output)
     payload = _write_analysis(output, data, files, experiment=experiment, source=source)
@@ -137,6 +145,15 @@ def publish(
 
         write_decomposition_report(data, output, files)
         return {"status": "completed", "output_dir": str(output), "verdict": data["verdict"]}
+    if experiment == "training-critic-attribution":
+        from .reporting.critic_attribution import write_report as write_critic_attribution_report
+
+        write_critic_attribution_report(data, output, files)
+        return {
+            "status": "completed",
+            "output_dir": str(output),
+            "verdict": data["gate"]["verdict"],
+        }
     write_report(experiment, source, output, data, files)
     return {"status": "completed", "output_dir": str(output), **payload}
 

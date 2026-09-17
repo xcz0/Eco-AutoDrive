@@ -14,7 +14,7 @@
 | `evaluation.intervention` | 已准备的 runtime、环境、场景、动作与窗口；reset/step、固定噪声、终止处理和部分原始证据 |
 | `analysis` | 已保存结果、统计、matched 差值、逐 seed 汇总和报告再生成；不执行训练、backward 或 gate 裁定 |
 
-`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance deferral run/analyze、guidance decomposition run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
+`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance deferral run/analyze、guidance decomposition run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/critic-attribution run/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
 
 ## Comparison matched protocol
 
@@ -72,6 +72,12 @@ training diagnose 的输入配置列出 training_summaries、training_seeds、mc
 
 training eval 显式配置 protocol、records（arm、training_summary、checkpoint_label、checkpoint_path、可空 deterministic_evaluation_dir）及 policy_action_seeds。可复用 deterministic 结果须匹配 checkpoint hash/label、mean action mode、held-out pool、horizon、sampler、runtime seed；与 sample action 评测按完整场景和 noise 条件配对。不存在 positive-control 固定目录布局依赖。逐训练 seed、逐 action seed 保留结果和缺项，不选择最佳 seed；exact replay 的正确性由训练/随机流测试覆盖。
 
+## Training critic attribution
+
+`training critic-attribution` 是无训练、无仿真、无 planner 的离线 backward-only 归因：输入显式列出训练 run（label/arm/training_seed/相对路径/reward profile）、baseline `standard_gae` 与对照 credit forms、`advantage_form`、`update_indices`、provenance 容差和预登记 materiality 阈值（actor_head/lateral/longitudinal cosine 下限与 advantage sign-flip 上限）。每个 update 从 `updates/update-NNN/*.npz` 经 `read_rollout_episode` 从 audit + tail 重建 episode，使用该 update 的 pre-update policy（update 0 为 `policy-initial.pt`，否则 `policy-update-(k-1)`），只用训练 `ClipPPOLoss` 的 `loss_objective` 做 full-batch backward，不 clipping、不做 optimizer step。
+
+standard GAE 重建的 raw advantage mean/std 必须与源 summary 记录的逐 update 值在容差内一致；每个 checkpoint 前后 policy hash 不变且 optimizer steps 为 0。梯度按 actor head / shared trunk / lateral / longitudinal 分组，advantage 与梯度对照复用固定批次 credit 的统计量。all-checkpoint 判据不通过即 `critic_material_candidate`，全部通过为 `critic_not_material_to_actor_direction`；cross-arm r0/rstress 对照为 unmatched 描述量，不作因果。离线分析从 `diagnostics.npz` 重算 advantage 对照并与记录逐值核对，梯度测量不重算。
+
 ## 实验离线分析与报告
 
 所有 analyze 从新生成的持久化证据独立写出 analysis.json、report.md 和 SVG/PNG。source/output 不得相同或互相嵌套，源文件不变。run 在保存原始证据后复用同一发布函数，默认在本次输出目录生成报告；--no-figures 禁用图片。help、offline analyze、typed summaries 不加载 Torch、MetaDrive/Panda3D 或执行器；仅启用图片时加载 Matplotlib，先设置 Agg。
@@ -87,6 +93,7 @@ training eval 显式配置 protocol、records（arm、training_summary、checkpo
 | guidance horizon | episodes.json、intervention_config.json、scenarios.json、decisions.json |
 | guidance sweep | matrix_summary.json 和各 evaluation summaries |
 | training | summary.json 中已持久化的 grid/diagnostics/evaluation 测量及各运行事实 |
+| training critic-attribution | diagnostics.npz、sample_index.json、summary.json、diagnostic_config.yaml、runtime_metadata.json |
 
 reward/credit 从数组重算分布与配对，核验 sample 长度、重复身份和 scenario 顺序；不以旧 summary 冒充缺失原始数组。advantage 全批标准差使用 ddof=1，value target 使用配置持久化的 value_target_ddof（ablation=1，其他命名配置=0），其余分布 ddof=0。Pearson/Spearman 使用 SciPy 的 ties 定义；常量或不足样本为 undefined。报告引用已保存的 gate，不重裁定。图提供 cosine、1−cosine、norm ratio 与 undefined 标注，不裁剪原值。
 

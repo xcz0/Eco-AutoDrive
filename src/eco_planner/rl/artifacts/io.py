@@ -10,13 +10,16 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import torch
 from hydra.utils import to_absolute_path
-from tensordict import TensorDictBase
+from tensordict import TensorDict, TensorDictBase
 
 from eco_planner.artifacts import collect_repository_metadata, write_json, write_npz
 from eco_planner.rl.artifacts.schema import rollout_artifact_fields
 from eco_planner.rl.policy import ExplorationPolicy
+from eco_planner.rl.policy.model import POLICY_CONTEXT_KEYS
+from eco_planner.rl.reward.result import RewardProfileName
 from eco_planner.rl.rollout.contracts import (
     RolloutEpisode,
+    TailKind,
     rollout_audit_keys,
 )
 from eco_planner.runtime.resources import ResourceProfileConfig
@@ -52,6 +55,40 @@ def write_rollout_episode(path: Path, episode: RolloutEpisode) -> None:
     if set(arrays) != expected_fields:
         raise RuntimeError("rollout artifact payload does not match its explicit schema")
     write_npz(path, arrays)
+
+
+def read_rollout_episode(path: Path) -> RolloutEpisode:
+    """Rebuild one persisted episode from its stable NumPy audit artifact.
+
+    The stored audit plus ``tail_kind``/``tail_bootstrap_value`` are the complete
+    source of the compact PPO trajectory, so no separate training payload is needed.
+    """
+
+    with np.load(path, allow_pickle=False) as data:
+        profile = cast(RewardProfileName, str(data["reward_profile"].item()))
+        audit = TensorDict(
+            {name: torch.from_numpy(data[name].copy()) for name in rollout_audit_keys(profile)},
+            batch_size=[int(data["state_value"].shape[0])],
+        )
+        tail_kind = cast(TailKind, str(data["tail_kind"].item()))
+        bootstrap = torch.from_numpy(data["tail_bootstrap_value"].copy())
+    training = TensorDict(
+        {
+            **{key: audit[key] for key in POLICY_CONTEXT_KEYS},
+            "guidance_action": audit["guidance_action"],
+            "old_joint_guidance_log_prob": audit["old_joint_guidance_log_prob"].reshape(-1),
+            "state_value": audit["state_value"],
+        },
+        batch_size=audit.batch_size,
+    )
+    next_transition = audit.select("reward_total", "terminated", "truncated").clone()
+    next_transition.rename_key_("reward_total", "reward")
+    next_transition["state_value"] = torch.cat((audit["state_value"][1:], bootstrap.reshape(1, 1)))
+    done = next_transition["terminated"] | next_transition["truncated"]
+    done[-1] = True
+    next_transition["done"] = done
+    training["next"] = next_transition
+    return RolloutEpisode(training, audit, tail_kind, bootstrap, profile)
 
 
 def write_training_runtime_metadata(

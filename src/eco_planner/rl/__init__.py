@@ -8,6 +8,7 @@ if TYPE_CHECKING:
         TrainingRunSummary,
         TrainingUpdateSummary,
         policy_state_hash,
+        read_rollout_episode,
         write_rollout_episode,
         write_training_runtime_metadata,
     )
@@ -37,6 +38,7 @@ _EXPORTS = {
     "TrainingRunSummary": ".artifacts",
     "TrainingUpdateSummary": ".artifacts",
     "policy_state_hash": ".artifacts",
+    "read_rollout_episode": ".artifacts",
     "write_rollout_episode": ".artifacts",
     "write_training_runtime_metadata": ".artifacts",
     "TrainingJobConfig": ".config",
@@ -73,6 +75,7 @@ __all__ = [
     "PPOUpdater",
     "build_ppo_batch",
     "normalize_full_batch_advantage",
+    "read_rollout_episode",
     "write_rollout_episode",
     "RewardProfileName",
     "TailKind",

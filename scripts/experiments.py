@@ -69,6 +69,13 @@ COMMANDS = {
     ),
     ("training", "diagnose"): Command("training.runner", "diagnose", None),
     ("training", "eval"): Command("training.runner", "evaluate", None, environment=True, cuda=True),
+    ("training", "critic-attribution", "run"): Command(
+        "training.critic_attribution.runner",
+        "run",
+        "training/critic-attribution.yaml",
+        source=True,
+    ),
+    ("training", "critic-attribution", "analyze"): Command("", "", None, source=True),
     ("training", "analyze"): Command("", "", None, source=True),
 }
 
@@ -78,18 +85,23 @@ def build_parser() -> argparse.ArgumentParser:
     domains = parser.add_subparsers(dest="domain", required=True)
     for domain in ("compare", "reward", "credit", "guidance", "training"):
         sub = domains.add_parser(domain).add_subparsers(required=True)
-        guidance = (
-            {
+        if domain == "guidance":
+            nested = {
                 name: sub.add_parser(name).add_subparsers(required=True)
                 for name in ("authority", "decomposition", "deferral", "horizon", "sweep")
             }
-            if domain == "guidance"
-            else {}
-        )
+        elif domain == "training":
+            nested = {
+                "critic-attribution": sub.add_parser("critic-attribution").add_subparsers(
+                    required=True
+                )
+            }
+        else:
+            nested = {}
         for key, spec in COMMANDS.items():
             if key[0] != domain:
                 continue
-            parent = guidance[key[1]] if domain == "guidance" else sub
+            parent = nested[key[1]] if key[1] in nested else sub
             command = parent.add_parser(key[-1])
             command.set_defaults(command=spec, key=key, action=key[-1])
             command.add_argument("--output-dir", type=Path, required=True)
@@ -141,6 +153,7 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | int:
             ("guidance", "deferral"): "guidance-deferral",
             ("guidance", "decomposition"): "guidance-decomposition",
             ("guidance", "sweep"): "energy-sweep",
+            ("training", "critic-attribution"): "training-critic-attribution",
         }
         kind = evidence.get(
             args.key[:-1], "scalar-reward" if args.domain == "compare" else args.domain
