@@ -39,6 +39,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pre-commit",
     "pyright",
     "pytest",
     "ruff",
