@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from eco_planner.contracts import SIMULATOR_STEP_S, ExecutionMode
+from eco_planner.contracts import PLANNER_HORIZON, SIMULATOR_STEP_S
 
 from ..domain.arrays import (
     ExecutionBooleanArray,
@@ -35,8 +35,8 @@ class TrajectoryExecutor:
         execution_steps: int,
         energy_provider: EnergyMetricProvider,
     ) -> None:
-        if execution_steps not in {mode.steps for mode in ExecutionMode}:
-            raise ValueError("execution_steps must match a fixed execution mode")
+        if type(execution_steps) is not int or not 1 <= execution_steps < PLANNER_HORIZON:
+            raise ValueError("execution_steps must be an integer in [1, PLANNER_HORIZON)")
         self._backend = backend
         self._execution_steps = execution_steps
         self._transition_extractor = TransitionExtractor(energy_provider)

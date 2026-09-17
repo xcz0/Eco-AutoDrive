@@ -102,6 +102,7 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
                             tuple(study.longitudinal_actions),
                             study.lateral_action,
                             study.window_steps,
+                            1,
                         ),
                         job.reward.energy,
                         output_dir,

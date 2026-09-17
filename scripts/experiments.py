@@ -44,6 +44,10 @@ COMMANDS = {
         "guidance.authority.runner", "run", "guidance/authority.yaml", environment=True, cuda=True
     ),
     ("guidance", "authority", "analyze"): Command("", "", None, source=True),
+    ("guidance", "horizon", "run"): Command(
+        "guidance.horizon.runner", "run", "guidance/horizon.yaml", environment=True, cuda=True
+    ),
+    ("guidance", "horizon", "analyze"): Command("", "", None, source=True),
     ("guidance", "sweep", "run"): Command(
         "guidance.sweep", "run_study", "guidance/energy-sweep/matrix.yaml", environment=True
     ),
@@ -65,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
         guidance = (
             {
                 name: sub.add_parser(name).add_subparsers(required=True)
-                for name in ("authority", "sweep")
+                for name in ("authority", "horizon", "sweep")
             }
             if domain == "guidance"
             else {}
@@ -121,6 +125,7 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | int:
 
         evidence = {
             ("guidance", "authority"): "guidance-control-authority",
+            ("guidance", "horizon"): "guidance-horizon",
             ("guidance", "sweep"): "energy-sweep",
         }
         kind = evidence.get(

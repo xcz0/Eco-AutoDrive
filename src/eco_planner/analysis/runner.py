@@ -45,6 +45,10 @@ def publish(
         from .guidance import recompute as guidance_analysis
 
         data, episodes = guidance_analysis(source)
+    elif experiment == "guidance-horizon":
+        from .horizon import recompute as horizon_analysis
+
+        data, episodes = horizon_analysis(source)
     elif experiment in ("reward", "credit"):
         from .workflows import fixed
 
@@ -72,7 +76,7 @@ def publish(
     else:
         raise ValueError(f"unsupported experiment: {experiment}")
     output.mkdir(parents=True, exist_ok=True)
-    if experiment == "guidance-control-authority":
+    if experiment in ("guidance-control-authority", "guidance-horizon"):
         write_json(output / "summary.json", {"status": "completed", **data})
     files = []
     if figures:
@@ -85,6 +89,10 @@ def publish(
                 from .reporting.guidance import plot
 
                 files = plot(data, episodes, output)
+            elif experiment == "guidance-horizon":
+                from .reporting.horizon import plot
+
+                files = plot(data, episodes, output)
             else:
                 files = experiment_figures(experiment, data, output)
     payload = _write_analysis(output, data, files, experiment=experiment, source=source)
@@ -93,6 +101,11 @@ def publish(
 
         write_guidance_report(data, output, files)
         return {"status": "completed", "output_dir": str(output), "gate_d": data["gate_d"]}
+    if experiment == "guidance-horizon":
+        from .reporting.horizon import write_report as write_horizon_report
+
+        write_horizon_report(data, output, files)
+        return {"status": "completed", "output_dir": str(output), "gate_a": data["gate_a"]}
     write_report(experiment, source, output, data, files)
     return {"status": "completed", "output_dir": str(output), **payload}
 

@@ -14,7 +14,7 @@
 | `evaluation.intervention` | 已准备的 runtime、环境、场景、动作与窗口；reset/step、固定噪声、终止处理和部分原始证据 |
 | `analysis` | 已保存结果、统计、matched 差值、逐 seed 汇总和报告再生成；不执行训练、backward 或 gate 裁定 |
 
-`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
+`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
 
 ## Comparison matched protocol
 
@@ -46,6 +46,12 @@ authority 的实验层选择 matched groups、干预值和裁定规则。`evalua
 
 执行指标来自 TransitionMetrics；窗口 fuel proxy intensity 为实际累计 fuel/距离，零距离为 undefined。保存实际运动、终止、reference/guided prediction、guidance diagnostics 与 noise。实验层计算场景内 arm repeat 均值的 Spearman、±1 endpoint 差与重复噪声，阈值和所需一致方向场景数由配置指定。常量相关性为 undefined，零噪声不使零效应通过。安全、完整性、时间窗口方向冲突与 planner-output 到执行链路单列；gate 失败不等于执行失败。
 
+## Guidance execution-horizon intervention
+
+`guidance horizon` 复用 authority 的 matched-group 机制，但把“每次规划后连续执行多少 waypoint 再重规划”作为唯一诊断轴。实验层声明 `total_window_steps`（固定 2 s 窗口）与 `execution_horizons`；每个 horizon k 必须整除总窗口且 `k < PLANNER_HORIZON`，`replan 次数 = total_window_steps / k`。`evaluation.intervention` 每周期一次规划、执行 `execution_steps=k` 个 0.1 s 子步；提前终止的 slot 不再 step，剩余子步不补零，终止后的 planner audit 不进入执行指标。首次规划的完整 8 s 预测前向位移在固定 checkpoint（0.1/0.2/0.5/1/2/4/8 s）记录，并在跨 horizon 之间核对匹配。
+
+统计按 horizon 分组：执行窗口 speed/endpoint speed/distance/progress/energy intensity/tracking error 的逐场景 Spearman、±1 endpoint 差与重复噪声；`planner_response` 为首次规划位移的 matched 差。预声明方向判据与 authority 相同，并据此给出 `gate_a.status`（`strong_evidence_for_receding_horizon_mismatch` / `sign_unchanged_by_horizon` / `mixed_or_inconclusive` / `safety_or_proxy_failure`）。该工作流是 diagnostic causal intervention，不修改 reward、PPO 或 baseline 执行方案；显式 `execution_steps` 覆盖仅是该诊断入口。
+
 ## Training
 
 training grid 使用 learning rate × epochs × gradient norm 的显式笛卡尔积、update 预算和诊断阈值。复用现有 PPO 算法；先检查更新量、KL、ratio、probe/Beta 与行为条件，再对通过项进行 matched initial/final held-out 测量。所有通过项按最低 learning rate、再 epochs、再 gradient norm 选择；不按训练 reward 排名。没有通过项时 selected_config=null；训练异常保留 partial grid summary、失败异常和原始训练证据并传播，未完成网格不宣称成功。
@@ -64,6 +70,7 @@ training eval 显式配置 protocol、records（arm、training_summary、checkpo
 | credit | summary.json、diagnostics.npz、sample_index.json，含实际校准配置和原 gate |
 | comparison | YAML 显式列出的 protocol、typed training/evaluation summaries |
 | guidance authority | episodes.json、intervention_config.json、scenarios.json、decisions.json |
+| guidance horizon | episodes.json、intervention_config.json、scenarios.json、decisions.json |
 | guidance sweep | matrix_summary.json 和各 evaluation summaries |
 | training | summary.json 中已持久化的 grid/diagnostics/evaluation 测量及各运行事实 |
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Final, cast
 
 import numpy as np
 import torch
@@ -12,7 +12,10 @@ from tensordict import TensorDictBase
 
 from eco_planner.artifacts import write_json, write_npz
 from eco_planner.contracts import SIMULATOR_STEP_S
-from eco_planner.envs.domain import TrajectoryExecutionResult
+from eco_planner.envs.domain import (
+    TrajectoryExecutionRecord,
+    TransitionMetrics,
+)
 from eco_planner.evaluation.inference.runtime import (
     FabricInferenceRuntime,
 )
@@ -26,27 +29,53 @@ from eco_planner.runtime.envs import (
     operation_results,
 )
 
+PLANNER_RESPONSE_CHECKPOINT_STEPS: Final = (1, 2, 5, 10, 20, 40, 80)
+
 
 @dataclass(frozen=True)
 class InterventionExecution:
     longitudinal_actions: tuple[float, ...]
     lateral_action: float
-    window_steps: int
+    cycles: int
+    execution_steps: int
+
+
+def _along_speed(trajectory: np.ndarray) -> np.ndarray:
+    ego = trajectory[0]
+    tangent = ego[:, 2:4] / np.linalg.norm(ego[:, 2:4], axis=1, keepdims=True)
+    velocity = np.diff(np.vstack((np.zeros((1, 2)), ego[:, :2])), axis=0) / SIMULATOR_STEP_S
+    return np.sum(velocity * tangent, axis=1)
+
+
+def planner_cycle_record(audit: TensorDictBase, slot: int) -> dict[str, Any]:
+    """Summarize one plan's predicted forward response at fixed checkpoints."""
+    guided = _along_speed(audit["prediction"][slot].numpy())
+    displacement = np.cumsum(guided * SIMULATOR_STEP_S)
+    return {
+        "checkpoint_steps": list(PLANNER_RESPONSE_CHECKPOINT_STEPS),
+        "forward_displacement_m": [
+            float(displacement[step - 1]) for step in PLANNER_RESPONSE_CHECKPOINT_STEPS
+        ],
+        "first_speed_mps": float(guided[0]),
+        "mean_speed_mps": float(guided.mean()),
+    }
 
 
 def transition_record(
-    result: TrajectoryExecutionResult,
+    metrics: TransitionMetrics,
+    execution: TrajectoryExecutionRecord,
     energy_config: EnergyRewardConfig,
     audit: TensorDictBase,
     slot: int,
+    *,
+    plan_cycle: int,
+    substep: int,
 ) -> dict[str, Any]:
-    if len(result.metrics) != 1:
-        raise RuntimeError("guidance intervention requires exactly one 0.1 s rollout transition")
-    m = result.metrics[0]
+    m = metrics
     if m.input.timestep_s != SIMULATOR_STEP_S:
         raise RuntimeError("guidance intervention timestep differs from rollout ABI")
     score, intensity, distance_valid = energy_score(energy_config, m)
-    e = result.execution
+    e = execution
     collision = any(
         getattr(e, name)
         for name in (
@@ -57,27 +86,13 @@ def transition_record(
             "crash_sidewalk",
         )
     )
-    arrays = {
-        name: audit[name][slot].numpy()
-        for name in (
-            "prediction",
-            "reference_prediction",
-            "longitudinal_target_speed_delta_mps",
-            "applied_gradient_l2",
-            "longitudinal_objective_delta",
-        )
-    }
-
-    def along_speed(trajectory: np.ndarray) -> np.ndarray:
-        ego = trajectory[0]
-        tangent = ego[:, 2:4] / np.linalg.norm(ego[:, 2:4], axis=1, keepdims=True)
-        velocity = np.diff(np.vstack((np.zeros((1, 2)), ego[:, :2])), axis=0) / SIMULATOR_STEP_S
-        return np.sum(velocity * tangent, axis=1)
-
-    guided = along_speed(arrays["prediction"])
-    reference = along_speed(arrays["reference_prediction"])
+    guided = _along_speed(audit["prediction"][slot].numpy())
+    reference = _along_speed(audit["reference_prediction"][slot].numpy())
+    target_delta = audit["longitudinal_target_speed_delta_mps"][slot].numpy()
     return {
         "dt_s": m.input.timestep_s,
+        "plan_cycle": plan_cycle,
+        "substep": substep,
         "speed_mps": m.speed_mps,
         "position_xy_m": list(m.input.position_xy_m),
         "heading_rad": m.input.heading_rad,
@@ -95,18 +110,20 @@ def transition_record(
         "heading_error_rad": m.heading_error_rad,
         "collision": collision,
         "out_of_road": e.out_of_road,
-        "terminated": result.terminated,
-        "truncated": result.truncated,
+        "terminated": bool(e.substep_terminated[substep]),
+        "truncated": bool(e.substep_truncated[substep]),
         "arrive_dest": e.arrive_dest,
         "max_step": e.max_step,
         "planner_first_speed_mps": float(guided[0]),
         "planner_mean_speed_mps": float(guided.mean()),
         "reference_first_speed_mps": float(reference[0]),
         "reference_mean_speed_mps": float(reference.mean()),
-        "target_first_delta_mps": float(arrays["longitudinal_target_speed_delta_mps"][0]),
-        "target_mean_delta_mps": float(arrays["longitudinal_target_speed_delta_mps"].mean()),
-        "applied_gradient_l2": arrays["applied_gradient_l2"].tolist(),
-        "longitudinal_objective_delta": arrays["longitudinal_objective_delta"].tolist(),
+        "target_first_delta_mps": float(target_delta[0]),
+        "target_mean_delta_mps": float(target_delta.mean()),
+        "applied_gradient_l2": audit["applied_gradient_l2"][slot].numpy().tolist(),
+        "longitudinal_objective_delta": (
+            audit["longitudinal_objective_delta"][slot].numpy().tolist()
+        ),
     }
 
 
@@ -162,10 +179,13 @@ def collect_group(
                 "physical_slot": i,
                 "g_lon": action,
                 "g_lat": config.lateral_action,
+                "execution_horizon": config.execution_steps,
+                "cycles": config.cycles,
                 "raw_dir": folder.relative_to(output).as_posix(),
                 "initial_state": states[i].tolist(),
                 "status": "running",
                 "steps": [],
+                "planner_cycles": [],
             }
             for i, spec in enumerate(scenarios)
         ]
@@ -174,7 +194,7 @@ def collect_group(
             [[config.lateral_action, action]] * batch, dtype=torch.float32, device=runtime.device
         )
         try:
-            for cycle in range(config.window_steps):
+            for cycle in range(config.cycles):
                 noise = runtime.sample_noise(generators)
                 host_noise = noise.cpu().numpy()
                 if arm == 0:
@@ -203,9 +223,21 @@ def collect_group(
                 remaining = []
                 for local, slot in enumerate(active):
                     result = results[local].step
-                    episodes[slot]["steps"].append(
-                        transition_record(result, energy_config, audit, slot)
+                    episodes[slot]["planner_cycles"].append(
+                        {"plan_cycle": cycle, **planner_cycle_record(audit, slot)}
                     )
+                    for substep, metric in enumerate(result.metrics):
+                        episodes[slot]["steps"].append(
+                            transition_record(
+                                metric,
+                                result.execution,
+                                energy_config,
+                                audit,
+                                slot,
+                                plan_cycle=cycle,
+                                substep=substep,
+                            )
+                        )
                     if result.terminated or result.truncated:
                         episodes[slot]["status"] = "episode_terminated"
                     else:

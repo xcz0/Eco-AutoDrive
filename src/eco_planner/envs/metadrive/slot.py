@@ -81,6 +81,7 @@ class MetaDriveEnvSlot:
         execution_mode: ExecutionMode,
         map_query_radius_m: float,
         history_warmup_steps: int,
+        execution_steps: int | None = None,
     ) -> None:
         if mode not in {"traffic", "no_traffic"}:
             raise ValueError("mode must be either 'traffic' or 'no_traffic'")
@@ -93,7 +94,7 @@ class MetaDriveEnvSlot:
             raise ValueError(f"{mode} environments require history_warmup_steps={expected_warmup}")
 
         self._env_config = dict(env_config)
-        self._execution_steps = execution_mode.steps
+        self._execution_steps = execution_mode.steps if execution_steps is None else execution_steps
         self._mode = mode
         self._map_query_radius_m = float(map_query_radius_m)
         self._history_warmup_steps = history_warmup_steps

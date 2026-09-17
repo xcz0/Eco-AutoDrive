@@ -251,6 +251,26 @@ def test_environment_slot_executes_evaluation_prefix_with_valid_audit() -> None:
 
 
 @pytest.mark.simulator
+def test_environment_slot_executes_explicit_prefix_beyond_fixed_modes() -> None:
+    config = _environment_config("S")
+    config["horizon"] = 5
+    with MetaDriveEnvSlot(
+        config,
+        mode="no_traffic",
+        execution_mode=ExecutionMode.ROLLOUT,
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+        execution_steps=3,
+    ) as slot:
+        slot.reset(map_name="S", seed=0)
+        result = slot.step(_straight_trajectory()).execution
+
+    assert result.execution.substep_states.shape == (3, 7)
+    assert len(result.metrics) == 3
+    assert np.isfinite(result.execution.substep_states).all()
+
+
+@pytest.mark.simulator
 def test_same_scenario_reset_restores_spawn_after_trajectory_step() -> None:
     config = _environment_config("S")
     with MetaDriveEnvSlot(

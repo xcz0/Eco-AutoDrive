@@ -169,6 +169,7 @@ def make_torchrl_scenario_env(
     map_query_radius_m: float,
     history_warmup_steps: int,
     scenarios: tuple[VectorEnvScenario, ...],
+    execution_steps: int | None = None,
 ) -> TorchRLScenarioMetaDriveEnv:
     scenario = scenarios[0]
     slot = MetaDriveEnvSlot(
@@ -177,6 +178,7 @@ def make_torchrl_scenario_env(
         execution_mode=execution_mode,
         map_query_radius_m=map_query_radius_m,
         history_warmup_steps=history_warmup_steps,
+        execution_steps=execution_steps,
     )
     return TorchRLScenarioMetaDriveEnv(
         slot,

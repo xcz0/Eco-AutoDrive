@@ -60,6 +60,7 @@ class VectorMetaDriveEnv:
         history_warmup_steps: int,
         scenarios: Sequence[VectorEnvScenario],
         torch_threads_per_worker: int | None = None,
+        execution_steps: int | None = None,
     ) -> None:
         _validate_configuration(
             env_configs,
@@ -68,6 +69,10 @@ class VectorMetaDriveEnv:
             map_query_radius_m=map_query_radius_m,
             history_warmup_steps=history_warmup_steps,
         )
+        if execution_steps is not None and (
+            type(execution_steps) is not int or not 1 <= execution_steps < PLANNER_HORIZON
+        ):
+            raise ValueError("execution_steps must be an integer in [1, PLANNER_HORIZON)")
         scenario_catalog = tuple(scenarios)
         if not scenario_catalog:
             raise ValueError("VectorMetaDriveEnv scenarios must be non-empty")
@@ -95,6 +100,7 @@ class VectorMetaDriveEnv:
             float(map_query_radius_m),
             history_warmup_steps,
             self._scenarios,
+            execution_steps,
         )
         self._env = ParallelEnv(
             self._num_envs,

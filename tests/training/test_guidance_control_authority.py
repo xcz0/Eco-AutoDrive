@@ -17,6 +17,7 @@ from eco_planner.evaluation.inference.runtime import (
     FabricInferenceRuntime,
     validate_manual_guidance,
 )
+from eco_planner.evaluation.intervention import InterventionExecution
 from eco_planner.experiments.guidance.authority.diagnostics import (
     InterventionConfig,
     analyze_episodes,
@@ -325,14 +326,21 @@ def test_real_rollout_intervention_window_and_noise_pairing(tmp_path, horizon):
     )
     try:
         all_rows = []
-        for group, noise_seed in enumerate(study().noise_seeds):
+        authority = study()
+        execution = InterventionExecution(
+            tuple(authority.longitudinal_actions),
+            authority.lateral_action,
+            authority.window_steps,
+            1,
+        )
+        for group, noise_seed in enumerate(authority.noise_seeds):
             all_rows.extend(
                 collect_group(
                     env,
                     analytic_runtime(),
                     (scenario,),
                     noise_seed,
-                    study(),
+                    execution,
                     EnergyRewardConfig(reference_ml_per_km=50.0, minimum_step_distance_m=0.001),
                     tmp_path,
                     group,
