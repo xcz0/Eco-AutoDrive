@@ -1,0 +1,63 @@
+src/eco_planner/evaluation/intervention.py
+  s_fc8e3ae433e38f::t_21e65a25ef31fd 238-243
+  s_fc8e3ae433e38f::t_d1069972e4daa8 146-147
+  s_fc8e3ae433e38f::t_033e62879efe90 51-53,57,65-67
+src/eco_planner/experiments/guidance/deferral/__init__.py
+  s_fc8e3ae433e38f::t_d20568306acb83 1
+src/eco_planner/analysis/deferral.py
+  s_fc8e3ae433e38f::t_dbb6be1953503e 44-46,202,210
+  s_fc8e3ae433e38f::t_305974c109d0bf 32,34
+  s_fc8e3ae433e38f::t_3a3ba8ddbc82de 70-72
+  s_fc8e3ae433e38f::t_f617f4e4ebb4ca 1-31,33,35-43,47-69,73-201,203-209,211-251
+src/eco_planner/analysis/runner.py
+  s_fc8e3ae433e38f::t_6d5f241c65b3b4 130-134
+  s_fc8e3ae433e38f::t_0266bb89040805 52-55,108
+  s_fc8e3ae433e38f::t_39e36aa9109696 109-111
+  s_fc8e3ae433e38f::t_287f81b61f0d5f 87-92
+configs/experiments/guidance/deferral.yaml
+  s_fc8e3ae433e38f::t_c2723b5d8ebeb6 1-27
+src/eco_planner/analysis/reporting/deferral.py
+  s_fc8e3ae433e38f::t_dbcb8c1d8b2996 48-49
+  s_fc8e3ae433e38f::t_0d71a1509450f6 1-47,50-103,108-133
+  s_fc8e3ae433e38f::t_f79c27e45cec54 104-107
+docs/experiments/README.md
+  s_fc8e3ae433e38f::t_6bd7628c35c224 91
+src/eco_planner/experiments/guidance/deferral/runner.py
+  s_fc8e3ae433e38f::t_c801f7bbcd2d77 1-150
+tests/training/test_guidance_deferral.py
+  s_fc8e3ae433e38f::t_d9d30f5ebcccbc 150,160,165
+  s_fc8e3ae433e38f::t_8422216a56252c 144-147
+  s_fc8e3ae433e38f::t_46d49be8e0fa49 1-52,57-60,64-143,148-149,151-159,161-164,166-179,183-222,228-259
+  s_fc8e3ae433e38f::t_69cb132ebc2a8a 180-182
+  s_fc8e3ae433e38f::t_dbb6be1953503e 53-56,61-63,223-227
+docs/agents/contracts/experiments.md
+  s_fc8e3ae433e38f::t_c8e31ee24b72d3 17
+  s_fc8e3ae433e38f::t_8c3e2a5c2f1772 55-60
+  s_fc8e3ae433e38f::t_9ba6dfd0339b20 86
+src/eco_planner/experiments/guidance/deferral/diagnostics.py
+  s_fc8e3ae433e38f::t_1ee86e7d0e5823 1-37,39-69,71-113
+  s_fc8e3ae433e38f::t_d35963e812c1c9 38
+  s_fc8e3ae433e38f::t_dbb6be1953503e 70
+scripts/experiments.py
+  s_fc8e3ae433e38f::t_77c7091fa62ed2 51-54
+  s_fc8e3ae433e38f::t_adfe955ef2d19a 84
+  s_fc8e3ae433e38f::t_99233c6ec9113b 141
+docs/experiments/records/e-045-issue98-task-c-replanning-deferral.md
+  s_fc8e3ae433e38f::t_e93692fdc244d5 1-161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "319000ecc7626e6670f7e5313cdb96b644106913",
+  "prompts": {},
+  "sessions": {
+    "s_fc8e3ae433e38f": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f5242fb66fferq00I3tgCQP7sT",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
