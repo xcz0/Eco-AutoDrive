@@ -60,6 +60,15 @@ COMMANDS = {
         cuda=True,
     ),
     ("guidance", "decomposition", "analyze"): Command("", "", None, source=True),
+    ("guidance", "execution-bridge", "run"): Command(
+        "guidance.execution_bridge.runner",
+        "run",
+        "guidance/execution-bridge.yaml",
+        source=True,
+        environment=True,
+        cuda=True,
+    ),
+    ("guidance", "execution-bridge", "analyze"): Command("", "", None, source=True),
     ("guidance", "sweep", "run"): Command(
         "guidance.sweep", "run_study", "guidance/energy-sweep/matrix.yaml", environment=True
     ),
@@ -88,7 +97,14 @@ def build_parser() -> argparse.ArgumentParser:
         if domain == "guidance":
             nested = {
                 name: sub.add_parser(name).add_subparsers(required=True)
-                for name in ("authority", "decomposition", "deferral", "horizon", "sweep")
+                for name in (
+                    "authority",
+                    "decomposition",
+                    "deferral",
+                    "execution-bridge",
+                    "horizon",
+                    "sweep",
+                )
             }
         elif domain == "training":
             nested = {
@@ -152,6 +168,7 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any] | int:
             ("guidance", "horizon"): "guidance-horizon",
             ("guidance", "deferral"): "guidance-deferral",
             ("guidance", "decomposition"): "guidance-decomposition",
+            ("guidance", "execution-bridge"): "guidance-execution-bridge",
             ("guidance", "sweep"): "energy-sweep",
             ("training", "critic-attribution"): "training-critic-attribution",
         }

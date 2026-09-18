@@ -1,0 +1,26 @@
+# Issue #98 frozen-policy execution-contract bridge (E-047).
+#
+# Part A replays the E-040 final R0/Rstress checkpoints in one matched closed loop
+# across explicit execution prefixes (k=1 -> 0.1 s rollout contract, k=5 -> 0.5 s
+# standard evaluation contract; k=2 is the intermediate). Part B audits both
+# policies' local guidance actions on identical held-out contexts. No policy is
+# trained and no reward/PPO/planner parameter changes. Checkpoint paths are
+# relative to the --source-dir (the E-040 study directory).
+protocol: configs/experiments/comparison/calibrated.yaml
+job: jobs/evaluation/no_traffic_heldout_manual
+runtime_seed: 760025
+noise_seeds: [760025]
+execution_horizons: [1, 2, 5]
+reference_arm: r0
+counterfactual_arm: rstress
+runs:
+- {label: r0-seed-0, arm: r0, training_seed: 0, path: r0-seed-0/policy-final.pt, reward_profile: plannerrft_no_energy_calibrated_v1}
+- {label: rstress-seed-0, arm: rstress, training_seed: 0, path: rstress-seed-0/policy-final.pt, reward_profile: plannerrft_energy_band_lam64_v1}
+- {label: r0-seed-1, arm: r0, training_seed: 1, path: r0-seed-1/policy-final.pt, reward_profile: plannerrft_no_energy_calibrated_v1}
+- {label: rstress-seed-1, arm: rstress, training_seed: 1, path: rstress-seed-1/policy-final.pt, reward_profile: plannerrft_energy_band_lam64_v1}
+same_state_contract_steps: 5
+include_same_state_audit: true
+required_scenarios: 9
+part_b_majority_fraction: 0.5
+overrides:
+- components/resources=rtx_a4000

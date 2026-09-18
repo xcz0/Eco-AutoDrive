@@ -12,9 +12,10 @@
 | `rl.reward.reweighting`、`calibration` | episode、reward 配置及校准参数；组件提取、重加权、energy-only、Progress/Comfort 校准及 energy-band 重评分 |
 | `rl.optimization` | PPO batch/GAE/normalization、策略恢复、advantage/critic 消融、actor backward、参数变化与更新后 KL 测量 |
 | `evaluation.intervention` | 已准备的 runtime、环境、场景、动作与窗口；reset/step、固定噪声、终止处理和部分原始证据 |
+| `evaluation.policy_intervention` | 已加载的 frozen `FabricRolloutRuntime`、环境、场景与显式 execution prefix；用 policy mean action 复现同一 matched-group 语义，并采集 same-state 双 policy 反事实 planner response |
 | `analysis` | 已保存结果、统计、matched 差值、逐 seed 汇总和报告再生成；不执行训练、backward 或 gate 裁定 |
 
-`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance deferral run/analyze、guidance decomposition run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/critic-attribution run/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
+`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance deferral run/analyze、guidance decomposition run/analyze、guidance execution-bridge run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/critic-attribution run/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
 
 ## Comparison matched protocol
 
@@ -64,6 +65,14 @@ authority 的实验层选择 matched groups、干预值和裁定规则。`evalua
 
 统计按 (seed, scenario, arm) 配对：逐场景计算相对 `r0` 的 effect 与 `interaction = joint - lon - lat`，各 arm 方向由多数场景门槛决定。attribution verdict（`longitudinal-dominated` / `lateral-dominated` / `nonlinear-interaction` / `not-reproduced-state-dependent`）由预声明 `dominance_share` 与 `expected_joint_direction` 判定；overall 在 seed 不一致时为 `mixed-across-seeds`。该工作流是 diagnostic causal intervention，不修改 reward、PPO 或 baseline。
 
+## Frozen-policy execution-contract bridge
+
+`guidance execution-bridge` 复用 authority/horizon 的 matched-group 机制，但把每个 arm 的 guidance action 换成 E-040 冻结 exploration-policy checkpoint 的 deterministic Beta mean，并把“同一 frozen learned policy difference 在不同 execution prefix 下的闭环方向”与“同状态局部 policy→planner 时间响应”作为诊断轴。runner 通过 `--source-dir` 指向 E-040 study 目录，按相对路径加载 `r0/rstress × seeds {0,1}` 的 `policy-final.pt`，只加载冻结 planner 与 policy，不训练、不修改 reward/PPO/planner；`evaluation.policy_intervention` 以 policy mean action 复现固定 batch、固定逐周期 diffusion noise 与 matched reset，并在 runner 内核对 policy hash 不变。
+
+Part A 在每个 execution prefix k（默认 1/2/5，必须整除 evaluated horizon）下闭环重放两臂，episode 可变长，记录 executed speed/energy/route/progress/distance、arrive/collision/out-of-road/stopped/episode length、planner-to-execution tracking error 与逐周期 policy guidance action；first-plan planner response 在跨 prefix 间核对匹配，不一致即抛错。统计按 (seed, scenario) 配对 `Rstress - R0`，逐 prefix 由预声明场景多数门槛给出方向；`gate` 的 Part A 判据要求两个 training seed 同时出现 k=1 negative、k=5 positive 的 crossover，否则记录 amplify 或 no-material。k=5 与 E-040 matched held-out 为方向复现对照，不是逐值复现（collector 与 evaluation engine 不同）。
+
+Part B 在同一 held-out 状态分布上采集 matched context，然后用两个 policy 对**同一 observation、同一 planner、同一 diffusion noise**各评估一次，只替换 policy guidance；保存 0.1/0.2/0.5/1/2/8 s 的 forward/lateral displacement effect、Δg_lat/Δg_lon、zero-crossing。判据要求多数 context Δg_lon > 0 且 0.1 s 中位 ≤ 0、0.2/0.5 s 中位 > 0；若真实局部 policy response 在 0.1 s 已为正，则记为 local-response-differs，不能把 E-043 的全幅 ±1 sweep 直接等同于 learned operating point。最终 `gate.verdict` 在 1/2/3/4 四个预声明结论中选择。该工作流是 diagnostic causal intervention，不修改 baseline execution contract。
+
 ## Training
 
 training grid 使用 learning rate × epochs × gradient norm 的显式笛卡尔积、update 预算和诊断阈值。复用现有 PPO 算法；先检查更新量、KL、ratio、probe/Beta 与行为条件，再对通过项进行 matched initial/final held-out 测量。所有通过项按最低 learning rate、再 epochs、再 gradient norm 选择；不按训练 reward 排名。没有通过项时 selected_config=null；训练异常保留 partial grid summary、失败异常和原始训练证据并传播，未完成网格不宣称成功。
@@ -90,6 +99,7 @@ standard GAE 重建的 raw advantage mean/std 必须与源 summary 记录的逐 
 | guidance authority | episodes.json、intervention_config.json、scenarios.json、decisions.json |
 | guidance decomposition | episodes.json、intervention_config.json、scenarios.json、decisions.json |
 | guidance deferral | episodes.json、intervention_config.json、scenarios.json、decisions.json |
+| guidance execution-bridge | episodes.json、same_state.json、intervention_config.json、scenarios.json、decisions.json |
 | guidance horizon | episodes.json、intervention_config.json、scenarios.json、decisions.json |
 | guidance sweep | matrix_summary.json 和各 evaluation summaries |
 | training | summary.json 中已持久化的 grid/diagnostics/evaluation 测量及各运行事实 |

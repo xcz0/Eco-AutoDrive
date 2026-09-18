@@ -57,6 +57,10 @@ def publish(
         from .decomposition import recompute as decomposition_analysis
 
         data, episodes = decomposition_analysis(source)
+    elif experiment == "guidance-execution-bridge":
+        from .execution_bridge import recompute as execution_bridge_analysis
+
+        data, episodes = execution_bridge_analysis(source)
     elif experiment in ("reward", "credit"):
         from .workflows import fixed
 
@@ -93,6 +97,7 @@ def publish(
         "guidance-horizon",
         "guidance-deferral",
         "guidance-decomposition",
+        "guidance-execution-bridge",
     ):
         write_json(output / "summary.json", {"status": "completed", **data})
     files = []
@@ -118,6 +123,10 @@ def publish(
                 from .reporting.decomposition import plot
 
                 files = plot(data, episodes, output)
+            elif experiment == "guidance-execution-bridge":
+                from .reporting.execution_bridge import plot as plot_execution_bridge
+
+                files = plot_execution_bridge(data, episodes, output)
             elif experiment == "training-critic-attribution":
                 from .reporting.critic_attribution import plot as plot_critic_attribution
 
@@ -145,6 +154,17 @@ def publish(
 
         write_decomposition_report(data, output, files)
         return {"status": "completed", "output_dir": str(output), "verdict": data["verdict"]}
+    if experiment == "guidance-execution-bridge":
+        from .reporting.execution_bridge import (
+            write_report as write_execution_bridge_report,
+        )
+
+        write_execution_bridge_report(data, output, files)
+        return {
+            "status": "completed",
+            "output_dir": str(output),
+            "verdict": data["gate"]["verdict"],
+        }
     if experiment == "training-critic-attribution":
         from .reporting.critic_attribution import write_report as write_critic_attribution_report
 
