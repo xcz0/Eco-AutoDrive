@@ -1,0 +1,70 @@
+src/eco_planner/evaluation/policy_intervention.py
+  s_0bdb3eb5901af4::t_e2080f459c7f2f 1-268,274-327
+  s_0bdb3eb5901af4::t_6c36b6873ee710 269-273
+scripts/experiments.py
+  s_0bdb3eb5901af4::t_4475bd95296be8 63-71
+  s_0bdb3eb5901af4::t_636fbd0ca37ce2 100-107
+  s_0bdb3eb5901af4::t_c3d2ed16dc42d4 171
+src/eco_planner/experiments/guidance/execution_bridge/diagnostics.py
+  s_0bdb3eb5901af4::t_6c36b6873ee710 131-134,154-156,213
+  s_0bdb3eb5901af4::t_c18750aec65083 1-130,135-153,157-212,214-238
+src/eco_planner/analysis/reporting/execution_bridge.py
+  s_0bdb3eb5901af4::t_27e747fca4a7fe 88
+  s_0bdb3eb5901af4::t_8f16ccb387564e 92
+  s_0bdb3eb5901af4::t_e100539f5bc646 18-20,32-33,37-38,40-41,43-45
+  s_0bdb3eb5901af4::t_0ee7323c16162b 1-17,21-31,34-36,39,42,46-87,89-91,93-127
+src/eco_planner/experiments/guidance/execution_bridge/runner.py
+  s_0bdb3eb5901af4::t_6c36b6873ee710 45-47
+  s_0bdb3eb5901af4::t_159e9d8cd8ebfd 118,129-130
+  s_0bdb3eb5901af4::t_cc9fbff3920b22 1-44,48-117,119-128,131-176,178-180,183-221,224-304
+  s_0bdb3eb5901af4::t_b2b2ff4eeae934 177,181-182
+  s_0bdb3eb5901af4::t_248e861d54e22f 222-223
+docs/agents/contracts/experiments.md
+  s_0bdb3eb5901af4::t_88a41e2a641b23 15
+  s_0bdb3eb5901af4::t_1dd2fc9aca3d9e 70
+  s_0bdb3eb5901af4::t_610f4cd08f534a 102
+  s_0bdb3eb5901af4::t_1bb3252ceb18af 68-69,71-75
+  s_0bdb3eb5901af4::t_a140cd583c01e0 18
+src/eco_planner/experiments/guidance/execution_bridge/__init__.py
+  s_0bdb3eb5901af4::t_9d4779164940d6 1
+tests/training/test_guidance_execution_bridge.py
+  s_0bdb3eb5901af4::t_26395ddd70f49a 167
+  s_0bdb3eb5901af4::t_6c36b6873ee710 274-277
+  s_0bdb3eb5901af4::t_4db1095cc9e333 1-166,168-219,222-223,227-273,278-368
+  s_0bdb3eb5901af4::t_0ca88ae1729c69 220-221,224-226
+src/eco_planner/analysis/runner.py
+  s_0bdb3eb5901af4::t_0cadbe1c76d4ea 100
+  s_0bdb3eb5901af4::t_9916d032d847b6 126-129
+  s_0bdb3eb5901af4::t_45fa6d0fb843e4 60-63
+  s_0bdb3eb5901af4::t_e72d3e377a9e84 157-167
+configs/experiments/guidance/execution-bridge.yaml
+  s_0bdb3eb5901af4::t_66e3e4ec690d52 1-26
+docs/experiments/records/e-047-issue98-frozen-policy-execution-bridge.md
+  s_0bdb3eb5901af4::t_5b5b77f472931a 1-84,86-90,94-141
+  s_0bdb3eb5901af4::t_02bec0a55c7afb 85,91-93
+docs/experiments/README.md
+  s_0bdb3eb5901af4::t_c4a9b10d1d1c4f 93
+src/eco_planner/analysis/execution_bridge.py
+  s_0bdb3eb5901af4::t_5860d50405e276 280-281
+  s_0bdb3eb5901af4::t_353061f37b4f96 31
+  s_0bdb3eb5901af4::t_00044943e5044e 1-30,32-57,61-125,133-151,156-158,160-182,184,186,190,194,215-279,282-309
+  s_0bdb3eb5901af4::t_37adfe9b7d2802 152-155,159
+  s_0bdb3eb5901af4::t_c59d9b56c25d04 183,185,187-189,191-193,195-209,213-214
+  s_0bdb3eb5901af4::t_6c36b6873ee710 58-60,126-132,210-212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "e09e2b6953996a26e300e4759710431acf899e87",
+  "prompts": {},
+  "sessions": {
+    "s_0bdb3eb5901af4": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f515bfe82ffe0A694r1LzHJCiM",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
