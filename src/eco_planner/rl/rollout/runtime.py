@@ -24,8 +24,8 @@ from eco_planner.planning.diffusion import (
 from eco_planner.planning.policy import (
     ExplorationPolicy,
     ExplorationPolicyConfig,
-    ExplorationPolicyContext,
     ExplorationPolicyOutput,
+    build_policy_inputs,
     policy_context_tensordict,
 )
 from eco_planner.planning.policy.distribution import (
@@ -209,12 +209,8 @@ class FabricRolloutRuntime:
                 profile,
                 lambda: self._planner.prepare_policy_guidance(moved, noise, diffusion_generators),
             )
-            policy_context = ExplorationPolicyContext(
-                scene_tokens=prepared.policy_context.scene_tokens,
-                scene_padding_mask=prepared.policy_context.scene_padding_mask,
-                navigation_tokens=prepared.policy_context.navigation_tokens,
-                navigation_padding_mask=prepared.policy_context.navigation_padding_mask,
-                reference_trajectory=prepared.policy_context.reference_trajectory,
+            policy_context = build_policy_inputs(
+                prepared.representations, prepared.reference_prediction
             )
             policy_outputs, policy_timing = profile_call(
                 self.device,
@@ -376,13 +372,7 @@ class FabricRolloutRuntime:
                 profile,
                 lambda: self._planner.prepare_policy_guidance(moved, noise, diffusion_generators),
             )
-            context = ExplorationPolicyContext(
-                scene_tokens=prepared.policy_context.scene_tokens,
-                scene_padding_mask=prepared.policy_context.scene_padding_mask,
-                navigation_tokens=prepared.policy_context.navigation_tokens,
-                navigation_padding_mask=prepared.policy_context.navigation_padding_mask,
-                reference_trajectory=prepared.policy_context.reference_trajectory,
-            )
+            context = build_policy_inputs(prepared.representations, prepared.reference_prediction)
             value, policy_timing = profile_call(
                 self.device,
                 profile,

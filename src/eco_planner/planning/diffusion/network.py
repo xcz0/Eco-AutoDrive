@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import cast
 
 import torch
@@ -14,6 +15,17 @@ from timm.layers import (
 from torch import nn
 
 from eco_planner.planning.diffusion.config import OfficialDiffusionPlannerConfig
+
+
+@dataclass(frozen=True)
+class DiffusionRepresentations:
+    """Neutral scene/navigation encodings produced by one diffusion encoding pass."""
+
+    scene_tokens: torch.Tensor
+    scene_padding_mask: torch.Tensor
+    navigation_tokens: torch.Tensor
+    navigation_padding_mask: torch.Tensor
+    route_encoding: torch.Tensor
 
 
 class MixerBlock(nn.Module):
@@ -486,18 +498,20 @@ class DiffusionPlanner(nn.Module):
     def encode_route(self, inputs: Mapping[str, torch.Tensor]) -> torch.Tensor:
         return self.decoder.dit.route_encoder(inputs["route_lanes"])
 
-    def encode_policy_features(self, inputs: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def encode_representations(
+        self, inputs: Mapping[str, torch.Tensor]
+    ) -> DiffusionRepresentations:
         scene = self.encoder(inputs)
         navigation, navigation_padding_mask = self.decoder.dit.route_encoder.encode_with_mask(
             inputs["route_lanes"]
         )
-        return {
-            "scene_tokens": scene["encoding"],
-            "scene_padding_mask": scene["padding_mask"],
-            "route_encoding": navigation,
-            "navigation_tokens": navigation[:, None, :],
-            "navigation_padding_mask": navigation_padding_mask[:, None],
-        }
+        return DiffusionRepresentations(
+            scene_tokens=scene["encoding"],
+            scene_padding_mask=scene["padding_mask"],
+            navigation_tokens=navigation[:, None, :],
+            navigation_padding_mask=navigation_padding_mask[:, None],
+            route_encoding=navigation,
+        )
 
     def denoise(
         self,

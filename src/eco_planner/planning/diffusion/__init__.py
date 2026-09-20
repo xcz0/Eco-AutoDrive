@@ -16,6 +16,7 @@ from eco_planner.planning.diffusion.config import (
     sampler_report,
 )
 from eco_planner.planning.diffusion.guidance import GuidanceDiagnostics
+from eco_planner.planning.diffusion.network import DiffusionRepresentations
 from eco_planner.planning.diffusion.planner import (
     PlannerInferenceResult,
     PretrainedDiffusionPlanner,
@@ -25,6 +26,7 @@ from eco_planner.planning.diffusion.planner import (
 __all__ = [
     "CheckpointLoadReport",
     "Ddim5SamplerConfig",
+    "DiffusionRepresentations",
     "Dpm10SamplerConfig",
     "GuidanceConfig",
     "GuidanceDiagnostics",

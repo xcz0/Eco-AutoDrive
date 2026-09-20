@@ -18,6 +18,7 @@ from tensordict import TensorDict
 from eco_planner.planning.diffusion import (
     CheckpointLoadReport,
     Ddim5SamplerConfig,
+    DiffusionRepresentations,
     OrthogonalPolicyGuidanceConfig,
     PretrainedDiffusionPlanner,
     sampler_report,
@@ -84,17 +85,17 @@ class _PolicyFeatureDenoiser(torch.nn.Module):
     def encode_route(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
         return torch.zeros((inputs["ego_current_state"].shape[0], 1))
 
-    def encode_policy_features(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def encode_representations(self, inputs: dict[str, torch.Tensor]) -> DiffusionRepresentations:
         batch = inputs["ego_current_state"].shape[0]
         ego = inputs["ego_current_state"]
         hidden = self.hidden_dim
-        return {
-            "scene_tokens": ego[:, : 2 * hidden].reshape(batch, 2, hidden),
-            "scene_padding_mask": torch.zeros((batch, 2), dtype=torch.bool),
-            "navigation_tokens": ego[:, 2 * hidden : 4 * hidden].reshape(batch, 2, hidden),
-            "navigation_padding_mask": torch.zeros((batch, 2), dtype=torch.bool),
-            "route_encoding": torch.zeros((batch, 1)),
-        }
+        return DiffusionRepresentations(
+            scene_tokens=ego[:, : 2 * hidden].reshape(batch, 2, hidden),
+            scene_padding_mask=torch.zeros((batch, 2), dtype=torch.bool),
+            navigation_tokens=ego[:, 2 * hidden : 4 * hidden].reshape(batch, 2, hidden),
+            navigation_padding_mask=torch.zeros((batch, 2), dtype=torch.bool),
+            route_encoding=torch.zeros((batch, 1)),
+        )
 
     def denoise(
         self,

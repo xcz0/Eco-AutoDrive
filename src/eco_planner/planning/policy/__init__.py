@@ -10,6 +10,7 @@ from eco_planner.planning.policy.config import (
     ExplorationPolicyConfig,
     parse_exploration_policy_config,
 )
+from eco_planner.planning.policy.inputs import build_policy_inputs
 from eco_planner.planning.policy.model import (
     ExplorationPolicy,
     ExplorationPolicyContext,
@@ -24,6 +25,7 @@ __all__ = [
     "ExplorationPolicyContext",
     "ExplorationPolicyOutput",
     "PolicyCheckpointReport",
+    "build_policy_inputs",
     "load_exploration_policy_checkpoint",
     "parse_exploration_policy_config",
     "policy_context_tensordict",
