@@ -12,14 +12,14 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 
 from eco_planner.analysis.training import beta_statistics
-from eco_planner.planning.policy import ExplorationPolicy
-from eco_planner.planning.policy.config import parse_exploration_policy_config
-from eco_planner.planning.policy.distribution import (
+from eco_planner.planning.policy import (
+    POLICY_CONTEXT_KEYS,
     AffineBeta,
     AffineBetaParameters,
     ExplicitGeneratorBetaSampler,
+    ExplorationPolicy,
+    parse_exploration_policy_config,
 )
-from eco_planner.planning.policy.inputs import POLICY_CONTEXT_KEYS
 
 _PARAMETER_GROUPS = ("actor_head", "value_head", "shared_trunk")
 _KL_BATCH_KEYS = (

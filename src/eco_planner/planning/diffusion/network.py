@@ -14,7 +14,7 @@ from timm.layers import (
 )
 from torch import nn
 
-from eco_planner.planning.diffusion.config import OfficialDiffusionPlannerConfig
+from .config import OfficialDiffusionPlannerConfig
 
 
 @dataclass(frozen=True)

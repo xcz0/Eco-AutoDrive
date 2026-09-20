@@ -10,7 +10,7 @@ from typing import Any
 
 import torch
 
-from eco_planner.planning.policy.model import ExplorationPolicy
+from .model import ExplorationPolicy
 
 _FORMAT_VERSION = 1
 

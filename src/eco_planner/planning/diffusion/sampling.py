@@ -14,8 +14,8 @@ from diffusers import (
     DPMSolverMultistepScheduler,  # pyright: ignore[reportPrivateImportUsage]
 )
 
-from eco_planner.planning.diffusion.config import Ddim5SamplerConfig, SamplerConfig
-from eco_planner.planning.diffusion.guidance import GuidanceGradientResult
+from .config import Ddim5SamplerConfig, SamplerConfig
+from .guidance import GuidanceGradientResult
 
 
 @dataclass(frozen=True)

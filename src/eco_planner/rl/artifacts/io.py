@@ -12,7 +12,7 @@ from hydra.utils import to_absolute_path
 from tensordict import TensorDict, TensorDictBase
 
 from eco_planner.artifacts import collect_repository_metadata, write_json, write_npz
-from eco_planner.planning.policy.inputs import POLICY_CONTEXT_KEYS
+from eco_planner.planning.policy import POLICY_CONTEXT_KEYS
 from eco_planner.rl.artifacts.schema import rollout_artifact_fields
 from eco_planner.rl.reward.result import RewardProfileName
 from eco_planner.rl.rollout.contracts import (

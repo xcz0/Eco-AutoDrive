@@ -11,7 +11,12 @@ import torch
 from lightning.fabric import Fabric
 from tensordict import TensorDictBase
 
-from eco_planner.planning.diffusion import (
+from eco_planner.runtime.config import RuntimeConfig
+from eco_planner.runtime.fabric import InferenceRuntimeReport, create_single_device_fabric
+from eco_planner.runtime.profiling import PhaseProfiler
+from eco_planner.runtime.random import sample_batched_standard_normal
+
+from .diffusion import (
     CheckpointLoadReport,
     OfficialDiffusionPlannerConfig,
     OrthogonalPolicyGuidanceConfig,
@@ -21,27 +26,23 @@ from eco_planner.planning.diffusion import (
     load_official_diffusion_planner,
     sampler_report,
 )
-from eco_planner.planning.policy import (
+from .policy import (
     ExplorationPolicy,
     ExplorationPolicyConfig,
     ExplorationPolicyOutput,
     build_policy_inputs,
     policy_context_tensordict,
 )
-from eco_planner.planning.policy.distribution import (
+from .policy.distribution import (
     AffineBetaAction,
     AffineBetaParameters,
     ExplicitGeneratorBetaSampler,
 )
-from eco_planner.planning.result import (
+from .result import (
     GuidanceAction,
     PolicyDecision,
     PolicyGuidanceDecisionResult,
 )
-from eco_planner.runtime.config import RuntimeConfig
-from eco_planner.runtime.fabric import InferenceRuntimeReport, create_single_device_fabric
-from eco_planner.runtime.profiling import PhaseProfiler
-from eco_planner.runtime.random import sample_batched_standard_normal
 
 _T = TypeVar("_T")
 

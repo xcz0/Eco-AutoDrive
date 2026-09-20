@@ -1,11 +1,11 @@
 """Planning-owned diffusion planner and guidance policy decision semantics."""
 
-from eco_planner.planning.inference import (
+from .inference import (
     PlanningInference,
     PolicyGuidanceRuntime,
     create_policy_guidance_runtime,
 )
-from eco_planner.planning.result import (
+from .result import (
     GuidanceAction,
     PolicyDecision,
     PolicyGuidanceDecisionResult,

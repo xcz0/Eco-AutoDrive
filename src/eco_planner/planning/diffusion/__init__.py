@@ -1,7 +1,7 @@
 """Application-facing diffusion planner API."""
 
-from eco_planner.planning.diffusion.checkpoint import CheckpointLoadReport
-from eco_planner.planning.diffusion.config import (
+from .checkpoint import CheckpointLoadReport
+from .config import (
     Ddim5SamplerConfig,
     Dpm10SamplerConfig,
     GuidanceConfig,
@@ -15,9 +15,9 @@ from eco_planner.planning.diffusion.config import (
     parse_sampler_config,
     sampler_report,
 )
-from eco_planner.planning.diffusion.guidance import GuidanceDiagnostics
-from eco_planner.planning.diffusion.network import DiffusionRepresentations
-from eco_planner.planning.diffusion.planner import (
+from .guidance import GuidanceDiagnostics
+from .network import DiffusionRepresentations
+from .planner import (
     PlannerInferenceResult,
     PretrainedDiffusionPlanner,
     load_official_diffusion_planner,

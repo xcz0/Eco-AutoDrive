@@ -25,7 +25,7 @@ from eco_planner.planning.diffusion import (
     parse_guidance_config,
     parse_sampler_config,
 )
-from eco_planner.planning.policy.config import (
+from eco_planner.planning.policy import (
     ExplorationPolicyConfig,
     parse_exploration_policy_config,
 )

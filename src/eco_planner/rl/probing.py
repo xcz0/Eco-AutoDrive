@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import torch
 
-from eco_planner.planning.policy import ExplorationPolicyContext, policy_context_tensordict
-from eco_planner.planning.policy.distribution import AffineBeta
+from eco_planner.planning.policy import (
+    AffineBeta,
+    ExplorationPolicyContext,
+    policy_context_tensordict,
+)
 
 from .artifacts.schema import PolicyProbeSummary
 from .rollout import FabricRolloutRuntime, RolloutEpisode

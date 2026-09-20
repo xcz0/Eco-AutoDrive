@@ -6,9 +6,9 @@ from dataclasses import dataclass
 
 import torch
 
-from eco_planner.planning.diffusion.guidance import GuidanceDiagnostics
-from eco_planner.planning.policy.inputs import ExplorationPolicyContext
-from eco_planner.planning.policy.model import ExplorationPolicyOutput
+from .diffusion.guidance import GuidanceDiagnostics
+from .policy.inputs import ExplorationPolicyContext
+from .policy.model import ExplorationPolicyOutput
 
 
 @dataclass(frozen=True)
