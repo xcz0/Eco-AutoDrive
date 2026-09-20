@@ -1,0 +1,67 @@
+docs/agents/contracts/experiments.md
+  s_82e687185d3333::t_a06fa175a1f461 16
+src/eco_planner/planning/inference.py
+  s_82e687185d3333::t_9312e129bfa024 16
+  s_82e687185d3333::t_82645374ec8f97 146-152,155-203,205-236,239-334
+  s_82e687185d3333::t_01dd361d08ee1c 153-154
+  s_82e687185d3333::t_9f004f85350784 204
+  s_82e687185d3333::t_4309bcef51cb33 381-386
+  s_82e687185d3333::t_afa5186f60f009 5,7-8,11,14-15,17-23,26,37-38
+  s_82e687185d3333::t_bd46356d3ed155 237-238
+src/eco_planner/experiments/guidance/execution_bridge/runner.py
+  s_82e687185d3333::t_a5ed39e15d18d1 107
+  s_82e687185d3333::t_b10d8dd5227e9f 37
+tests/characterization/harness.py
+  s_82e687185d3333::t_2cafedb57513da 220,232
+  s_82e687185d3333::t_11d2a64fe117a2 18
+src/eco_planner/evaluation/policy_intervention.py
+  s_82e687185d3333::t_58112bb73737a0 38
+  s_82e687185d3333::t_dace11b5a01b85 68-78
+  s_82e687185d3333::t_af24f897b26a98 23,29
+  s_82e687185d3333::t_c569f0baee8970 81,158,219,235,249,278
+src/eco_planner/evaluation/engine.py
+  s_82e687185d3333::t_8a70950b200aa0 15
+  s_82e687185d3333::t_0387e7a02e67c3 83
+src/eco_planner/evaluation/inference/agent.py
+  s_82e687185d3333::t_f5813965cf9cd1 6,13,21,24
+  s_82e687185d3333::t_1fedd333fcaac9 138,143,146
+  s_82e687185d3333::t_0b280515e1e6f3 204-211
+src/eco_planner/rl/rollout/runtime.py
+  s_82e687185d3333::t_eebc81b1c75139 62
+  s_82e687185d3333::t_a4e572395c029d 29
+  s_82e687185d3333::t_666549ab22c36a 63-65
+  s_82e687185d3333::t_ac0348949f0396 80,84,88
+  s_82e687185d3333::t_5512820b34174f 1,13,45,47-49,53,59,61,71,77-79,81-83,85-87,89-105,110,113,116,185,287,312-313,315,317-318,325-326,336,343,378-387,390
+  s_82e687185d3333::t_1f124e54abe4d7 60
+tests/evaluation/test_dependency_direction.py
+  s_82e687185d3333::t_0ccca27142433a 1-60
+tests/evaluation/test_policy_agent.py
+  s_82e687185d3333::t_ae7c2af8bb9a4e 12,17-25,45
+src/eco_planner/planning/__init__.py
+  s_82e687185d3333::t_a17617e17d1377 3-7,15-16
+src/eco_planner/evaluation/inference/decision.py
+  s_82e687185d3333::t_431a70f93393db 19,23-33
+  s_82e687185d3333::t_b2858a86d410ac 196-222
+tests/characterization/test_planning_inference.py
+  s_82e687185d3333::t_068f3066823e1d 63-87
+  s_82e687185d3333::t_279a85d5f669f3 12-13,22-37
+  s_82e687185d3333::t_beababc763d7b5 38-39
+src/eco_planner/rl/rollout/collection.py
+  s_82e687185d3333::t_81b83da27dc843 80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "adfde5c2fb9d4a354269c6176817cfe106fd9fbf",
+  "prompts": {},
+  "sessions": {
+    "s_82e687185d3333": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f4223ae45ffeqXRHPXHOfwAi17",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
