@@ -1,0 +1,79 @@
+src/eco_planner/evaluation/inference/runtime.py
+  s_1117370f9e39de::t_15e62ba4384812 14
+src/eco_planner/evaluation/engine.py
+  s_1117370f9e39de::t_15e62ba4384812 15
+src/eco_planner/planning/diffusion/network.py
+  s_b25dc23d1f8052::t_3b39fe08d68cf3 1-510
+src/eco_planner/experiments/guidance/execution_bridge/runner.py
+  s_1117370f9e39de::t_15e62ba4384812 37
+src/eco_planner/benchmarking/environment.py
+  s_1117370f9e39de::t_15e62ba4384812 16
+src/eco_planner/planning/diffusion/guidance.py
+  s_b25dc23d1f8052::t_3b39fe08d68cf3 1-204
+tests/characterization/harness.py
+  s_1117370f9e39de::t_15e62ba4384812 18
+src/eco_planner/rl/rollout/runtime.py
+  s_1117370f9e39de::t_15e62ba4384812 14
+tests/evaluation/test_engine.py
+  s_1117370f9e39de::t_15e62ba4384812 42
+src/eco_planner/experiments/protocol/composition.py
+  s_1117370f9e39de::t_15e62ba4384812 18
+src/eco_planner/experiments/guidance/decomposition/runner.py
+  s_1117370f9e39de::t_15e62ba4384812 31
+docs/experiments/records/e-041-issue94-task-h-evaluation-diagnostics.md
+  s_1117370f9e39de::t_d43050d439039e 131
+docs/experiments/records/e-044-issue98-task-b-guidance-decomposition.md
+  s_1117370f9e39de::t_d43050d439039e 137
+tests/planning/test_guidance.py
+  s_1117370f9e39de::t_15e62ba4384812 12
+src/eco_planner/planning/diffusion/planner.py
+  s_1117370f9e39de::t_feddbbbb5bb896 13-16
+  s_b25dc23d1f8052::t_3b39fe08d68cf3 1-12,17-351
+tests/training/test_guidance_control_authority.py
+  s_1117370f9e39de::t_15e62ba4384812 27-28
+src/eco_planner/planning/diffusion/sampling.py
+  s_b25dc23d1f8052::t_3b39fe08d68cf3 1-502
+src/eco_planner/evaluation/inference/decision.py
+  s_1117370f9e39de::t_15e62ba4384812 13
+src/eco_planner/planning/__init__.py
+  s_1117370f9e39de::t_ca1fe917137349 1
+src/eco_planner/evaluation/inference/agent.py
+  s_1117370f9e39de::t_15e62ba4384812 13
+tests/configuration/test_scalar_reward.py
+  s_1117370f9e39de::t_15e62ba4384812 24
+src/eco_planner/rl/config.py
+  s_1117370f9e39de::t_15e62ba4384812 21
+src/eco_planner/planning/diffusion/__init__.py
+  s_b25dc23d1f8052::t_3b39fe08d68cf3 1-43
+tests/analysis/test_reports.py
+  s_1117370f9e39de::t_887716ec0c4d62 382-389
+  s_1117370f9e39de::t_15e62ba4384812 352,402
+tests/planning/test_sampling.py
+  s_1117370f9e39de::t_15e62ba4384812 8-9
+src/eco_planner/evaluation/config.py
+  s_1117370f9e39de::t_15e62ba4384812 20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "81e4811a3ddf264ae4367bf055930a72054c113c",
+  "prompts": {},
+  "sessions": {
+    "s_1117370f9e39de": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f42cd7afdffeusjoShIMnEzKGt",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    },
+    "s_b25dc23d1f8052": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f42d62911ffeQPDJ28cGnZMZW0",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
