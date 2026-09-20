@@ -77,7 +77,7 @@ def collect(resolved: DictConfig, config: TrainingJobConfig, output_dir: Path) -
         raise RuntimeError("initial policy changed")
     if runtime.frozen_planner_hash() != planner_hash:
         raise RuntimeError("frozen planner changed")
-    if any(p.grad is not None for p in runtime._planner.parameters()):
+    if any(p.grad is not None for p in runtime.planner.parameters()):
         raise RuntimeError("diagnostic created planner gradients")
     summary = {
         "status": "completed",

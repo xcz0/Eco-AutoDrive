@@ -1,8 +1,7 @@
-"""Fabric-owned learned-guidance rollout inference with one host transfer per decision."""
+"""Training-owned learned-guidance rollout adapter over the planning runtime."""
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
@@ -11,7 +10,7 @@ import torch
 from lightning.fabric import Fabric
 from tensordict import TensorDictBase
 
-from eco_planner.planning import PlanningInference
+from eco_planner.planning import PolicyGuidanceRuntime, create_policy_guidance_runtime
 from eco_planner.planning.diffusion import (
     CheckpointLoadReport,
     OfficialDiffusionPlannerConfig,
@@ -19,8 +18,6 @@ from eco_planner.planning.diffusion import (
     PretrainedDiffusionPlanner,
     SamplerConfig,
     SamplerReport,
-    load_official_diffusion_planner,
-    sampler_report,
 )
 from eco_planner.planning.policy import (
     ExplorationPolicy,
@@ -29,7 +26,7 @@ from eco_planner.planning.policy import (
     policy_context_tensordict,
 )
 from eco_planner.runtime.config import RuntimeConfig
-from eco_planner.runtime.fabric import InferenceRuntimeReport, create_single_device_fabric
+from eco_planner.runtime.fabric import InferenceRuntimeReport
 from eco_planner.runtime.host_transfer import HostTransfer
 from eco_planner.runtime.profiling import (
     PhaseProfiler,
@@ -45,76 +42,78 @@ from .profiling import RolloutPlannerTiming
 
 
 class FabricRolloutRuntime:
-    """Own the frozen planner, trainable policy module, and separated rollout RNG streams."""
+    """Adapt the planning-owned policy guidance runtime to PPO rollout collection."""
 
-    def __init__(
-        self,
-        fabric: Fabric,
-        planner: PretrainedDiffusionPlanner,
-        policy: ExplorationPolicy,
-        report: InferenceRuntimeReport,
-        noise_seed: int,
-        policy_action_seed: int,
-        checkpoint_report: CheckpointLoadReport,
-        sampler: SamplerReport,
-        guidance_config: OrthogonalPolicyGuidanceConfig,
-        planner_compile_mode: Literal["eager", "dit_reduce_overhead"],
-    ) -> None:
-        self._fabric = fabric
-        self._planner = planner
-        self._policy = policy
-        self._policy.eval()
-        self.report = report
-        self.noise_seed = noise_seed
-        self.policy_action_seed = policy_action_seed
-        self.checkpoint_report = checkpoint_report
-        self.sampler_report = sampler
-        self.guidance_config = guidance_config
-        self.planner_compile_mode = planner_compile_mode
-        self._inference = PlanningInference(planner, policy, fabric.device, fabric.to_device)
-        self._host_transfer = HostTransfer(fabric.device)
+    def __init__(self, planning: PolicyGuidanceRuntime) -> None:
+        self._planning = planning
+        self._host_transfer = HostTransfer(planning.device)
 
     @property
     def device(self) -> torch.device:
-        return self._fabric.device
+        return self._planning.device
 
     @property
     def fabric(self) -> Fabric:
         """Expose the single-device Fabric owner for training checkpoint persistence."""
 
-        return self._fabric
+        return self._planning.fabric
+
+    @property
+    def planner(self) -> PretrainedDiffusionPlanner:
+        """Expose the frozen planner for gradient-absence diagnostics."""
+
+        return self._planning.planner
 
     @property
     def planner_config(self) -> OfficialDiffusionPlannerConfig:
         """Expose the immutable planner architecture for observation adapters."""
 
-        return self._planner.config
+        return self._planning.planner_config
 
     @property
     def policy(self) -> ExplorationPolicy:
         """Expose the single trainable parameter owner to the PPO updater."""
 
-        return self._policy
+        return self._planning.policy
+
+    @property
+    def report(self) -> InferenceRuntimeReport:
+        return self._planning.report
+
+    @property
+    def checkpoint_report(self) -> CheckpointLoadReport:
+        return self._planning.checkpoint_report
+
+    @property
+    def sampler_report(self) -> SamplerReport:
+        return self._planning.sampler_report
+
+    @property
+    def guidance_config(self) -> OrthogonalPolicyGuidanceConfig:
+        return self._planning.guidance_config
+
+    @property
+    def planner_compile_mode(self) -> Literal["eager", "dit_reduce_overhead"]:
+        return self._planning.planner_compile_mode
+
+    @property
+    def noise_seed(self) -> int:
+        return self._planning.noise_seed
+
+    @property
+    def policy_action_seed(self) -> int:
+        return self._planning.policy_action_seed
 
     def frozen_planner_hash(self) -> str:
         """Hash the frozen planner parameters in stable name order."""
 
-        digest = hashlib.sha256()
-        for name, parameter in sorted(self._planner.named_parameters()):
-            if parameter.requires_grad:
-                raise RuntimeError(f"planner parameter {name!r} is unexpectedly trainable")
-            value = parameter.detach().to(device="cpu").contiguous()
-            digest.update(name.encode("utf-8"))
-            digest.update(value.numpy().tobytes())
-        return digest.hexdigest()
+        return self._planning.frozen_planner_hash()
 
     def new_noise_generator(self, seed: int | None = None) -> torch.Generator:
-        selected = self.noise_seed if seed is None else _seed(seed, "noise seed")
-        return torch.Generator(device=self.device).manual_seed(selected)
+        return self._planning.new_noise_generator(seed)
 
     def new_policy_generator(self, seed: int | None = None) -> torch.Generator:
-        selected = self.policy_action_seed if seed is None else _seed(seed, "policy action seed")
-        return torch.Generator(device=self.device).manual_seed(selected)
+        return self._planning.new_policy_generator(seed)
 
     def decide(
         self,
@@ -171,7 +170,6 @@ class FabricRolloutRuntime:
         *,
         timings: list[RolloutPlannerTiming] | None,
     ) -> BatchRolloutDecision:
-
         batch = _observation_batch_size(observation)
         _validate_slot_generators(diffusion_generators, batch, "diffusion_generators")
         if policy_generators is not None:
@@ -184,7 +182,7 @@ class FabricRolloutRuntime:
             else tuple(torch.empty(0, dtype=torch.uint8) for _ in range(batch))
         )
         profiler = PhaseProfiler(self.device) if profile else None
-        result = self._inference.decide_batch(
+        result = self._planning.decide_batch(
             observation,
             diffusion_generators,
             policy_generators,
@@ -286,7 +284,7 @@ class FabricRolloutRuntime:
             deferred,
             diffusion_rng_states=diffusion_rng_states,
             policy_rng_states=policy_rng_states,
-            policy_config=self._policy.config,
+            policy_config=self._planning.policy.config,
             training_decision=training_decision,
         )
 
@@ -311,18 +309,21 @@ class FabricRolloutRuntime:
         batch = _observation_batch_size(observation)
         _validate_slot_generators(diffusion_generators, batch, "diffusion_generators")
         profile = timings is not None
+        planner = self._planning.planner
+        policy = self._planning.policy
         moved, h2d_timing = profile_call(
-            self.device, profile, lambda: self._fabric.to_device(observation)
+            self.device, profile, lambda: self._planning.fabric.to_device(observation)
         )
-        moved = _fabric_observation(moved)
+        if not isinstance(moved, TensorDictBase):
+            raise TypeError("Fabric must preserve the rollout TensorDict observation container")
         noise, noise_timing = profile_call(
             self.device,
             profile,
             lambda: sample_batched_standard_normal(
                 diffusion_generators,
                 (
-                    1 + self._planner.config.predicted_neighbor_num,
-                    self._planner.config.future_len,
+                    1 + planner.config.predicted_neighbor_num,
+                    planner.config.future_len,
                     4,
                 ),
                 device=self.device,
@@ -332,16 +333,14 @@ class FabricRolloutRuntime:
             prepared, prepare_timing = profile_call(
                 self.device,
                 profile,
-                lambda: self._planner.prepare_policy_guidance(moved, noise, diffusion_generators),
+                lambda: planner.prepare_policy_guidance(moved, noise, diffusion_generators),
             )
             context = build_policy_inputs(prepared.representations, prepared.reference_prediction)
             value, policy_timing = profile_call(
                 self.device,
                 profile,
                 lambda: (
-                    self._policy.forward_tensordict(policy_context_tensordict(context))[
-                        "state_value"
-                    ]
+                    policy.forward_tensordict(policy_context_tensordict(context))["state_value"]
                     .squeeze(-1)
                     .detach()
                     .clone()
@@ -376,68 +375,19 @@ def create_fabric_rollout_runtime(
     *,
     planner_compile_mode: Literal["eager", "dit_reduce_overhead"],
 ) -> FabricRolloutRuntime:
-    """Load the frozen planner and an exploration policy through one single-device Fabric."""
+    """Load the frozen planner and an exploration policy for PPO rollout collection."""
 
-    if type(policy_action_seed) is not int or policy_action_seed < 0:
-        raise ValueError("policy_action_seed must be a non-negative integer")
-    fabric, report = create_single_device_fabric(runtime_config)
-    planner, checkpoint_report = load_official_diffusion_planner(
-        args_path, checkpoint_path, sampler_config, guidance_config
-    )
-    if planner_compile_mode == "dit_reduce_overhead":
-        if fabric.device.type != "cuda":
-            raise ValueError("dit_reduce_overhead requires a CUDA rollout runtime")
-        planner.model.decoder.dit.forward = torch.compile(
-            planner.model.decoder.dit.forward,
-            mode="reduce-overhead",
-            fullgraph=True,
-            dynamic=False,
-        )
-    policy = ExplorationPolicy(policy_config)
-    wrapped_planner = fabric.setup_module(planner)
-    planner = _unwrap_diffusion_planner(wrapped_planner)
-    wrapped_policy = fabric.setup_module(policy)
-    policy = _unwrap_exploration_policy(wrapped_policy)
-    if report.world_size != 1:
-        raise RuntimeError("rollout runtime requires Fabric world_size=1")
-    return FabricRolloutRuntime(
-        fabric,
-        planner,
-        policy,
-        report,
-        noise_seed=report.seed,
-        policy_action_seed=policy_action_seed,
-        checkpoint_report=checkpoint_report,
-        sampler=sampler_report(sampler_config),
-        guidance_config=guidance_config,
+    planning = create_policy_guidance_runtime(
+        runtime_config,
+        sampler_config,
+        guidance_config,
+        policy_config,
+        args_path,
+        checkpoint_path,
+        policy_action_seed,
         planner_compile_mode=planner_compile_mode,
     )
-
-
-def _unwrap_exploration_policy(module: torch.nn.Module) -> ExplorationPolicy:
-    if isinstance(module, ExplorationPolicy):
-        return module
-    unwrapped = getattr(module, "module", None)
-    if not isinstance(unwrapped, ExplorationPolicy):
-        raise TypeError("Fabric did not preserve the ExplorationPolicy module")
-    return unwrapped
-
-
-def _unwrap_diffusion_planner(module: torch.nn.Module) -> PretrainedDiffusionPlanner:
-    if isinstance(module, PretrainedDiffusionPlanner):
-        return module
-    unwrapped = getattr(module, "module", None)
-    if not isinstance(unwrapped, PretrainedDiffusionPlanner):
-        raise TypeError("Fabric did not preserve the PretrainedDiffusionPlanner module")
-    return unwrapped
-
-
-def _fabric_observation(value: object) -> TensorDictBase:
-    """Validate one Fabric observation transfer at the third-party boundary."""
-
-    if not isinstance(value, TensorDictBase):
-        raise TypeError("Fabric must preserve the rollout TensorDict observation container")
-    return value
+    return FabricRolloutRuntime(planning)
 
 
 def _observation_batch_size(observation: TensorDictBase) -> int:
@@ -456,9 +406,3 @@ def _validate_slot_generators(generators: Sequence[torch.Generator], batch: int,
 
 def _rng_state(generator: torch.Generator) -> torch.Tensor:
     return generator.get_state().detach().cpu().clone()
-
-
-def _seed(value: int, name: str) -> int:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a non-negative integer")
-    return value

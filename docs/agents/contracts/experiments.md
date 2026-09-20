@@ -13,7 +13,7 @@
 | `planning.policy` | policy 架构、affine-Beta 动作与采样、policy-only checkpoint 存取与 `policy_state_hash` |
 | `rl.optimization` | PPO batch/GAE/normalization、advantage/critic 消融、actor backward、参数变化与更新后 KL 测量 |
 | `evaluation.intervention` | 已准备的 runtime、环境、场景、动作与窗口；reset/step、固定噪声、终止处理和部分原始证据 |
-| `evaluation.policy_intervention` | 已加载的 frozen `FabricRolloutRuntime`、环境、场景与显式 execution prefix；用 policy mean action 复现同一 matched-group 语义，并采集 same-state 双 policy 反事实 planner response |
+| `evaluation.policy_intervention` | 已加载的 frozen `PolicyGuidanceRuntime`、环境、场景与显式 execution prefix；用 policy mean action 复现同一 matched-group 语义，并采集 same-state 双 policy 反事实 planner response |
 | `analysis` | 已保存结果、统计、matched 差值、逐 seed 汇总和报告再生成；不执行训练、backward 或 gate 裁定 |
 
 `just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance deferral run/analyze、guidance decomposition run/analyze、guidance execution-bridge run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/critic-attribution run/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。

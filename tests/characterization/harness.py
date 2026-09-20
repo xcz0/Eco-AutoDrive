@@ -15,7 +15,7 @@ import torch
 from lightning.fabric import Fabric
 from tensordict import TensorDict
 
-from eco_planner.planning import DecisionResult, PlanningInference
+from eco_planner.planning import DecisionResult, PlanningInference, PolicyGuidanceRuntime
 from eco_planner.planning.diffusion import (
     CheckpointLoadReport,
     Ddim5SamplerConfig,
@@ -217,7 +217,7 @@ def build_runtime() -> FabricRolloutRuntime:
         seed=0,
         world_size=1,
     )
-    return FabricRolloutRuntime(
+    planning = PolicyGuidanceRuntime(
         fabric,
         planner,
         build_policy(),
@@ -229,6 +229,7 @@ def build_runtime() -> FabricRolloutRuntime:
         guidance_config=guidance_config(),
         planner_compile_mode="eager",
     )
+    return FabricRolloutRuntime(planning)
 
 
 def build_planning_inference() -> PlanningInference:

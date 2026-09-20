@@ -3,24 +3,25 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
 import numpy as np
 import torch
 from tensordict import TensorDictBase
 
+from eco_planner.planning import PolicyGuidanceRuntime
 from eco_planner.planning.diffusion import (
     CheckpointLoadReport,
     GuidanceConfig,
     OfficialDiffusionPlannerConfig,
     SamplerReport,
 )
-from eco_planner.rl.rollout import FabricRolloutRuntime
 from eco_planner.runtime.fabric import InferenceRuntimeReport
+from eco_planner.runtime.host_transfer import HostTransfer
 
 from ..artifacts.models import PolicyCheckpointProvenance
-from .decision import InferenceDecision
+from .decision import InferenceDecision, prepare_learned_inference_decision
 from .runtime import FabricInferenceRuntime
 
 
@@ -134,13 +135,15 @@ class DiffusionEvaluationAgent:
 class PolicyCheckpointEvaluationAgent:
     """Adapt one exploration-policy checkpoint to the generic evaluation engine."""
 
-    runtime: FabricRolloutRuntime
+    runtime: PolicyGuidanceRuntime
     noise_seeds: tuple[int, ...]
     policy_checkpoint: PolicyCheckpointProvenance
     action_mode: Literal["mean", "sample"]
     policy_action_seeds: tuple[int, ...]
+    _host_transfer: HostTransfer = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "_host_transfer", HostTransfer(self.runtime.device))
         if self.action_mode == "sample":
             if not self.policy_action_seeds:
                 raise ValueError(
@@ -198,7 +201,11 @@ class PolicyCheckpointEvaluationAgent:
         if self.action_mode == "mean":
             if policy_generators is not None:
                 raise ValueError("mean-mode evaluation does not accept policy generators")
-            return self.runtime.decide_batch_mean(observation, tuple(generators))
-        if policy_generators is None:
-            raise ValueError("sample-mode evaluation requires policy generators")
-        return self.runtime.decide_batch(observation, tuple(generators), tuple(policy_generators))
+            result = self.runtime.decide_batch_mean(observation, tuple(generators))
+        else:
+            if policy_generators is None:
+                raise ValueError("sample-mode evaluation requires policy generators")
+            result = self.runtime.decide_batch(
+                observation, tuple(generators), tuple(policy_generators)
+            )
+        return prepare_learned_inference_decision(result, self._host_transfer)

@@ -34,12 +34,12 @@ from eco_planner.experiments.guidance.execution_bridge.diagnostics import (
 from eco_planner.experiments.protocol.composition import compose_arm_training_config
 from eco_planner.experiments.protocol.config import load_protocol
 from eco_planner.jobs import compose_job_config
+from eco_planner.planning import create_policy_guidance_runtime
 from eco_planner.planning.diffusion import Ddim5SamplerConfig, OrthogonalPolicyGuidanceConfig
 from eco_planner.planning.policy import (
     load_exploration_policy_checkpoint,
     policy_state_hash,
 )
-from eco_planner.rl.rollout import create_fabric_rollout_runtime
 from eco_planner.runtime.envs import VectorEnvScenario, VectorMetaDriveEnv
 from eco_planner.runtime.resources import require_resource_profile
 
@@ -104,7 +104,7 @@ def run(
     started = time.perf_counter()
     args_path = REPOSITORY_ROOT / job.model.args_path
     model_path = REPOSITORY_ROOT / job.model.checkpoint_path
-    runtime = create_fabric_rollout_runtime(
+    runtime = create_policy_guidance_runtime(
         job.runtime,
         job.sampler,
         job.guidance,

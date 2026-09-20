@@ -12,6 +12,7 @@ from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import collect_repository_metadata, write_json
+from eco_planner.planning import create_policy_guidance_runtime
 from eco_planner.planning.diffusion import (
     GuidanceConfig,
     OrthogonalPolicyGuidanceConfig,
@@ -21,7 +22,6 @@ from eco_planner.planning.policy import (
     load_exploration_policy_checkpoint,
     policy_state_hash,
 )
-from eco_planner.rl.rollout import create_fabric_rollout_runtime
 from eco_planner.runtime.fabric import InferenceRuntimeReport, resolve_runtime_settings
 
 from .artifacts import JobSummary, PolicyCheckpointProvenance, RuntimeMetadata
@@ -80,7 +80,7 @@ def _create_policy_checkpoint_agent(
         raise ValueError("policy-checkpoint evaluation requires guidance=orthogonal_policy")
     if config.policy is None or config.policy_checkpoint is None:
         raise RuntimeError("policy-checkpoint evaluation is incompletely configured")
-    runtime = create_fabric_rollout_runtime(
+    runtime = create_policy_guidance_runtime(
         config.runtime,
         config.sampler,
         guidance,
