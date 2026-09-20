@@ -9,7 +9,7 @@ import pytest
 import torch
 from torch import nn
 
-from eco_planner.models import (
+from eco_planner.planning.diffusion import (
     Ddim5SamplerConfig,
     NoGuidanceConfig,
     OrthogonalReferenceGuidanceConfig,

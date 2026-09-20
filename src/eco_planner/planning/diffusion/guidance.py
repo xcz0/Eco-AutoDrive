@@ -7,7 +7,7 @@ from typing import Any
 
 import torch
 
-from eco_planner.models.config import (
+from eco_planner.planning.diffusion.config import (
     OrthogonalPolicyGuidanceConfig,
     OrthogonalReferenceGuidanceConfig,
     StateNormalizer,

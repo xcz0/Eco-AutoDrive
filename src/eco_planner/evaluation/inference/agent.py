@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from tensordict import TensorDictBase
 
-from eco_planner.models import (
+from eco_planner.planning.diffusion import (
     CheckpointLoadReport,
     GuidanceConfig,
     OfficialDiffusionPlannerConfig,

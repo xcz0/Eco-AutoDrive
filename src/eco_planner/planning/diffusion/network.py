@@ -13,7 +13,7 @@ from timm.layers import (
 )
 from torch import nn
 
-from eco_planner.models.config import OfficialDiffusionPlannerConfig
+from eco_planner.planning.diffusion.config import OfficialDiffusionPlannerConfig
 
 
 class MixerBlock(nn.Module):

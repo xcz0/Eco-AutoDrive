@@ -134,7 +134,7 @@ orthogonal_policy）。实际 composed 参数保存在 `resolved_config.yaml`。
 ## 数据标注更正（实践记录）
 
 - **E-041 记录与 `docs/能耗优化_0914汇报.md` 存在 lon/lat 标签互换**。权威顺序为
-  `[lateral, longitudinal]`（代码 `src/eco_planner/models/guidance.py:135,153`、
+  `[lateral, longitudinal]`（代码 `src/eco_planner/planning/diffusion/guidance.py:135,153`、
   `src/eco_planner/rl/optimization/gradients.py:43-44`）。E-041
   `paired_rstress_minus_r0.beta_mean.mean_delta_per_dimension` 为原生
   `[lateral, longitudinal]`，即 seed0 `(+0.0253, +0.0838)`、seed1 `(+0.0239, +0.1146)`：

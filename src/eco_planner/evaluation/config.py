@@ -17,7 +17,7 @@ from pydantic import (
 
 from eco_planner.configuration import ModelPathsConfig, ScenarioConfig, resolve_config_mapping
 from eco_planner.contracts import TRAFFIC_HISTORY_WARMUP_STEPS
-from eco_planner.models import (
+from eco_planner.planning.diffusion import (
     Ddim5SamplerConfig,
     GuidanceConfig,
     OrthogonalPolicyGuidanceConfig,

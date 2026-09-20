@@ -11,7 +11,7 @@ from lightning.fabric import Fabric
 from tensordict import TensorDictBase
 from torch import nn
 
-from eco_planner.models import (
+from eco_planner.planning.diffusion import (
     CheckpointLoadReport,
     GuidanceConfig,
     NoGuidanceConfig,

@@ -10,8 +10,11 @@ from typing import cast
 import torch
 from torch import nn
 
-from eco_planner.models.checkpoint import CheckpointLoadReport, extract_official_ema_state_dict
-from eco_planner.models.config import (
+from eco_planner.planning.diffusion.checkpoint import (
+    CheckpointLoadReport,
+    extract_official_ema_state_dict,
+)
+from eco_planner.planning.diffusion.config import (
     GuidanceConfig,
     NoGuidanceConfig,
     OfficialDiffusionPlannerConfig,
@@ -19,15 +22,15 @@ from eco_planner.models.config import (
     OrthogonalReferenceGuidanceConfig,
     SamplerConfig,
 )
-from eco_planner.models.guidance import (
+from eco_planner.planning.diffusion.guidance import (
     GuidanceDiagnostics,
     GuidanceGradientResult,
     OrthogonalGuidance,
     stack_guidance_diagnostics,
     zero_guidance_diagnostics,
 )
-from eco_planner.models.network import DiffusionPlanner
-from eco_planner.models.sampling import DiffusionSampler, GuidanceSamplingRandomness
+from eco_planner.planning.diffusion.network import DiffusionPlanner
+from eco_planner.planning.diffusion.sampling import DiffusionSampler, GuidanceSamplingRandomness
 
 
 @dataclass

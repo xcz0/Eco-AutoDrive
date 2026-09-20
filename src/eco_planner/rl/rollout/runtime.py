@@ -11,7 +11,7 @@ import torch
 from lightning.fabric import Fabric
 from tensordict import TensorDictBase
 
-from eco_planner.models import (
+from eco_planner.planning.diffusion import (
     CheckpointLoadReport,
     OfficialDiffusionPlannerConfig,
     OrthogonalPolicyGuidanceConfig,

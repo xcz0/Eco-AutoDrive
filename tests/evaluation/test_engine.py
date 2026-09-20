@@ -39,7 +39,7 @@ from eco_planner.evaluation.artifacts import (
     validate_episode_artifact,
     validate_matrix_episode,
 )
-from eco_planner.models import CheckpointLoadReport, NoGuidanceConfig, SamplerReport
+from eco_planner.planning.diffusion import CheckpointLoadReport, NoGuidanceConfig, SamplerReport
 from eco_planner.runtime.contracts import HostTrajectories
 from eco_planner.runtime.fabric import InferenceRuntimeReport
 from eco_planner.runtime.host_transfer import HostTransfer

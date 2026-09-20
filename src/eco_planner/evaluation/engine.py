@@ -12,7 +12,7 @@ from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import collect_repository_metadata, write_json
-from eco_planner.models import (
+from eco_planner.planning.diffusion import (
     GuidanceConfig,
     OrthogonalPolicyGuidanceConfig,
     SamplerReport,

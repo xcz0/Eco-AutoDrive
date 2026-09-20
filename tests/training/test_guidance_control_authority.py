@@ -24,8 +24,8 @@ from eco_planner.experiments.guidance.authority.diagnostics import (
     matched_statistics,
 )
 from eco_planner.experiments.guidance.authority.runner import collect_group, save_decisions
-from eco_planner.models import PlannerInferenceResult, parse_guidance_config
-from eco_planner.models.guidance import zero_guidance_diagnostics
+from eco_planner.planning.diffusion import PlannerInferenceResult, parse_guidance_config
+from eco_planner.planning.diffusion.guidance import zero_guidance_diagnostics
 from eco_planner.rl.reward.config import EnergyRewardConfig
 from eco_planner.runtime.envs import VectorEnvScenario
 

@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from eco_planner.models import Ddim5SamplerConfig
-from eco_planner.models.sampling import DiffusionSampler, _DdimSampler
+from eco_planner.planning.diffusion import Ddim5SamplerConfig
+from eco_planner.planning.diffusion.sampling import DiffusionSampler, _DdimSampler
 from eco_planner.runtime.random import sample_batched_standard_normal
 
 

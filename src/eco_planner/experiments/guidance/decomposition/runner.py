@@ -28,7 +28,7 @@ from eco_planner.experiments.guidance.decomposition.diagnostics import (
 from eco_planner.experiments.protocol.composition import compose_arm_training_config
 from eco_planner.experiments.protocol.config import load_protocol
 from eco_planner.jobs import compose_job_config
-from eco_planner.models import Ddim5SamplerConfig
+from eco_planner.planning.diffusion import Ddim5SamplerConfig
 from eco_planner.runtime.envs import (
     VectorEnvScenario,
     VectorMetaDriveEnv,

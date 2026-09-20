@@ -349,7 +349,7 @@ from pathlib import Path
 figures = sys.argv[2] == 'True'
 class BlockImports:
     def find_spec(self, fullname, path=None, target=None):
-        blocked = ['torch', 'metadrive', 'panda3d', 'eco_planner.models']
+        blocked = ['torch', 'metadrive', 'panda3d', 'eco_planner.planning.diffusion']
         if not figures:
             blocked += ['matplotlib', 'seaborn', 'optuna.visualization']
         if any(fullname == root or fullname.startswith(root + '.') for root in blocked):
@@ -379,7 +379,14 @@ import eco_planner.analysis.simple
 import eco_planner.analysis.workflows
 import eco_planner.analysis.reporting.guidance
 from eco_planner.rl.artifacts import TrainingRunSummary
-for root in ('torch', 'metadrive', 'panda3d', 'eco_planner.rl.trainer', 'eco_planner.models'):
+roots = (
+    'torch',
+    'metadrive',
+    'panda3d',
+    'eco_planner.rl.trainer',
+    'eco_planner.planning.diffusion',
+)
+for root in roots:
     assert not any(k == root or k.startswith(root + '.') for k in sys.modules), root
 """
     subprocess.run([sys.executable, "-c", script], check=True)
@@ -392,7 +399,7 @@ import importlib
 import sys
 class BlockExecutionImports:
     def find_spec(self, fullname, path=None, target=None):
-        if fullname in ('torch', 'metadrive', 'panda3d', 'eco_planner.models'):
+        if fullname in ('torch', 'metadrive', 'panda3d', 'eco_planner.planning.diffusion'):
             raise AssertionError('offline initialization imported ' + fullname)
 sys.meta_path.insert(0, BlockExecutionImports())
 importlib.import_module({module!r})
