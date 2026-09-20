@@ -15,7 +15,11 @@ import torch
 from lightning.fabric import Fabric
 from tensordict import TensorDict
 
-from eco_planner.planning import DecisionResult, PlanningInference, PolicyGuidanceRuntime
+from eco_planner.planning import (
+    PlanningInference,
+    PolicyGuidanceDecisionResult,
+    PolicyGuidanceRuntime,
+)
 from eco_planner.planning.diffusion import (
     CheckpointLoadReport,
     Ddim5SamplerConfig,
@@ -293,7 +297,7 @@ def decision_snapshot(decision: BatchRolloutDecision, rng: RngSnapshot) -> dict[
     return snapshot
 
 
-def run_planning_decision(*, sample: bool) -> tuple[DecisionResult, RngSnapshot]:
+def run_planning_decision(*, sample: bool) -> tuple[PolicyGuidanceDecisionResult, RngSnapshot]:
     """Run one planning-owned decision directly with explicitly seeded generators."""
 
     inference = build_planning_inference()
@@ -314,13 +318,13 @@ def run_planning_decision(*, sample: bool) -> tuple[DecisionResult, RngSnapshot]
     )
 
 
-def planning_decision_snapshot(result: DecisionResult, rng: RngSnapshot) -> dict[str, torch.Tensor]:
+def planning_decision_snapshot(
+    result: PolicyGuidanceDecisionResult, rng: RngSnapshot
+) -> dict[str, torch.Tensor]:
     """Capture the same decision fields as the runtime audit from a planning result."""
 
     policy = result.policy
     diagnostics = result.guidance_diagnostics
-    if policy is None or result.reference_prediction is None or diagnostics is None:
-        raise AssertionError("planning decision is missing required policy or guidance outputs")
     inputs = policy.inputs
     snapshot = {
         "prediction": result.prediction.detach().cpu().clone(),

@@ -5,13 +5,17 @@ from eco_planner.planning.inference import (
     PolicyGuidanceRuntime,
     create_policy_guidance_runtime,
 )
-from eco_planner.planning.result import DecisionResult, GuidanceAction, PolicyDecision
+from eco_planner.planning.result import (
+    GuidanceAction,
+    PolicyDecision,
+    PolicyGuidanceDecisionResult,
+)
 
 __all__ = [
-    "DecisionResult",
     "GuidanceAction",
     "PlanningInference",
     "PolicyDecision",
+    "PolicyGuidanceDecisionResult",
     "PolicyGuidanceRuntime",
     "create_policy_guidance_runtime",
 ]

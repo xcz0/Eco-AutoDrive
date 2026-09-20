@@ -19,7 +19,7 @@ from eco_planner.planning.policy.distribution import (
     AffineBetaParameters,
     ExplicitGeneratorBetaSampler,
 )
-from eco_planner.planning.policy.model import POLICY_CONTEXT_KEYS
+from eco_planner.planning.policy.inputs import POLICY_CONTEXT_KEYS
 
 _PARAMETER_GROUPS = ("actor_head", "value_head", "shared_trunk")
 _KL_BATCH_KEYS = (

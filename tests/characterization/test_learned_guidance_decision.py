@@ -1,8 +1,9 @@
 """Characterization tests for one learned-guidance planner decision.
 
-These tests pin the observable semantics that ``schemes.md`` Task A must preserve while
-moving planner execution out of the RL and evaluation runtimes.  They intentionally
-compare against a golden snapshot captured from the current implementation.
+These tests pin the observable semantics that the planning-owned learned-guidance
+decision must preserve while planner execution moves out of the RL and evaluation
+runtimes.  They intentionally compare against a golden snapshot captured from the
+current implementation.
 """
 
 from __future__ import annotations

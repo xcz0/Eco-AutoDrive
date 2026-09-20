@@ -14,7 +14,7 @@ from eco_planner.planning.policy import (
     ExplorationPolicyContext,
     validate_exploration_policy_context,
 )
-from eco_planner.planning.policy.model import POLICY_CONTEXT_KEYS
+from eco_planner.planning.policy.inputs import POLICY_CONTEXT_KEYS
 from eco_planner.runtime.contracts import HostTrajectories
 from eco_planner.runtime.host_transfer import DeferredHostTensors, DeferredHostTransferTiming
 

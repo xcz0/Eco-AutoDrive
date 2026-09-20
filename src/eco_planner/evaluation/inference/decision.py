@@ -16,7 +16,7 @@ from eco_planner.planning.diffusion import (
     OfficialDiffusionPlannerConfig,
     PlannerInferenceResult,
 )
-from eco_planner.planning.result import DecisionResult
+from eco_planner.planning.result import PolicyGuidanceDecisionResult
 from eco_planner.runtime.contracts import HostTrajectories
 from eco_planner.runtime.host_transfer import DeferredHostTensors, HostTransfer
 
@@ -194,7 +194,7 @@ def prepare_batch_inference_decision(
 
 
 def prepare_learned_inference_decision(
-    result: DecisionResult,
+    result: PolicyGuidanceDecisionResult,
     host_transfer: HostTransfer,
     *,
     profile: bool = False,
@@ -203,8 +203,6 @@ def prepare_learned_inference_decision(
 
     reference = result.reference_prediction
     diagnostics = result.guidance_diagnostics
-    if reference is None or diagnostics is None or result.policy is None:
-        raise RuntimeError("policy guidance result is missing required trace diagnostics")
     tensors: dict[str, tuple[torch.Tensor, torch.dtype]] = {
         "initial_noise": (result.initial_noise.detach(), torch.float32),
         "prediction": (result.prediction.detach(), torch.float32),

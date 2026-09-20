@@ -109,10 +109,10 @@ class FabricRolloutRuntime:
 
         return self._planning.frozen_planner_hash()
 
-    def new_noise_generator(self, seed: int | None = None) -> torch.Generator:
+    def new_noise_generator(self, seed: int) -> torch.Generator:
         return self._planning.new_noise_generator(seed)
 
-    def new_policy_generator(self, seed: int | None = None) -> torch.Generator:
+    def new_policy_generator(self, seed: int) -> torch.Generator:
         return self._planning.new_policy_generator(seed)
 
     def decide(
@@ -190,10 +190,6 @@ class FabricRolloutRuntime:
         )
         decision = result.policy
         diagnostics = result.guidance_diagnostics
-        if decision is None or result.reference_prediction is None or diagnostics is None:
-            raise RuntimeError(
-                "policy guidance planner result is missing required trace diagnostics"
-            )
         training_decision = build_training_decision(
             decision.inputs,
             decision.action.guidance_action,

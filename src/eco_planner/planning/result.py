@@ -1,4 +1,4 @@
-"""Typed results of one planning-owned guidance policy decision."""
+"""Typed results of one planning-owned learned-guidance policy decision."""
 
 from __future__ import annotations
 
@@ -7,10 +7,8 @@ from dataclasses import dataclass
 import torch
 
 from eco_planner.planning.diffusion.guidance import GuidanceDiagnostics
-from eco_planner.planning.policy.model import (
-    ExplorationPolicyContext,
-    ExplorationPolicyOutput,
-)
+from eco_planner.planning.policy.inputs import ExplorationPolicyContext
+from eco_planner.planning.policy.model import ExplorationPolicyOutput
 
 
 @dataclass(frozen=True)
@@ -32,11 +30,11 @@ class PolicyDecision:
 
 
 @dataclass(frozen=True)
-class DecisionResult:
+class PolicyGuidanceDecisionResult:
     """One learned-guidance decision before any RL or evaluation adaptation."""
 
     prediction: torch.Tensor
     initial_noise: torch.Tensor
-    reference_prediction: torch.Tensor | None
-    policy: PolicyDecision | None
-    guidance_diagnostics: GuidanceDiagnostics | None
+    reference_prediction: torch.Tensor
+    policy: PolicyDecision
+    guidance_diagnostics: GuidanceDiagnostics

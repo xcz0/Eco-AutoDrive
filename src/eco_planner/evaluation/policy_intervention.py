@@ -26,7 +26,7 @@ from eco_planner.evaluation.intervention import (
     planner_cycle_record,
     transition_record,
 )
-from eco_planner.planning import DecisionResult, PolicyGuidanceRuntime
+from eco_planner.planning import PolicyGuidanceDecisionResult, PolicyGuidanceRuntime
 from eco_planner.rl.reward.config import EnergyRewardConfig
 from eco_planner.runtime.envs import (
     VectorEnvScenario,
@@ -72,7 +72,7 @@ def _mean_decision(
 ) -> Any:
     """Run one deterministic guidance decision and adapt it to host audit tensors."""
 
-    result: DecisionResult = runtime.decide_batch_mean(observation, generators)
+    result: PolicyGuidanceDecisionResult = runtime.decide_batch_mean(observation, generators)
     return prepare_learned_inference_decision(result, HostTransfer(runtime.device))
 
 

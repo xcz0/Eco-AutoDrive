@@ -33,7 +33,11 @@ from eco_planner.planning.policy.distribution import (
     AffineBetaParameters,
     ExplicitGeneratorBetaSampler,
 )
-from eco_planner.planning.result import DecisionResult, GuidanceAction, PolicyDecision
+from eco_planner.planning.result import (
+    GuidanceAction,
+    PolicyDecision,
+    PolicyGuidanceDecisionResult,
+)
 from eco_planner.runtime.config import RuntimeConfig
 from eco_planner.runtime.fabric import InferenceRuntimeReport, create_single_device_fabric
 from eco_planner.runtime.profiling import PhaseProfiler
@@ -64,7 +68,7 @@ class PlanningInference:
         policy_generators: Sequence[torch.Generator] | None,
         *,
         profiler: PhaseProfiler | None = None,
-    ) -> DecisionResult:
+    ) -> PolicyGuidanceDecisionResult:
         """Sample batched guidance actions with one independent RNG stream per slot.
 
         ``policy_generators=None`` evaluates deterministic Beta-mean actions and
@@ -126,7 +130,7 @@ class PlanningInference:
             raise RuntimeError(
                 "policy guidance planner result is missing required trace diagnostics"
             )
-        return DecisionResult(
+        return PolicyGuidanceDecisionResult(
             prediction=result.prediction,
             initial_noise=noise,
             reference_prediction=result.reference_prediction,
@@ -147,7 +151,7 @@ class PolicyGuidanceRuntime:
     """Own the frozen planner, trainable policy, and one Fabric device owner.
 
     Both training rollout and evaluation reuse this runtime to run the same
-    learned-guidance decision; consumers only adapt its typed ``DecisionResult``.
+    learned-guidance decision; consumers only adapt its typed decision result.
     """
 
     planner_compile_mode: Literal["eager", "dit_reduce_overhead"]
@@ -218,20 +222,18 @@ class PolicyGuidanceRuntime:
             digest.update(value.numpy().tobytes())
         return digest.hexdigest()
 
-    def new_noise_generator(self, seed: int | None = None) -> torch.Generator:
-        selected = self.noise_seed if seed is None else _seed(seed, "noise seed")
-        return torch.Generator(device=self.device).manual_seed(selected)
+    def new_noise_generator(self, seed: int) -> torch.Generator:
+        return torch.Generator(device=self.device).manual_seed(_seed(seed, "noise seed"))
 
-    def new_policy_generator(self, seed: int | None = None) -> torch.Generator:
-        selected = self.policy_action_seed if seed is None else _seed(seed, "policy action seed")
-        return torch.Generator(device=self.device).manual_seed(selected)
+    def new_policy_generator(self, seed: int) -> torch.Generator:
+        return torch.Generator(device=self.device).manual_seed(_seed(seed, "policy action seed"))
 
     def decide(
         self,
         observation: TensorDictBase,
         diffusion_generator: torch.Generator,
         policy_generator: torch.Generator | None,
-    ) -> DecisionResult:
+    ) -> PolicyGuidanceDecisionResult:
         """Run one single-slot learned-guidance decision."""
 
         policy_generators = None if policy_generator is None else (policy_generator,)
@@ -244,7 +246,7 @@ class PolicyGuidanceRuntime:
         policy_generators: Sequence[torch.Generator] | None,
         *,
         profiler: PhaseProfiler | None = None,
-    ) -> DecisionResult:
+    ) -> PolicyGuidanceDecisionResult:
         """Sample batched guidance actions with one independent RNG stream per slot."""
 
         return self._inference.decide_batch(
@@ -257,7 +259,7 @@ class PolicyGuidanceRuntime:
         diffusion_generators: Sequence[torch.Generator],
         *,
         profiler: PhaseProfiler | None = None,
-    ) -> DecisionResult:
+    ) -> PolicyGuidanceDecisionResult:
         """Evaluate deterministic Beta-mean actions without consuming policy RNG."""
 
         return self._inference.decide_batch(
