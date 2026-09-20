@@ -1,0 +1,64 @@
+src/eco_planner/rl/optimization/update_diagnostics.py
+  s_228236644b077e::t_18ea6cf7896dd1 22
+tests/characterization/harness.py
+  s_228236644b077e::t_044a37ec754eab 321-323
+  s_228236644b077e::t_910b68cfdd0581 18-22
+  s_228236644b077e::t_737bb38f5bd5e0 300
+src/eco_planner/rl/rollout/collector.py
+  s_228236644b077e::t_f6e393a93f9bf1 170,172
+src/eco_planner/rl/artifacts/io.py
+  s_228236644b077e::t_dc525b8b3d2d88 15
+src/eco_planner/planning/inference.py
+  s_228236644b077e::t_b31e82108741e4 71
+  s_228236644b077e::t_d482754dc11e8f 133
+  s_228236644b077e::t_12dd2eb1f8aa30 36-40
+  s_228236644b077e::t_ecb1e3a99d49fe 154
+  s_228236644b077e::t_6d3d2e010ee5f7 225-226,228
+  s_228236644b077e::t_07a8bde12ea5e1 236,249,262
+  s_228236644b077e::t_b316680fe3ee52 229
+tests/characterization/test_learned_guidance_decision.py
+  s_228236644b077e::t_ffb03a77484ae8 3-6
+src/eco_planner/planning/result.py
+  s_228236644b077e::t_34f6efa2f30677 1,10-11,33,38-40
+src/eco_planner/planning/policy/model.py
+  s_228236644b077e::t_00f08835054e07 10,23-28,31
+src/eco_planner/evaluation/policy_intervention.py
+  s_228236644b077e::t_9c86fe3dfe14f4 75
+  s_228236644b077e::t_cb09671725c96a 29
+src/eco_planner/planning/policy/__init__.py
+  s_228236644b077e::t_3c4c76e0e95744 13,15,19-21
+  s_228236644b077e::t_5b1e1d42281a8d 22
+src/eco_planner/rl/rollout/decision.py
+  s_228236644b077e::t_27f12c0b1f0696 17
+src/eco_planner/rl/optimization/ppo.py
+  s_228236644b077e::t_e3b8693b7b7d3e 25
+src/eco_planner/rl/rollout/runtime.py
+  s_228236644b077e::t_4506781374b4a2 112,115
+docs/agents/system-contract.md
+  s_228236644b077e::t_67de8257f71638 84
+src/eco_planner/rl/rollout/contracts.py
+  s_228236644b077e::t_5652228ea27b4f 13
+src/eco_planner/evaluation/inference/decision.py
+  s_228236644b077e::t_eae504594c0b2b 19
+  s_228236644b077e::t_ad04003e1a7b69 197
+src/eco_planner/planning/__init__.py
+  s_228236644b077e::t_a6cf51a86529be 8-12,18
+src/eco_planner/planning/policy/inputs.py
+  s_228236644b077e::t_75c5526bf0adfc 1,5-6,8,10,12-32,48-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "324d06de3f8aff415a5c769c0fafb670faabbc4e",
+  "prompts": {},
+  "sessions": {
+    "s_228236644b077e": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f41d5c880ffediTGbicnJaOZMq",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
