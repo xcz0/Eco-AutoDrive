@@ -7,9 +7,9 @@ from eco_planner.benchmarking.config import RolloutBenchmarkConfig
 from eco_planner.benchmarking.rollout import _effective_ppo_config, _rollout_result
 from eco_planner.rl.optimization import PPOConfig
 from eco_planner.rl.rollout.collector import VectorRolloutRoundTiming
-from eco_planner.rl.rollout.profiling import (
-    RolloutPlannerPhaseTiming,
-    RolloutPlannerTiming,
+from eco_planner.rl.rollout.profiling import RolloutPlannerTiming
+from eco_planner.runtime.profiling import (
+    PhaseTiming,
     finish_profile,
     profile_call,
 )
@@ -57,8 +57,8 @@ def _benchmark_config() -> RolloutBenchmarkConfig:
     )
 
 
-def _phase(host_s: float, accelerator_s: float) -> RolloutPlannerPhaseTiming:
-    return RolloutPlannerPhaseTiming(host_call_wall_s=host_s, accelerator_s=accelerator_s)
+def _phase(host_s: float, accelerator_s: float) -> PhaseTiming:
+    return PhaseTiming(host_call_wall_s=host_s, accelerator_s=accelerator_s)
 
 
 def _planner_timing(phase: str) -> RolloutPlannerTiming:

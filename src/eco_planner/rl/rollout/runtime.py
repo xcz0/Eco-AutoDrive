@@ -11,6 +11,7 @@ import torch
 from lightning.fabric import Fabric
 from tensordict import TensorDictBase
 
+from eco_planner.planning import PlanningInference
 from eco_planner.planning.diffusion import (
     CheckpointLoadReport,
     OfficialDiffusionPlannerConfig,
@@ -24,28 +25,23 @@ from eco_planner.planning.diffusion import (
 from eco_planner.planning.policy import (
     ExplorationPolicy,
     ExplorationPolicyConfig,
-    ExplorationPolicyOutput,
     build_policy_inputs,
     policy_context_tensordict,
-)
-from eco_planner.planning.policy.distribution import (
-    AffineBetaAction,
-    AffineBetaParameters,
-    ExplicitGeneratorBetaSampler,
 )
 from eco_planner.runtime.config import RuntimeConfig
 from eco_planner.runtime.fabric import InferenceRuntimeReport, create_single_device_fabric
 from eco_planner.runtime.host_transfer import HostTransfer
-from eco_planner.runtime.random import sample_batched_standard_normal
-
-from .contracts import build_training_decision
-from .decision import BatchRolloutDecision, RolloutDecision
-from .profiling import (
-    RolloutPlannerTiming,
+from eco_planner.runtime.profiling import (
+    PhaseProfiler,
     finish_profile,
     profile_call,
     require_phase,
 )
+from eco_planner.runtime.random import sample_batched_standard_normal
+
+from .contracts import build_training_decision
+from .decision import BatchRolloutDecision, RolloutDecision
+from .profiling import RolloutPlannerTiming
 
 
 class FabricRolloutRuntime:
@@ -75,6 +71,7 @@ class FabricRolloutRuntime:
         self.sampler_report = sampler
         self.guidance_config = guidance_config
         self.planner_compile_mode = planner_compile_mode
+        self._inference = PlanningInference(planner, policy, fabric.device, fabric.to_device)
         self._host_transfer = HostTransfer(fabric.device)
 
     @property
@@ -180,74 +177,36 @@ class FabricRolloutRuntime:
         if policy_generators is not None:
             _validate_slot_generators(policy_generators, batch, "policy_generators")
         profile = timings is not None
-        moved, h2d_timing = profile_call(
-            self.device, profile, lambda: self._fabric.to_device(observation)
-        )
-        moved = _fabric_observation(moved)
         diffusion_rng_states = tuple(_rng_state(generator) for generator in diffusion_generators)
         policy_rng_states = (
             tuple(_rng_state(generator) for generator in policy_generators)
             if policy_generators is not None
             else tuple(torch.empty(0, dtype=torch.uint8) for _ in range(batch))
         )
-        noise, noise_timing = profile_call(
-            self.device,
-            profile,
-            lambda: sample_batched_standard_normal(
-                diffusion_generators,
-                (
-                    1 + self._planner.config.predicted_neighbor_num,
-                    self._planner.config.future_len,
-                    4,
-                ),
-                device=self.device,
-            ),
+        profiler = PhaseProfiler(self.device) if profile else None
+        result = self._inference.decide_batch(
+            observation,
+            diffusion_generators,
+            policy_generators,
+            profiler=profiler,
         )
-        with torch.no_grad():
-            prepared, prepare_timing = profile_call(
-                self.device,
-                profile,
-                lambda: self._planner.prepare_policy_guidance(moved, noise, diffusion_generators),
-            )
-            policy_context = build_policy_inputs(
-                prepared.representations, prepared.reference_prediction
-            )
-            policy_outputs, policy_timing = profile_call(
-                self.device,
-                profile,
-                lambda: self._policy.forward_tensordict(policy_context_tensordict(policy_context)),
-            )
-            output = self._policy.output_from_tensordict(policy_outputs)
-            action, action_timing = profile_call(
-                self.device,
-                profile,
-                lambda: (
-                    _sample_policy_actions(output, policy_generators)
-                    if policy_generators is not None
-                    else output.distribution.action_mean()
-                ),
-            )
-        with torch.enable_grad():
-            result, complete_timing = profile_call(
-                self.device,
-                profile,
-                lambda: self._planner.complete_policy_guidance(prepared, action.guidance_action),
-            )
-        training_decision = build_training_decision(
-            policy_context,
-            action.guidance_action,
-            action.joint_guidance_log_prob,
-            output.value,
-        )
-        if result.reference_prediction is None or result.guidance_diagnostics is None:
+        decision = result.policy
+        diagnostics = result.guidance_diagnostics
+        if decision is None or result.reference_prediction is None or diagnostics is None:
             raise RuntimeError(
                 "policy guidance planner result is missing required trace diagnostics"
             )
-        diagnostics = result.guidance_diagnostics
+        training_decision = build_training_decision(
+            decision.inputs,
+            decision.action.guidance_action,
+            decision.action.joint_log_prob,
+            decision.output.value,
+        )
+        inputs = decision.inputs
         deferred = self._host_transfer.defer(
             {
                 "prediction": (result.prediction, torch.float32),
-                "initial_noise": (noise, torch.float32),
+                "initial_noise": (result.initial_noise, torch.float32),
                 "reference_prediction": (result.reference_prediction, torch.float32),
                 "lateral_target_offset_m": (
                     diagnostics.lateral_target_offset_m,
@@ -282,40 +241,43 @@ class FabricRolloutRuntime:
                     torch.float32,
                 ),
                 "zero_speed_count": (diagnostics.zero_speed_count, torch.int64),
-                "scene_tokens": (policy_context.scene_tokens, torch.float32),
-                "scene_padding_mask": (policy_context.scene_padding_mask, torch.bool),
-                "navigation_tokens": (policy_context.navigation_tokens, torch.float32),
-                "navigation_padding_mask": (policy_context.navigation_padding_mask, torch.bool),
-                "reference_trajectory": (policy_context.reference_trajectory, torch.float32),
-                "base_action": (action.base_action, torch.float32),
-                "guidance_action": (action.guidance_action, torch.float32),
+                "scene_tokens": (inputs.scene_tokens, torch.float32),
+                "scene_padding_mask": (inputs.scene_padding_mask, torch.bool),
+                "navigation_tokens": (inputs.navigation_tokens, torch.float32),
+                "navigation_padding_mask": (inputs.navigation_padding_mask, torch.bool),
+                "reference_trajectory": (inputs.reference_trajectory, torch.float32),
+                "base_action": (decision.action.base_action, torch.float32),
+                "guidance_action": (decision.action.guidance_action, torch.float32),
                 "old_joint_guidance_log_prob": (
-                    action.joint_guidance_log_prob.reshape(-1, 1),
+                    decision.action.joint_log_prob.reshape(-1, 1),
                     torch.float32,
                 ),
-                "state_value": (output.value.reshape(-1, 1), torch.float32),
-                "beta_alpha": (output.distribution.parameters.alpha, torch.float32),
-                "beta_beta": (output.distribution.parameters.beta, torch.float32),
+                "state_value": (decision.output.value.reshape(-1, 1), torch.float32),
+                "beta_alpha": (decision.output.distribution.parameters.alpha, torch.float32),
+                "beta_beta": (decision.output.distribution.parameters.beta, torch.float32),
             },
             profile=profile,
         )
-        execution, execution_timing = profile_call(
-            self.device,
-            profile,
-            lambda: self._host_transfer.execution_trajectories(result.prediction),
-        )
-        sync_wait_s = finish_profile(self.device, profile)
-        if timings is not None:
+        if profiler is None:
+            execution = self._host_transfer.execution_trajectories(result.prediction)
+            sync_wait_s = 0.0
+        else:
+            execution = profiler.measure(
+                "execution_to_host",
+                lambda: self._host_transfer.execution_trajectories(result.prediction),
+            )
+            sync_wait_s = profiler.finish()
+        if profiler is not None and timings is not None:
             timings.append(
                 RolloutPlannerTiming(
                     phase="decision",
-                    host_to_device=require_phase(h2d_timing),
-                    diffusion_noise=require_phase(noise_timing),
-                    prepare_policy_guidance=require_phase(prepare_timing),
-                    policy_forward=require_phase(policy_timing),
-                    action_sampling=require_phase(action_timing),
-                    complete_policy_guidance=require_phase(complete_timing),
-                    execution_to_host=require_phase(execution_timing),
+                    host_to_device=profiler.phase("host_to_device"),
+                    diffusion_noise=profiler.phase("diffusion_noise"),
+                    prepare_policy_guidance=profiler.phase("prepare_policy_guidance"),
+                    policy_forward=profiler.phase("policy_forward"),
+                    action_sampling=profiler.phase("action_sampling"),
+                    complete_policy_guidance=profiler.phase("complete_policy_guidance"),
+                    execution_to_host=profiler.phase("execution_to_host"),
                     profile_sync_wait_wall_s=sync_wait_s,
                 )
             )
@@ -490,26 +452,6 @@ def _observation_batch_size(observation: TensorDictBase) -> int:
 def _validate_slot_generators(generators: Sequence[torch.Generator], batch: int, name: str) -> None:
     if len(generators) != batch:
         raise ValueError(f"{name} must contain one generator per batch item")
-
-
-def _sample_policy_actions(
-    output: ExplorationPolicyOutput, generators: Sequence[torch.Generator]
-) -> AffineBetaAction:
-    parameters = output.distribution.parameters
-    base_action = torch.cat(
-        [
-            ExplicitGeneratorBetaSampler.draw(
-                AffineBetaParameters(
-                    alpha=parameters.alpha[index : index + 1],
-                    beta=parameters.beta[index : index + 1],
-                ),
-                generator,
-                validate_args=False,
-            )
-            for index, generator in enumerate(generators)
-        ]
-    )
-    return output.distribution.evaluate_base_action(base_action)
 
 
 def _rng_state(generator: torch.Generator) -> torch.Tensor:

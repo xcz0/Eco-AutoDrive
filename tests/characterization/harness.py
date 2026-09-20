@@ -15,6 +15,7 @@ import torch
 from lightning.fabric import Fabric
 from tensordict import TensorDict
 
+from eco_planner.planning import DecisionResult, PlanningInference
 from eco_planner.planning.diffusion import (
     CheckpointLoadReport,
     Ddim5SamplerConfig,
@@ -195,14 +196,18 @@ def build_observation() -> TensorDict:
     )
 
 
-def build_runtime() -> FabricRolloutRuntime:
-    fabric = Fabric(accelerator="cpu", devices=1, precision="32-true")
-    planner = PretrainedDiffusionPlanner(  # type: ignore[arg-type]
+def build_planner() -> PretrainedDiffusionPlanner:
+    return PretrainedDiffusionPlanner(  # type: ignore[arg-type]
         planner_config(),
         _PolicyFeatureDenoiser(POLICY_HIDDEN_DIM),
         sampler_config(),
         guidance_config(),
     )
+
+
+def build_runtime() -> FabricRolloutRuntime:
+    fabric = Fabric(accelerator="cpu", devices=1, precision="32-true")
+    planner = build_planner()
     report = InferenceRuntimeReport(
         requested_accelerator="cpu",
         resolved_accelerator="cpu",
@@ -223,6 +228,17 @@ def build_runtime() -> FabricRolloutRuntime:
         sampler=sampler_report(sampler_config()),
         guidance_config=guidance_config(),
         planner_compile_mode="eager",
+    )
+
+
+def build_planning_inference() -> PlanningInference:
+    """Build the planning-owned decision composition without the RL runtime wrapper."""
+
+    return PlanningInference(
+        build_planner(),
+        build_policy(),
+        torch.device("cpu"),
+        lambda observation: observation,
     )
 
 
@@ -269,6 +285,76 @@ def decision_snapshot(decision: BatchRolloutDecision, rng: RngSnapshot) -> dict[
     audit = decision.audit_result()
     snapshot = {name: audit[name].detach().cpu().clone() for name in AUDIT_FIELDS}
     snapshot["ego_trajectory"] = torch.from_numpy(decision.ego_trajectories.copy())
+    snapshot["diffusion_rng_state_before"] = rng.diffusion_before.clone()
+    snapshot["policy_rng_state_before"] = rng.policy_before.clone()
+    snapshot["diffusion_rng_state_after"] = rng.diffusion_after.clone()
+    snapshot["policy_rng_state_after"] = rng.policy_after.clone()
+    return snapshot
+
+
+def run_planning_decision(*, sample: bool) -> tuple[DecisionResult, RngSnapshot]:
+    """Run one planning-owned decision directly with explicitly seeded generators."""
+
+    inference = build_planning_inference()
+    observation = build_observation()
+    diffusion = torch.Generator(device="cpu").manual_seed(DIFFUSION_SEED)
+    policy = torch.Generator(device="cpu").manual_seed(POLICY_SEED)
+    diffusion_before = diffusion.get_state().clone()
+    policy_before = policy.get_state().clone()
+    if sample:
+        result = inference.decide_batch(observation, (diffusion,), (policy,))
+    else:
+        result = inference.decide_batch(observation, (diffusion,), None)
+    return result, RngSnapshot(
+        diffusion_before,
+        policy_before,
+        diffusion.get_state().clone(),
+        policy.get_state().clone(),
+    )
+
+
+def planning_decision_snapshot(result: DecisionResult, rng: RngSnapshot) -> dict[str, torch.Tensor]:
+    """Capture the same decision fields as the runtime audit from a planning result."""
+
+    policy = result.policy
+    diagnostics = result.guidance_diagnostics
+    if policy is None or result.reference_prediction is None or diagnostics is None:
+        raise AssertionError("planning decision is missing required policy or guidance outputs")
+    inputs = policy.inputs
+    snapshot = {
+        "prediction": result.prediction.detach().cpu().clone(),
+        "initial_noise": result.initial_noise.detach().cpu().clone(),
+        "reference_prediction": result.reference_prediction.detach().cpu().clone(),
+        "lateral_target_offset_m": diagnostics.lateral_target_offset_m.detach().cpu().clone(),
+        "longitudinal_target_speed_fraction": (
+            diagnostics.longitudinal_target_speed_fraction.detach().cpu().clone()
+        ),
+        "longitudinal_target_speed_delta_mps": (
+            diagnostics.longitudinal_target_speed_delta_mps.detach().cpu().clone()
+        ),
+        "lateral_objective_delta": diagnostics.lateral_objective_delta.detach().cpu().clone(),
+        "longitudinal_objective_delta": (
+            diagnostics.longitudinal_objective_delta.detach().cpu().clone()
+        ),
+        "applied_gradient_l2": diagnostics.applied_gradient_l2.detach().cpu().clone(),
+        "applied_gradient_max_abs": diagnostics.applied_gradient_max_abs.detach().cpu().clone(),
+        "raw_neighbor_gradient_l2": diagnostics.raw_neighbor_gradient_l2.detach().cpu().clone(),
+        "zero_speed_count": diagnostics.zero_speed_count.detach().cpu().clone(),
+        "scene_tokens": inputs.scene_tokens.detach().cpu().clone(),
+        "scene_padding_mask": inputs.scene_padding_mask.detach().cpu().clone(),
+        "navigation_tokens": inputs.navigation_tokens.detach().cpu().clone(),
+        "navigation_padding_mask": inputs.navigation_padding_mask.detach().cpu().clone(),
+        "reference_trajectory": inputs.reference_trajectory.detach().cpu().clone(),
+        "base_action": policy.action.base_action.detach().cpu().clone(),
+        "guidance_action": policy.action.guidance_action.detach().cpu().clone(),
+        "old_joint_guidance_log_prob": (
+            policy.action.joint_log_prob.reshape(-1, 1).detach().cpu().clone()
+        ),
+        "state_value": policy.output.value.reshape(-1, 1).detach().cpu().clone(),
+        "beta_alpha": policy.output.distribution.parameters.alpha.detach().cpu().clone(),
+        "beta_beta": policy.output.distribution.parameters.beta.detach().cpu().clone(),
+        "ego_trajectory": torch.from_numpy(result.prediction[:, 0].detach().cpu().numpy().copy()),
+    }
     snapshot["diffusion_rng_state_before"] = rng.diffusion_before.clone()
     snapshot["policy_rng_state_before"] = rng.policy_before.clone()
     snapshot["diffusion_rng_state_after"] = rng.diffusion_after.clone()
