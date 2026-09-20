@@ -1,0 +1,91 @@
+src/eco_planner/planning/policy/model.py
+  s_f92a7ebdb5eaea::t_43db2fa919d7b1 17-22
+  s_b25dc23d1f8052::t_3b39fe08d68cf3 1-16,23-322
+tests/training/test_critic_attribution.py
+  s_f92a7ebdb5eaea::t_e13a38df7f4e8e 21,23-26
+tests/training/test_trainer.py
+  s_f92a7ebdb5eaea::t_eeb992e56ca459 15-16
+  s_f92a7ebdb5eaea::t_c2e1c8d5a6d7bd 10,14
+src/eco_planner/rl/optimization/gradients.py
+  s_f92a7ebdb5eaea::t_2afb352fd9b7c3 9-10
+docs/experiments/records/e-040-issue94-task-g-objective-positive-control.md
+  s_f92a7ebdb5eaea::t_a90b0e756d33e1 44
+src/eco_planner/rl/probing.py
+  s_f92a7ebdb5eaea::t_55fa9fa2d08a50 7-9
+docs/agents/contracts/experiments.md
+  s_f92a7ebdb5eaea::t_33a0b8dce58163 13-14
+src/eco_planner/rl/config.py
+  s_f92a7ebdb5eaea::t_eeb992e56ca459 31
+  s_f92a7ebdb5eaea::t_c2e1c8d5a6d7bd 27
+tests/training/test_fixed_batch.py
+  s_f92a7ebdb5eaea::t_b82dc25bfb8c7f 12-16
+src/eco_planner/planning/policy/checkpoint.py
+  s_f92a7ebdb5eaea::t_66616b26de969c 1-93
+src/eco_planner/rl/rollout/collection.py
+  s_f92a7ebdb5eaea::t_ffd7a2783398c5 14-17
+src/eco_planner/rl/rollout/contracts.py
+  s_f92a7ebdb5eaea::t_c2e1c8d5a6d7bd 12-13
+src/eco_planner/experiments/guidance/execution_bridge/runner.py
+  s_f92a7ebdb5eaea::t_d2b78eb26f0860 38-41
+src/eco_planner/rl/trainer.py
+  s_f92a7ebdb5eaea::t_2bd569ad569782 14-18
+src/eco_planner/rl/optimization/update_diagnostics.py
+  s_f92a7ebdb5eaea::t_c2e1c8d5a6d7bd 15-17,22
+src/eco_planner/planning/policy/__init__.py
+  s_f92a7ebdb5eaea::t_bed07040ee7411 1-33
+src/eco_planner/experiments/training/critic_attribution/runner.py
+  s_f92a7ebdb5eaea::t_33bcda8561dd99 25,28-31
+tests/characterization/harness.py
+  s_f92a7ebdb5eaea::t_c2e1c8d5a6d7bd 25
+src/eco_planner/rl/rollout/runtime.py
+  s_f92a7ebdb5eaea::t_c2e1c8d5a6d7bd 24,31
+tests/training/test_ppo.py
+  s_f92a7ebdb5eaea::t_eeb992e56ca459 16-18
+  s_f92a7ebdb5eaea::t_c2e1c8d5a6d7bd 10
+src/eco_planner/evaluation/engine.py
+  s_f92a7ebdb5eaea::t_0897022105cc28 20-23
+tests/training/test_effective_update.py
+  s_f92a7ebdb5eaea::t_eeb992e56ca459 28-29
+src/eco_planner/rl/artifacts/io.py
+  s_f92a7ebdb5eaea::t_ce3fe3e009bebe 15
+tests/training/test_tracking.py
+  s_f92a7ebdb5eaea::t_eeb992e56ca459 14
+src/eco_planner/rl/rollout/decision.py
+  s_f92a7ebdb5eaea::t_c2e1c8d5a6d7bd 12,17
+src/eco_planner/rl/training_state.py
+  s_f92a7ebdb5eaea::t_f23ecec11b9584 13-14
+tests/training/test_rollout.py
+  s_f92a7ebdb5eaea::t_eeb992e56ca459 10
+src/eco_planner/rl/optimization/diagnostic_runtime.py
+  s_f92a7ebdb5eaea::t_f48b97d5fa49f0 10-15
+src/eco_planner/rl/optimization/checkpoint.py
+  s_f92a7ebdb5eaea::t_8d55d081281479 1,12
+src/eco_planner/evaluation/config.py
+  s_f92a7ebdb5eaea::t_c2e1c8d5a6d7bd 28
+src/eco_planner/rl/optimization/ppo.py
+  s_f92a7ebdb5eaea::t_c2e1c8d5a6d7bd 23-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "3cfce190cfd7f485a79d8688dc0a5f052637c9bd",
+  "prompts": {},
+  "sessions": {
+    "s_b25dc23d1f8052": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f42d62911ffeQPDJ28cGnZMZW0",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    },
+    "s_f92a7ebdb5eaea": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f428e68f1ffeMBfh0jaS7fSRch",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
