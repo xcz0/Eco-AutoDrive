@@ -1,0 +1,43 @@
+src/eco_planner/planning/result.py
+  s_4b54c25462bb33::t_6dd1574deab64c 1-42
+src/eco_planner/rl/rollout/runtime.py
+  s_4b54c25462bb33::t_ee6e342d2c6819 186-191,193-195,199-205,209,244-250,252,255-257,261-269,274-280
+  s_4b54c25462bb33::t_f11d8d8698742b 74
+  s_4b54c25462bb33::t_f15a33f5418269 270
+  s_4b54c25462bb33::t_3c163603d2a3c4 14,34-35,40-44
+tests/characterization/test_planning_inference.py
+  s_4b54c25462bb33::t_843741bfdcc4d2 1-54
+tests/benchmarking/test_rollout.py
+  s_4b54c25462bb33::t_e97fec2d47879a 10-12
+  s_4b54c25462bb33::t_4bf6e0d4da0f48 60-61
+tests/characterization/harness.py
+  s_4b54c25462bb33::t_dfcb17ad372d18 18,242-244
+  s_4b54c25462bb33::t_ec2f64e34a70cd 199-200,206-210,234-241
+  s_4b54c25462bb33::t_c1cfc636e70467 316,356
+  s_4b54c25462bb33::t_8d52f3edc149a4 295-315,317-355,357-364
+src/eco_planner/planning/inference.py
+  s_4b54c25462bb33::t_5408209c6d3bbb 1-107,109-176
+  s_4b54c25462bb33::t_c1cfc636e70467 108
+src/eco_planner/runtime/profiling.py
+  s_4b54c25462bb33::t_8db12a7112c315 1-96
+src/eco_planner/planning/__init__.py
+  s_4b54c25462bb33::t_d358ac37775d48 2-11
+src/eco_planner/rl/rollout/profiling.py
+  s_4b54c25462bb33::t_5ca736f401fb98 1,6,8,16-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "cf019e874c176d43eb7a5d9ed3163a4d2c45b751",
+  "prompts": {},
+  "sessions": {
+    "s_4b54c25462bb33": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f424d7ac2ffe4G11vim8RngMup",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
