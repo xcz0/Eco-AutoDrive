@@ -1,0 +1,22 @@
+tests/characterization/test_learned_guidance_decision.py
+  s_93b9284af1df03::t_689e19524c5cee 1-83
+tests/characterization/harness.py
+  s_93b9284af1df03::t_65c145e64c276e 1-25,28-289
+  s_93b9284af1df03::t_c429bce4f45ccd 26-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "dfb0636efd8305aa76110f8d7e5bfb18e7c9512e",
+  "prompts": {},
+  "sessions": {
+    "s_93b9284af1df03": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f42f3fe91ffeXirquBWqSBD52T",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
