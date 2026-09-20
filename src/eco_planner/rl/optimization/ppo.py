@@ -20,11 +20,13 @@ from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 
+from eco_planner.planning.policy import (
+    POLICY_CONTEXT_KEYS,
+    AffineBeta,
+    ExplorationPolicy,
+)
 from eco_planner.rl.optimization.config import PPOConfig
 from eco_planner.rl.optimization.metrics import PPOMetrics
-from eco_planner.rl.policy import ExplorationPolicy
-from eco_planner.rl.policy.distribution import AffineBeta
-from eco_planner.rl.policy.model import POLICY_CONTEXT_KEYS
 from eco_planner.rl.rollout.contracts import (
     PPO_BATCH_KEYS as PPO_BATCH_KEYS,
 )

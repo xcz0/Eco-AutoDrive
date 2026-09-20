@@ -11,12 +11,14 @@ from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, OmegaConf
 
 from eco_planner.artifacts import write_json
+from eco_planner.planning.policy import (
+    policy_state_hash,
+    save_exploration_policy_checkpoint,
+)
 from eco_planner.rl import (
     VectorRolloutCollector,
     create_fabric_rollout_runtime,
     derive_rollout_seeds,
-    policy_state_hash,
-    save_exploration_policy_checkpoint,
     write_training_runtime_metadata,
 )
 from eco_planner.rl.config import TrainingJobConfig
@@ -75,7 +77,7 @@ def collect(resolved: DictConfig, config: TrainingJobConfig, output_dir: Path) -
         raise RuntimeError("initial policy changed")
     if runtime.frozen_planner_hash() != planner_hash:
         raise RuntimeError("frozen planner changed")
-    if any(p.grad is not None for p in runtime._planner.parameters()):
+    if any(p.grad is not None for p in runtime.planner.parameters()):
         raise RuntimeError("diagnostic created planner gradients")
     summary = {
         "status": "completed",

@@ -9,8 +9,11 @@ import torch
 from tensordict import TensorDictBase, cat
 
 from eco_planner.contracts import PLANNER_ACTOR_COUNT, PLANNER_HORIZON, PLANNER_STATE_DIM
-from eco_planner.rl.policy import ExplorationPolicyContext, policy_context_tensordict
-from eco_planner.rl.policy.model import POLICY_CONTEXT_KEYS
+from eco_planner.planning.policy import (
+    POLICY_CONTEXT_KEYS,
+    ExplorationPolicyContext,
+    policy_context_tensordict,
+)
 from eco_planner.rl.reward import RewardResult
 from eco_planner.rl.reward.result import RewardProfileName as RewardProfileName
 

@@ -22,14 +22,16 @@ from eco_planner.analysis import publish
 from eco_planner.analysis.statistics import advantage_comparison, gradient_comparison
 from eco_planner.artifacts import collect_repository_metadata, write_json, write_npz
 from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.rl import (
+from eco_planner.planning.policy import (
     ExplorationPolicy,
-    PPOUpdater,
     load_exploration_policy_checkpoint,
+    policy_state_hash,
+)
+from eco_planner.rl import (
+    PPOUpdater,
     parse_training_config,
     read_rollout_episode,
 )
-from eco_planner.rl.artifacts import policy_state_hash
 from eco_planner.rl.optimization.credit import credit_batch
 from eco_planner.rl.optimization.gradients import GRADIENT_GROUPS, diagnostic_variants
 

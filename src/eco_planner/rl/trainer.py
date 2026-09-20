@@ -11,6 +11,11 @@ from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import write_json
+from eco_planner.planning.policy import (
+    ExplorationPolicyContext,
+    policy_state_hash,
+    save_exploration_policy_checkpoint,
+)
 from eco_planner.runtime.resources import ResourceProfileConfig
 
 from .artifacts import (
@@ -18,17 +23,14 @@ from .artifacts import (
     TrainingRunSummary,
     TrainingUpdateSummary,
     build_update_summary,
-    policy_state_hash,
     write_rollout_episode,
     write_training_runtime_metadata,
 )
 from .config import TrainingJobConfig
 from .optimization import (
     PPOUpdater,
-    save_exploration_policy_checkpoint,
     save_training_checkpoint,
 )
-from .policy import ExplorationPolicyContext
 from .probing import capture_probe_contexts, probe_policy
 from .rollout import (
     RolloutEpisode,

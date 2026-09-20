@@ -10,7 +10,8 @@ import numpy as np
 import torch
 from tensordict import TensorDict, TensorDictBase
 
-from eco_planner.models import (
+from eco_planner.planning import PolicyGuidanceDecisionResult
+from eco_planner.planning.diffusion import (
     GuidanceConfig,
     NoGuidanceConfig,
     OfficialDiffusionPlannerConfig,
@@ -18,6 +19,17 @@ from eco_planner.models import (
 )
 from eco_planner.runtime.contracts import HostTrajectories
 from eco_planner.runtime.host_transfer import DeferredHostTensors, HostTransfer
+
+_GUIDANCE_DIAGNOSTIC_NAMES = (
+    "lateral_target_offset_m",
+    "longitudinal_target_speed_fraction",
+    "longitudinal_target_speed_delta_mps",
+    "lateral_objective_delta",
+    "longitudinal_objective_delta",
+    "applied_gradient_l2",
+    "applied_gradient_max_abs",
+    "raw_neighbor_gradient_l2",
+)
 
 
 @dataclass(frozen=True)
@@ -179,6 +191,31 @@ def prepare_batch_inference_decision(
         lambda: _host_result_from_tensors(deferred, diagnostics is not None),
         execution_to_host_s,
     )
+
+
+def prepare_learned_inference_decision(
+    result: PolicyGuidanceDecisionResult,
+    host_transfer: HostTransfer,
+    *,
+    profile: bool = False,
+) -> InferenceDecision:
+    """Adapt one planning-owned guidance decision to the evaluation trace contract."""
+
+    reference = result.reference_prediction
+    diagnostics = result.guidance_diagnostics
+    tensors: dict[str, tuple[torch.Tensor, torch.dtype]] = {
+        "initial_noise": (result.initial_noise.detach(), torch.float32),
+        "prediction": (result.prediction.detach(), torch.float32),
+        "reference_prediction": (reference.detach(), torch.float32),
+        "guidance_action": (result.policy.action.guidance_action.detach(), torch.float32),
+    }
+    for name in _GUIDANCE_DIAGNOSTIC_NAMES:
+        tensors[name] = (getattr(diagnostics, name).detach(), torch.float32)
+    tensors["zero_speed_count"] = (diagnostics.zero_speed_count.detach(), torch.int64)
+
+    deferred = host_transfer.defer(tensors, profile=profile)
+    execution = host_transfer.execution_trajectories(result.prediction)
+    return InferenceDecision(execution, lambda: _host_result_from_tensors(deferred, True))
 
 
 def _host_result_from_tensors(

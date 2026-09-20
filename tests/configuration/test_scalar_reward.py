@@ -21,7 +21,7 @@ from eco_planner.experiments.protocol.config import (
     load_protocol,
 )
 from eco_planner.jobs import compose_job_config
-from eco_planner.models import Ddim5SamplerConfig
+from eco_planner.planning.diffusion import Ddim5SamplerConfig
 from eco_planner.rl.config import TrainingJobConfig
 
 ComposeConfig = Callable[[str, list[str] | None], DictConfig]

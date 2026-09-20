@@ -9,12 +9,12 @@ import numpy as np
 import torch
 from tensordict import TensorDict, TensorDictBase
 
-from eco_planner.rl.policy import (
+from eco_planner.planning.policy import (
+    POLICY_CONTEXT_KEYS,
     ExplorationPolicyConfig,
     ExplorationPolicyContext,
     validate_exploration_policy_context,
 )
-from eco_planner.rl.policy.model import POLICY_CONTEXT_KEYS
 from eco_planner.runtime.contracts import HostTrajectories
 from eco_planner.runtime.host_transfer import DeferredHostTensors, DeferredHostTransferTiming
 

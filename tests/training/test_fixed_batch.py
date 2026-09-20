@@ -9,11 +9,13 @@ from omegaconf import OmegaConf
 
 from eco_planner.artifacts import write_json
 from eco_planner.jobs import compose_job_config
-from eco_planner.rl.artifacts import policy_state_hash
+from eco_planner.planning.policy import (
+    ExplorationPolicy,
+    policy_state_hash,
+    save_exploration_policy_checkpoint,
+)
 from eco_planner.rl.config import parse_training_config
-from eco_planner.rl.optimization import save_exploration_policy_checkpoint
 from eco_planner.rl.optimization.diagnostic_runtime import restore_runtime
-from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.reward.calibration import rescore
 from eco_planner.rl.reward.reweighting import reweight
 from eco_planner.rl.rollout.fixed_batch import (

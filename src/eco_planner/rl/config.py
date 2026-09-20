@@ -18,17 +18,17 @@ from pydantic import (
 
 from eco_planner.configuration import ModelPathsConfig, ScenarioConfig, resolve_config_mapping
 from eco_planner.contracts import TRAFFIC_HISTORY_WARMUP_STEPS
-from eco_planner.models import (
+from eco_planner.planning.diffusion import (
     OrthogonalPolicyGuidanceConfig,
     SamplerConfig,
     parse_guidance_config,
     parse_sampler_config,
 )
-from eco_planner.rl.optimization.config import PPOConfig, parse_ppo_config
-from eco_planner.rl.policy.config import (
+from eco_planner.planning.policy import (
     ExplorationPolicyConfig,
     parse_exploration_policy_config,
 )
+from eco_planner.rl.optimization.config import PPOConfig, parse_ppo_config
 from eco_planner.rl.reward import RewardProfileConfig
 from eco_planner.runtime.config import RuntimeConfig
 from eco_planner.runtime.resources import ResourceProfileConfig

@@ -20,13 +20,14 @@ from tensordict import TensorDictBase
 
 from eco_planner.artifacts import write_json, write_npz
 from eco_planner.contracts import SIMULATOR_STEP_S
+from eco_planner.evaluation.inference.decision import prepare_learned_inference_decision
 from eco_planner.evaluation.intervention import (
     PLANNER_RESPONSE_CHECKPOINT_STEPS,
     planner_cycle_record,
     transition_record,
 )
+from eco_planner.planning import PolicyGuidanceDecisionResult, PolicyGuidanceRuntime
 from eco_planner.rl.reward.config import EnergyRewardConfig
-from eco_planner.rl.rollout import FabricRolloutRuntime
 from eco_planner.runtime.envs import (
     VectorEnvScenario,
     VectorMetaDriveEnv,
@@ -34,6 +35,7 @@ from eco_planner.runtime.envs import (
     WorkerStepResult,
     operation_results,
 )
+from eco_planner.runtime.host_transfer import HostTransfer
 
 _PLANNER_AUDIT_KEYS = (
     "prediction",
@@ -63,9 +65,20 @@ def _checkpoint_indices() -> list[int]:
     return [step - 1 for step in PLANNER_RESPONSE_CHECKPOINT_STEPS]
 
 
+def _mean_decision(
+    runtime: PolicyGuidanceRuntime,
+    observation: TensorDictBase,
+    generators: Sequence[torch.Generator],
+) -> Any:
+    """Run one deterministic guidance decision and adapt it to host audit tensors."""
+
+    result: PolicyGuidanceDecisionResult = runtime.decide_batch_mean(observation, generators)
+    return prepare_learned_inference_decision(result, HostTransfer(runtime.device))
+
+
 def collect_policy_pair(
     env: VectorMetaDriveEnv,
-    runtime: FabricRolloutRuntime,
+    runtime: PolicyGuidanceRuntime,
     scenarios: tuple[VectorEnvScenario, ...],
     noise_seed: int,
     cycles: int,
@@ -142,7 +155,7 @@ def collect_policy_pair(
         active = list(range(batch))
         try:
             for cycle in range(cycles):
-                decision = runtime.decide_batch_mean(observation, generators)
+                decision = _mean_decision(runtime, observation, generators)
                 audit = decision.audit_result()
                 host_noise = audit["initial_noise"].numpy()
                 if arm_index == 0:
@@ -203,7 +216,7 @@ def collect_policy_pair(
 
 
 def _audit_contexts(
-    runtime: FabricRolloutRuntime,
+    runtime: PolicyGuidanceRuntime,
     contexts_by_cycle: list[list[dict[str, Any]]],
     noise_seed: int,
 ) -> dict[tuple[int, int], dict[str, Any]]:
@@ -219,7 +232,7 @@ def _audit_contexts(
         generators = tuple(
             torch.Generator(device=runtime.device).manual_seed(noise_seed) for _ in contexts
         )
-        decision = runtime.decide_batch_mean(observation, generators)
+        decision = _mean_decision(runtime, observation, generators)
         audit = decision.audit_result()
         for index, context in enumerate(contexts):
             forward, lateral = _prediction_response(audit["prediction"][index].numpy())
@@ -233,7 +246,7 @@ def _audit_contexts(
 
 def collect_same_state_audit(
     env: VectorMetaDriveEnv,
-    runtime: FabricRolloutRuntime,
+    runtime: PolicyGuidanceRuntime,
     scenarios: tuple[VectorEnvScenario, ...],
     noise_seed: int,
     cycles: int,
@@ -262,7 +275,7 @@ def collect_same_state_audit(
     active = list(range(batch))
     contexts_by_cycle: list[list[dict[str, Any]]] = []
     for cycle in range(cycles):
-        decision = runtime.decide_batch_mean(observation, generators)
+        decision = _mean_decision(runtime, observation, generators)
         trajectories = decision.ego_trajectories
         contexts_by_cycle.append(
             [

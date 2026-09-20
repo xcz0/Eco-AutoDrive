@@ -167,9 +167,9 @@ def collect_rollout_episode(
         else _seed(policy_action_seed, "policy action")
     )
     if diffusion_generator is None:
-        diffusion_generator = runtime.new_noise_generator()
+        diffusion_generator = runtime.new_noise_generator(resolved_noise_seed)
     if policy_generator is None:
-        policy_generator = runtime.new_policy_generator()
+        policy_generator = runtime.new_policy_generator(resolved_policy_seed)
     try:
         reset = env_slot.reset(map_name=spec.map, seed=spec.seed)
         current_state = reset.state

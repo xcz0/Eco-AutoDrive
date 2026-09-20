@@ -10,8 +10,11 @@ from typing import cast
 import torch
 from torch import nn
 
-from eco_planner.models.checkpoint import CheckpointLoadReport, extract_official_ema_state_dict
-from eco_planner.models.config import (
+from .checkpoint import (
+    CheckpointLoadReport,
+    extract_official_ema_state_dict,
+)
+from .config import (
     GuidanceConfig,
     NoGuidanceConfig,
     OfficialDiffusionPlannerConfig,
@@ -19,15 +22,15 @@ from eco_planner.models.config import (
     OrthogonalReferenceGuidanceConfig,
     SamplerConfig,
 )
-from eco_planner.models.guidance import (
+from .guidance import (
     GuidanceDiagnostics,
     GuidanceGradientResult,
     OrthogonalGuidance,
     stack_guidance_diagnostics,
     zero_guidance_diagnostics,
 )
-from eco_planner.models.network import DiffusionPlanner
-from eco_planner.models.sampling import DiffusionSampler, GuidanceSamplingRandomness
+from .network import DiffusionPlanner, DiffusionRepresentations
+from .sampling import DiffusionSampler, GuidanceSamplingRandomness
 
 
 @dataclass
@@ -40,19 +43,8 @@ class PlannerInferenceResult:
     guidance_diagnostics: GuidanceDiagnostics | None = None
 
 
-@dataclass(frozen=True)
-class PlannerPolicyContext:
-    """Frozen planner features and the physical ego reference for one policy decision."""
-
-    scene_tokens: torch.Tensor
-    scene_padding_mask: torch.Tensor
-    navigation_tokens: torch.Tensor
-    navigation_padding_mask: torch.Tensor
-    reference_trajectory: torch.Tensor
-
-
 @dataclass
-class PreparedPolicyGuidance:
+class PreparedPrediction:
     """One-use DDIM reference pass retained until the policy selects an action."""
 
     initial: torch.Tensor
@@ -62,7 +54,7 @@ class PreparedPolicyGuidance:
     guidance_randomness: GuidanceSamplingRandomness
     reference_prediction: torch.Tensor
     current_states: torch.Tensor
-    policy_context: PlannerPolicyContext
+    representations: DiffusionRepresentations
 
 
 class PretrainedDiffusionPlanner(nn.Module):
@@ -160,15 +152,15 @@ class PretrainedDiffusionPlanner(nn.Module):
         observation: Mapping[str, torch.Tensor],
         standard_normal_noise: torch.Tensor,
         transition_generator: torch.Generator | Sequence[torch.Generator | None] | None,
-    ) -> PreparedPolicyGuidance:
+    ) -> PreparedPrediction:
         """Prepare one shared-encoding reference pass for a learned guidance action."""
 
         batch = observation["ego_current_state"].shape[0]
         participants = 1 + self.config.predicted_neighbor_num
         inputs = self.config.observation_normalizer(observation)
-        features = self.model.encode_policy_features(inputs)
-        encoding = features["scene_tokens"]
-        route_encoding = features["route_encoding"]
+        representations = self.model.encode_representations(inputs)
+        encoding = representations.scene_tokens
+        route_encoding = representations.route_encoding
         ego_current = inputs["ego_current_state"][:, None, :4]
         neighbors_current = inputs["neighbor_agents_past"][
             :, : self.config.predicted_neighbor_num, -1, :4
@@ -205,7 +197,7 @@ class PretrainedDiffusionPlanner(nn.Module):
             batch,
             participants,
         )
-        return PreparedPolicyGuidance(
+        return PreparedPrediction(
             initial=initial,
             denoiser=denoiser,
             constrain=constrain,
@@ -213,18 +205,12 @@ class PretrainedDiffusionPlanner(nn.Module):
             guidance_randomness=guidance_randomness,
             reference_prediction=reference_prediction,
             current_states=current_states,
-            policy_context=PlannerPolicyContext(
-                scene_tokens=features["scene_tokens"],
-                scene_padding_mask=features["scene_padding_mask"],
-                navigation_tokens=features["navigation_tokens"],
-                navigation_padding_mask=features["navigation_padding_mask"],
-                reference_trajectory=reference_prediction[:, 0],
-            ),
+            representations=representations,
         )
 
     def complete_policy_guidance(
         self,
-        prepared: PreparedPolicyGuidance,
+        prepared: PreparedPrediction,
         guidance_action: torch.Tensor,
     ) -> PlannerInferenceResult:
         """Finish a prepared learned-guidance pass with the sampled policy action."""

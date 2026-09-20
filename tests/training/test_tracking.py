@@ -11,6 +11,7 @@ from mlflow import MlflowClient
 from omegaconf import OmegaConf
 
 from eco_planner.jobs import compose_job_config
+from eco_planner.planning.policy import ExplorationPolicy
 from eco_planner.rl.artifacts import PolicyProbeSummary, build_update_summary
 from eco_planner.rl.config import parse_training_config
 from eco_planner.rl.optimization import (
@@ -19,7 +20,6 @@ from eco_planner.rl.optimization import (
     save_training_checkpoint,
 )
 from eco_planner.rl.optimization.ppo import PPOUpdateReport
-from eco_planner.rl.policy import ExplorationPolicy
 from eco_planner.rl.tracking import TrackingIdentity, TrainingTracking, update_metrics
 from eco_planner.rl.training_state import TrainingLoopState, resume_training_state
 from tests.training.test_ppo import _context, _episode, _policy_config, _ppo_config

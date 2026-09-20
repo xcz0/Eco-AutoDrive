@@ -1,0 +1,40 @@
+"""Typed results of one planning-owned learned-guidance policy decision."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import torch
+
+from .diffusion.guidance import GuidanceDiagnostics
+from .policy.inputs import ExplorationPolicyContext
+from .policy.model import ExplorationPolicyOutput
+
+
+@dataclass(frozen=True)
+class GuidanceAction:
+    """Sampled guidance action in both unit-Beta and guidance coordinates."""
+
+    base_action: torch.Tensor
+    guidance_action: torch.Tensor
+    joint_log_prob: torch.Tensor
+
+
+@dataclass(frozen=True)
+class PolicyDecision:
+    """Policy inputs, actor/critic output, and the resulting guidance action."""
+
+    inputs: ExplorationPolicyContext
+    output: ExplorationPolicyOutput
+    action: GuidanceAction
+
+
+@dataclass(frozen=True)
+class PolicyGuidanceDecisionResult:
+    """One learned-guidance decision before any RL or evaluation adaptation."""
+
+    prediction: torch.Tensor
+    initial_noise: torch.Tensor
+    reference_prediction: torch.Tensor
+    policy: PolicyDecision
+    guidance_diagnostics: GuidanceDiagnostics

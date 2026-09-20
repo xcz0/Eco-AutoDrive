@@ -15,7 +15,7 @@ from eco_planner.experiments.protocol.config import (
     TrainedPolicyArmConfig,
 )
 from eco_planner.jobs import compose_job_config
-from eco_planner.models import Ddim5SamplerConfig
+from eco_planner.planning.diffusion import Ddim5SamplerConfig
 from eco_planner.rl.config import TrainingJobConfig, parse_training_config
 
 ArmName = str

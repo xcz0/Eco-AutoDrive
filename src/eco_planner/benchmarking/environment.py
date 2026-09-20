@@ -13,7 +13,7 @@ from omegaconf import DictConfig
 
 from eco_planner.contracts import PLANNER_HORIZON, ExecutionMode
 from eco_planner.envs import MetaDriveEnvSlot
-from eco_planner.models import OfficialDiffusionPlannerConfig
+from eco_planner.planning.diffusion import OfficialDiffusionPlannerConfig
 
 from .config import (
     EnvironmentBenchmarkConfig,

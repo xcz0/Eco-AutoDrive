@@ -25,13 +25,13 @@ from eco_planner.experiments.training.grid import (
     arm_label,
     compose_arm_overrides,
 )
+from eco_planner.planning.policy import ExplorationPolicy
+from eco_planner.planning.policy.distribution import AffineBeta
 from eco_planner.rl.optimization.update_diagnostics import (
     extract_arm_metrics,
     policy_ratio_change,
     post_update_kl_series,
 )
-from eco_planner.rl.policy import ExplorationPolicy
-from eco_planner.rl.policy.distribution import AffineBeta
 from tests.training.test_ppo import _policy_config
 
 

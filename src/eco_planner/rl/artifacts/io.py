@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -13,9 +12,8 @@ from hydra.utils import to_absolute_path
 from tensordict import TensorDict, TensorDictBase
 
 from eco_planner.artifacts import collect_repository_metadata, write_json, write_npz
+from eco_planner.planning.policy import POLICY_CONTEXT_KEYS
 from eco_planner.rl.artifacts.schema import rollout_artifact_fields
-from eco_planner.rl.policy import ExplorationPolicy
-from eco_planner.rl.policy.model import POLICY_CONTEXT_KEYS
 from eco_planner.rl.reward.result import RewardProfileName
 from eco_planner.rl.rollout.contracts import (
     RolloutEpisode,
@@ -26,17 +24,6 @@ from eco_planner.runtime.resources import ResourceProfileConfig
 
 if TYPE_CHECKING:
     from eco_planner.rl.rollout.runtime import FabricRolloutRuntime
-
-
-def policy_state_hash(policy: ExplorationPolicy) -> str:
-    """Hash one policy state dict in stable name order."""
-
-    digest = hashlib.sha256()
-    for name, value in sorted(policy.state_dict().items()):
-        host = value.detach().to(device="cpu").contiguous()
-        digest.update(name.encode("utf-8"))
-        digest.update(host.view(torch.uint8).numpy().tobytes())
-    return digest.hexdigest()
 
 
 def write_rollout_episode(path: Path, episode: RolloutEpisode) -> None:

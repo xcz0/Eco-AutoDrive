@@ -9,8 +9,18 @@ import pytest
 import torch
 from tensordict import TensorDict
 
+import eco_planner.evaluation.inference.agent as agent_module
 from eco_planner.evaluation.artifacts.models import PolicyCheckpointProvenance
 from eco_planner.evaluation.inference.agent import PolicyCheckpointEvaluationAgent
+
+
+@pytest.fixture(autouse=True)
+def _identity_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        agent_module,
+        "prepare_learned_inference_decision",
+        lambda result, host_transfer: result,
+    )
 
 
 def _provenance() -> PolicyCheckpointProvenance:
@@ -32,6 +42,7 @@ def _runtime() -> tuple[SimpleNamespace, dict[str, Any]]:
         return torch.Generator().manual_seed(seed)
 
     runtime = SimpleNamespace(
+        device=torch.device("cpu"),
         decide_batch_mean=decide_batch_mean,
         decide_batch=decide_batch,
         new_policy_generator=new_policy_generator,
