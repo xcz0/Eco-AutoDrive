@@ -35,8 +35,10 @@ from eco_planner.experiments.protocol.composition import compose_arm_training_co
 from eco_planner.experiments.protocol.config import load_protocol
 from eco_planner.jobs import compose_job_config
 from eco_planner.planning.diffusion import Ddim5SamplerConfig, OrthogonalPolicyGuidanceConfig
-from eco_planner.rl.artifacts import policy_state_hash
-from eco_planner.rl.optimization import load_exploration_policy_checkpoint
+from eco_planner.planning.policy import (
+    load_exploration_policy_checkpoint,
+    policy_state_hash,
+)
 from eco_planner.rl.rollout import create_fabric_rollout_runtime
 from eco_planner.runtime.envs import VectorEnvScenario, VectorMetaDriveEnv
 from eco_planner.runtime.resources import require_resource_profile

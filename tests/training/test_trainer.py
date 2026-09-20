@@ -7,13 +7,13 @@ from unittest.mock import Mock
 import pytest
 import torch
 
-from eco_planner.rl import trainer
-from eco_planner.rl.artifacts import PolicyProbeSummary
-from eco_planner.rl.policy import (
+from eco_planner.planning.policy import (
     ExplorationPolicy,
     ExplorationPolicyContext,
 )
-from eco_planner.rl.policy.distribution import AffineBeta
+from eco_planner.planning.policy.distribution import AffineBeta
+from eco_planner.rl import trainer
+from eco_planner.rl.artifacts import PolicyProbeSummary
 from eco_planner.rl.probing import capture_probe_contexts, probe_policy
 from eco_planner.rl.tracking import TrackingIdentity
 from eco_planner.rl.training_state import TrainingLoopState

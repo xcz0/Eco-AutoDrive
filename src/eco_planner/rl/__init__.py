@@ -7,7 +7,6 @@ if TYPE_CHECKING:
     from .artifacts import (
         TrainingRunSummary,
         TrainingUpdateSummary,
-        policy_state_hash,
         read_rollout_episode,
         write_rollout_episode,
         write_training_runtime_metadata,
@@ -18,11 +17,8 @@ if TYPE_CHECKING:
         PPOConfig,
         PPOUpdater,
         build_ppo_batch,
-        load_exploration_policy_checkpoint,
         normalize_full_batch_advantage,
-        save_exploration_policy_checkpoint,
     )
-    from .policy import ExplorationPolicy
     from .reward import PlannerRFTNoEnergyRewardConfig
     from .rollout import (
         RewardProfileName,
@@ -37,7 +33,6 @@ if TYPE_CHECKING:
 _EXPORTS = {
     "TrainingRunSummary": ".artifacts",
     "TrainingUpdateSummary": ".artifacts",
-    "policy_state_hash": ".artifacts",
     "read_rollout_episode": ".artifacts",
     "write_rollout_episode": ".artifacts",
     "write_training_runtime_metadata": ".artifacts",
@@ -47,10 +42,7 @@ _EXPORTS = {
     "PPOConfig": ".optimization",
     "PPOUpdater": ".optimization",
     "build_ppo_batch": ".optimization",
-    "load_exploration_policy_checkpoint": ".optimization",
     "normalize_full_batch_advantage": ".optimization",
-    "save_exploration_policy_checkpoint": ".optimization",
-    "ExplorationPolicy": ".policy",
     "PlannerRFTNoEnergyRewardConfig": ".reward",
     "RewardProfileName": ".rollout",
     "RolloutEpisode": ".rollout",
@@ -65,9 +57,7 @@ __all__ = [
     "TrainingJobConfig",
     "parse_training_config",
     "TrainingUpdateSummary",
-    "policy_state_hash",
     "create_fabric_rollout_runtime",
-    "load_exploration_policy_checkpoint",
     "PlannerRFTNoEnergyRewardConfig",
     "RolloutEpisode",
     "PPO_BATCH_KEYS",
@@ -80,9 +70,7 @@ __all__ = [
     "RewardProfileName",
     "TailKind",
     "rollout_audit_keys",
-    "ExplorationPolicy",
     "write_training_runtime_metadata",
-    "save_exploration_policy_checkpoint",
     "VectorRolloutCollector",
     "derive_rollout_seeds",
     "TrainingRunSummary",

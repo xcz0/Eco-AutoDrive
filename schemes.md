@@ -172,7 +172,7 @@ planning.diffusion
 
 2. **机械迁移 `models → planning.diffusion`，但暂时不改模型行为。** 当前 `models/checkpoint.py`、`config.py`、`guidance.py`、`network.py`、`planner.py`、`sampling.py` 整体迁入 `planning/diffusion/`。这一 commit 只处理 import path 和测试路径，不顺带重写 sampler/guidance。这样能把“目录迁移 bug”和“决策语义 bug”分开。
 
-3. **迁移 `rl.policy → planning.policy`。** `config.py`、`distribution.py`、`model.py` 搬到 `planning/policy/`。当前 `ExplorationPolicyConfig` 暂时可以保持原数学结构，不在 Task A 就完成 Issue B 的 encoder/fusion/head 大拆分。至少先改语义名称，例如 `ExplorationPolicyContext → PolicyInputs` 或 `GuidancePolicyInputs`。更重要的是，`evaluation/config.py`、PPO、probe 等全部改为从 `planning.policy` 引用，使 policy 不再由 RL 包拥有。
+3. **迁移 `rl.policy → planning.policy`。** `config.py`、`distribution.py`、`model.py` 搬到 `planning/policy/`。当前 `ExplorationPolicyConfig` 暂时可以保持原数学结构，不在 Task A 就完成 Issue B 的 encoder/fusion/head 大拆分。`evaluation/config.py`、PPO、probe 等全部改为从 `planning.policy` 引用，使 policy 不再由 RL 包拥有。
 
 4. **立即拆 policy checkpoint ownership。** 当前 `rl/optimization/checkpoint.py` 中的 `save_exploration_policy_checkpoint()`、`load_exploration_policy_checkpoint()` 和 policy-only report 应迁到 `planning/policy/checkpoint.py`；training checkpoint 的 optimizer/scheduler/Fabric/loop RNG 部分继续留在 RL。`policy_state_hash` 也应放到 policy-owned 模块或轻量 serialization helper。否则即使 evaluation 不再使用 rollout runtime，它仍然需要 import RL 才能加载 policy，不满足 Task A 的目标。
 

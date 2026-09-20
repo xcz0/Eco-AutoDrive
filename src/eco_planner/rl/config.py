@@ -24,11 +24,11 @@ from eco_planner.planning.diffusion import (
     parse_guidance_config,
     parse_sampler_config,
 )
-from eco_planner.rl.optimization.config import PPOConfig, parse_ppo_config
-from eco_planner.rl.policy.config import (
+from eco_planner.planning.policy.config import (
     ExplorationPolicyConfig,
     parse_exploration_policy_config,
 )
+from eco_planner.rl.optimization.config import PPOConfig, parse_ppo_config
 from eco_planner.rl.reward import RewardProfileConfig
 from eco_planner.runtime.config import RuntimeConfig
 from eco_planner.runtime.resources import ResourceProfileConfig

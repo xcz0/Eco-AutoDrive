@@ -11,12 +11,14 @@ from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, OmegaConf
 
 from eco_planner.artifacts import write_json
+from eco_planner.planning.policy import (
+    policy_state_hash,
+    save_exploration_policy_checkpoint,
+)
 from eco_planner.rl import (
     VectorRolloutCollector,
     create_fabric_rollout_runtime,
     derive_rollout_seeds,
-    policy_state_hash,
-    save_exploration_policy_checkpoint,
     write_training_runtime_metadata,
 )
 from eco_planner.rl.config import TrainingJobConfig

@@ -6,7 +6,8 @@ import numpy as np
 import torch
 from tensordict import TensorDictBase
 
-from eco_planner.rl import ExplorationPolicy, PPOUpdater
+from eco_planner.planning.policy import ExplorationPolicy
+from eco_planner.rl import PPOUpdater
 
 GRADIENT_GROUPS = ("actor_head", "shared_trunk", "actor", "lateral", "longitudinal")
 ADVANTAGE_FORMS = ("raw", "center", "z")

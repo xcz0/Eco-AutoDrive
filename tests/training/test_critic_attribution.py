@@ -18,15 +18,17 @@ from eco_planner.experiments.training.critic_attribution.diagnostics import (
     evaluate_materiality,
 )
 from eco_planner.jobs import compose_job_config
-from eco_planner.rl import (
+from eco_planner.planning.policy import (
     ExplorationPolicy,
+    policy_state_hash,
+    save_exploration_policy_checkpoint,
+)
+from eco_planner.rl import (
     build_ppo_batch,
     parse_training_config,
     read_rollout_episode,
     write_rollout_episode,
 )
-from eco_planner.rl.artifacts import policy_state_hash
-from eco_planner.rl.optimization import save_exploration_policy_checkpoint
 from eco_planner.rl.rollout.fixed_batch import write_batch
 from tests.training.test_ppo import _behavior_policy_episode, _policy_config, _ppo_config
 from tests.training.test_reward import _no_energy_config

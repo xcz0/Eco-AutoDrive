@@ -21,14 +21,14 @@ from eco_planner.planning.diffusion import (
     load_official_diffusion_planner,
     sampler_report,
 )
-from eco_planner.rl.policy import (
+from eco_planner.planning.policy import (
     ExplorationPolicy,
     ExplorationPolicyConfig,
     ExplorationPolicyContext,
     ExplorationPolicyOutput,
     policy_context_tensordict,
 )
-from eco_planner.rl.policy.distribution import (
+from eco_planner.planning.policy.distribution import (
     AffineBetaAction,
     AffineBetaParameters,
     ExplicitGeneratorBetaSampler,

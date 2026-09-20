@@ -10,10 +10,11 @@ from typing import Any
 import torch
 from hydra.utils import to_absolute_path
 
+from eco_planner.planning.policy import ExplorationPolicyContext, policy_context_tensordict
+
 from .artifacts.schema import PolicyProbeSummary, TrainingUpdateSummary
 from .config import TrainingJobConfig
 from .optimization import PPOUpdater, load_training_checkpoint
-from .policy import ExplorationPolicyContext, policy_context_tensordict
 from .rollout import FabricRolloutRuntime
 from .tracking import TrackingIdentity
 

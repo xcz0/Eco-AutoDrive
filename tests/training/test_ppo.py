@@ -7,15 +7,15 @@ import pytest
 import torch
 from tensordict import TensorDictBase, cat
 
-from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
-from eco_planner.rl.optimization import PPOConfig, PPOUpdater, compute_episode_gae
-from eco_planner.rl.optimization.ppo import build_ppo_batch
-from eco_planner.rl.policy import (
+from eco_planner.planning.policy import (
     ExplorationPolicy,
     ExplorationPolicyConfig,
     ExplorationPolicyContext,
     policy_context_tensordict,
 )
+from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
+from eco_planner.rl.optimization import PPOConfig, PPOUpdater, compute_episode_gae
+from eco_planner.rl.optimization.ppo import build_ppo_batch
 from eco_planner.rl.reward import RewardComponents, RewardDiagnostics, RewardResult
 from eco_planner.rl.reward.result import RewardProfileName
 from eco_planner.rl.rollout import (

@@ -17,8 +17,10 @@ from eco_planner.planning.diffusion import (
     OrthogonalPolicyGuidanceConfig,
     SamplerReport,
 )
-from eco_planner.rl.artifacts import policy_state_hash
-from eco_planner.rl.optimization import load_exploration_policy_checkpoint
+from eco_planner.planning.policy import (
+    load_exploration_policy_checkpoint,
+    policy_state_hash,
+)
 from eco_planner.rl.rollout import create_fabric_rollout_runtime
 from eco_planner.runtime.fabric import InferenceRuntimeReport, resolve_runtime_settings
 

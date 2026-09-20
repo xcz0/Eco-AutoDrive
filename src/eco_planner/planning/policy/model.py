@@ -14,8 +14,12 @@ from torch import nn
 from torch.nn import functional as F
 
 from eco_planner.contracts import PLANNER_HORIZON
-from eco_planner.rl.policy.config import ExplorationPolicyConfig
-from eco_planner.rl.policy.distribution import AffineBeta, AffineBetaAction, AffineBetaParameters
+from eco_planner.planning.policy.config import ExplorationPolicyConfig
+from eco_planner.planning.policy.distribution import (
+    AffineBeta,
+    AffineBetaAction,
+    AffineBetaParameters,
+)
 
 _REFERENCE_STATE_DIM = 4
 POLICY_CONTEXT_KEYS = (

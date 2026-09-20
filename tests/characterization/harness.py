@@ -22,7 +22,7 @@ from eco_planner.planning.diffusion import (
     PretrainedDiffusionPlanner,
     sampler_report,
 )
-from eco_planner.rl.policy import ExplorationPolicy, ExplorationPolicyConfig
+from eco_planner.planning.policy import ExplorationPolicy, ExplorationPolicyConfig
 from eco_planner.rl.rollout import FabricRolloutRuntime
 from eco_planner.rl.rollout.decision import BatchRolloutDecision
 from eco_planner.runtime.fabric import InferenceRuntimeReport

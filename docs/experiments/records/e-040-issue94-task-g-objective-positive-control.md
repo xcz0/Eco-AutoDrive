@@ -41,7 +41,7 @@
   matched noise/action seed streams、场景池、update 预算与 held-out 矩阵。
 - Initial held-out 聚合值双 seed 逐位一致（如 speed 9.998465、energy 47.047213
   ml/km）：policy 的 actor head 权重零初始化、bias 为确定性
-  （`rl/policy/model.py` `_initialize_symmetric_actor`），seed 只进入
+  （`planning/policy/model.py` `_initialize_symmetric_actor`），seed 只进入
   value-head/trunk 参数——hash 不同但初始 actor 行为相同，这是 pairing 校验通过
   且 paired 差分从同一起点出发的结构性原因。
 
