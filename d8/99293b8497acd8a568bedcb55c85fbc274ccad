@@ -1,0 +1,70 @@
+src/eco_planner/contracts.py
+  s_005fdbe793f63b::t_bb182334e8eee0 35-36
+  s_005fdbe793f63b::t_f743eacfad6075 15-16
+src/eco_planner/evaluation/episodes/vector.py
+  s_005fdbe793f63b::t_37525004dd66e1 12
+tests/training/test_guidance_control_authority.py
+  s_005fdbe793f63b::t_2bb7b9c45f55a5 324
+src/eco_planner/evaluation/episodes/serial.py
+  s_005fdbe793f63b::t_9e37cfb2da105c 12
+src/eco_planner/experiments/guidance/horizon/runner.py
+  s_005fdbe793f63b::t_d81cacc1ac5e3e 74
+src/eco_planner/rl/rollout/collector.py
+  s_005fdbe793f63b::t_746f4c1c0435bb 149-150
+  s_005fdbe793f63b::t_1f4f2de3788bf5 255-256
+src/eco_planner/envs/__init__.py
+  s_005fdbe793f63b::t_2f68f41a29dbc2 20
+  s_005fdbe793f63b::t_8b4f24488ffe9f 44
+  s_005fdbe793f63b::t_eb4caac6d93f49 74
+src/eco_planner/benchmarking/environment.py
+  s_005fdbe793f63b::t_290862b929bee6 14
+  s_005fdbe793f63b::t_43f7c130cf1e39 77
+src/eco_planner/evaluation/episodes/recorder.py
+  s_005fdbe793f63b::t_8bf5949ef10721 11-13
+  s_005fdbe793f63b::t_5589660b37b7e8 139
+src/eco_planner/envs/domain/__init__.py
+  s_005fdbe793f63b::t_0d9d886f59b81f 25
+  s_005fdbe793f63b::t_540f2e8f8b4012 57
+  s_005fdbe793f63b::t_9cd2c129000915 83
+src/eco_planner/evaluation/artifacts/trace.py
+  s_005fdbe793f63b::t_38accd5e09dd1a 259-260,263
+  s_005fdbe793f63b::t_7c37f3cbdd2c1f 12
+  s_005fdbe793f63b::t_ea8e7afcbe32c8 164
+src/eco_planner/experiments/guidance/execution_bridge/runner.py
+  s_005fdbe793f63b::t_770f4ed31b2de3 143
+src/eco_planner/benchmarking/throughput.py
+  s_005fdbe793f63b::t_19ac69893a2ac0 17
+  s_005fdbe793f63b::t_ee1efd5f59605c 159
+src/eco_planner/experiments/guidance/authority/runner.py
+  s_005fdbe793f63b::t_a8e315ac76cd4b 85
+  s_005fdbe793f63b::t_c25a7da78a3d26 74
+src/eco_planner/experiments/guidance/decomposition/runner.py
+  s_005fdbe793f63b::t_b57fc7f196ec69 93
+tests/simulation/test_closed_loop.py
+  s_005fdbe793f63b::t_9357c2242c9088 335
+schemes.md
+  s_005fdbe793f63b::t_b0776e60a3c5cd 39
+src/eco_planner/envs/metadrive/slot.py
+  s_005fdbe793f63b::t_96a8b26ad88161 170
+  s_005fdbe793f63b::t_d51708ce829d3c 14,21
+  s_005fdbe793f63b::t_29c09bb11a3620 94-96
+src/eco_planner/envs/domain/trajectory.py
+  s_005fdbe793f63b::t_ef3e0950bb0d16 9-10
+  s_005fdbe793f63b::t_0a5bb00cb3f6a1 34-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "d899293b8497acd8a568bedcb55c85fbc274ccad",
+  "prompts": {},
+  "sessions": {
+    "s_005fdbe793f63b": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f3d34f4baffeVFdXqNr55pKaaR",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
