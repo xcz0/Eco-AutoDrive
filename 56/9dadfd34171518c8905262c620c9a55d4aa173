@@ -1,0 +1,30 @@
+schemes.md
+  s_d75991509e3392::t_e975413b77f974 79
+  s_d75991509e3392::t_dac2bd862c0896 89
+src/eco_planner/reward/__init__.py
+  s_d75991509e3392::t_b1f6f9e57203a3 9
+  s_d75991509e3392::t_f74ee84c900375 46
+src/eco_planner/reward/aggregation.py
+  s_d75991509e3392::t_4c4527a4019726 12
+  s_d75991509e3392::t_d84c61b4cfc793 1-11,13-100
+  s_d75991509e3392::t_6012362381b815 101
+tests/training/test_reward.py
+  s_d75991509e3392::t_41940417382d34 20-23
+  s_d75991509e3392::t_979bc7bda7d7e4 556-735
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "569dadfd34171518c8905262c620c9a55d4aa173",
+  "prompts": {},
+  "sessions": {
+    "s_d75991509e3392": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f3d083910ffeuFxQAPz5hyde4Y",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
