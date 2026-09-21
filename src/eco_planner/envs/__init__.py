@@ -17,6 +17,7 @@ if TYPE_CHECKING:
         TransitionMetrics,
         WorldTrajectory,
         derive_transition_metrics,
+        stationary_trajectory,
     )
     from .metadrive import (
         EnvSlotReset,
@@ -40,6 +41,7 @@ _EXPORTS = {
     "TransitionMetrics": (".domain", "TransitionMetrics"),
     "WorldTrajectory": (".domain", "WorldTrajectory"),
     "derive_transition_metrics": (".domain", "derive_transition_metrics"),
+    "stationary_trajectory": (".domain", "stationary_trajectory"),
     "EnvSlotReset": (".metadrive", "EnvSlotReset"),
     "EnvSlotState": (".metadrive", "EnvSlotState"),
     "EnvSlotStep": (".metadrive", "EnvSlotStep"),
@@ -69,6 +71,7 @@ __all__ = [
     "TransitionMetrics",
     "WorldTrajectory",
     "derive_transition_metrics",
+    "stationary_trajectory",
 ]
 
 

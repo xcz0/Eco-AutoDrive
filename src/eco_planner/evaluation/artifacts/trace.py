@@ -9,14 +9,12 @@ import numpy as np
 
 from eco_planner.contracts import (
     AGENT_COUNT,
-    EVALUATION_EXECUTION_STEPS,
+    CLOSED_LOOP_EXECUTION_STEPS,
     PLANNER_ACTOR_COUNT,
     PLANNER_HORIZON,
     PLANNER_STATE_DIM,
 )
 from eco_planner.envs.observation import PLANNER_OBSERVATION_FIELDS
-
-EXECUTION_PREFIX_STEPS = EVALUATION_EXECUTION_STEPS
 
 _PLAN = "plan"
 _SIMULATOR = "simulator"
@@ -163,7 +161,7 @@ def allocate_trace_arrays(
 
     capacities = {
         "plan": max_plan_cycles,
-        "simulator": max_plan_cycles * EXECUTION_PREFIX_STEPS,
+        "simulator": max_plan_cycles * CLOSED_LOOP_EXECUTION_STEPS,
         "warmup": max_warmup_steps,
     }
     return {
@@ -258,11 +256,11 @@ def validate_trace_arrays(arrays: Mapping[str, np.ndarray]) -> None:
         if not np.array_equal(np.unique(plan_indices), np.arange(plan_cycles)):
             raise ValueError("trace plan indices are not contiguous")
         counts = np.bincount(plan_indices, minlength=plan_cycles)
-        if np.any(counts[:-1] != EXECUTION_PREFIX_STEPS) or not (
-            1 <= counts[-1] <= EXECUTION_PREFIX_STEPS
+        if np.any(counts[:-1] != CLOSED_LOOP_EXECUTION_STEPS) or not (
+            1 <= counts[-1] <= CLOSED_LOOP_EXECUTION_STEPS
         ):
             raise ValueError(
-                f"trace plan indices do not encode {EXECUTION_PREFIX_STEPS}-step prefixes"
+                f"trace plan indices do not encode {CLOSED_LOOP_EXECUTION_STEPS}-step prefixes"
             )
         if not np.array_equal(plan_indices, np.repeat(np.arange(plan_cycles), counts)):
             raise ValueError("trace plan indices are not ordered by planning cycle")

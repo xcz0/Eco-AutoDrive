@@ -12,7 +12,6 @@ import torch
 from tensordict import TensorDictBase
 
 from eco_planner.configuration import ScenarioConfig
-from eco_planner.contracts import ExecutionMode
 from eco_planner.envs import (
     MetaDriveEnvSlot,
     TrajectoryExecutionResult,
@@ -145,9 +144,10 @@ def collect_rollout_episode(
     env_slot = MetaDriveEnvSlot(
         configured,
         mode=mode,
-        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=map_query_radius_m,
         history_warmup_steps=history_warmup_steps,
+        # TODO(E3): drop the transitional 1-substep override and use canonical cadence.
+        execution_steps=1,
     )
     reward_evaluator = create_reward_evaluator(reward_profile)
     resolved_noise_seed = runtime.noise_seed if noise_seed is None else _seed(noise_seed, "noise")
@@ -248,11 +248,12 @@ class VectorRolloutCollector:
         self._envs = VectorMetaDriveEnv(
             configured_envs,
             mode=mode,
-            execution_mode=ExecutionMode.ROLLOUT,
             map_query_radius_m=map_query_radius_m,
             history_warmup_steps=history_warmup_steps,
             scenarios=self._scenarios,
             torch_threads_per_worker=torch_threads_per_worker,
+            # TODO(E3): drop the transitional 1-substep override and use canonical cadence.
+            execution_steps=1,
         )
         self._close_finalizer = finalize(self, self._envs.close)
 

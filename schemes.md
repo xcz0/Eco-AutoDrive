@@ -36,7 +36,7 @@
 
 ### E1 — canonical cadence contract 与 execution API 统一
 
-状态：未开始
+状态：已完成
 
 目标：建立唯一权威 cadence 常量，删除 `ExecutionMode` 与 mode-specific 常量，env 执行 API 只接受显式 prefix（默认 canonical），所有调用方迁移。本子任务暂不改变 RL 实际 cadence（RL 过渡期显式传 `execution_steps=1`），保证每步代码可运行、测试可过。
 

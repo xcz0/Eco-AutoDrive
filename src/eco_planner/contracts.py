@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from enum import Enum
 from typing import Final
 
 import numpy as np
@@ -13,8 +12,8 @@ PLANNER_STATE_DIM: Final = 4
 SIMULATOR_STEP_S: Final = 0.1
 METADRIVE_PHYSICS_STEP_S: Final = 0.02
 METADRIVE_DECISION_REPEAT: Final = 5
-ROLLOUT_EXECUTION_STEPS: Final = 1
-EVALUATION_EXECUTION_STEPS: Final = 5
+CLOSED_LOOP_EXECUTION_STEPS: Final = 5
+DECISION_INTERVAL_S: Final = CLOSED_LOOP_EXECUTION_STEPS * SIMULATOR_STEP_S
 TRAFFIC_HISTORY_FRAMES: Final = 21
 TRAFFIC_HISTORY_WARMUP_STEPS: Final = TRAFFIC_HISTORY_FRAMES - 1
 
@@ -28,27 +27,13 @@ LANE_COUNT: Final = 70
 ROUTE_LANE_COUNT: Final = 25
 
 
-class ExecutionMode(str, Enum):
-    """The only trajectory-prefix modes supported by the project."""
-
-    ROLLOUT = "rollout"
-    EVALUATION = "evaluation"
-
-    @property
-    def steps(self) -> int:
-        """Return the fixed number of 10 Hz points executed for this mode."""
-
-        return (
-            ROLLOUT_EXECUTION_STEPS if self is ExecutionMode.ROLLOUT else EVALUATION_EXECUTION_STEPS
-        )
-
-
 def evaluation_plan_cycles(evaluated_horizon_steps: int) -> int:
     """Return the number of evaluation prefixes needed for a horizon."""
 
     if type(evaluated_horizon_steps) is not int or evaluated_horizon_steps <= 0:
         raise ValueError("evaluated horizon steps must be a positive integer")
-    return (evaluated_horizon_steps + EVALUATION_EXECUTION_STEPS - 1) // EVALUATION_EXECUTION_STEPS
+    cycles = evaluated_horizon_steps + CLOSED_LOOP_EXECUTION_STEPS - 1
+    return cycles // CLOSED_LOOP_EXECUTION_STEPS
 
 
 def validate_metadrive_timestep(physics_step_s: float | int, decision_repeat: int) -> float:

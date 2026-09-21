@@ -11,14 +11,14 @@ import numpy as np
 from tensordict import TensorDictBase
 
 from eco_planner.contracts import (
-    PLANNER_HORIZON,
+    CLOSED_LOOP_EXECUTION_STEPS,
     TRAFFIC_HISTORY_WARMUP_STEPS,
-    ExecutionMode,
 )
 
 from ..domain.arrays import TrajectoryArray
 from ..domain.energy import MetaDriveFuelProxyProvider
 from ..domain.execution import TrajectoryExecutionResult
+from ..domain.trajectory import stationary_trajectory
 from ..observation.scene import TrafficObservationAudit
 from .execution import TrajectoryExecutor
 from .observation import (
@@ -78,15 +78,12 @@ class MetaDriveEnvSlot:
         env_config: Mapping[str, Any],
         *,
         mode: ObservationMode,
-        execution_mode: ExecutionMode,
         map_query_radius_m: float,
         history_warmup_steps: int,
         execution_steps: int | None = None,
     ) -> None:
         if mode not in {"traffic", "no_traffic"}:
             raise ValueError("mode must be either 'traffic' or 'no_traffic'")
-        if not isinstance(execution_mode, ExecutionMode):
-            raise TypeError("execution_mode must be an ExecutionMode")
         if type(map_query_radius_m) not in {int, float} or map_query_radius_m <= 0.0:
             raise ValueError("map_query_radius_m must be a positive real scalar")
         expected_warmup = TRAFFIC_HISTORY_WARMUP_STEPS if mode == "traffic" else 0
@@ -94,7 +91,9 @@ class MetaDriveEnvSlot:
             raise ValueError(f"{mode} environments require history_warmup_steps={expected_warmup}")
 
         self._env_config = dict(env_config)
-        self._execution_steps = execution_mode.steps if execution_steps is None else execution_steps
+        self._execution_steps = (
+            CLOSED_LOOP_EXECUTION_STEPS if execution_steps is None else execution_steps
+        )
         self._mode = mode
         self._map_query_radius_m = float(map_query_radius_m)
         self._history_warmup_steps = history_warmup_steps
@@ -168,7 +167,7 @@ class MetaDriveEnvSlot:
         initial_position = self._vehicle_state()[:2]
         collected = 0
         while collected < self._history_warmup_steps:
-            result = self._execute(_stationary_trajectory())
+            result = self._execute(stationary_trajectory())
             yield result
             if result.terminated or result.truncated:
                 raise RuntimeError("traffic history warmup ended before the required frame count")
@@ -234,9 +233,3 @@ class MetaDriveEnvSlot:
         self._observation_pipeline = self._create_observation_pipeline()
         self._backend = self._create_backend()
         self._executor = self._create_executor()
-
-
-def _stationary_trajectory() -> TrajectoryArray:
-    trajectory = np.zeros((PLANNER_HORIZON, 4), dtype=np.float32)
-    trajectory[:, 2] = 1.0
-    return trajectory

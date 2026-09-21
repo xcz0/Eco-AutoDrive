@@ -20,7 +20,6 @@ from eco_planner._repository import REPOSITORY_ROOT
 from eco_planner.analysis import publish
 from eco_planner.artifacts import collect_repository_metadata, write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.contracts import ExecutionMode
 from eco_planner.evaluation import parse_evaluation_config
 from eco_planner.evaluation.policy_intervention import (
     collect_policy_pair,
@@ -141,7 +140,7 @@ def run(
             "sampler": asdict(runtime.sampler_report),
             "policy_created": True,
             "optimizer_steps": 0,
-            "execution_mode": "rollout",
+            "execution_steps": list(study.execution_horizons),
             "execution_horizons": list(study.execution_horizons),
             "same_state_contract_steps": study.same_state_contract_steps,
             "reference_arm": study.reference_arm,
@@ -263,7 +262,6 @@ def _make_env(
     return VectorMetaDriveEnv(
         tuple({**job.env, "map": s.map} for s in scenarios[:workers]),
         mode="no_traffic",
-        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=job.map_query_radius_m,
         history_warmup_steps=0,
         scenarios=scenarios,
