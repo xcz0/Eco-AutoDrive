@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from eco_planner.analysis.statistics import statistics
-from eco_planner.rl.reward.config import PlannerRFTNoEnergyRewardConfig
+from eco_planner.reward.config import PlannerRFTNoEnergyRewardConfig
 
 
 def dynamic_range_audit(

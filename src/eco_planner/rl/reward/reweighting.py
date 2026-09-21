@@ -5,12 +5,12 @@ from typing import cast
 
 import torch
 
-from eco_planner.rl import RolloutEpisode
-from eco_planner.rl.reward import (
+from eco_planner.reward import (
     PlannerRFTEnergyRewardConfig,
     PlannerRFTNoEnergyRewardConfig,
     RewardProfileConfig,
 )
+from eco_planner.rl import RolloutEpisode
 
 COMPONENTS = ("ttc", "progress", "comfort", "speed", "energy")
 

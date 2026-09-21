@@ -8,11 +8,11 @@ import pytest
 import torch
 
 from eco_planner.planning.policy import ExplorationPolicyContext, policy_context_tensordict
+from eco_planner.reward import RewardComponents, RewardDiagnostics, RewardResult
 from eco_planner.rl.artifacts import (
     ENERGY_ROLLOUT_ARTIFACT_FIELDS,
     write_rollout_episode,
 )
-from eco_planner.rl.reward import RewardComponents, RewardDiagnostics, RewardResult
 from eco_planner.rl.rollout import (
     ExecutionTransitionAudit,
     RolloutEpisodeBuilder,

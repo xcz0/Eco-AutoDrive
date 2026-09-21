@@ -19,8 +19,8 @@ from eco_planner.envs.domain import (
 from eco_planner.evaluation.inference.runtime import (
     FabricInferenceRuntime,
 )
-from eco_planner.rl.reward.components.energy import energy_score
-from eco_planner.rl.reward.config import EnergyRewardConfig
+from eco_planner.reward.components.energy import energy_score
+from eco_planner.reward.config import EnergyRewardConfig
 from eco_planner.runtime.envs import (
     VectorEnvScenario,
     VectorMetaDriveEnv,

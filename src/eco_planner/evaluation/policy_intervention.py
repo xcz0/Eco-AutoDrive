@@ -27,7 +27,7 @@ from eco_planner.evaluation.intervention import (
     transition_record,
 )
 from eco_planner.planning import PolicyGuidanceDecisionResult, PolicyGuidanceRuntime
-from eco_planner.rl.reward.config import EnergyRewardConfig
+from eco_planner.reward.config import EnergyRewardConfig
 from eco_planner.runtime.envs import (
     VectorEnvScenario,
     VectorMetaDriveEnv,

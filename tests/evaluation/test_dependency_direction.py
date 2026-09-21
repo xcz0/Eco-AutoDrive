@@ -1,7 +1,8 @@
-"""Static dependency-direction contract for evaluation and planning packages.
+"""Static dependency-direction contract for evaluation, planning, and reward.
 
 Evaluation must reuse planning-owned decisions without importing the RL rollout,
 optimization, or policy packages. Planning must not depend on RL or evaluation.
+Reward must not depend on RL, evaluation, or experiments.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ _EVALUATION_FORBIDDEN = (
     "eco_planner.rl.policy",
 )
 _PLANNING_FORBIDDEN = ("eco_planner.rl", "eco_planner.evaluation")
+_REWARD_FORBIDDEN = ("eco_planner.rl", "eco_planner.evaluation", "eco_planner.experiments")
 
 
 def _imported_modules(path: Path) -> set[str]:
@@ -58,3 +60,11 @@ def test_planning_does_not_import_rl_or_evaluation(
 ) -> None:
     offenders = _offenders(package, forbidden)
     assert not offenders, f"{package} imports forbidden downstream modules: {offenders}"
+
+
+@pytest.mark.parametrize("package,forbidden", [("reward", _REWARD_FORBIDDEN)])
+def test_reward_does_not_import_rl_or_workflow_modules(
+    package: str, forbidden: tuple[str, ...]
+) -> None:
+    offenders = _offenders(package, forbidden)
+    assert not offenders, f"{package} imports forbidden RL/workflow modules: {offenders}"

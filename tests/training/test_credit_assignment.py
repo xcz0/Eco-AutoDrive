@@ -15,6 +15,11 @@ from eco_planner.experiments.credit.decisions import (
     evaluate_attribution,
     evaluate_gate,
 )
+from eco_planner.reward import (
+    PlannerRFTNoEnergyRewardConfig,
+    evaluate_plannerrft_energy_step,
+    evaluate_plannerrft_no_energy_step,
+)
 from eco_planner.rl.optimization import compute_episode_gae
 from eco_planner.rl.optimization.credit import (
     credit_batch,
@@ -22,11 +27,6 @@ from eco_planner.rl.optimization.credit import (
     zero_critic_values,
 )
 from eco_planner.rl.optimization.ppo import normalize_full_batch_advantage
-from eco_planner.rl.reward import (
-    PlannerRFTNoEnergyRewardConfig,
-    evaluate_plannerrft_energy_step,
-    evaluate_plannerrft_no_energy_step,
-)
 from eco_planner.rl.reward.calibration import rescore
 from eco_planner.rl.reward.calibration_config import EnergyBandConfig
 from eco_planner.rl.reward.reweighting import (

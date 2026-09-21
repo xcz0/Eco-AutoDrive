@@ -18,7 +18,7 @@ from eco_planner.envs import (
     MetaDriveEnvSlot,
     TrajectoryExecutionResult,
 )
-from eco_planner.rl.reward import (
+from eco_planner.reward import (
     RewardEvaluator,
     RewardProfileConfig,
     create_reward_evaluator,

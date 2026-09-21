@@ -8,6 +8,7 @@ import pytest
 import torch
 
 from eco_planner.analysis.reward import dynamic_range_audit
+from eco_planner.reward.components.comfort import component_score
 from eco_planner.rl.artifacts import write_rollout_episode
 from eco_planner.rl.reward.calibration import (
     MOTION_LIMITS,
@@ -17,7 +18,6 @@ from eco_planner.rl.reward.calibration import (
     scored_arrays,
     verify_original_components,
 )
-from eco_planner.rl.reward.components.comfort import component_score
 from eco_planner.rl.reward.reweighting import reward_profile
 from eco_planner.rl.rollout.fixed_batch import load_batch
 from tests.training.test_ppo import _episode

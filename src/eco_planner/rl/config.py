@@ -28,8 +28,8 @@ from eco_planner.planning.policy import (
     ExplorationPolicyConfig,
     parse_exploration_policy_config,
 )
+from eco_planner.reward import RewardProfileConfig
 from eco_planner.rl.optimization.config import PPOConfig, parse_ppo_config
-from eco_planner.rl.reward import RewardProfileConfig
 from eco_planner.runtime.config import RuntimeConfig
 from eco_planner.runtime.resources import ResourceProfileConfig
 

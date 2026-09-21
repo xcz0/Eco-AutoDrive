@@ -14,13 +14,13 @@ from eco_planner.envs.domain import (
     TransitionMetricInput,
     derive_transition_metrics,
 )
-from eco_planner.rl.reward import (
+from eco_planner.reward import (
     PlannerRFTEnergyRewardConfig,
     PlannerRFTNoEnergyRewardConfig,
     evaluate_plannerrft_energy_step,
     evaluate_plannerrft_no_energy_step,
 )
-from eco_planner.rl.reward.components import calibrated_band_score
+from eco_planner.reward.components import calibrated_band_score
 
 
 def _config() -> PlannerRFTEnergyRewardConfig:

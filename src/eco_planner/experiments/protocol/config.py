@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 from eco_planner._repository import CONFIG_ROOT
 from eco_planner.analysis.statistics import ScenarioBootstrapConfig
 from eco_planner.configuration import ScenarioConfig, load_resolved_yaml_mapping
-from eco_planner.rl.reward.result import RewardProfileName
+from eco_planner.reward.result import RewardProfileName
 
 DEFAULT_PROTOCOL = CONFIG_ROOT / "experiments" / "comparison" / "default.yaml"
 

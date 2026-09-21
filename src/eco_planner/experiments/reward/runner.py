@@ -13,6 +13,7 @@ from eco_planner.analysis.reward import dynamic_range_audit
 from eco_planner.artifacts import write_json, write_npz
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.jobs import compose_job_config
+from eco_planner.reward.config import PlannerRFTNoEnergyRewardConfig
 from eco_planner.rl.config import parse_training_config
 from eco_planner.rl.reward.calibration import (
     MOTION_LIMITS,
@@ -23,7 +24,6 @@ from eco_planner.rl.reward.calibration import (
     scored_arrays,
     verify_original_components,
 )
-from eco_planner.rl.reward.config import PlannerRFTNoEnergyRewardConfig
 from eco_planner.rl.reward.reweighting import COMPONENTS, reward_profile, reweight
 from eco_planner.rl.rollout.collection import collect as collect_batch
 from eco_planner.rl.rollout.fixed_batch import load_fixed_batch

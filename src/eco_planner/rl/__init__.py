@@ -19,7 +19,6 @@ if TYPE_CHECKING:
         build_ppo_batch,
         normalize_full_batch_advantage,
     )
-    from .reward import PlannerRFTNoEnergyRewardConfig
     from .rollout import (
         RewardProfileName,
         RolloutEpisode,
@@ -43,7 +42,6 @@ _EXPORTS = {
     "PPOUpdater": ".optimization",
     "build_ppo_batch": ".optimization",
     "normalize_full_batch_advantage": ".optimization",
-    "PlannerRFTNoEnergyRewardConfig": ".reward",
     "RewardProfileName": ".rollout",
     "RolloutEpisode": ".rollout",
     "TailKind": ".rollout",
@@ -58,7 +56,6 @@ __all__ = [
     "parse_training_config",
     "TrainingUpdateSummary",
     "create_fabric_rollout_runtime",
-    "PlannerRFTNoEnergyRewardConfig",
     "RolloutEpisode",
     "PPO_BATCH_KEYS",
     "PPOConfig",

@@ -22,7 +22,7 @@ from eco_planner.envs import (
     TransitionMetricInput,
     derive_transition_metrics,
 )
-from eco_planner.rl.reward import RewardEvaluator, RewardProfileConfig
+from eco_planner.reward import RewardEvaluator, RewardProfileConfig
 
 DEFAULT_CONFIG = CONFIG_ROOT / "validation" / "reward.yaml"
 

@@ -14,8 +14,8 @@ from eco_planner.planning.policy import (
     ExplorationPolicyContext,
     policy_context_tensordict,
 )
-from eco_planner.rl.reward import RewardResult
-from eco_planner.rl.reward.result import RewardProfileName as RewardProfileName
+from eco_planner.reward import RewardResult
+from eco_planner.reward.result import RewardProfileName as RewardProfileName
 
 TailKind = Literal["terminated", "truncated", "rollout_limit"]
 _CONTEXT_KEYS = POLICY_CONTEXT_KEYS

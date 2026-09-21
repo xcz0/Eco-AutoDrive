@@ -15,12 +15,12 @@ from eco_planner.contracts import ExecutionMode
 from eco_planner.envs import MetaDriveEnvSlot
 from eco_planner.envs.domain.geometry import rear_axle_position, world_points_to_local
 from eco_planner.envs.metadrive import MetaDriveBackend
-from eco_planner.rl.config import parse_rollout_config
-from eco_planner.rl.optimization import PPOConfig, PPOUpdater
-from eco_planner.rl.reward import (
+from eco_planner.reward import (
     RewardProfileConfig,
     evaluate_plannerrft_energy_step,
 )
+from eco_planner.rl.config import parse_rollout_config
+from eco_planner.rl.optimization import PPOConfig, PPOUpdater
 from eco_planner.rl.rollout import collect_rollout_episode, create_fabric_rollout_runtime
 from eco_planner.runtime.envs import (
     VectorEnvScenario,
