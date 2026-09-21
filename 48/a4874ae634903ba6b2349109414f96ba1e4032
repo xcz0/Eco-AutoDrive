@@ -1,0 +1,69 @@
+src/eco_planner/rl/config.py
+  s_703966b57c91ed::t_1b8d1f9b55ed3a 31
+tests/training/test_guidance_control_authority.py
+  s_703966b57c91ed::t_0ef065e696d4c9 29
+src/eco_planner/rl/reward/__init__.py
+  s_703966b57c91ed::t_e0e65b6e7e35c1 1,3-6
+docs/agents/contracts/training.md
+  s_703966b57c91ed::t_1d5a305dfb754e 31
+src/eco_planner/rl/artifacts/io.py
+  s_703966b57c91ed::t_d7ff3b6697e184 16
+tests/simulation/test_closed_loop.py
+  s_703966b57c91ed::t_0bca248a4dc90b 18,22-23
+src/eco_planner/evaluation/policy_intervention.py
+  s_703966b57c91ed::t_1e431f76857457 30
+src/eco_planner/reward/__init__.py
+  s_703966b57c91ed::t_7beb3b2332e065 1-34
+src/eco_planner/reward/evaluator.py
+  s_703966b57c91ed::t_0c8531866a9e81 1-30
+src/eco_planner/rl/reward/reweighting.py
+  s_703966b57c91ed::t_097b7677750ce5 8,13
+tests/training/test_reward.py
+  s_703966b57c91ed::t_500fbe38c37c1c 17,23
+src/eco_planner/evaluation/intervention.py
+  s_703966b57c91ed::t_d7c8cebe016aa9 22-23
+tests/training/test_credit_assignment.py
+  s_703966b57c91ed::t_0de65194b1b448 18-22
+tests/training/test_rollout.py
+  s_703966b57c91ed::t_9a2f29d35625d8 11
+tests/training/test_ppo.py
+  s_703966b57c91ed::t_8abf65d3001ead 16-17
+src/eco_planner/experiments/reward/runner.py
+  s_703966b57c91ed::t_0cacef9fdbf659 16
+tests/evaluation/test_dependency_direction.py
+  s_703966b57c91ed::t_6bda0fbe55457c 1,5
+  s_703966b57c91ed::t_23ea861527af13 23
+  s_703966b57c91ed::t_46dd1e27ecda0b 63-70
+src/eco_planner/rl/reward/calibration.py
+  s_703966b57c91ed::t_33dfc7da5b46ad 10-13
+src/eco_planner/analysis/reward.py
+  s_703966b57c91ed::t_a79ab8c5bbee64 6
+src/eco_planner/experiments/protocol/config.py
+  s_703966b57c91ed::t_05fd865c43dbfa 13
+src/eco_planner/rl/rollout/collector.py
+  s_703966b57c91ed::t_e62d6d22384ebb 21
+src/eco_planner/experiments/credit/runner.py
+  s_703966b57c91ed::t_2e5b58fb49bf9f 17
+tests/training/test_reward_calibration.py
+  s_703966b57c91ed::t_1f161e520659e6 11
+src/eco_planner/reward_validation.py
+  s_703966b57c91ed::t_4916b673b0f068 25
+src/eco_planner/rl/rollout/contracts.py
+  s_703966b57c91ed::t_01396b4f173c3b 17-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "48a4874ae634903ba6b2349109414f96ba1e4032",
+  "prompts": {},
+  "sessions": {
+    "s_703966b57c91ed": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f3e5d1d2fffeXN7FSbAHZ2QgNC",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
