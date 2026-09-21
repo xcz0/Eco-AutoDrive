@@ -132,6 +132,8 @@ def _execution_audit(
         distance_m=1.0,
         speed_mps=2.0,
         stopped=False,
+        collision=False,
+        wrong_direction=False,
         position_error_m=0.0,
         heading_error_rad=0.0,
         arrive_dest=False,

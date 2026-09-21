@@ -12,6 +12,7 @@ import pytest
 
 import eco_planner.evaluation.artifacts.report as evaluation_report
 from eco_planner.envs import TrajectoryExecutionRecord
+from eco_planner.envs.domain import WRONG_DIRECTION_MAX_HEADING_ERROR_RAD
 from eco_planner.evaluation import (
     CompletedEpisodeSummary,
     EnergySummary,
@@ -76,7 +77,13 @@ def _record() -> TrajectoryExecutionRecord:
     )
 
 
-def _trace(heading_errors: list[float]) -> dict[str, np.ndarray]:
+def _trace(
+    heading_errors: list[float],
+    *,
+    speeds: list[float] | None = None,
+    stopped: list[bool] | None = None,
+    wrong_direction: list[bool] | None = None,
+) -> dict[str, np.ndarray]:
     count = len(heading_errors)
     states = np.column_stack(
         (
@@ -89,6 +96,15 @@ def _trace(heading_errors: list[float]) -> dict[str, np.ndarray]:
             np.zeros(count),
         )
     )
+    speed_values = np.full(count, 10.0) if speeds is None else np.asarray(speeds, dtype=np.float64)
+    stopped_values = (
+        np.zeros(count, dtype=np.bool_) if stopped is None else np.asarray(stopped, dtype=np.bool_)
+    )
+    wrong_direction_values = (
+        np.asarray(heading_errors, dtype=np.float64) > WRONG_DIRECTION_MAX_HEADING_ERROR_RAD
+        if wrong_direction is None
+        else np.asarray(wrong_direction, dtype=np.bool_)
+    )
     return {
         "executed_states": states,
         "initial_state": np.zeros(7),
@@ -97,15 +113,10 @@ def _trace(heading_errors: list[float]) -> dict[str, np.ndarray]:
         "executed_fuel_proxy_step_energy_ml": np.full(count, 0.1),
         "executed_step_distance_m": np.ones(count),
         "executed_route_heading_errors_rad": np.asarray(heading_errors, dtype=np.float64),
+        "executed_speed_mps": speed_values,
+        "executed_stopped": stopped_values,
+        "executed_wrong_direction": wrong_direction_values,
     }
-
-
-def test_negative_route_heading_errors_are_rejected() -> None:
-    arrays = _trace([0.1, 0.2])
-    arrays["executed_route_heading_errors_rad"] = np.asarray([-0.1, 0.2])
-
-    with pytest.raises(ValueError, match="route heading errors"):
-        compute_episode_metrics(arrays, _record())
 
 
 @pytest.mark.parametrize(
@@ -117,6 +128,16 @@ def test_wrong_direction_threshold(heading_error, wrong_direction, fraction) -> 
     metrics = compute_episode_metrics(_trace([0.1, heading_error, 0.2]), _record())
     assert metrics.wrong_direction is wrong_direction
     assert metrics.wrong_direction_fraction == pytest.approx(fraction)
+
+
+def test_stopped_fraction_uses_domain_stopped_facts() -> None:
+    metrics = compute_episode_metrics(
+        _trace([0.1, 0.2], speeds=[10.0, 0.05], stopped=[False, True]), _record()
+    )
+
+    assert metrics.stopped_fraction == pytest.approx(0.5)
+    assert metrics.speed_mps.minimum == pytest.approx(0.05)
+    assert metrics.speed_mps.maximum == pytest.approx(10.0)
 
 
 @pytest.mark.parametrize("module", ["eco_planner.evaluation", "eco_planner.evaluation.artifacts"])

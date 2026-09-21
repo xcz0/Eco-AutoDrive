@@ -141,7 +141,6 @@ def _measure_batch_size(
                     worker_pool_startup_samples.append(perf_counter() - startup_started)
                 slots = vector_collector.collect(
                     transitions_per_slot=benchmark.transitions_per_slot,
-                    stopped_speed_threshold_mps=config.training.stopped_speed_threshold_mps,
                     diffusion_generators=diffusion_generators,
                     policy_generators=policy_generators,
                     noise_seeds=noise_seeds,
@@ -251,7 +250,6 @@ def _collect_serial_slots(
                 map_query_radius_m=config.map_query_radius_m,
                 history_warmup_steps=benchmark.history_warmup_steps,
                 max_transitions=benchmark.transitions_per_slot - collected,
-                stopped_speed_threshold_mps=config.training.stopped_speed_threshold_mps,
                 diffusion_generator=diffusion_generators[slot],
                 policy_generator=policy_generators[slot],
                 noise_seed=noise_seeds[slot],

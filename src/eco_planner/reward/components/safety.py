@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 from eco_planner.envs.domain import TransitionMetrics
 
 from ..config import RewardGatesConfig
@@ -24,13 +22,7 @@ def safety_gate(
     )
     collision_score = float(not collision)
     drivable_score = float(not step.out_of_road)
-    heading_error = abs(
-        math.atan2(
-            math.sin(step.heading_rad - step.route_heading_rad),
-            math.cos(step.heading_rad - step.route_heading_rad),
-        )
-    )
-    wrong_direction_score = float(heading_error <= config.wrong_direction_max_heading_error_rad)
+    wrong_direction_score = float(not metrics.wrong_direction)
     return (
         collision_score * drivable_score * wrong_direction_score,
         collision_score,

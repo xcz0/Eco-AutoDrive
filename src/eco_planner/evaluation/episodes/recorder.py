@@ -15,7 +15,6 @@ if TYPE_CHECKING:
         TrafficObservationAudit,
         TrajectoryExecutionRecord,
         TrajectoryExecutionResult,
-        TransitionMetrics,
     )
 
 
@@ -154,7 +153,16 @@ class EpisodeTraceRecorder:
         for name, value in _execution_arrays(step).items():
             self._arrays[f"executed_{name}"][target] = value
         self._arrays["executed_route_heading_errors_rad"][target] = np.asarray(
-            [_wrapped_heading_error(metrics) for metrics in step.metrics], dtype=np.float64
+            [metrics.route_heading_error_rad for metrics in step.metrics], dtype=np.float64
+        )
+        self._arrays["executed_speed_mps"][target] = np.asarray(
+            [metrics.speed_mps for metrics in step.metrics], dtype=np.float64
+        )
+        self._arrays["executed_stopped"][target] = np.asarray(
+            [metrics.stopped for metrics in step.metrics], dtype=np.bool_
+        )
+        self._arrays["executed_wrong_direction"][target] = np.asarray(
+            [metrics.wrong_direction for metrics in step.metrics], dtype=np.bool_
         )
         self._arrays["executed_plan_indices"][target] = plan_index
         self._arrays["trajectory_target_centers"][target] = execution.target_centers
@@ -264,11 +272,6 @@ def _execution_arrays(step: TrajectoryExecutionResult) -> dict[str, np.ndarray]:
 
 def _batch_one(value: torch.Tensor) -> np.ndarray:
     return value.numpy()[0]
-
-
-def _wrapped_heading_error(metrics: TransitionMetrics) -> float:
-    delta = metrics.input.heading_rad - metrics.input.route_heading_rad
-    return float(abs(np.arctan2(np.sin(delta), np.cos(delta))))
 
 
 def _write_traffic_audit(

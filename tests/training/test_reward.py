@@ -40,7 +40,6 @@ def _config() -> PlannerRFTEnergyRewardConfig:
                 "collision_building": True,
                 "collision_human": True,
                 "collision_sidewalk": True,
-                "wrong_direction_max_heading_error_rad": math.pi / 2,
             },
             "ttc": {
                 "critical_ttc_s": 1.0,

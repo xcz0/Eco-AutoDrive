@@ -66,7 +66,6 @@ def collect(resolved: DictConfig, config: TrainingJobConfig, output_dir: Path) -
     ) as collector:
         slots = collector.collect(
             transitions_per_slot=config.training.transitions_per_environment,
-            stopped_speed_threshold_mps=config.training.stopped_speed_threshold_mps,
             diffusion_generators=tuple(runtime.new_noise_generator(s) for s in noise_seeds),
             policy_generators=tuple(runtime.new_policy_generator(s) for s in policy_seeds),
             noise_seeds=noise_seeds,

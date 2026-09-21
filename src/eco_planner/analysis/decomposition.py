@@ -8,6 +8,8 @@ from typing import Any
 
 import numpy as np
 
+from eco_planner.envs.domain import STOPPED_SPEED_THRESHOLD_MPS
+
 from .horizon import PLANNER_RESPONSE_CHECKPOINTS_S
 from .io import read_json
 
@@ -22,7 +24,6 @@ FULL_METRICS = (
 )
 PREFIX_METRICS = ("prefix_speed_mps",)
 FIRST_WAYPOINT_METRICS = ("first_waypoint_distance_m", "first_waypoint_speed_mps")
-STOPPED_SPEED_THRESHOLD_MPS = 0.1
 PREFIX_STEPS = 20
 
 

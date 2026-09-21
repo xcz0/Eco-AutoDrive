@@ -323,6 +323,10 @@ def _transition_metrics(index: int) -> TransitionMetrics:
         step_distance_m=1.0,
         position_error_m=0.0,
         heading_error_rad=0.0,
+        route_heading_error_rad=0.0,
+        wrong_direction=False,
+        stopped=False,
+        collision=False,
         energy=EnergyMetrics("metadrive_fuel_proxy", 1.0, None, 0.1),
     )
 

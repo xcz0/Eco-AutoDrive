@@ -63,6 +63,9 @@ _BASE_TRACE_FIELDS: dict[str, TraceFieldSpec] = {
         (_PLAN, PLANNER_HORIZON, PLANNER_STATE_DIM), np.dtype(np.float64)
     ),
     "executed_states": TraceFieldSpec((_SIMULATOR, 7), np.dtype(np.float64)),
+    "executed_speed_mps": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
+    "executed_stopped": TraceFieldSpec((_SIMULATOR,), np.dtype(np.bool_), finite=False),
+    "executed_wrong_direction": TraceFieldSpec((_SIMULATOR,), np.dtype(np.bool_), finite=False),
     "executed_native_step_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "executed_native_episode_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
     "executed_fuel_proxy_step_energy_ml": TraceFieldSpec((_SIMULATOR,), np.dtype(np.float64)),
@@ -244,6 +247,7 @@ def validate_trace_arrays(arrays: Mapping[str, np.ndarray]) -> None:
         "executed_native_episode_energy_ml",
         "executed_fuel_proxy_step_energy_ml",
         "executed_step_distance_m",
+        "executed_speed_mps",
         "executed_route_heading_errors_rad",
     ):
         if name in mapping and np.any(mapping[name] < 0):

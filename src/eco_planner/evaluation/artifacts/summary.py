@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -21,11 +20,6 @@ from .models import (
     SpeedSummary,
 )
 
-STOPPED_SPEED_THRESHOLD_MPS = 0.1
-# Matches the PlannerRFT reward safety gate's wrong-direction heading threshold
-# (pi/2 against the route forward tangent); evaluation only records the metric.
-WRONG_DIRECTION_MAX_HEADING_ERROR_RAD = math.pi / 2.0
-
 
 def compute_episode_metrics(
     trace_arrays: Mapping[str, np.ndarray],
@@ -40,19 +34,21 @@ def compute_episode_metrics(
         raise ValueError("completed evaluation metrics require finite executed states")
     positions = np.vstack((trace_arrays["initial_state"][None, :2], states[:, :2]))
     distance_m = float(np.linalg.norm(np.diff(positions, axis=0), axis=1).sum())
-    speeds = states[:, 5]
+    speeds = trace_arrays["executed_speed_mps"]
+    stopped_steps = trace_arrays["executed_stopped"]
+    wrong_direction_steps = trace_arrays["executed_wrong_direction"]
+    for name, values in (
+        ("executed_speed_mps", speeds),
+        ("executed_stopped", stopped_steps),
+        ("executed_wrong_direction", wrong_direction_steps),
+    ):
+        if values.shape != (states.shape[0],):
+            raise ValueError(f"completed evaluation metrics require state-aligned {name}")
+    if not np.isfinite(speeds).all() or np.any(speeds < 0.0):
+        raise ValueError("completed evaluation metrics require finite non-negative speeds")
     energy = compute_trace_energy(trace_arrays)
     if energy is None:
         raise ValueError("completed evaluation metrics require execution energy arrays")
-    route_heading_errors = trace_arrays["executed_route_heading_errors_rad"]
-    if route_heading_errors.shape != (states.shape[0],) or not (
-        np.isfinite(route_heading_errors).all() and np.all(route_heading_errors >= 0.0)
-    ):
-        raise ValueError(
-            "completed evaluation metrics require non-negative state-aligned "
-            "executed route heading errors"
-        )
-    wrong_direction_steps = route_heading_errors > WRONG_DIRECTION_MAX_HEADING_ERROR_RAD
     return EpisodeMetrics(
         simulated_seconds=float(states.shape[0] * SIMULATOR_STEP_S),
         distance_m=distance_m,
@@ -61,17 +57,11 @@ def compute_episode_metrics(
             mean=float(speeds.mean()),
             maximum=float(speeds.max()),
         ),
-        stopped_fraction=float(np.mean(speeds < STOPPED_SPEED_THRESHOLD_MPS)),
+        stopped_fraction=float(np.mean(stopped_steps)),
         route_completion=final_execution.route_completion,
         energy=energy,
         arrive_dest=final_execution.arrive_dest,
-        collision=(
-            final_execution.crash_vehicle
-            or final_execution.crash_object
-            or final_execution.crash_building
-            or final_execution.crash_human
-            or final_execution.crash_sidewalk
-        ),
+        collision=final_execution.collision,
         out_of_road=final_execution.out_of_road,
         wrong_direction=bool(wrong_direction_steps.any()),
         wrong_direction_fraction=float(wrong_direction_steps.mean()),

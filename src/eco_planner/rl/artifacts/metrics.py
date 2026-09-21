@@ -52,13 +52,6 @@ def build_update_summary(
     sample_count = trajectory.batch_size[0]
     episode_count = len(episodes)
     mean_episode_length = sample_count / episode_count
-    collision = (
-        _tensor(trajectory, "crash_vehicle")
-        | _tensor(trajectory, "crash_object")
-        | _tensor(trajectory, "crash_building")
-        | _tensor(trajectory, "crash_human")
-    )
-    collision |= _tensor(trajectory, "crash_sidewalk")
     state_value = _tensor(trajectory, "state_value")
     beta_alpha = _tensor(trajectory, "beta_alpha")
     beta_beta = _tensor(trajectory, "beta_beta")
@@ -75,7 +68,7 @@ def build_update_summary(
         "distance_m": metrics.sum("distance_m"),
         "mean_speed_mps": metrics.mean("speed_mps"),
         "stopped_fraction": metrics.stopped_fraction(),
-        "collision_count": int(collision.sum()),
+        "collision_count": int(_tensor(trajectory, "collision").sum()),
         "out_of_road_count": int(_tensor(trajectory, "out_of_road").sum()),
         "maximum_position_error_m": metrics.maximum("position_error_m"),
         "maximum_heading_error_rad": metrics.maximum("heading_error_rad"),

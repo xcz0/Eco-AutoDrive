@@ -4,11 +4,27 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 
 from .energy import EnergyMetricProvider, EnergyMetrics, EnergyTrace
 from .traffic import TrafficFrame
+
+WRONG_DIRECTION_MAX_HEADING_ERROR_RAD: Final = math.pi / 2.0
+STOPPED_SPEED_THRESHOLD_MPS: Final = 0.1
+
+
+def any_collision(
+    crash_vehicle: bool,
+    crash_object: bool,
+    crash_building: bool,
+    crash_human: bool,
+    crash_sidewalk: bool,
+) -> bool:
+    """Canonical ``collision = any(crash_*)`` derivation over raw MetaDrive crash facts."""
+
+    return crash_vehicle or crash_object or crash_building or crash_human or crash_sidewalk
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +59,12 @@ class TransitionMetricInput:
 
 @dataclass(frozen=True, slots=True)
 class TransitionMetrics:
-    """Execution facts plus objective-neutral motion and energy quantities."""
+    """Execution facts plus objective-neutral motion, behavior, and energy quantities.
+
+    ``heading_error_rad`` is the absolute execution error against the target trajectory
+    heading; ``route_heading_error_rad`` is the absolute wrapped error against the route
+    forward tangent and is the single source for the ``wrong_direction`` fact.
+    """
 
     input: TransitionMetricInput
     speed_mps: float
@@ -53,6 +74,10 @@ class TransitionMetrics:
     step_distance_m: float
     position_error_m: float
     heading_error_rad: float
+    route_heading_error_rad: float
+    wrong_direction: bool
+    stopped: bool
+    collision: bool
     energy: EnergyMetrics
 
 
@@ -95,6 +120,14 @@ def derive_transition_metrics(
     acceleration = (velocity - previous_velocity) / step.timestep_s
     forward = np.asarray([math.cos(step.heading_rad), math.sin(step.heading_rad)])
     left = np.asarray([-forward[1], forward[0]])
+    route_heading_error_rad = abs(_shortest_angle_delta(step.heading_rad - step.route_heading_rad))
+    collision = any_collision(
+        step.crash_vehicle,
+        step.crash_object,
+        step.crash_building,
+        step.crash_human,
+        step.crash_sidewalk,
+    )
     return TransitionMetrics(
         input=step,
         speed_mps=speed_mps,
@@ -104,6 +137,10 @@ def derive_transition_metrics(
         step_distance_m=step_distance_m,
         position_error_m=float(np.linalg.norm(position - target_position)),
         heading_error_rad=abs(_shortest_angle_delta(step.heading_rad - step.target_heading_rad)),
+        route_heading_error_rad=route_heading_error_rad,
+        wrong_direction=route_heading_error_rad > WRONG_DIRECTION_MAX_HEADING_ERROR_RAD,
+        stopped=speed_mps < STOPPED_SPEED_THRESHOLD_MPS,
+        collision=collision,
         energy=energy_provider.measure(
             EnergyTrace(
                 time_s=np.asarray([0.0, step.timestep_s], dtype=np.float64),

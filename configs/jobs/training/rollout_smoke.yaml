@@ -17,7 +17,6 @@ rollout:
   max_transitions: 4
   history_warmup_steps: 0
   policy_action_seed: 1
-  stopped_speed_threshold_mps: 0.1
 
 env:
   horizon: 4

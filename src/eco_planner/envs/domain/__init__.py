@@ -23,9 +23,22 @@ if TYPE_CHECKING:
         TrafficParticipantState,
     )
     from .trajectory import WorldTrajectory, to_world_trajectory
-    from .transition import TransitionMetricInput, TransitionMetrics, derive_transition_metrics
+    from .transition import (
+        STOPPED_SPEED_THRESHOLD_MPS,
+        WRONG_DIRECTION_MAX_HEADING_ERROR_RAD,
+        TransitionMetricInput,
+        TransitionMetrics,
+        any_collision,
+        derive_transition_metrics,
+    )
 
 _EXPORTS = {
+    "any_collision": (".transition", "any_collision"),
+    "STOPPED_SPEED_THRESHOLD_MPS": (".transition", "STOPPED_SPEED_THRESHOLD_MPS"),
+    "WRONG_DIRECTION_MAX_HEADING_ERROR_RAD": (
+        ".transition",
+        "WRONG_DIRECTION_MAX_HEADING_ERROR_RAD",
+    ),
     "EnergyMetricName": (".energy", "EnergyMetricName"),
     "EnergyMetricProvider": (".energy", "EnergyMetricProvider"),
     "EnergyMetrics": (".energy", "EnergyMetrics"),
@@ -67,6 +80,9 @@ __all__ = [
     "WorldTrajectory",
     "derive_transition_metrics",
     "to_world_trajectory",
+    "any_collision",
+    "STOPPED_SPEED_THRESHOLD_MPS",
+    "WRONG_DIRECTION_MAX_HEADING_ERROR_RAD",
 ]
 
 

@@ -118,7 +118,6 @@ def _train(
             update_episodes: list[RolloutEpisode] = []
             slot_episodes = rollout_collector.collect(
                 transitions_per_slot=config.training.transitions_per_environment,
-                stopped_speed_threshold_mps=config.training.stopped_speed_threshold_mps,
                 diffusion_generators=diffusion_generators,
                 policy_generators=policy_generators,
                 noise_seeds=noise_seeds,

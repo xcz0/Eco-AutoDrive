@@ -16,7 +16,6 @@ gates:
   collision_building: true
   collision_human: true
   collision_sidewalk: true
-  wrong_direction_max_heading_error_rad: 1.5707963267948966
 
 ttc:
   critical_ttc_s: 1.0

@@ -51,7 +51,6 @@ class RolloutConfig(_StrictModel):
     max_transitions: StrictInt = Field(gt=0)
     history_warmup_steps: StrictInt = Field(ge=0)
     policy_action_seed: StrictInt = Field(ge=0)
-    stopped_speed_threshold_mps: StrictFloat = Field(gt=0.0)
 
     @model_validator(mode="after")
     def validate_rollout_contract(self) -> RolloutConfig:
@@ -94,7 +93,6 @@ class TrainingLoopConfig(_StrictModel):
     history_warmup_steps: StrictInt = Field(ge=0)
     replay_id: StrictInt = Field(ge=0)
     deterministic: StrictBool
-    stopped_speed_threshold_mps: StrictFloat = Field(gt=0.0)
     boundary_distance: StrictFloat = Field(gt=0.0, lt=0.5)
     boundary_sample_count: StrictInt = Field(gt=0)
     diagnostic_seed: StrictInt = Field(ge=0)

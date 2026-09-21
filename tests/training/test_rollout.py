@@ -86,6 +86,8 @@ def _transition():
         distance_m=1.0,
         speed_mps=2.0,
         stopped=False,
+        collision=False,
+        wrong_direction=False,
         position_error_m=0.0,
         heading_error_rad=0.0,
         arrive_dest=False,
@@ -186,7 +188,8 @@ def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path
             reward_total reward_base_total reward_safety_gate reward_component_ttc
             reward_component_progress reward_component_comfort reward_component_speed
             reward_component_energy route_completion_delta distance_m speed_mps stopped
-            position_error_m heading_error_rad arrive_dest out_of_road crash_vehicle crash_object
+            collision wrong_direction position_error_m heading_error_rad arrive_dest
+            out_of_road crash_vehicle crash_object
             crash_building crash_human crash_sidewalk terminated truncated map_seed noise_seed
             policy_action_seed planning_cycle_index step_distance_m native_step_energy_ml
             native_episode_energy_ml executed_fuel_proxy_step_energy_ml
@@ -199,7 +202,8 @@ def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path
         )
         booleans = set(
             """
-            scene_padding_mask navigation_padding_mask stopped arrive_dest out_of_road
+            scene_padding_mask navigation_padding_mask stopped collision wrong_direction
+            arrive_dest out_of_road
             crash_vehicle crash_object crash_building crash_human crash_sidewalk terminated
             truncated energy_distance_valid has_ttc_candidate
         """.split()

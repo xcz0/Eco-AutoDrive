@@ -8,7 +8,6 @@ from time import perf_counter
 from typing import Literal, cast
 from weakref import finalize
 
-import numpy as np
 import torch
 from tensordict import TensorDictBase
 
@@ -78,7 +77,6 @@ class _EpisodeLifecycle:
         map_seed: int,
         noise_seed: int,
         policy_action_seed: int,
-        stopped_speed_threshold_mps: float,
         reward_evaluator: RewardEvaluator,
         terminated: bool,
         truncated: bool,
@@ -90,7 +88,6 @@ class _EpisodeLifecycle:
             _execution_transition_audit(
                 step,
                 self.previous_route_completion,
-                stopped_speed_threshold_mps,
                 reward_evaluator=reward_evaluator,
                 terminated=terminated,
                 truncated=truncated,
@@ -131,7 +128,6 @@ def collect_rollout_episode(
     map_query_radius_m: float,
     history_warmup_steps: int,
     max_transitions: int,
-    stopped_speed_threshold_mps: float = 0.1,
     diffusion_generator: torch.Generator | None = None,
     policy_generator: torch.Generator | None = None,
     noise_seed: int | None = None,
@@ -144,12 +140,6 @@ def collect_rollout_episode(
         raise ValueError("max_transitions must be a positive integer")
     if type(history_warmup_steps) is not int or history_warmup_steps < 0:
         raise ValueError("history_warmup_steps must be a non-negative integer")
-    if (
-        type(stopped_speed_threshold_mps) is not float
-        or not np.isfinite(stopped_speed_threshold_mps)
-        or stopped_speed_threshold_mps <= 0.0
-    ):
-        raise ValueError("stopped_speed_threshold_mps must be a positive finite float")
     configured = dict(env_config)
     configured["map"] = spec.map
     env_slot = MetaDriveEnvSlot(
@@ -188,7 +178,6 @@ def collect_rollout_episode(
                 map_seed=spec.seed,
                 noise_seed=resolved_noise_seed,
                 policy_action_seed=resolved_policy_seed,
-                stopped_speed_threshold_mps=stopped_speed_threshold_mps,
                 reward_evaluator=reward_evaluator,
                 terminated=terminated,
                 truncated=truncated,
@@ -282,7 +271,6 @@ class VectorRolloutCollector:
         self,
         *,
         transitions_per_slot: int,
-        stopped_speed_threshold_mps: float,
         diffusion_generators: tuple[torch.Generator, ...],
         policy_generators: tuple[torch.Generator, ...],
         noise_seeds: tuple[int, ...],
@@ -319,7 +307,6 @@ class VectorRolloutCollector:
                     states,
                     observation,
                     transitions_per_slot=transitions_per_slot,
-                    stopped_speed_threshold_mps=stopped_speed_threshold_mps,
                     policy_sampling=policy_sampling,
                     timings=timings,
                 )
@@ -379,7 +366,6 @@ class VectorRolloutCollector:
         observation: TensorDictBase,
         *,
         transitions_per_slot: int,
-        stopped_speed_threshold_mps: float,
         policy_sampling: Literal["sample", "mean"],
         timings: list[VectorRolloutRoundTiming] | None,
     ) -> tuple[tuple[RolloutEpisode, ...], ...]:
@@ -443,7 +429,6 @@ class VectorRolloutCollector:
                     terminated=bool(steps["terminated"][slot].item()),
                     truncated=bool(steps["truncated"][slot].item()),
                     transitions_per_slot=transitions_per_slot,
-                    stopped_speed_threshold_mps=stopped_speed_threshold_mps,
                     reward_evaluator=self._reward_evaluator,
                 )
                 if tail is not None:
@@ -514,7 +499,6 @@ def _append_slot_transition(
     terminated: bool,
     truncated: bool,
     transitions_per_slot: int,
-    stopped_speed_threshold_mps: float,
     reward_evaluator: RewardEvaluator,
 ) -> TailKind | None:
     env_step = step.step
@@ -524,7 +508,6 @@ def _append_slot_transition(
         map_seed=state.spec.seed,
         noise_seed=state.noise_seed,
         policy_action_seed=state.policy_action_seed,
-        stopped_speed_threshold_mps=stopped_speed_threshold_mps,
         reward_evaluator=reward_evaluator,
         terminated=terminated,
         truncated=truncated,
@@ -614,7 +597,6 @@ def collect_vector_rollout_episodes(
     map_query_radius_m: float,
     history_warmup_steps: int,
     transitions_per_slot: int,
-    stopped_speed_threshold_mps: float,
     diffusion_generators: tuple[torch.Generator, ...],
     policy_generators: tuple[torch.Generator, ...],
     noise_seeds: tuple[int, ...],
@@ -640,7 +622,6 @@ def collect_vector_rollout_episodes(
     ) as rollout_collector:
         return rollout_collector.collect(
             transitions_per_slot=transitions_per_slot,
-            stopped_speed_threshold_mps=stopped_speed_threshold_mps,
             diffusion_generators=diffusion_generators,
             policy_generators=policy_generators,
             noise_seeds=noise_seeds,
@@ -670,7 +651,6 @@ def _validate_vector_slots(
 def _execution_transition_audit(
     step: TrajectoryExecutionResult,
     previous_route_completion: float,
-    stopped_speed_threshold_mps: float,
     *,
     terminated: bool,
     truncated: bool,
@@ -681,18 +661,18 @@ def _execution_transition_audit(
         raise RuntimeError("rollout transition must execute exactly one substep")
     if len(step.metrics) != 1:
         raise RuntimeError("rollout transition must expose exactly one transition metric")
-    reward_result = reward_evaluator(step.metrics[0])
-    state = execution.substep_states[0]
-    distance_m = float(np.linalg.norm(state[:2] - execution.start_center))
-    speed_mps = float(state[5])
+    metrics = step.metrics[0]
+    reward_result = reward_evaluator(metrics)
     return ExecutionTransitionAudit(
         reward_result=reward_result,
         route_completion_delta=float(execution.route_completion - previous_route_completion),
-        distance_m=distance_m,
-        speed_mps=speed_mps,
-        stopped=speed_mps < stopped_speed_threshold_mps,
-        position_error_m=step.metrics[0].position_error_m,
-        heading_error_rad=step.metrics[0].heading_error_rad,
+        distance_m=metrics.step_distance_m,
+        speed_mps=metrics.speed_mps,
+        stopped=metrics.stopped,
+        collision=metrics.collision,
+        wrong_direction=metrics.wrong_direction,
+        position_error_m=metrics.position_error_m,
+        heading_error_rad=metrics.heading_error_rad,
         arrive_dest=execution.arrive_dest,
         out_of_road=execution.out_of_road,
         crash_vehicle=execution.crash_vehicle,

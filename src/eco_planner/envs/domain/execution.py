@@ -14,7 +14,7 @@ from .arrays import (
     WorldVectorArray,
 )
 from .traffic import TrafficFrame
-from .transition import TransitionMetrics
+from .transition import TransitionMetrics, any_collision
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +40,18 @@ class TrajectoryExecutionRecord:
     crash_human: bool
     max_step: bool
     crash_sidewalk: bool = False
+
+    @property
+    def collision(self) -> bool:
+        """Canonical terminal collision fact derived from the raw crash flags."""
+
+        return any_collision(
+            self.crash_vehicle,
+            self.crash_object,
+            self.crash_building,
+            self.crash_human,
+            self.crash_sidewalk,
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, model_validator
@@ -41,7 +40,6 @@ class RewardGatesConfig(_StrictRewardModel):
     collision_building: StrictBool
     collision_human: StrictBool
     collision_sidewalk: StrictBool
-    wrong_direction_max_heading_error_rad: StrictFloat = Field(gt=0.0, le=math.pi)
 
 
 class TTCRewardConfig(_StrictRewardModel):

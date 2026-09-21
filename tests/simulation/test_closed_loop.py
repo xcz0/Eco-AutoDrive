@@ -467,7 +467,6 @@ def test_real_checkpoint_metadrive_rollout_updates_policy_without_changing_plann
         map_query_radius_m=parsed.map_query_radius_m,
         history_warmup_steps=parsed.rollout.history_warmup_steps,
         max_transitions=2,
-        stopped_speed_threshold_mps=parsed.rollout.stopped_speed_threshold_mps,
         reward_profile=_ENERGY_REWARD,
     )
     planner_hash = runtime.frozen_planner_hash()

@@ -82,6 +82,8 @@ _AUDIT_SCALAR_GROUPS = (
         torch.bool,
         (
             "stopped",
+            "collision",
+            "wrong_direction",
             "arrive_dest",
             "out_of_road",
             "crash_vehicle",
@@ -142,6 +144,8 @@ class ExecutionTransitionAudit:
     distance_m: float
     speed_mps: float
     stopped: bool
+    collision: bool
+    wrong_direction: bool
     position_error_m: float
     heading_error_rad: float
     arrive_dest: bool
