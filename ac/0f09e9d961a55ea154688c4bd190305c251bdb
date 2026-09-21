@@ -1,0 +1,19 @@
+schemes.md
+  s_de48d4aa4900f8::t_bebec8b2c2e3e9 1-231
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "ac0f09e9d961a55ea154688c4bd190305c251bdb",
+  "prompts": {},
+  "sessions": {
+    "s_de48d4aa4900f8": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f3d6118e8ffeG5fTSmx88hrs1Z",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
