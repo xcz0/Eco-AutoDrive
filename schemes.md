@@ -106,9 +106,11 @@
 
 ### E3 — RL transition 时间语义接入
 
-状态：未开始
+状态：已完成
 
 目标：RL rollout 改为 canonical 5-substep prefix；一个 transition 聚合多个 substep；更新 horizon/quota 数学与配置；删除 E1 的过渡显式 `1`。
+
+实现备注：`rl/rollout/contracts.py` 中 `_validate_audit_trajectory` 原有的 `reward_total == reward_base_total * reward_safety_gate` 断言在 multi-substep 下不再成立（E2 规则），已删除；`reward_component_*` 由“单 substep [0,1] 上界”改为“非负”守卫（多 substep 为各 substep 之和）。
 
 范围 / 文件：
 

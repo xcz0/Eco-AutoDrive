@@ -7,6 +7,13 @@ import numpy as np
 import pytest
 import torch
 
+from eco_planner.envs import TrajectoryExecutionRecord, TrajectoryExecutionResult
+from eco_planner.envs.domain import (
+    EnergyMetrics,
+    TrafficFrame,
+    TransitionMetricInput,
+    TransitionMetrics,
+)
 from eco_planner.planning.policy import ExplorationPolicyContext, policy_context_tensordict
 from eco_planner.reward import RewardComponents, RewardDiagnostics, RewardResult
 from eco_planner.rl.artifacts import (
@@ -19,6 +26,7 @@ from eco_planner.rl.rollout import (
     RolloutProvenance,
     build_training_decision,
 )
+from eco_planner.rl.rollout.collector import _execution_transition_audit
 
 
 def _context() -> ExplorationPolicyContext:
@@ -271,3 +279,175 @@ def test_batch_and_slot_audit_share_one_deferred_payload() -> None:
     assert slot_audit["old_joint_guidance_log_prob"].shape == (1, 1)
     torch.testing.assert_close(slot_audit["diffusion_rng_state"][0], diffusion_states[1])
     torch.testing.assert_close(slot_audit["policy_rng_state"][0], policy_states[1])
+
+
+def _reward_result(total: float, *, safety_gate: float = 1.0) -> RewardResult:
+    return RewardResult(
+        profile_name="plannerrft_energy_v1",
+        total=total,
+        base_total=total,
+        safety_gate=safety_gate,
+        components=RewardComponents(1.0, 0.5, 1.0, 1.0, 0.5),
+        diagnostics=RewardDiagnostics(
+            collision_score=1.0,
+            drivable_score=1.0,
+            wrong_direction_score=1.0,
+            has_ttc_candidate=False,
+            min_ttc_s=10.0,
+            route_progress_delta_m=1.0,
+            speed_mps=2.0,
+            speed_limit_mps=10.0,
+            overspeed_mps=0.0,
+            longitudinal_acceleration_mps2=0.0,
+            lateral_acceleration_mps2=0.0,
+            jerk_mps3=0.0,
+            yaw_rate_radps=0.0,
+            step_distance_m=1.0,
+            native_step_energy_ml=0.0,
+            native_episode_energy_ml=0.0,
+            executed_fuel_proxy_step_energy_ml=0.05,
+            executed_fuel_proxy_ml_per_km=50.0,
+            energy_distance_valid=True,
+        ),
+    )
+
+
+def _substep_metrics(
+    index: int,
+    *,
+    stopped: bool = False,
+    collision: bool = False,
+    wrong_direction: bool = False,
+) -> TransitionMetrics:
+    position = (float(index), 0.0)
+    return TransitionMetrics(
+        input=TransitionMetricInput(
+            previous_position_xy_m=(0.0, 0.0),
+            position_xy_m=position,
+            previous_velocity_xy_mps=(0.0, 0.0),
+            velocity_xy_mps=(0.0, 0.0),
+            previous_acceleration_xy_mps2=(0.0, 0.0),
+            heading_rad=0.0,
+            yaw_rate_radps=0.0,
+            route_progress_delta_m=0.0,
+            route_heading_rad=0.0,
+            speed_limit_mps=10.0,
+            ego_width_m=2.0,
+            ego_length_m=4.0,
+            traffic_frame=TrafficFrame(index, position, 0.0, 1.0, (), ()),
+            target_position_xy_m=position,
+            target_heading_rad=0.0,
+            crash_vehicle=False,
+            crash_object=False,
+            crash_building=False,
+            crash_human=False,
+            crash_sidewalk=False,
+            out_of_road=False,
+            native_step_energy_ml=0.0,
+            native_episode_energy_ml=0.0,
+            timestep_s=0.1,
+        ),
+        speed_mps=2.0 + index,
+        longitudinal_acceleration_mps2=0.0,
+        lateral_acceleration_mps2=0.0,
+        jerk_mps3=0.0,
+        step_distance_m=1.0,
+        position_error_m=float(index),
+        heading_error_rad=float(index) / 10.0,
+        route_heading_error_rad=0.0,
+        wrong_direction=wrong_direction,
+        stopped=stopped,
+        collision=collision,
+        energy=EnergyMetrics("metadrive_fuel_proxy", 1.0, None, 0.1),
+    )
+
+
+def _execution_result(
+    metrics: tuple[TransitionMetrics, ...], *, route_completion: float = 0.5
+) -> TrajectoryExecutionResult:
+    count = len(metrics)
+    return TrajectoryExecutionResult(
+        execution=TrajectoryExecutionRecord(
+            start_center=np.zeros(2),
+            start_heading=0.0,
+            world_centers=np.zeros((80, 2)),
+            world_headings=np.zeros(80),
+            substep_states=np.zeros((count, 7)),
+            target_centers=np.zeros((count, 2)),
+            target_headings=np.zeros(count),
+            substep_terminated=np.zeros(count, dtype=np.bool_),
+            substep_truncated=np.zeros(count, dtype=np.bool_),
+            traffic_frames=(),
+            route_completion=route_completion,
+            arrive_dest=False,
+            out_of_road=False,
+            crash_vehicle=False,
+            crash_object=False,
+            crash_building=False,
+            crash_human=False,
+            max_step=False,
+        ),
+        metrics=metrics,
+        terminated=False,
+        truncated=False,
+    )
+
+
+class _ScriptedEvaluator:
+    def __init__(self, results: tuple[RewardResult, ...]) -> None:
+        self._results = list(results)
+
+    def __call__(self, metrics: TransitionMetrics) -> RewardResult:
+        return self._results.pop(0)
+
+
+def test_transition_audit_aggregates_multiple_substeps() -> None:
+    metrics = (
+        _substep_metrics(0),
+        _substep_metrics(1, stopped=True, wrong_direction=True),
+        _substep_metrics(2, collision=True),
+    )
+    evaluator = _ScriptedEvaluator(
+        (
+            _reward_result(1.0, safety_gate=1.0),
+            _reward_result(2.0, safety_gate=0.5),
+            _reward_result(4.0, safety_gate=0.25),
+        )
+    )
+
+    audit = _execution_transition_audit(
+        _execution_result(metrics, route_completion=0.5),
+        0.2,
+        terminated=False,
+        truncated=False,
+        reward_evaluator=evaluator,
+    )
+
+    assert audit.reward_result.total == pytest.approx(7.0)
+    assert audit.reward_result.safety_gate == pytest.approx(0.25)
+    assert audit.route_completion_delta == pytest.approx(0.3)
+    assert audit.distance_m == pytest.approx(3.0)
+    assert audit.speed_mps == pytest.approx(3.0)
+    assert audit.stopped is True
+    assert audit.collision is True
+    assert audit.wrong_direction is True
+    assert audit.position_error_m == pytest.approx(1.0)
+    assert audit.heading_error_rad == pytest.approx(0.1)
+
+
+def test_transition_audit_rejects_mismatched_substep_count() -> None:
+    metrics = (_substep_metrics(0), _substep_metrics(1))
+    result = _execution_result(metrics)
+    mismatched = replace(
+        result, execution=replace(result.execution, substep_states=np.zeros((1, 7)))
+    )
+    evaluator = _ScriptedEvaluator((_reward_result(1.0), _reward_result(1.0)))
+
+    with pytest.raises(RuntimeError, match="match executed substeps"):
+        _execution_transition_audit(
+            mismatched,
+            0.0,
+            terminated=False,
+            truncated=False,
+            reward_evaluator=evaluator,
+        )

@@ -137,7 +137,7 @@ _AUDIT_KEYS = (
 
 @dataclass(frozen=True)
 class ExecutionTransitionAudit:
-    """Typed environment result for one 10 Hz rollout transition."""
+    """Typed environment result for one closed-loop decision and its execution prefix."""
 
     reward_result: RewardResult
     route_completion_delta: float
@@ -360,26 +360,25 @@ def _validate_audit_trajectory(
     for key in ("diffusion_rng_state", "policy_rng_state"):
         if trajectory[key].dtype != torch.uint8 or trajectory[key].ndim != 2:
             raise TypeError(f"{key} must have shape [T, state_length] and uint8 dtype")
-    if not torch.allclose(
-        trajectory["reward_total"],
-        trajectory["reward_base_total"] * trajectory["reward_safety_gate"],
-        rtol=0.0,
-        atol=1e-6,
-    ):
-        raise ValueError("rollout reward total must equal base total times safety gate")
     for key in (
         "reward_safety_gate",
-        "reward_component_ttc",
-        "reward_component_progress",
-        "reward_component_comfort",
-        "reward_component_speed",
-        "reward_component_energy",
         "reward_diagnostic_collision_score",
         "reward_diagnostic_drivable_score",
         "reward_diagnostic_wrong_direction_score",
     ):
         if torch.any((trajectory[key] < 0.0) | (trajectory[key] > 1.0)):
             raise ValueError(f"rollout audit {key} must remain in [0, 1]")
+    # Components are summed over the transition's substeps, so they are
+    # non-negative but no longer bounded by one substep's [0, 1] score.
+    for key in (
+        "reward_component_ttc",
+        "reward_component_progress",
+        "reward_component_comfort",
+        "reward_component_speed",
+        "reward_component_energy",
+    ):
+        if torch.any(trajectory[key] < 0.0):
+            raise ValueError(f"rollout audit {key} must be non-negative")
 
 
 def _validate_trajectory(

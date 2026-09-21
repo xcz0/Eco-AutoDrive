@@ -17,7 +17,7 @@ from pydantic import (
 )
 
 from eco_planner.configuration import ModelPathsConfig, ScenarioConfig, resolve_config_mapping
-from eco_planner.contracts import TRAFFIC_HISTORY_WARMUP_STEPS
+from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS, TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.planning.diffusion import (
     OrthogonalPolicyGuidanceConfig,
     SamplerConfig,
@@ -192,6 +192,9 @@ def _validate_rollout_environment(
     env: dict[str, Any], history_warmup_steps: int, transition_count: int
 ) -> None:
     horizon = env.get("horizon")
-    required_horizon = history_warmup_steps + transition_count
+    required_horizon = history_warmup_steps + transition_count * CLOSED_LOOP_EXECUTION_STEPS
     if type(horizon) is not int or horizon < required_horizon:
-        raise ValueError("rollout env.horizon must cover warmup plus requested transitions")
+        raise ValueError(
+            "rollout env.horizon must cover warmup plus requested transitions "
+            f"(required {required_horizon} substeps)"
+        )

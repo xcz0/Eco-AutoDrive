@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Literal, cast
@@ -12,6 +12,7 @@ import torch
 from tensordict import TensorDictBase
 
 from eco_planner.configuration import ScenarioConfig
+from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS
 from eco_planner.envs import (
     MetaDriveEnvSlot,
     TrajectoryExecutionResult,
@@ -19,6 +20,7 @@ from eco_planner.envs import (
 from eco_planner.reward import (
     RewardEvaluator,
     RewardProfileConfig,
+    aggregate_transition_reward,
     create_reward_evaluator,
 )
 from eco_planner.runtime.envs import (
@@ -146,8 +148,6 @@ def collect_rollout_episode(
         mode=mode,
         map_query_radius_m=map_query_radius_m,
         history_warmup_steps=history_warmup_steps,
-        # TODO(E3): drop the transitional 1-substep override and use canonical cadence.
-        execution_steps=1,
     )
     reward_evaluator = create_reward_evaluator(reward_profile)
     resolved_noise_seed = runtime.noise_seed if noise_seed is None else _seed(noise_seed, "noise")
@@ -252,8 +252,6 @@ class VectorRolloutCollector:
             history_warmup_steps=history_warmup_steps,
             scenarios=self._scenarios,
             torch_threads_per_worker=torch_threads_per_worker,
-            # TODO(E3): drop the transitional 1-substep override and use canonical cadence.
-            execution_steps=1,
         )
         self._close_finalizer = finalize(self, self._envs.close)
 
@@ -658,22 +656,25 @@ def _execution_transition_audit(
     reward_evaluator: RewardEvaluator,
 ) -> ExecutionTransitionAudit:
     execution = step.execution
-    if execution.substep_states.shape[0] != 1:
-        raise RuntimeError("rollout transition must execute exactly one substep")
-    if len(step.metrics) != 1:
-        raise RuntimeError("rollout transition must expose exactly one transition metric")
-    metrics = step.metrics[0]
-    reward_result = reward_evaluator(metrics)
+    substep_count = execution.substep_states.shape[0]
+    if len(step.metrics) != substep_count:
+        raise RuntimeError("rollout transition metrics must match executed substeps")
+    if not 1 <= substep_count <= CLOSED_LOOP_EXECUTION_STEPS:
+        raise RuntimeError(
+            f"rollout transition must execute between 1 and {CLOSED_LOOP_EXECUTION_STEPS} substeps"
+        )
+    metrics = step.metrics
+    reward_result = aggregate_transition_reward([reward_evaluator(metric) for metric in metrics])
     return ExecutionTransitionAudit(
         reward_result=reward_result,
         route_completion_delta=float(execution.route_completion - previous_route_completion),
-        distance_m=metrics.step_distance_m,
-        speed_mps=metrics.speed_mps,
-        stopped=metrics.stopped,
-        collision=metrics.collision,
-        wrong_direction=metrics.wrong_direction,
-        position_error_m=metrics.position_error_m,
-        heading_error_rad=metrics.heading_error_rad,
+        distance_m=sum(metric.step_distance_m for metric in metrics),
+        speed_mps=_mean(metric.speed_mps for metric in metrics),
+        stopped=any(metric.stopped for metric in metrics),
+        collision=any(metric.collision for metric in metrics),
+        wrong_direction=any(metric.wrong_direction for metric in metrics),
+        position_error_m=_mean(metric.position_error_m for metric in metrics),
+        heading_error_rad=_mean(metric.heading_error_rad for metric in metrics),
         arrive_dest=execution.arrive_dest,
         out_of_road=execution.out_of_road,
         crash_vehicle=execution.crash_vehicle,
@@ -684,6 +685,11 @@ def _execution_transition_audit(
         terminated=terminated,
         truncated=truncated,
     )
+
+
+def _mean(values: Iterable[float]) -> float:
+    materialized = tuple(values)
+    return sum(materialized) / len(materialized)
 
 
 def _seed(value: int, name: str) -> int:
