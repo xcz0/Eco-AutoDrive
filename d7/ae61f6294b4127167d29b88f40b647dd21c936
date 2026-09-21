@@ -1,0 +1,42 @@
+src/eco_planner/rl/rollout/collector.py
+  s_6840f40eeeb359::t_359307f7ddfdde 5
+  s_6840f40eeeb359::t_2732a34a058c2b 664,667
+  s_6840f40eeeb359::t_3a144e7f90d5d3 15,23
+  s_6840f40eeeb359::t_b084d3721efcd0 659-663,665-666,671-677
+  s_6840f40eeeb359::t_86356394ac2683 690-694
+schemes.md
+  s_6840f40eeeb359::t_939a9d1f1108ad 109,113
+  s_6840f40eeeb359::t_5d3ecb1d66150b 114
+tests/training/test_rollout.py
+  s_6840f40eeeb359::t_30f438727f1cd4 440-443,448
+  s_6840f40eeeb359::t_e4e45f81eab8cb 282-439,444-447,449-453
+  s_6840f40eeeb359::t_1caf5c7c4b9ffa 10-16,29
+src/eco_planner/rl/config.py
+  s_6840f40eeeb359::t_ba87d5a40478b3 20
+  s_6840f40eeeb359::t_2349a621fa57f9 195,197-200
+configs/jobs/training/ppo_conservative.yaml
+  s_6840f40eeeb359::t_8111b6ccca873a 30
+configs/jobs/training/rollout_smoke.yaml
+  s_6840f40eeeb359::t_5dcc9afc7e95e0 22
+src/eco_planner/rl/rollout/contracts.py
+  s_6840f40eeeb359::t_8a611cab1168be 140
+  s_6840f40eeeb359::t_147c499a85486a 371-381
+configs/components/ppo_training.yaml
+  s_6840f40eeeb359::t_603e2a17d64286 32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "d7ae61f6294b4127167d29b88f40b647dd21c936",
+  "prompts": {},
+  "sessions": {
+    "s_6840f40eeeb359": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f3cfb76b5ffejNpo2vr03N1DEf",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
