@@ -76,7 +76,7 @@
 
 ### E2 — reward transition 聚合（纯函数）
 
-状态：未开始
+状态：已完成
 
 目标：在 `reward` 包内实现多 substep `RewardResult` 的纯聚合，作为唯一权威数学；不接入 RL，先独立可测。
 
@@ -86,7 +86,7 @@
   - 输入非空校验；`profile_name` 必须一致，否则失败（不静默混合 profile）。
   - 显式逐字段规则：
     - sum：`total`、`base_total`、`RewardComponents.*`；additive diagnostics（`route_progress_delta_m`、`step_distance_m`、`native_step_energy_ml`、`native_episode_energy_ml`、`executed_fuel_proxy_step_energy_ml`）。
-    - mean：intensive diagnostics（`speed_mps`、`speed_limit_mps`、`overspeed_mps`、`longitudinal_acceleration_mps2`、`lateral_acceleration_mps2`、`jerk_mps3`、`yaw_rate_radps`、`min_ttc_s`）。
+    - mean：intensive diagnostics（`speed_mps`、`speed_limit_mps`、`overspeed_mps`、`longitudinal_acceleration_mps2`、`lateral_acceleration_mps2`、`jerk_mps3`、`yaw_rate_radps`、`min_ttc_s`、`executed_fuel_proxy_ml_per_km`）。
     - any：`has_ttc_candidate`；all：`energy_distance_valid`。
     - min：`safety_gate`、`collision_score`、`drivable_score`、`wrong_direction_score`。
   - 文档说明：多 substep 时 `total != base_total * safety_gate`，`total` 是 PPO 权威标量。

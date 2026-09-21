@@ -6,6 +6,7 @@ it does not import rollout episodes, PPO batches, collectors, or training state.
 
 from __future__ import annotations
 
+from .aggregation import aggregate_transition_reward
 from .calibration import (
     MOTION_LIMITS,
     CalibrationTargets,
@@ -42,6 +43,7 @@ __all__ = [
     "RewardProfileConfig",
     "RewardProfileName",
     "RewardResult",
+    "aggregate_transition_reward",
     "apply_safety_gate",
     "calibrate",
     "combine_component_scores",
