@@ -1,0 +1,60 @@
+src/eco_planner/experiments/credit/runner.py
+  s_d6076b956b5115::t_2cd2becb536447 17
+  s_d6076b956b5115::t_991876b3c9fa2b 23,25,28-29
+src/eco_planner/experiments/credit/config.py
+  s_d6076b956b5115::t_b2ce016a21f211 9
+src/eco_planner/experiments/reward/runner.py
+  s_d6076b956b5115::t_8064f4f3fccaa2 16
+  s_d6076b956b5115::t_7ede2d26ad0563 19-20,24-25
+src/eco_planner/rl/reward.py
+  s_d6076b956b5115::t_ccd2cdc57422ea 1-9,14,20-30,35-74,138,144-156
+src/eco_planner/reward/calibration.py
+  s_d6076b956b5115::t_46dea5bd343a17 1-7,10-36,39-42,44-57,60-72,74-75,77-102
+  s_d6076b956b5115::t_5684a64a7e4e74 37-38
+  s_d6076b956b5115::t_d23951c337bd18 43
+  s_d6076b956b5115::t_a84363a9d49533 58-59
+  s_d6076b956b5115::t_d0898de6a42c5b 73
+  s_d6076b956b5115::t_f508b11f43779f 76
+docs/agents/contracts/experiments.md
+  s_d6076b956b5115::t_56fe6c7a48196e 12
+docs/agents/contracts/training.md
+  s_d6076b956b5115::t_e68d37d0d17a9a 31
+src/eco_planner/reward/objectives/plannerrft.py
+  s_d6076b956b5115::t_43c44b2fbe7260 105
+  s_d6076b956b5115::t_27258310b0a987 6-8
+  s_d6076b956b5115::t_6e393b134f49cc 33-55
+  s_d6076b956b5115::t_ffed9c4289efd0 148-149
+  s_d6076b956b5115::t_61ea3882693b15 132
+  s_d6076b956b5115::t_4593052b9da167 143
+tests/training/test_reward_calibration.py
+  s_d6076b956b5115::t_972ccbc0ea2c87 11
+  s_d6076b956b5115::t_bbb55506ff8619 14
+src/eco_planner/reward/objectives/__init__.py
+  s_d6076b956b5115::t_21edf0da31aebf 3-8,11-12
+src/eco_planner/reward/__init__.py
+  s_d6076b956b5115::t_74f2f53171360f 9-16,25-30,34-36,45-47,50,54
+tests/training/test_credit_assignment.py
+  s_d6076b956b5115::t_3a774e6dde537a 31,34
+  s_d6076b956b5115::t_19f9e3e158162e 67
+  s_d6076b956b5115::t_04d71862b77497 19
+tests/training/test_fixed_batch.py
+  s_d6076b956b5115::t_d503ea453af7a3 19
+src/eco_planner/experiments/reward/config.py
+  s_d6076b956b5115::t_da84b7ddbd7384 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "a5f1b258c3fa7eb0e75f7d9748c93b0e5a94def6",
+  "prompts": {},
+  "sessions": {
+    "s_d6076b956b5115": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f3e40164cffeG0DXxT82K2wV4s",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
