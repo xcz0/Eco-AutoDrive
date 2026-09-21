@@ -9,7 +9,7 @@
 | 模块 | 输入与职责 |
 | --- | --- |
 | `rl.rollout.collection`、`fixed_batch` | 已 resolved 配置及 typed TrainingJobConfig；一次固定批次采集、读写、索引和拼接 |
-| `rl.reward.reweighting`、`calibration` | episode、reward 配置及校准参数；组件提取、重加权、energy-only、Progress/Comfort 校准及 energy-band 重评分 |
+| `reward.calibration`、`rl.reward` | reward 配置及校准参数；Progress/Comfort 校准与 energy-band 阈值数学、组件归一化与 safety-gate 缩放归 `reward`；`rl.reward` 只做 episode/audit 测量提取、调用 reward 纯函数并把 scalar reward / audit 写回 TensorDict（重加权、energy-only、重评分） |
 | `planning.policy` | policy 架构、affine-Beta 动作与采样、policy-only checkpoint 存取与 `policy_state_hash` |
 | `rl.optimization` | PPO batch/GAE/normalization、advantage/critic 消融、actor backward、参数变化与更新后 KL 测量 |
 | `evaluation.intervention` | 已准备的 runtime、环境、场景、动作与窗口；reset/step、固定噪声、终止处理和部分原始证据 |

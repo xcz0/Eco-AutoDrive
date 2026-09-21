@@ -16,6 +16,7 @@ from eco_planner.experiments.credit.decisions import (
     evaluate_gate,
 )
 from eco_planner.reward import (
+    EnergyBandConfig,
     PlannerRFTNoEnergyRewardConfig,
     evaluate_plannerrft_energy_step,
     evaluate_plannerrft_no_energy_step,
@@ -27,11 +28,10 @@ from eco_planner.rl.optimization.credit import (
     zero_critic_values,
 )
 from eco_planner.rl.optimization.ppo import normalize_full_batch_advantage
-from eco_planner.rl.reward.calibration import rescore
-from eco_planner.rl.reward.calibration_config import EnergyBandConfig
-from eco_planner.rl.reward.reweighting import (
+from eco_planner.rl.reward import (
     COMPONENTS,
     energy_only_reward,
+    rescore,
     reward_profile,
     reweight,
 )
@@ -64,6 +64,7 @@ def test_reweight_matches_reward_profiles_without_mutating_source(weight, gate):
     episode.audit["reward_safety_gate"].fill_(gate)
     original = episode.training.clone()
     matched = reweight(episode, profile)
+    assert matched.audit["reward_base_total"].item() == pytest.approx(result.base_total, abs=1e-7)
     assert matched.training["next", "reward"].item() == pytest.approx(
         result.base_total * gate,
         abs=1e-7,

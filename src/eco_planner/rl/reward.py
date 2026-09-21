@@ -1,25 +1,77 @@
+"""RL rollout adapter for reward calibration, reweighting, and offline rescoring.
+
+Pure reward math, configuration, calibration, and objective scalarization are
+owned by ``eco_planner.reward``. This adapter reads and writes ``RolloutEpisode``
+audit / training TensorDicts: it extracts measurement arrays, delegates the
+numeric work to ``eco_planner.reward``, and writes component scores and scalar
+reward back into the episode.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
+from typing import cast
 
 import numpy as np
 import torch
 from tensordict import cat
 
-from eco_planner.reward import PlannerRFTNoEnergyRewardConfig, component_score, score_delta
+from eco_planner.reward import (
+    MOTION_LIMITS,
+    EnergyBandConfig,
+    PlannerRFTEnergyRewardConfig,
+    PlannerRFTNoEnergyRewardConfig,
+    RewardProfileConfig,
+    apply_safety_gate,
+    combine_component_scores,
+    energy_band_thresholds,
+    scored_arrays,
+)
 from eco_planner.reward.components.energy import calibrated_band_score
 from eco_planner.reward.config import EnergyRewardConfig
 from eco_planner.rl import RolloutEpisode
-from eco_planner.rl.reward.calibration_config import CalibrationTargets, EnergyBandConfig
-from eco_planner.rl.reward.reweighting import reweight
 
-MOTION_LIMITS = {
-    "longitudinal_acceleration_mps2": "longitudinal_acceleration_limit_mps2",
-    "lateral_acceleration_mps2": "lateral_acceleration_limit_mps2",
-    "jerk_mps3": "jerk_limit_mps3",
-    "yaw_rate_radps": "yaw_rate_limit_radps",
-}
+COMPONENTS = ("ttc", "progress", "comfort", "speed", "energy")
+
+
+def reward_profile(base: PlannerRFTNoEnergyRewardConfig, weight: float) -> RewardProfileConfig:
+    if weight == 0:
+        return base
+    payload = base.model_dump()
+    payload["name"] = "plannerrft_energy_v1"
+    payload["weights"]["energy"] = weight
+    return PlannerRFTEnergyRewardConfig.model_validate(payload)
+
+
+def reweight(episode: RolloutEpisode, profile: RewardProfileConfig) -> RolloutEpisode:
+    # Recompose fixed audited scores; no environment or component calibration is rerun.
+    audit = episode.audit.clone()
+    weights = profile.weights.model_dump()
+    components = {
+        name: cast(torch.Tensor, audit[f"reward_component_{name}"].double()) for name in weights
+    }
+    base = cast(torch.Tensor, combine_component_scores(weights, components))
+    guarded = apply_safety_gate(base, audit["reward_safety_gate"].double())
+    total = cast(torch.Tensor, guarded).float()
+    audit["reward_base_total"] = base.float()
+    audit["reward_total"] = total
+    training = episode.training.clone()
+    training["next", "reward"] = total.to(training["next", "reward"])
+    return replace(episode, training=training, audit=audit, reward_profile=profile.name)
+
+
+def energy_only_reward(episode: RolloutEpisode) -> RolloutEpisode:
+    """Objective endpoint: safety gate times the audited energy score; diagnostic only."""
+    audit = episode.audit.clone()
+    energy = audit["reward_component_energy"].double()
+    guarded = apply_safety_gate(energy, audit["reward_safety_gate"].double())
+    total = cast(torch.Tensor, guarded).float()
+    audit["reward_base_total"] = energy.float()
+    audit["reward_total"] = total
+    training = episode.training.clone()
+    training["next", "reward"] = total.to(training["next", "reward"])
+    return replace(episode, training=training, audit=audit)
 
 
 def raw_arrays(episodes: list[RolloutEpisode]) -> dict[str, np.ndarray]:
@@ -28,50 +80,6 @@ def raw_arrays(episodes: list[RolloutEpisode]) -> dict[str, np.ndarray]:
         key: audit[key].numpy().astype(np.float64).reshape(-1)
         for key in ("route_progress_delta_m", *MOTION_LIMITS)
     }
-
-
-def scored_arrays(
-    raw: dict[str, np.ndarray], profile: PlannerRFTNoEnergyRewardConfig
-) -> dict[str, np.ndarray]:
-    result = {
-        "progress": np.asarray(
-            [
-                score_delta(x, profile.progress.full_score_delta_m)
-                for x in raw["route_progress_delta_m"]
-            ]
-        )
-    }
-    for key, field in MOTION_LIMITS.items():
-        result[key] = np.asarray(
-            [component_score(abs(x), getattr(profile.comfort, field)) for x in raw[key]]
-        )
-    result["comfort"] = np.min([result[key] for key in MOTION_LIMITS], axis=0)
-    return result
-
-
-def calibrate(
-    raw: dict[str, np.ndarray],
-    base: PlannerRFTNoEnergyRewardConfig,
-    study: CalibrationTargets,
-) -> PlannerRFTNoEnergyRewardConfig:
-    for value in raw.values():
-        if value.size == 0 or not np.isfinite(value).all():
-            raise ValueError("calibration requires nonempty finite motion arrays")
-    positive = raw["route_progress_delta_m"][raw["route_progress_delta_m"] > 0]
-    if not positive.size:
-        raise ValueError("progress calibration requires positive route progress")
-    payload = base.model_dump()
-    payload["progress"]["full_score_delta_m"] = float(
-        np.median(positive) / study.progress_target_score
-    )
-    old_scores = scored_arrays(raw, base)
-    for key, field in MOTION_LIMITS.items():
-        if np.any(old_scores[key] == 0):
-            payload["comfort"][field] = max(
-                getattr(base.comfort, field),
-                float(np.median(np.abs(raw[key])) / (2 - study.comfort_target_score)),
-            )
-    return PlannerRFTNoEnergyRewardConfig.model_validate(payload)
 
 
 def rescore_energy(episode: RolloutEpisode, energy: EnergyRewardConfig) -> RolloutEpisode:
@@ -127,10 +135,22 @@ def apply_energy_band(
     """Derive the energy representation from this batch's intensity distribution."""
     audit = cat([episode.audit for episode in episodes])
     intensity = audit["executed_fuel_proxy_ml_per_km"].numpy().astype(np.float64).reshape(-1)
-    full = float(np.quantile(intensity, band.full_score_intensity_quantile))
-    zero = float(np.quantile(intensity, band.zero_score_intensity_quantile))
+    full, zero = energy_band_thresholds(intensity, band)
     payload = calibrated.model_dump()
     payload["energy"]["mode"] = "calibrated_band"
     payload["energy"]["band_full_score_ml_per_km"] = full
     payload["energy"]["band_zero_score_ml_per_km"] = zero
     return PlannerRFTNoEnergyRewardConfig.model_validate(payload)
+
+
+__all__ = [
+    "COMPONENTS",
+    "apply_energy_band",
+    "energy_only_reward",
+    "raw_arrays",
+    "rescore",
+    "rescore_energy",
+    "reward_profile",
+    "reweight",
+    "verify_original_components",
+]

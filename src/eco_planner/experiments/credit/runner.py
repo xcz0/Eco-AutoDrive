@@ -14,19 +14,21 @@ from eco_planner.analysis import publish
 from eco_planner.analysis.statistics import advantage_comparison, gradient_comparison, rmse
 from eco_planner.artifacts import write_json, write_npz
 from eco_planner.configuration import load_resolved_yaml_mapping
+from eco_planner.reward import calibrate
 from eco_planner.reward.config import PlannerRFTNoEnergyRewardConfig
 from eco_planner.rl.optimization import PPOUpdater
 from eco_planner.rl.optimization.credit import credit_batch
 from eco_planner.rl.optimization.diagnostic_runtime import restore_runtime, write_runtime_metadata
 from eco_planner.rl.optimization.gradients import GRADIENT_GROUPS, diagnostic_variants
-from eco_planner.rl.reward.calibration import (
+from eco_planner.rl.reward import (
     apply_energy_band,
-    calibrate,
+    energy_only_reward,
     raw_arrays,
     rescore,
+    reward_profile,
+    reweight,
     verify_original_components,
 )
-from eco_planner.rl.reward.reweighting import energy_only_reward, reward_profile, reweight
 from eco_planner.rl.rollout.contracts import RolloutEpisode
 from eco_planner.rl.rollout.fixed_batch import load_fixed_batch
 

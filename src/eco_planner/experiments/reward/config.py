@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, model_validator
 
-from eco_planner.rl.reward.calibration_config import CalibrationTargets, EnergyBandConfig
+from eco_planner.reward import CalibrationTargets, EnergyBandConfig
 
 
 class RewardStudyConfig(BaseModel):

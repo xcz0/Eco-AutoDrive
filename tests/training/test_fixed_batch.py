@@ -16,8 +16,7 @@ from eco_planner.planning.policy import (
 )
 from eco_planner.rl.config import parse_training_config
 from eco_planner.rl.optimization.diagnostic_runtime import restore_runtime
-from eco_planner.rl.reward.calibration import rescore
-from eco_planner.rl.reward.reweighting import reweight
+from eco_planner.rl.reward import rescore, reweight
 from eco_planner.rl.rollout.fixed_batch import (
     load_batch,
     load_fixed_batch,

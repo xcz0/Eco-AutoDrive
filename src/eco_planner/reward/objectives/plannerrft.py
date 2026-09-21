@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
-from dataclasses import fields
+from collections.abc import Mapping
+from dataclasses import asdict, fields
+from typing import Any
 
 from eco_planner.envs.domain import TransitionMetrics
 
@@ -26,6 +28,29 @@ from ..result import (
     RewardProfileName,
     RewardResult,
 )
+
+
+def combine_component_scores(
+    weights: Mapping[str, float],
+    component_scores: Mapping[str, Any],
+) -> Any:
+    """Normalized weighted sum shared by online and offline objective evaluation.
+
+    Accepts scalar or tensor component scores; only the component names present in
+    ``weights`` participate, so a no-energy profile keeps its denominator at four.
+    """
+
+    total: Any = None
+    for name, weight in weights.items():
+        term = component_scores[name] * weight
+        total = term if total is None else total + term
+    return total / sum(weights.values())
+
+
+def apply_safety_gate(base_total: Any, safety_gate: Any) -> Any:
+    """Apply the PlannerRFT safety gate to a base total."""
+
+    return safety_gate * base_total
 
 
 def _evaluate_shared(
@@ -77,7 +102,7 @@ def _finalize(
 ) -> RewardResult:
     result = RewardResult(
         profile_name=profile_name,
-        total=gate * base_total,
+        total=apply_safety_gate(base_total, gate),
         base_total=base_total,
         safety_gate=gate,
         components=components,
@@ -104,14 +129,7 @@ def evaluate_plannerrft_energy_step(
     """Evaluate one transition without accessing simulator or runtime objects."""
 
     gate, components, diagnostics = _evaluate_shared(config, metrics)
-    weights = config.weights
-    base_total = (
-        weights.ttc * components.ttc
-        + weights.progress * components.progress
-        + weights.comfort * components.comfort
-        + weights.speed * components.speed
-        + weights.energy * components.energy
-    ) / weights.total
+    base_total = combine_component_scores(config.weights.model_dump(), asdict(components))
     return _finalize(config.name, gate, base_total, components, diagnostics)
 
 
@@ -122,17 +140,13 @@ def evaluate_plannerrft_no_energy_step(
     """Evaluate the no-energy R0 objective; energy stays an unweighted diagnostic."""
 
     gate, components, diagnostics = _evaluate_shared(config, metrics)
-    weights = config.weights
-    base_total = (
-        weights.ttc * components.ttc
-        + weights.progress * components.progress
-        + weights.comfort * components.comfort
-        + weights.speed * components.speed
-    ) / weights.total
+    base_total = combine_component_scores(config.weights.model_dump(), asdict(components))
     return _finalize(config.name, gate, base_total, components, diagnostics)
 
 
 __all__ = [
+    "apply_safety_gate",
+    "combine_component_scores",
     "evaluate_plannerrft_energy_step",
     "evaluate_plannerrft_no_energy_step",
 ]
