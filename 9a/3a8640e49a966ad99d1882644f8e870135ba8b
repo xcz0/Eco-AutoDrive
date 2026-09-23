@@ -1,0 +1,44 @@
+docs/adr/0038-consolidate-scientific-workflows.md
+  s_a9526db7e8e028::t_2ba645e40d78cc 3-4
+docs/agents/system-contract.md
+  s_a9526db7e8e028::t_de18d0fe19e5a9 36
+  s_a9526db7e8e028::t_e12b4d212e84cb 83
+  s_a9526db7e8e028::t_aa968eb7110e83 50
+docs/agents/contracts/training.md
+  s_a9526db7e8e028::t_351fe44585c9b8 29
+  s_a9526db7e8e028::t_66f1bebb5bf3f4 39
+  s_a9526db7e8e028::t_2251cdbc6e5e97 55
+docs/adr/0017-add-10hz-rollout-contract.md
+  s_a9526db7e8e028::t_dd903e3fb55547 3-4
+tests/simulation/test_execution_consistency.py
+  s_a9526db7e8e028::t_0e41e5b2ab851c 36
+  s_a9526db7e8e028::t_e4ba5a9efd551a 55,122-123
+  s_a9526db7e8e028::t_4038baf8209014 1-35,37-54,56-83,85,88-121,124-184
+  s_a9526db7e8e028::t_7fcbfd9684093c 84,86-87
+docs/agents/contracts/experiments.md
+  s_a9526db7e8e028::t_12593aa17eb877 65
+  s_a9526db7e8e028::t_032671c5ccd92b 59
+  s_a9526db7e8e028::t_a74b02d45e9e8a 47
+CONTEXT.md
+  s_a9526db7e8e028::t_76290c0357031f 9
+docs/agents/domain.md
+  s_a9526db7e8e028::t_9a714901d3a6e5 11
+docs/adr/0039-unify-closed-loop-cadence.md
+  s_a9526db7e8e028::t_6e74912830fe38 1-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "9a3a8640e49a966ad99d1882644f8e870135ba8b",
+  "prompts": {},
+  "sessions": {
+    "s_a9526db7e8e028": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f3cd276f6ffe7992eHBnp5bdQC",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
