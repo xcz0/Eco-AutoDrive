@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from types import SimpleNamespace
 
 import numpy as np
@@ -8,13 +9,34 @@ import pytest
 import torch
 
 from eco_planner.analysis.reward import dynamic_range_audit
-from eco_planner.reward import MOTION_LIMITS, calibrate, scored_arrays
+from eco_planner.reward import (
+    MOTION_LIMITS,
+    PlannerRFTNoEnergyRewardConfig,
+    aggregate_transition_reward,
+    calibrate,
+    evaluate_plannerrft_energy_step,
+    evaluate_plannerrft_no_energy_step,
+    scored_arrays,
+)
 from eco_planner.reward.components.comfort import component_score
-from eco_planner.rl.artifacts import write_rollout_episode
-from eco_planner.rl.reward import raw_arrays, rescore, reward_profile, verify_original_components
+from eco_planner.rl.artifacts import read_rollout_episode, write_rollout_episode
+from eco_planner.rl.reward import (
+    COMPONENTS,
+    raw_arrays,
+    rescore,
+    reward_profile,
+    reweight,
+    verify_original_components,
+)
+from eco_planner.rl.rollout import (
+    ExecutionTransitionAudit,
+    RolloutEpisodeBuilder,
+    RolloutProvenance,
+    build_training_decision,
+)
 from eco_planner.rl.rollout.fixed_batch import load_batch
-from tests.training.test_ppo import _episode
-from tests.training.test_reward import _no_energy_config
+from tests.training.test_ppo import _context, _decision_audit, _episode
+from tests.training.test_reward import _metrics, _no_energy_config
 
 
 def _study():
@@ -92,7 +114,7 @@ def test_rescore_preserves_actions_values_boundaries_and_source(terminated, trun
     episode = _episode(
         reward=0.4, terminated=terminated, truncated=truncated, bootstrap=0.0 if terminated else 2.0
     )
-    episode.audit["jerk_mps3"].fill_(140)
+    episode.audit["reward_substep_jerk_mps3"].fill_(140)
     original = rescore(episode, base)
     verify_original_components([original], base)
     snapshots = original.training.clone(), original.audit.clone()
@@ -111,6 +133,8 @@ def test_rescore_preserves_actions_values_boundaries_and_source(terminated, trun
             "reward_component_comfort",
             "reward_base_total",
             "reward_total",
+            "reward_substep_component_progress",
+            "reward_substep_component_comfort",
         }:
             torch.testing.assert_close(changed.audit[key], original.audit[key], rtol=0, atol=0)
     assert changed.tail_kind == original.tail_kind
@@ -153,3 +177,105 @@ def test_calibration_rejects_absent_positive_progress_and_nonfinite_measurements
     raw["jerk_mps3"][0] = np.nan
     with pytest.raises(ValueError, match="finite motion"):
         calibrate(raw, _no_energy_config(), _study())
+
+
+def _band_profile() -> PlannerRFTNoEnergyRewardConfig:
+    payload = _no_energy_config().model_dump(mode="python")
+    payload["energy"] = {
+        "mode": "calibrated_band",
+        "reference_ml_per_km": 50.0,
+        "minimum_step_distance_m": 0.01,
+        "band_full_score_ml_per_km": 44.0,
+        "band_zero_score_ml_per_km": 50.0,
+    }
+    return PlannerRFTNoEnergyRewardConfig.model_validate(payload)
+
+
+def _five_substep_parity_case(base: PlannerRFTNoEnergyRewardConfig):
+    metrics = (
+        _metrics(),
+        _metrics(route_progress_delta_m=0.4, velocity_xy_mps=(12.0, 0.0)),
+        _metrics(position_xy_m=(0.0, 0.0), velocity_xy_mps=(0.0, 0.0), route_progress_delta_m=0.0),
+        _metrics(crash_vehicle=True),
+        _metrics(route_heading_rad=math.pi),
+    )
+    results = tuple(evaluate_plannerrft_no_energy_step(base, metric) for metric in metrics)
+    execution = ExecutionTransitionAudit(
+        reward_result=aggregate_transition_reward(results),
+        substep_results=results,
+        route_completion_delta=0.1,
+        distance_m=5.0,
+        speed_mps=10.0,
+        stopped=False,
+        collision=False,
+        wrong_direction=False,
+        position_error_m=0.0,
+        heading_error_rad=0.0,
+        arrive_dest=False,
+        out_of_road=False,
+        crash_vehicle=False,
+        crash_object=False,
+        crash_building=False,
+        crash_human=False,
+        crash_sidewalk=False,
+        terminated=True,
+        truncated=False,
+    )
+    builder = RolloutEpisodeBuilder()
+    builder.append(
+        build_training_decision(
+            _context(),
+            torch.tensor([[-0.5, 0.5]]),
+            torch.tensor([0.5]),
+            torch.tensor([1.0]),
+        ),
+        _decision_audit(),
+        execution,
+        RolloutProvenance(0, 1, 2, 0),
+    )
+    return builder.finish("terminated", torch.zeros(1)), metrics, results
+
+
+def test_five_substep_fixed_batch_online_offline_parity(tmp_path):
+    base = _no_energy_config()
+    episode, metrics, results = _five_substep_parity_case(base)
+    path = tmp_path / "updates/update-000/slot-0-episode-0.npz"
+    write_rollout_episode(path, episode)
+    loaded = read_rollout_episode(path)
+
+    # The online transition scalar is sum(gate_i * base_i), never min(gate) * sum(base).
+    assert loaded.audit["reward_total"].item() == pytest.approx(
+        sum(result.total for result in results)
+    )
+    assert loaded.audit["reward_safety_gate"].item() == pytest.approx(
+        min(result.safety_gate for result in results)
+    )
+    assert loaded.audit["reward_safety_gate"].item() == 0.0
+    assert sum(result.base_total for result in results) > 0.0
+
+    # Offline verification reproduces the online per-substep objective exactly.
+    verify_original_components([loaded], base)
+
+    # Offline reweighting matches the online objective under the same new weights.
+    profile = reward_profile(base, 16.0)
+    reweighted = reweight(loaded, profile)
+    online_reweighted = [evaluate_plannerrft_energy_step(profile, metric) for metric in metrics]
+    assert reweighted.training["next", "reward"].item() == pytest.approx(
+        sum(result.total for result in online_reweighted)
+    )
+    for name in COMPONENTS:
+        assert reweighted.audit[f"reward_component_{name}"].item() == pytest.approx(
+            sum(getattr(result.components, name) for result in online_reweighted)
+        )
+
+    # Offline calibrated-band rescoring matches the online per-substep rescore.
+    band = _band_profile()
+    rescorced = rescore(loaded, band)
+    online_rescorced = aggregate_transition_reward(
+        [evaluate_plannerrft_no_energy_step(band, metric) for metric in metrics]
+    )
+    for name in COMPONENTS:
+        assert rescorced.audit[f"reward_component_{name}"].item() == pytest.approx(
+            getattr(online_rescorced.components, name)
+        )
+    assert rescorced.training["next", "reward"].item() == pytest.approx(online_rescorced.total)

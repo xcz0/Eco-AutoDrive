@@ -25,13 +25,24 @@ training rollout 与 evaluation 使用唯一 canonical closed-loop cadence：
 - matched causal intervention 诊断可显式传入其他 `execution_steps`；该覆盖不改变 baseline 契约或
   正式 transition 语义。
 
-多 substep transition 的 reward 聚合由 `reward.aggregate_transition_reward` 唯一拥有：
-`total`、`base_total`、components 与 additive diagnostics 求和，intensive diagnostics 取均值，
-`has_ttc_candidate` 取 any、`energy_distance_valid` 取 all，gate-like score（`safety_gate`、
-`collision_score`、`drivable_score`、`wrong_direction_score`）取最小值。因此多 substep 时
-`total != base_total * safety_gate`；`total` 是唯一权威 PPO 标量。transition 级 domain 聚合同样显式：
+多 substep transition 的 reward 聚合由 `reward.aggregate_substep_rewards` 唯一拥有，在线 transition 边界
+`aggregate_transition_reward` 与离线 reweight/rescore 共用同一归约：`total`、`base_total` 与 components 求和，
+`safety_gate` 取最小值。因此多 substep 时 `total != base_total * safety_gate`；`total` 是唯一权威 PPO 标量。
+`aggregate_transition_reward` 的 diagnostics 规则显式：`route_progress_delta_m`、`step_distance_m`、
+`native_step_energy_ml`、`executed_fuel_proxy_step_energy_ml` 求和；`native_episode_energy_ml` 是 MetaDrive
+的 episode 累计值，取最后一个 substep 而非求和；`executed_fuel_proxy_ml_per_km` 是 `ml/km` 比率，按
+`sum(fuel) / sum(distance) * 1000` 距离加权，而非算术平均；其余 intensive diagnostics 取均值；
+`has_ttc_candidate` 取 any、`energy_distance_valid` 取 all，gate-like score（`collision_score`、
+`drivable_score`、`wrong_direction_score`）取最小值。transition 级 domain 聚合同样显式：
 `distance_m` 求和，`speed_mps`/`position_error_m`/`heading_error_rad` 取均值，
 `stopped`/`collision`/`wrong_direction` 取 any。
+
+在线求值把每个 substep 的 component score、safety gate 与重校准输入（progress/comfort 运动量、
+fuel-proxy step energy、step distance、energy distance validity、substep count）显式持久化到 rollout audit。
+`eco_planner.rl.reward` 的离线 reweight/rescore、`verify_original_components`、energy-band 阈值推导与校准
+逐 substep 重建 objective 后再用同一归约，避免用 `min(gate) * sum(base)` 或对非线性逐 substep 分量做单次
+缩放造成 online/offline reward–credit 分叉。
+
 
 `gamma` 保持 per transition（当前 0.99），不做 rebase。canonical cadence 下每个 transition 覆盖
 0.5 s，因此有效折扣视界由约 10 s 变为约 50 s。这是有意的科学语义变更，显式记录而不补偿。

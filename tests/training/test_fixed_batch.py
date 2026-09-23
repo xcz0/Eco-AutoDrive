@@ -53,10 +53,14 @@ def fixed_source(tmp_path):
     slots = [[], []]
     for index, action in enumerate([(-0.5, 0.2), (0.3, -0.7), (-0.1, -0.4), (0.6, 0.8)]):
         episode = _behavior_policy_episode(policy, torch.tensor([action]), reward=0.5)
-        episode.audit["route_progress_delta_m"].fill_(0.2 * (index + 1))
-        episode.audit["reward_component_energy"].fill_([0.9, 0.5, 0.7, 0.3][index])
-        episode.audit["executed_fuel_proxy_ml_per_km"].fill_([46.0, 48.0, 47.0, 49.0][index])
-        episode.audit["reward_safety_gate"].fill_([1.0, 0.5, 1.0, 0.25][index])
+        episode.audit["reward_substep_route_progress_delta_m"].fill_(0.2 * (index + 1))
+        episode.audit["reward_substep_component_energy"].fill_([0.9, 0.5, 0.7, 0.3][index])
+        episode.audit["reward_substep_step_distance_m"].fill_(1.0)
+        episode.audit["reward_substep_executed_fuel_proxy_step_energy_ml"].fill_(
+            [46.0, 48.0, 47.0, 49.0][index] / 1000.0
+        )
+        episode.audit["reward_substep_energy_distance_valid"].fill_(True)
+        episode.audit["reward_substep_safety_gate"].fill_([1.0, 0.5, 1.0, 0.25][index])
         episode.audit["map_seed"].fill_(config.scenarios[index // 2].seed)
         slots[index // 2].append(rescore(reweight(episode, config.reward), config.reward))
     source = tmp_path / "batch"

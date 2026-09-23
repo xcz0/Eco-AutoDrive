@@ -664,9 +664,11 @@ def _execution_transition_audit(
             f"rollout transition must execute between 1 and {CLOSED_LOOP_EXECUTION_STEPS} substeps"
         )
     metrics = step.metrics
-    reward_result = aggregate_transition_reward([reward_evaluator(metric) for metric in metrics])
+    substep_results = tuple(reward_evaluator(metric) for metric in metrics)
+    reward_result = aggregate_transition_reward(substep_results)
     return ExecutionTransitionAudit(
         reward_result=reward_result,
+        substep_results=substep_results,
         route_completion_delta=float(execution.route_completion - previous_route_completion),
         distance_m=sum(metric.step_distance_m for metric in metrics),
         speed_mps=_mean(metric.speed_mps for metric in metrics),

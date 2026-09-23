@@ -2,56 +2,109 @@
 
 The canonical closed-loop cadence gives one PPO transition its own execution
 prefix of consecutive simulator substeps. Reward is evaluated per substep and
-reduced into a single transition result with the explicit per-field rules in
-`aggregate_transition_reward`. This module is pure: it applies no truncation,
-repair, or fallback and does not depend on rollout or training state.
+reduced into a single transition result. `aggregate_substep_rewards` owns the
+optimization-relevant reduction and is reused by the online transition boundary
+and by offline reweighting/rescoring, so the two paths cannot drift. This module
+is pure: it applies no truncation, repair, or fallback and does not depend on
+rollout or training state.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 
-from .result import RewardComponents, RewardDiagnostics, RewardResult
+from .result import RewardComponents, RewardDiagnostics, RewardProfileName, RewardResult
+
+
+@dataclass(frozen=True, slots=True)
+class SubstepReward:
+    """One substep's objective scalars needed to rebuild a transition reward.
+
+    This is the minimal reduction input shared by online collection and offline
+    reweighting/rescoring. It deliberately omits diagnostics: the transition
+    audit already carries those, and offline paths only rewrite the objective.
+    """
+
+    profile_name: RewardProfileName
+    total: float
+    base_total: float
+    safety_gate: float
+    components: RewardComponents
+
+
+def substep_reward(result: RewardResult) -> SubstepReward:
+    """Project one full evaluation result onto the reduction input."""
+
+    return SubstepReward(
+        profile_name=result.profile_name,
+        total=result.total,
+        base_total=result.base_total,
+        safety_gate=result.safety_gate,
+        components=result.components,
+    )
+
+
+def aggregate_substep_rewards(substeps: Sequence[SubstepReward]) -> SubstepReward:
+    """Reduce consecutive substep rewards into one transition reward.
+
+    The rule is fixed per objective field:
+
+    * sum: `total`, `base_total`, and every `RewardComponents` entry.
+    * min: `safety_gate`.
+
+    All substeps must share one `profile_name`; mixing profiles is an error.
+    `total` is the authoritative PPO scalar. With more than one substep it is
+    not equal to `base_total * safety_gate`, because the base total is summed
+    over substeps while the gate is their minimum.
+    """
+
+    if not substeps:
+        raise ValueError("aggregate_substep_rewards requires at least one SubstepReward")
+    profile_name = substeps[0].profile_name
+    if any(substep.profile_name != profile_name for substep in substeps):
+        raise ValueError("cannot aggregate SubstepRewards from different reward profiles")
+    return SubstepReward(
+        profile_name=profile_name,
+        total=sum(substep.total for substep in substeps),
+        base_total=sum(substep.base_total for substep in substeps),
+        safety_gate=min(substep.safety_gate for substep in substeps),
+        components=RewardComponents(
+            ttc=sum(substep.components.ttc for substep in substeps),
+            progress=sum(substep.components.progress for substep in substeps),
+            comfort=sum(substep.components.comfort for substep in substeps),
+            speed=sum(substep.components.speed for substep in substeps),
+            energy=sum(substep.components.energy for substep in substeps),
+        ),
+    )
 
 
 def aggregate_transition_reward(results: Sequence[RewardResult]) -> RewardResult:
     """Reduce consecutive substep results into one transition reward.
 
-    Aggregation is fixed per field:
+    Objective scalars come from `aggregate_substep_rewards` (sum/sum/min/sum).
+    Diagnostics use explicit rules:
 
-    * sum: `total`, `base_total`, `RewardComponents.*`, and additive
-      diagnostics (`route_progress_delta_m`, `step_distance_m`,
-      `native_step_energy_ml`, `native_episode_energy_ml`,
-      `executed_fuel_proxy_step_energy_ml`).
-    * mean: intensive diagnostics (`speed_mps`, `speed_limit_mps`,
+    * sum: additive diagnostics (`route_progress_delta_m`, `step_distance_m`,
+      `native_step_energy_ml`, `executed_fuel_proxy_step_energy_ml`).
+    * last: `native_episode_energy_ml`, which MetaDrive exposes as the running
+      episode cumulative value and therefore must not be summed over substeps.
+    * distance-weighted ratio: `executed_fuel_proxy_ml_per_km` is an intensive
+      `ml/km` ratio, so it is `sum(intensity_i * distance_i) / sum(distance_i)`
+      (equivalently `sum(fuel) / sum(distance) * 1000`), never a plain mean.
+    * mean: other intensive diagnostics (`speed_mps`, `speed_limit_mps`,
       `overspeed_mps`, `longitudinal_acceleration_mps2`,
-      `lateral_acceleration_mps2`, `jerk_mps3`, `yaw_rate_radps`, `min_ttc_s`,
-      `executed_fuel_proxy_ml_per_km`).
+      `lateral_acceleration_mps2`, `jerk_mps3`, `yaw_rate_radps`, `min_ttc_s`).
     * any: `has_ttc_candidate`; all: `energy_distance_valid`.
-    * min: gate-like scores (`safety_gate`, `collision_score`,
-      `drivable_score`, `wrong_direction_score`).
+    * min: gate-like scores (`collision_score`, `drivable_score`,
+      `wrong_direction_score`).
 
     All results must share one `profile_name`; mixing profiles is an error.
-    `total` is the authoritative PPO scalar. With more than one substep it is
-    not equal to `base_total * safety_gate`, because the base total is summed
-    over substeps while the gate is their minimum.
     """
+
     if not results:
         raise ValueError("aggregate_transition_reward requires at least one RewardResult")
-    profile_name = results[0].profile_name
-    if any(result.profile_name != profile_name for result in results):
-        raise ValueError("cannot aggregate RewardResults from different reward profiles")
-
-    total = sum(result.total for result in results)
-    base_total = sum(result.base_total for result in results)
-    safety_gate = min(result.safety_gate for result in results)
-    components = RewardComponents(
-        ttc=sum(result.components.ttc for result in results),
-        progress=sum(result.components.progress for result in results),
-        comfort=sum(result.components.comfort for result in results),
-        speed=sum(result.components.speed for result in results),
-        energy=sum(result.components.energy for result in results),
-    )
+    scalar = aggregate_substep_rewards([substep_reward(result) for result in results])
     diagnostics = RewardDiagnostics(
         collision_score=min(result.diagnostics.collision_score for result in results),
         drivable_score=min(result.diagnostics.drivable_score for result in results),
@@ -72,25 +125,32 @@ def aggregate_transition_reward(results: Sequence[RewardResult]) -> RewardResult
         yaw_rate_radps=_mean(result.diagnostics.yaw_rate_radps for result in results),
         step_distance_m=sum(result.diagnostics.step_distance_m for result in results),
         native_step_energy_ml=sum(result.diagnostics.native_step_energy_ml for result in results),
-        native_episode_energy_ml=sum(
-            result.diagnostics.native_episode_energy_ml for result in results
-        ),
+        native_episode_energy_ml=results[-1].diagnostics.native_episode_energy_ml,
         executed_fuel_proxy_step_energy_ml=sum(
             result.diagnostics.executed_fuel_proxy_step_energy_ml for result in results
         ),
-        executed_fuel_proxy_ml_per_km=_mean(
-            result.diagnostics.executed_fuel_proxy_ml_per_km for result in results
-        ),
+        executed_fuel_proxy_ml_per_km=_distance_weighted_intensity(results),
         energy_distance_valid=all(result.diagnostics.energy_distance_valid for result in results),
     )
     return RewardResult(
-        profile_name=profile_name,
-        total=total,
-        base_total=base_total,
-        safety_gate=safety_gate,
-        components=components,
+        profile_name=scalar.profile_name,
+        total=scalar.total,
+        base_total=scalar.base_total,
+        safety_gate=scalar.safety_gate,
+        components=scalar.components,
         diagnostics=diagnostics,
     )
+
+
+def _distance_weighted_intensity(results: Sequence[RewardResult]) -> float:
+    distance_m = sum(result.diagnostics.step_distance_m for result in results)
+    if distance_m <= 0.0:
+        return 0.0
+    weighted = sum(
+        result.diagnostics.executed_fuel_proxy_ml_per_km * result.diagnostics.step_distance_m
+        for result in results
+    )
+    return weighted / distance_m
 
 
 def _mean(values: Iterable[float]) -> float:
@@ -98,4 +158,9 @@ def _mean(values: Iterable[float]) -> float:
     return sum(materialized) / len(materialized)
 
 
-__all__ = ["aggregate_transition_reward"]
+__all__ = [
+    "SubstepReward",
+    "aggregate_substep_rewards",
+    "aggregate_transition_reward",
+    "substep_reward",
+]

@@ -23,6 +23,7 @@ from eco_planner.rl.reward import (
     rescore,
     reward_profile,
     reweight,
+    substep_counts,
     verify_original_components,
 )
 from eco_planner.rl.rollout.collection import collect as collect_batch
@@ -55,6 +56,7 @@ def run(source: Path, config_path: Path, output: Path, *, figures: bool = True) 
     if study.energy_band is not None:
         profiles["band"] = apply_energy_band(calibrated, batch.episodes, study.energy_band)
     cycles = np.asarray([s["planning_cycle_index"] for s in batch.samples], dtype=np.int64)
+    counts = substep_counts(batch.episodes)
     audit, audit_arrays = dynamic_range_audit(
         raw,
         base,
@@ -63,8 +65,8 @@ def run(source: Path, config_path: Path, output: Path, *, figures: bool = True) 
         scored_arrays(raw, base),
         scored_arrays(raw, calibrated),
         MOTION_LIMITS,
-        batch.scenario_ids,
-        cycles,
+        np.repeat(batch.scenario_ids, counts),
+        np.repeat(cycles, counts),
     )
     arrays = {"scenario_index": batch.scenario_ids}
     arms = []

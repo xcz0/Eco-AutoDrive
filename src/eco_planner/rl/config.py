@@ -153,7 +153,9 @@ class TrainingJobConfig(_StrictModel):
     def validate_training_job(self) -> TrainingJobConfig:
         if not self.scenarios:
             raise ValueError("training requires at least one scenario")
-        _validate_rollout_environment(self.env, 0, self.training.transitions_per_environment)
+        _validate_rollout_environment(
+            self.env, self.training.history_warmup_steps, self.training.transitions_per_environment
+        )
         sample_count = len(self.scenarios) * self.training.transitions_per_environment
         if self.ppo.batch_size != sample_count:
             raise ValueError("ppo.batch_size must equal all closed-loop transitions per update")

@@ -687,7 +687,8 @@ def test_transition_aggregation_uses_explicit_sum_mean_any_all_min_rules() -> No
     assert aggregated.diagnostics.route_progress_delta_m == pytest.approx(4.0)
     assert aggregated.diagnostics.step_distance_m == pytest.approx(0.75)
     assert aggregated.diagnostics.native_step_energy_ml == pytest.approx(0.3)
-    assert aggregated.diagnostics.native_episode_energy_ml == pytest.approx(3.0)
+    # MetaDrive exposes episode energy as a running cumulative value: keep the last substep.
+    assert aggregated.diagnostics.native_episode_energy_ml == pytest.approx(2.0)
     assert aggregated.diagnostics.executed_fuel_proxy_step_energy_ml == pytest.approx(0.7)
     # mean for intensive diagnostics
     assert aggregated.diagnostics.min_ttc_s == pytest.approx(3.0)
@@ -698,7 +699,10 @@ def test_transition_aggregation_uses_explicit_sum_mean_any_all_min_rules() -> No
     assert aggregated.diagnostics.lateral_acceleration_mps2 == pytest.approx(7.0)
     assert aggregated.diagnostics.jerk_mps3 == pytest.approx(8.0)
     assert aggregated.diagnostics.yaw_rate_radps == pytest.approx(9.0)
-    assert aggregated.diagnostics.executed_fuel_proxy_ml_per_km == pytest.approx(9.0)
+    # `ml/km` is a ratio: distance-weighted, not a plain mean.
+    assert aggregated.diagnostics.executed_fuel_proxy_ml_per_km == pytest.approx(
+        (8.0 * 0.5 + 10.0 * 0.25) / 0.75
+    )
     # any / all for boolean flags
     assert aggregated.diagnostics.has_ttc_candidate is True
     assert aggregated.diagnostics.energy_distance_valid is False

@@ -62,34 +62,8 @@ def _transition():
         )
     )
     execution_audit = ExecutionTransitionAudit(
-        reward_result=RewardResult(
-            profile_name="plannerrft_energy_v1",
-            total=0.25,
-            base_total=0.25,
-            safety_gate=1.0,
-            components=RewardComponents(1.0, 0.5, 1.0, 1.0, 0.5),
-            diagnostics=RewardDiagnostics(
-                collision_score=1.0,
-                drivable_score=1.0,
-                wrong_direction_score=1.0,
-                has_ttc_candidate=False,
-                min_ttc_s=10.0,
-                route_progress_delta_m=1.0,
-                speed_mps=2.0,
-                speed_limit_mps=10.0,
-                overspeed_mps=0.0,
-                longitudinal_acceleration_mps2=0.0,
-                lateral_acceleration_mps2=0.0,
-                jerk_mps3=0.0,
-                yaw_rate_radps=0.0,
-                step_distance_m=1.0,
-                native_step_energy_ml=0.0,
-                native_episode_energy_ml=0.0,
-                executed_fuel_proxy_step_energy_ml=0.05,
-                executed_fuel_proxy_ml_per_km=50.0,
-                energy_distance_valid=True,
-            ),
-        ),
+        reward_result=_reward_result(0.25),
+        substep_results=(_reward_result(0.25),),
         route_completion_delta=0.1,
         distance_m=1.0,
         speed_mps=2.0,
@@ -177,7 +151,11 @@ def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path
     builder = RolloutEpisodeBuilder()
     training, audit, execution, provenance = _transition()
     execution = replace(
-        execution, reward_result=replace(execution.reward_result, profile_name=profile)
+        execution,
+        reward_result=replace(execution.reward_result, profile_name=profile),
+        substep_results=tuple(
+            replace(result, profile_name=profile) for result in execution.substep_results
+        ),
     )
     builder.append(training, audit, execution, provenance)
     episode = builder.finish("rollout_limit", torch.tensor([5.0]))
@@ -205,6 +183,14 @@ def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path
             reward_diagnostic_drivable_score reward_diagnostic_wrong_direction_score
             has_ttc_candidate min_ttc_s route_progress_delta_m speed_limit_mps overspeed_mps
             longitudinal_acceleration_mps2 lateral_acceleration_mps2 jerk_mps3 yaw_rate_radps
+            reward_substep_count reward_substep_safety_gate
+            reward_substep_component_ttc reward_substep_component_progress
+            reward_substep_component_comfort reward_substep_component_speed
+            reward_substep_component_energy reward_substep_route_progress_delta_m
+            reward_substep_longitudinal_acceleration_mps2
+            reward_substep_lateral_acceleration_mps2 reward_substep_jerk_mps3
+            reward_substep_yaw_rate_radps reward_substep_executed_fuel_proxy_step_energy_ml
+            reward_substep_step_distance_m reward_substep_energy_distance_valid
             reward_profile tail_kind tail_bootstrap_value
         """.split()
         )
@@ -213,10 +199,16 @@ def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path
             scene_padding_mask navigation_padding_mask stopped collision wrong_direction
             arrive_dest out_of_road
             crash_vehicle crash_object crash_building crash_human crash_sidewalk terminated
-            truncated energy_distance_valid has_ttc_candidate
+            truncated energy_distance_valid has_ttc_candidate reward_substep_energy_distance_valid
         """.split()
         )
-        integers = {"map_seed", "noise_seed", "policy_action_seed", "planning_cycle_index"}
+        integers = {
+            "map_seed",
+            "noise_seed",
+            "policy_action_seed",
+            "planning_cycle_index",
+            "reward_substep_count",
+        }
         for key in episode.audit.keys():
             expected_dtype = (
                 np.bool_
