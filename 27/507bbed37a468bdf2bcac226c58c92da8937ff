@@ -1,0 +1,49 @@
+src/eco_planner/reward/components/speed.py
+  s_976a8ded291183::t_a087081765aaab 38
+  s_976a8ded291183::t_28f67176a5dd3b 6,10-21
+src/eco_planner/reward/components/__init__.py
+  s_976a8ded291183::t_0242af8813bfa9 3-9,12-18
+src/eco_planner/reward/config.py
+  s_976a8ded291183::t_e662807e99ba6c 7,9-17,20,32,43,54
+src/eco_planner/evaluation/intervention.py
+  s_976a8ded291183::t_8202bf3817d46d 22
+src/eco_planner/evaluation/policy_intervention.py
+  s_976a8ded291183::t_13271f3e5f0015 30
+src/eco_planner/reward/components/ttc.py
+  s_976a8ded291183::t_2b7817dafda865 100
+  s_976a8ded291183::t_1cdfef6a7e3a5f 8,12-29
+src/eco_planner/rl/reward.py
+  s_976a8ded291183::t_6e656df075b6e0 38
+tests/training/test_guidance_control_authority.py
+  s_976a8ded291183::t_465dd59545b87a 29
+src/eco_planner/reward/components/safety.py
+  s_976a8ded291183::t_57bd74702dbdf2 44
+  s_976a8ded291183::t_c652d20d5c9ba6 5-6,9-17
+src/eco_planner/reward/components/comfort.py
+  s_976a8ded291183::t_9616d529dbf2e8 6,10-17
+  s_976a8ded291183::t_9969b8ca5e71ee 38
+src/eco_planner/reward/components/energy.py
+  s_976a8ded291183::t_c7ea6c5e37e4bb 6-8,12-36
+  s_976a8ded291183::t_71c332157b7726 82-87
+src/eco_planner/reward/components/strict.py
+  s_976a8ded291183::t_b4cc168e526525 1-12
+src/eco_planner/reward/components/progress.py
+  s_976a8ded291183::t_2c2d267e30157e 6,10-14
+  s_976a8ded291183::t_d0dfec2ac942f9 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "27507bbed37a468bdf2bcac226c58c92da8937ff",
+  "prompts": {},
+  "sessions": {
+    "s_976a8ded291183": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f33bff0f7ffepXZ3Fi3cDFt1Q0",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
