@@ -7,6 +7,10 @@ from typing import Literal
 
 RewardProfileName = Literal[
     "plannerrft_energy_v1",
+    "plannerrft_energy_band_lam1_v1",
+    "plannerrft_energy_band_lam2_v1",
+    "plannerrft_energy_band_lam4_v1",
+    "plannerrft_energy_band_lam8_v1",
     "plannerrft_energy_band_lam64_v1",
     "plannerrft_no_energy_v1",
     "plannerrft_no_energy_calibrated_v1",

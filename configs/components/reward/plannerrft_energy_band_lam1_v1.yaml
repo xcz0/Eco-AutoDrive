@@ -1,0 +1,53 @@
+# @package reward
+
+# Issue #83 Task 0A lambda arm: the calibrated PlannerRFT objective with the
+# energy component in the E-038 frozen calibrated efficiency-band
+# representation (P10/P90 two-sided saturation) and the energy weight at
+# lambda=1. Shares the E-034 frozen Progress/Comfort calibration with
+# plannerrft_no_energy_calibrated_v1; the only objective differences from the
+# other Issue #83 lambda arms are the profile identity and weights.energy.
+# Provisional smoke-only MetaDrive adaptation; not PlannerRFT/nuPlan scorer
+# parity and not a real-vehicle energy model.
+name: plannerrft_energy_band_lam1_v1
+
+weights:
+  ttc: 5.0
+  progress: 5.0
+  comfort: 2.0
+  speed: 4.0
+  energy: 1.0
+
+gates:
+  collision_vehicle: true
+  collision_object: true
+  collision_building: true
+  collision_human: true
+  collision_sidewalk: true
+
+ttc:
+  critical_ttc_s: 1.0
+  safe_ttc_s: 4.0
+  maximum_ttc_s: 10.0
+  minimum_closing_speed_mps: 0.1
+  lateral_margin_m: 0.5
+  longitudinal_margin_m: 0.5
+
+progress:
+  full_score_delta_m: 1.7813475926717124
+
+comfort:
+  longitudinal_acceleration_limit_mps2: 4.157548461641585
+  lateral_acceleration_limit_mps2: 3.0
+  jerk_limit_mps3: 111.70486995152065
+  yaw_rate_limit_radps: 0.5
+
+speed:
+  overspeed_margin_mps: 0.0
+  zero_score_overspeed_mps: 5.0
+
+energy:
+  mode: calibrated_band
+  reference_ml_per_km: 50.0
+  minimum_step_distance_m: 0.01
+  band_full_score_ml_per_km: 46.37086372375488
+  band_zero_score_ml_per_km: 48.7514030456543

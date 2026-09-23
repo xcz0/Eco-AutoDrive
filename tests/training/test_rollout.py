@@ -142,6 +142,10 @@ def test_rollout_constructs_next_values_and_tail_without_mutating_decisions(
     "profile",
     [
         "plannerrft_energy_v1",
+        "plannerrft_energy_band_lam1_v1",
+        "plannerrft_energy_band_lam2_v1",
+        "plannerrft_energy_band_lam4_v1",
+        "plannerrft_energy_band_lam8_v1",
         "plannerrft_energy_band_lam64_v1",
         "plannerrft_no_energy_v1",
         "plannerrft_no_energy_calibrated_v1",

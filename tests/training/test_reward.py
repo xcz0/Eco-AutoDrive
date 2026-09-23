@@ -555,6 +555,123 @@ def test_reward_results_and_audit_schema_carry_the_configured_profile_name() -> 
     )
 
 
+ISSUE83_LAMBDA_PROFILES = (
+    "plannerrft_energy_band_lam1_v1",
+    "plannerrft_energy_band_lam2_v1",
+    "plannerrft_energy_band_lam4_v1",
+    "plannerrft_energy_band_lam8_v1",
+)
+
+
+def test_issue83_lambda_arms_freeze_a_matched_calibrated_band_objective() -> None:
+    r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
+        _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
+    )
+    arms = {
+        name: PlannerRFTEnergyRewardConfig.model_validate(_task_g_profile_payload(name))
+        for name in ISSUE83_LAMBDA_PROFILES
+    }
+
+    for name, arm in arms.items():
+        # The resolved config states lambda twice and both statements agree:
+        # the profile name and weights.energy encode the same value.
+        lam = float(name.removeprefix("plannerrft_energy_band_lam").removesuffix("_v1"))
+        assert arm.weights.energy == lam
+        assert arm.weights.total == 16.0 + lam
+        # Every lambda arm uses the E-038 frozen calibrated-band representation.
+        assert arm.energy.mode == "calibrated_band"
+        assert arm.energy.band_full_score_ml_per_km == pytest.approx(46.37086372375488)
+        assert arm.energy.band_zero_score_ml_per_km == pytest.approx(48.7514030456543)
+
+    # Gate I: all lambda arms share Progress/Comfort/TTC/Speed, the safety gate,
+    # and the energy-band thresholds exactly; they differ only in the profile
+    # identity and weights.energy.
+    reference = arms["plannerrft_energy_band_lam1_v1"]
+    for name, arm in arms.items():
+        if name == "plannerrft_energy_band_lam1_v1":
+            continue
+        assert arm.gates == reference.gates
+        assert arm.ttc == reference.ttc
+        assert arm.progress == reference.progress
+        assert arm.comfort == reference.comfort
+        assert arm.speed == reference.speed
+        assert arm.energy == reference.energy
+        assert (arm.weights.ttc, arm.weights.progress, arm.weights.comfort, arm.weights.speed) == (
+            reference.weights.ttc,
+            reference.weights.progress,
+            reference.weights.comfort,
+            reference.weights.speed,
+        )
+
+    # The lambda arms also match the calibrated R0 anchor and the Task G
+    # stress arm on every shared component.
+    rstress = PlannerRFTEnergyRewardConfig.model_validate(
+        _task_g_profile_payload("plannerrft_energy_band_lam64_v1")
+    )
+    for shared in (r0, rstress):
+        assert reference.gates == shared.gates
+        assert reference.ttc == shared.ttc
+        assert reference.progress == shared.progress
+        assert reference.comfort == shared.comfort
+        assert reference.speed == shared.speed
+        assert reference.energy.band_full_score_ml_per_km == pytest.approx(
+            rstress.energy.band_full_score_ml_per_km
+        )
+    assert (r0.weights.ttc, r0.weights.progress, r0.weights.comfort, r0.weights.speed) == (
+        reference.weights.ttc,
+        reference.weights.progress,
+        reference.weights.comfort,
+        reference.weights.speed,
+    )
+
+    # Gate I: lambda=0 is the calibrated R0 profile itself, not an energy
+    # weight of zero; its objective denominator stays at the four shared weights.
+    assert "energy" not in type(r0.weights).model_fields
+    assert r0.weights.total == 16.0
+
+
+def test_issue83_lambda_arms_score_only_through_the_energy_weight() -> None:
+    # With identical metrics, every lambda arm shares components with the
+    # calibrated R0 anchor and combines them with its own 16+lambda denominator.
+    r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
+        _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
+    )
+    for name in ISSUE83_LAMBDA_PROFILES:
+        arm = PlannerRFTEnergyRewardConfig.model_validate(_task_g_profile_payload(name))
+        result = evaluate_plannerrft_energy_step(arm, _metrics())
+        reference = evaluate_plannerrft_no_energy_step(r0, _metrics())
+        assert result.profile_name == name
+        assert (
+            result.components.ttc,
+            result.components.progress,
+            result.components.comfort,
+            result.components.speed,
+        ) == (
+            reference.components.ttc,
+            reference.components.progress,
+            reference.components.comfort,
+            reference.components.speed,
+        )
+        assert result.diagnostics == reference.diagnostics
+        expected = (
+            5.0 * result.components.ttc
+            + 5.0 * result.components.progress
+            + 2.0 * result.components.comfort
+            + 4.0 * result.components.speed
+            + arm.weights.energy * result.components.energy
+        ) / arm.weights.total
+        assert result.base_total == pytest.approx(expected)
+        assert result.total == pytest.approx(result.safety_gate * expected)
+
+
+def test_issue83_band_profile_rejects_a_name_weight_lambda_mismatch() -> None:
+    payload = _task_g_profile_payload("plannerrft_energy_band_lam8_v1")
+    payload["weights"]["energy"] = 4.0
+
+    with pytest.raises(ValueError, match="plannerrft_energy_band_lam8_v1 requires"):
+        PlannerRFTEnergyRewardConfig.model_validate(payload)
+
+
 def _components(**updates: object) -> RewardComponents:
     values: dict[str, object] = {
         "ttc": 1.0,
