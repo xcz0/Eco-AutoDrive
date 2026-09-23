@@ -1,0 +1,65 @@
+docs/agents/system-contract.md
+  s_425cacc8340a49::t_e5917175e259a0 62
+configs/components/reward/plannerrft_energy_band_lam1_v1.yaml
+  s_425cacc8340a49::t_fe76fdef88f535 1-53
+src/eco_planner/rl/config.py
+  s_425cacc8340a49::t_c75e913de58735 141-167,171
+  s_425cacc8340a49::t_a62896887fb2f4 20-25
+tests/training/test_reward_calibration.py
+  s_425cacc8340a49::t_91f824fa34bd57 291-318
+  s_425cacc8340a49::t_2041832004bb68 14,40-45
+  s_425cacc8340a49::t_74e5189ff81f27 200-203,211
+tests/training/test_ppo.py
+  s_425cacc8340a49::t_636b670597693a 558-561
+src/eco_planner/reward/config.py
+  s_425cacc8340a49::t_30927298678826 45-52,61-71
+  s_425cacc8340a49::t_7eff5f37381ec7 5,8
+  s_425cacc8340a49::t_1a162a7a794eda 72
+src/eco_planner/rl/rollout/contracts.py
+  s_425cacc8340a49::t_42120d2fb3832b 401-404
+configs/components/reward/plannerrft_energy_band_lam8_v1.yaml
+  s_425cacc8340a49::t_001985cafd8476 1-53
+tests/training/test_reward.py
+  s_425cacc8340a49::t_50550e92da850c 558-674
+configs/components/ppo_training.yaml
+  s_425cacc8340a49::t_817e0d10bf8352 18-25
+tests/configuration/test_scalar_reward.py
+  s_425cacc8340a49::t_e2954f4c073b79 72-78,82-119
+  s_425cacc8340a49::t_0aab076f74b632 79-81
+  s_425cacc8340a49::t_bc230e90c0d3ec 25
+src/eco_planner/rl/artifacts/summaries.py
+  s_425cacc8340a49::t_4215d3f4dda243 7-8
+  s_425cacc8340a49::t_081a2d224ec1f3 91
+  s_425cacc8340a49::t_b5a0f5acde3f15 121
+tests/configuration/test_jobs.py
+  s_425cacc8340a49::t_43a02af261d1e7 192-206,210-212
+  s_425cacc8340a49::t_af4e6aa6fa6df3 207-209
+  s_425cacc8340a49::t_9b9e74651408ce 24-29
+src/eco_planner/reward/result.py
+  s_425cacc8340a49::t_2a3145176fefd3 10-13
+docs/agents/contracts/training.md
+  s_425cacc8340a49::t_a376382f06eb60 45
+  s_425cacc8340a49::t_a1d048838e3e92 31
+configs/components/reward/plannerrft_energy_band_lam2_v1.yaml
+  s_425cacc8340a49::t_cebd7ea77ec833 1-53
+configs/components/reward/plannerrft_energy_band_lam4_v1.yaml
+  s_425cacc8340a49::t_3309566d8179a0 1-53
+tests/training/test_rollout.py
+  s_425cacc8340a49::t_89e63d0b2d834c 145-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "a35ee65ab01f630d0620faeaa3ae027b576da1fd",
+  "prompts": {},
+  "sessions": {
+    "s_425cacc8340a49": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f336353eaffelkKP6i2Ic5cxkH",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
