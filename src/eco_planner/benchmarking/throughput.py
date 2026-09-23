@@ -9,13 +9,12 @@ from pathlib import Path
 from time import perf_counter
 from typing import cast
 
-import numpy as np
 import torch
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from tensordict import TensorDictBase
 
-from eco_planner.contracts import PLANNER_HORIZON, ExecutionMode
+from eco_planner.envs import stationary_trajectory
 from eco_planner.evaluation import (
     EvaluationJobConfig,
     FabricInferenceRuntime,
@@ -157,7 +156,7 @@ def benchmark_vector_environment_scaling(
 
     if mode not in {"traffic", "no_traffic"}:
         raise ValueError("mode must be 'traffic' or 'no_traffic'")
-    trajectory = _stationary_trajectory()
+    trajectory = stationary_trajectory()
     results: list[dict[str, object]] = []
     for worker_count in benchmark.worker_counts:
         steps_per_second: list[float] = []
@@ -176,7 +175,6 @@ def benchmark_vector_environment_scaling(
             with VectorMetaDriveEnv(
                 configs,
                 mode=mode,  # type: ignore[arg-type]
-                execution_mode=ExecutionMode.EVALUATION,
                 map_query_radius_m=map_query_radius_m,
                 history_warmup_steps=history_warmup_steps,
                 scenarios=scenarios,
@@ -229,12 +227,6 @@ def benchmark_vector_environment_scaling(
     return results
 
 
-def _stationary_trajectory() -> np.ndarray:
-    trajectory = np.zeros((PLANNER_HORIZON, 4), dtype=np.float32)
-    trajectory[:, 2] = 1.0
-    return trajectory
-
-
 def _require_active_steps(steps: TensorDictBase) -> None:
     if bool(steps["done"].any()):
         raise RuntimeError("benchmark environment ended before measurement completed")
@@ -248,7 +240,6 @@ def _representative_observation(
     with VectorMetaDriveEnv(
         (env_config,),
         mode=config.evaluation.mode,
-        execution_mode=ExecutionMode.EVALUATION,
         map_query_radius_m=config.map_query_radius_m,
         history_warmup_steps=config.evaluation.history_warmup_steps,
         scenarios=(VectorEnvScenario("benchmark-observation", str(env_config["map"]), 0),),

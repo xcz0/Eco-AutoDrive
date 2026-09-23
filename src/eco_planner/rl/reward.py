@@ -2,9 +2,15 @@
 
 Pure reward math, configuration, calibration, and objective scalarization are
 owned by ``eco_planner.reward``. This adapter reads and writes ``RolloutEpisode``
-audit / training TensorDicts: it extracts measurement arrays, delegates the
+audit / training TensorDicts: it extracts per-substep reward inputs, delegates the
 numeric work to ``eco_planner.reward``, and writes component scores and scalar
 reward back into the episode.
+
+The canonical closed-loop cadence gives one transition several simulator
+substeps. Online evaluation stores the per-substep component scores, safety gates
+and recalibration inputs in the audit, so offline reweighting/rescoring rebuild
+the same per-substep objective and reduce it with the shared
+``aggregate_substep_rewards`` rule instead of assuming ``min(gate) * sum(base)``.
 """
 
 from __future__ import annotations
@@ -15,7 +21,7 @@ from typing import cast
 
 import numpy as np
 import torch
-from tensordict import cat
+from tensordict import TensorDictBase, cat
 
 from eco_planner.reward import (
     MOTION_LIMITS,
@@ -26,9 +32,9 @@ from eco_planner.reward import (
     apply_safety_gate,
     combine_component_scores,
     energy_band_thresholds,
+    energy_score_from_fuel,
     scored_arrays,
 )
-from eco_planner.reward.components.energy import calibrated_band_score
 from eco_planner.reward.config import EnergyRewardConfig
 from eco_planner.rl import RolloutEpisode
 
@@ -45,70 +51,90 @@ def reward_profile(base: PlannerRFTNoEnergyRewardConfig, weight: float) -> Rewar
 
 
 def reweight(episode: RolloutEpisode, profile: RewardProfileConfig) -> RolloutEpisode:
-    # Recompose fixed audited scores; no environment or component calibration is rerun.
+    # Recompose fixed per-substep audited scores; no environment/component calibration is rerun.
     audit = episode.audit.clone()
+    mask = _substep_mask(audit)
     weights = profile.weights.model_dump()
     components = {
-        name: cast(torch.Tensor, audit[f"reward_component_{name}"].double()) for name in weights
+        name: _substep_field(audit, f"reward_substep_component_{name}").double() for name in weights
     }
-    base = cast(torch.Tensor, combine_component_scores(weights, components))
-    guarded = apply_safety_gate(base, audit["reward_safety_gate"].double())
-    total = cast(torch.Tensor, guarded).float()
-    audit["reward_base_total"] = base.float()
-    audit["reward_total"] = total
+    base = cast(torch.Tensor, combine_component_scores(weights, components)) * mask
+    gate = _substep_field(audit, "reward_substep_safety_gate").double()
+    total = (apply_safety_gate(base, gate) * mask).sum(dim=1)
+    for name in COMPONENTS:
+        field = _substep_field(audit, f"reward_substep_component_{name}").double()
+        audit[f"reward_component_{name}"] = (field * mask).sum(dim=1).unsqueeze(1).float()
+    audit["reward_base_total"] = base.sum(dim=1).unsqueeze(1).float()
+    audit["reward_total"] = total.unsqueeze(1).float()
     training = episode.training.clone()
-    training["next", "reward"] = total.to(training["next", "reward"])
+    training["next", "reward"] = audit["reward_total"].to(training["next", "reward"])
     return replace(episode, training=training, audit=audit, reward_profile=profile.name)
 
 
 def energy_only_reward(episode: RolloutEpisode) -> RolloutEpisode:
-    """Objective endpoint: safety gate times the audited energy score; diagnostic only."""
+    """Objective endpoint: per-substep safety gate times the audited energy score."""
     audit = episode.audit.clone()
-    energy = audit["reward_component_energy"].double()
-    guarded = apply_safety_gate(energy, audit["reward_safety_gate"].double())
-    total = cast(torch.Tensor, guarded).float()
-    audit["reward_base_total"] = energy.float()
-    audit["reward_total"] = total
+    mask = _substep_mask(audit)
+    base = _substep_field(audit, "reward_substep_component_energy").double() * mask
+    gate = _substep_field(audit, "reward_substep_safety_gate").double()
+    total = (apply_safety_gate(base, gate) * mask).sum(dim=1)
+    audit["reward_base_total"] = base.sum(dim=1).unsqueeze(1).float()
+    audit["reward_total"] = total.unsqueeze(1).float()
     training = episode.training.clone()
-    training["next", "reward"] = total.to(training["next", "reward"])
+    training["next", "reward"] = audit["reward_total"].to(training["next", "reward"])
     return replace(episode, training=training, audit=audit)
 
 
 def raw_arrays(episodes: list[RolloutEpisode]) -> dict[str, np.ndarray]:
+    """Flatten the per-substep recalibration measurements across episodes."""
+
     audit = cat([e.audit for e in episodes])
-    return {
-        key: audit[key].numpy().astype(np.float64).reshape(-1)
-        for key in ("route_progress_delta_m", *MOTION_LIMITS)
-    }
+    mask = _substep_mask(audit).numpy()
+    result: dict[str, np.ndarray] = {}
+    for key in ("route_progress_delta_m", *MOTION_LIMITS):
+        values = _substep_field(audit, f"reward_substep_{key}").numpy().astype(np.float64)
+        result[key] = values[mask]
+    return result
+
+
+def substep_counts(episodes: Sequence[RolloutEpisode]) -> np.ndarray:
+    """Return the executed substep count of every transition, in episode order."""
+
+    audit = cat([e.audit for e in episodes])
+    return _substep_field(audit, "reward_substep_count").reshape(-1).numpy().astype(np.int64)
 
 
 def rescore_energy(episode: RolloutEpisode, energy: EnergyRewardConfig) -> RolloutEpisode:
-    """Replace the audited energy score with the calibrated-band rescore."""
+    """Replace the audited energy score with the calibrated-band rescore per substep."""
     if energy.mode != "calibrated_band":
         return episode
-    full = energy.band_full_score_ml_per_km
-    zero = energy.band_zero_score_ml_per_km
-    assert full is not None and zero is not None
     audit = episode.audit.clone()
-    key = audit["reward_component_energy"]
-    intensity = audit["executed_fuel_proxy_ml_per_km"].numpy().astype(np.float64).reshape(-1)
-    valid = audit["energy_distance_valid"].numpy().astype(bool).reshape(-1)
-    scores = np.asarray(
-        [
-            calibrated_band_score(x, full, zero) if ok else 0.0
-            for x, ok in zip(intensity, valid, strict=True)
-        ]
+    mask = _substep_mask(audit).numpy()
+    fuel = _substep_field(audit, "reward_substep_executed_fuel_proxy_step_energy_ml")
+    distance = _substep_field(audit, "reward_substep_step_distance_m")
+    scores = np.zeros(tuple(fuel.shape), dtype=np.float64)
+    fuel_values = fuel.numpy().astype(np.float64)
+    distance_values = distance.numpy().astype(np.float64)
+    for row, column in zip(*np.nonzero(mask), strict=True):
+        scores[row, column] = energy_score_from_fuel(
+            energy, float(fuel_values[row, column]), float(distance_values[row, column])
+        )[0]
+    audit["reward_substep_component_energy"] = torch.from_numpy(scores).to(
+        _substep_field(audit, "reward_substep_component_energy")
     )
-    audit["reward_component_energy"] = torch.from_numpy(scores).reshape_as(key).to(key)
     return replace(episode, audit=audit)
 
 
 def rescore(episode: RolloutEpisode, profile: PlannerRFTNoEnergyRewardConfig) -> RolloutEpisode:
-    scores = scored_arrays(raw_arrays([episode]), profile)
     audit = episode.audit.clone()
+    mask = _substep_mask(audit).numpy()
+    scores = scored_arrays(raw_arrays([episode]), profile)
     for name in ("progress", "comfort"):
-        key = f"reward_component_{name}"
-        audit[key] = torch.from_numpy(scores[name]).reshape_as(audit[key]).to(audit[key])
+        field = np.zeros(mask.shape, dtype=np.float64)
+        field[mask] = scores[name]
+        audit[f"reward_substep_component_{name}"] = torch.from_numpy(field).to(
+            _substep_field(audit, f"reward_substep_component_{name}")
+        )
     episode = rescore_energy(replace(episode, audit=audit), profile.energy)
     return reweight(episode, profile)
 
@@ -132,15 +158,34 @@ def apply_energy_band(
     episodes: Sequence[RolloutEpisode],
     band: EnergyBandConfig,
 ) -> PlannerRFTNoEnergyRewardConfig:
-    """Derive the energy representation from this batch's intensity distribution."""
+    """Derive the energy representation from this batch's per-substep intensity distribution."""
     audit = cat([episode.audit for episode in episodes])
-    intensity = audit["executed_fuel_proxy_ml_per_km"].numpy().astype(np.float64).reshape(-1)
+    mask = _substep_mask(audit).numpy()
+    fuel = _substep_field(audit, "reward_substep_executed_fuel_proxy_step_energy_ml")
+    distance = _substep_field(audit, "reward_substep_step_distance_m")
+    valid = _substep_field(audit, "reward_substep_energy_distance_valid").numpy().astype(bool)
+    fuel_values = fuel.numpy().astype(np.float64)[mask]
+    distance_values = distance.numpy().astype(np.float64)[mask]
+    valid_values = valid[mask]
+    intensity = np.where(
+        valid_values & (distance_values > 0.0), fuel_values * 1_000.0 / distance_values, 0.0
+    )
     full, zero = energy_band_thresholds(intensity, band)
     payload = calibrated.model_dump()
     payload["energy"]["mode"] = "calibrated_band"
     payload["energy"]["band_full_score_ml_per_km"] = full
     payload["energy"]["band_zero_score_ml_per_km"] = zero
     return PlannerRFTNoEnergyRewardConfig.model_validate(payload)
+
+
+def _substep_mask(audit: TensorDictBase) -> torch.Tensor:
+    count = _substep_field(audit, "reward_substep_count").reshape(-1).long()
+    limit = _substep_field(audit, "reward_substep_safety_gate").shape[1]
+    return torch.arange(limit).unsqueeze(0) < count.unsqueeze(1)
+
+
+def _substep_field(audit: TensorDictBase, key: str) -> torch.Tensor:
+    return cast(torch.Tensor, audit[key])
 
 
 __all__ = [
@@ -152,5 +197,6 @@ __all__ = [
     "rescore_energy",
     "reward_profile",
     "reweight",
+    "substep_counts",
     "verify_original_components",
 ]

@@ -9,7 +9,7 @@
 | 模块 | 输入与职责 |
 | --- | --- |
 | `rl.rollout.collection`、`fixed_batch` | 已 resolved 配置及 typed TrainingJobConfig；一次固定批次采集、读写、索引和拼接 |
-| `reward.calibration`、`rl.reward` | reward 配置及校准参数；Progress/Comfort 校准与 energy-band 阈值数学、组件归一化与 safety-gate 缩放归 `reward`；`rl.reward` 只做 episode/audit 测量提取、调用 reward 纯函数并把 scalar reward / audit 写回 TensorDict（重加权、energy-only、重评分） |
+| `reward.calibration`、`rl.reward` | reward 配置及校准参数；Progress/Comfort 校准与 energy-band 阈值数学、组件归一化与 safety-gate 缩放归 `reward`；`rl.reward` 只做 episode/audit 逐 substep 测量提取、调用 reward 纯函数并把 scalar reward / audit 写回 TensorDict（重加权、energy-only、重评分），离线归约与在线 transition 聚合复用同一 `reward.aggregate_substep_rewards` |
 | `planning.policy` | policy 架构、affine-Beta 动作与采样、policy-only checkpoint 存取与 `policy_state_hash` |
 | `rl.optimization` | PPO batch/GAE/normalization、advantage/critic 消融、actor backward、参数变化与更新后 KL 测量 |
 | `evaluation.intervention` | 已准备的 runtime、环境、场景、动作与窗口；reset/step、固定噪声、终止处理和部分原始证据 |
@@ -34,7 +34,7 @@ reward run 读取该源 batch，重算原始/校准/energy-band reward 组件及
 
 Progress 使用完整批次正向 delta 中位数除以目标分数。Comfort 仅对存在零分的子项使用 `max(原 limit, P50(abs(metric))/(2-target_score))`，保留原分段线性评分与四项取最小值。启动 transition 不删除，未失活子项与 Energy/TTC/Speed/Safety 不变。energy-band 由本 batch 的配置分位数推导，不核验 E-034/E-038 冻结数值。全局 reward profile 默认值不变。
 
-校准后的 Comfort 仅表示该运动学执行分布下的相对平顺性，不重新定义物理限值。audit 保存有符号原始量、评分绝对值、原 limit 超限率、零分/满分率、含并列的最小值归因和逐 scenario/planning-cycle 数组。Energy-only 是 safety_gate × energy component，仅作诊断，不是新训练 profile。
+校准后的 Comfort 仅表示该运动学执行分布下的相对平顺性，不重新定义物理限值。audit 保存有符号原始量、评分绝对值、原 limit 超限率、零分/满分率、含并列的最小值归因和逐 scenario/planning-cycle 数组。Energy-only 是逐 substep `safety_gate × energy component` 的聚合（与在线该目标 endpoint 同义），仅作诊断，不是新训练 profile。
 
 credit 配置显式声明 reward arms、raw/center/z advantage forms 和 standard_gae/reward_only_gae/discounted_return credit forms。standard GAE 保留原 critic；reward-only GAE 同时置零 current/next value（含 tail bootstrap），保留 gamma/lambda/boundary；discounted return 逐 episode 反向递推，无 critic/bootstrap。raw 原样，center 仅减 full-batch 均值，z 复用训练 sample-std normalization。全部复用训练 `build_ppo_batch` 与 `ClipPPOLoss`，仅对 loss_objective backward，不混入 critic/entropy 梯度，不做 clipping、optimizer 或 scheduler step。
 
@@ -44,7 +44,7 @@ credit 配置显式声明 reward arms、raw/center/z advantage forms 和 standar
 
 authority 的实验层选择 matched groups、干预值和裁定规则。`evaluation.intervention` 接收准备好的 runtime/环境及 InterventionExecution；InterventionExecution 携带每 arm 的显式 2D `(lateral, longitudinal)` 常量动作，按设备上有限 float32 [B,2] 构造，允许闭区间 ±1，直接用于 orthogonal_policy，不经过 Beta 分布或 log-prob。
 
-每组固定场景、reset seed、slot、batch shape 与 noise seed；每 arm 独立 reset，核对初始 observation、simulator state 与逐周期 initial noise。DDIM stochasticity=0。使用 ROLLOUT 每周期执行 0.1 s；默认首步 immediate、20 步为 2 s 窗口，env horizon 大于窗口。提前终止的 slot 不再 step、不补零，但保持 inference batch 与 noise draw 次数，终止后的 planner audit 不进入执行指标。异常时保存当前 arm 的部分证据并抛出。普通 evaluation（含 guidance sweep 与 policy evaluation）仍每周期执行 0.5 s。
+每组固定场景、reset seed、slot、batch shape 与 noise seed；每 arm 独立 reset，核对初始 observation、simulator state 与逐周期 initial noise。DDIM stochasticity=0。该诊断入口显式传 `execution_steps=1`，即每周期执行 0.1 s；默认首步 immediate、20 步为 2 s 窗口，env horizon 大于窗口。提前终止的 slot 不再 step、不补零，但保持 inference batch 与 noise draw 次数，终止后的 planner audit 不进入执行指标。异常时保存当前 arm 的部分证据并抛出。普通 evaluation（含 guidance sweep 与 policy evaluation）使用 canonical 0.5 s execution，不传该覆盖。
 
 执行指标来自 TransitionMetrics；窗口 fuel proxy intensity 为实际累计 fuel/距离，零距离为 undefined。保存实际运动、终止、reference/guided prediction、guidance diagnostics 与 noise。实验层计算场景内 arm repeat 均值的 Spearman、±1 endpoint 差与重复噪声，阈值和所需一致方向场景数由配置指定。常量相关性为 undefined，零噪声不使零效应通过。安全、完整性、时间窗口方向冲突与 planner-output 到执行链路单列；gate 失败不等于执行失败。
 
@@ -56,13 +56,13 @@ authority 的实验层选择 matched groups、干预值和裁定规则。`evalua
 
 ## Guidance replanning-deferral trace
 
-`guidance deferral` 复用 authority/horizon 的 matched-group 机制，固定 baseline 0.1 s receding-horizon execution（每周期执行 1 个 0.1 s 子步再重规划），把“连续 replanning cycle 的逐 waypoint guidance effect 是否被反复推迟到执行 prefix 之外”作为唯一诊断轴。实验层声明 `total_window_steps`（固定 2 s 窗口）、`execution_steps`（必须为 1）与 5 个固定 longitudinal 臂；`replan 次数 = total_window_steps`。runner 只加载冻结 planner，不加载 policy；`collect_group` 以 opt-in `include_waypoints=True` 保存每周期的完整 80 waypoint 前向位移（默认关闭，其它 workflow 产物不变）。
+`guidance deferral` 复用 authority/horizon 的 matched-group 机制，固定诊断 0.1 s receding-horizon execution（显式 `execution_steps=1`，每周期执行 1 个 0.1 s 子步再重规划），把“连续 replanning cycle 的逐 waypoint guidance effect 是否被反复推迟到执行 prefix 之外”作为唯一诊断轴。实验层声明 `total_window_steps`（固定 2 s 窗口）、`execution_steps`（必须为 1）与 5 个固定 longitudinal 臂；`replan 次数 = total_window_steps`。runner 只加载冻结 planner，不加载 policy；`collect_group` 以 opt-in `include_waypoints=True` 保存每周期的完整 80 waypoint 前向位移（默认关闭，其它 workflow 产物不变）。
 
 统计以 matched 端点差 `Δ = D(g=+1) − D(g=-1)` 表示，先把逐 noise repeat 取中位，再逐 cycle 计算：首点（0.1 s）效应、8 s full-horizon 效应、首个正 response 的 zero-crossing waypoint step，以及跨 cycle 的稳定性。预声明场景判定要求多数 cycle 首点 ≤ 0、full-horizon > 0、正 response 越过执行 prefix 且 zero-crossing step 稳定；场景多数满足即 `gate_c.status = repeated_deferral`，首点多数为正为 `deferral_absent`，否则 `mixed_or_inconclusive`，安全/完整性或 proxy 失败覆盖为 `safety_or_proxy_failure`。该工作流是 diagnostic causal intervention，不修改 reward、PPO 或 baseline 执行方案。
 
 ## Guidance lon/lat component decomposition
 
-`guidance decomposition` 复用 authority/horizon 的 matched-group 机制，把每个 training seed 的四个常量 guidance 臂（`r0`、`lon`、`lat`、`joint`，原生 `(lateral, longitudinal)` 顺序）作为唯一诊断轴；臂常量来自 E-041 frozen final-policy Beta mean。runner 组合 held-out evaluation job（`jobs/evaluation/no_traffic_heldout_manual`，E-040 matched 协议 + orthogonal_policy），只加载冻结 planner，不加载 policy。每个 (worker batch, training seed, noise seed) 为一个 group，四臂顺序固定 r0/lon/lat/joint；每周期执行 1 个 0.1 s 子步（ROLLOUT），episode 可变长。配置 validator 要求 `lon` 只在纵向维、`lat` 只在横向维偏离 `r0`，且 `joint == r0 + (lon-r0) + (lat-r0)`，值域 ±1。
+`guidance decomposition` 复用 authority/horizon 的 matched-group 机制，把每个 training seed 的四个常量 guidance 臂（`r0`、`lon`、`lat`、`joint`，原生 `(lateral, longitudinal)` 顺序）作为唯一诊断轴；臂常量来自 E-041 frozen final-policy Beta mean。runner 组合 held-out evaluation job（`jobs/evaluation/no_traffic_heldout_manual`，E-040 matched 协议 + orthogonal_policy），只加载冻结 planner，不加载 policy。每个 (worker batch, training seed, noise seed) 为一个 group，四臂顺序固定 r0/lon/lat/joint；每周期显式执行 1 个 0.1 s 子步（`execution_steps=1`），episode 可变长。配置 validator 要求 `lon` 只在纵向维、`lat` 只在横向维偏离 `r0`，且 `joint == r0 + (lon-r0) + (lat-r0)`，值域 ±1。
 
 统计按 (seed, scenario, arm) 配对：逐场景计算相对 `r0` 的 effect 与 `interaction = joint - lon - lat`，各 arm 方向由多数场景门槛决定。attribution verdict（`longitudinal-dominated` / `lateral-dominated` / `nonlinear-interaction` / `not-reproduced-state-dependent`）由预声明 `dominance_share` 与 `expected_joint_direction` 判定；overall 在 seed 不一致时为 `mixed-across-seeds`。该工作流是 diagnostic causal intervention，不修改 reward、PPO 或 baseline。
 

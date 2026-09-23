@@ -19,7 +19,7 @@ rollout:
   policy_action_seed: 1
 
 env:
-  horizon: 4
+  horizon: 20
 
 runtime:
   seed: 0

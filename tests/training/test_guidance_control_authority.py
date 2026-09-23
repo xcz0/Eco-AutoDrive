@@ -309,7 +309,6 @@ def test_runtime_forwards_endpoints_without_global_rng_consumption():
 @pytest.mark.simulator
 @pytest.mark.parametrize("horizon", [21, 3])
 def test_real_rollout_intervention_window_and_noise_pairing(tmp_path, horizon):
-    from eco_planner.contracts import ExecutionMode
     from eco_planner.runtime.envs import VectorMetaDriveEnv
 
     env_config = OmegaConf.to_container(OmegaConf.load(CONFIG_ROOT / "components/env.yaml"))
@@ -318,11 +317,11 @@ def test_real_rollout_intervention_window_and_noise_pairing(tmp_path, horizon):
     env = VectorMetaDriveEnv(
         (env_config,),
         mode="no_traffic",
-        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=100.0,
         history_warmup_steps=0,
         scenarios=(scenario,),
         torch_threads_per_worker=1,
+        execution_steps=1,
     )
     try:
         all_rows = []

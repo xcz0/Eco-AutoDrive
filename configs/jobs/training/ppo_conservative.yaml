@@ -27,7 +27,7 @@ training:
   transitions_per_environment: 16
 
 env:
-  horizon: 16
+  horizon: 80
   # MetaDrive treats the scenario seed as an index into [0, num_scenarios);
   # the smoke profile only uses seed 0, so num_scenarios=1 is sufficient.
   # P1 uses seeds 0-7 on S and SC, so the pool must cover at least 8.

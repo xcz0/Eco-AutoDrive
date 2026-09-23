@@ -1,5 +1,7 @@
 # 0038 — 按当前科研工作流整合实验架构
 
+> 第 47 行关于人工 intervention/rollout 0.1 s 与普通 evaluation 0.5 s 边界保持不变的决定已由 [ADR 0039](0039-unify-closed-loop-cadence.md) 取代；其余决定继续有效。
+
 - 状态：接受
 - 日期：2026-09-14
 - 来源：Issue #97

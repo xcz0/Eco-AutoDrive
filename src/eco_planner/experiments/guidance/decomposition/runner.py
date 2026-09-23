@@ -14,7 +14,6 @@ from eco_planner._repository import REPOSITORY_ROOT
 from eco_planner.analysis import publish
 from eco_planner.artifacts import collect_repository_metadata, write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.contracts import ExecutionMode
 from eco_planner.evaluation import parse_evaluation_config
 from eco_planner.evaluation.inference.runtime import (
     create_fabric_inference_runtime,
@@ -79,7 +78,6 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
             "sampler": asdict(runtime.sampler_report),
             "policy_created": False,
             "optimizer_steps": 0,
-            "execution_mode": "rollout",
             "cycles": cycles,
             "execution_steps": 1,
             "deterministic": True,
@@ -88,11 +86,11 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
     env = VectorMetaDriveEnv(
         tuple({**job.env, "map": s.map} for s in scenarios[:workers]),
         mode="no_traffic",
-        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=job.map_query_radius_m,
         history_warmup_steps=0,
         scenarios=scenarios,
         torch_threads_per_worker=resources.torch_threads_per_worker,
+        execution_steps=1,
     )
     episodes: list[dict[str, Any]] = []
     try:

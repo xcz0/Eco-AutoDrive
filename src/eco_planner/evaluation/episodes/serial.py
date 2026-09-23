@@ -9,7 +9,7 @@ import numpy as np
 from tensordict import TensorDictBase
 
 from eco_planner.configuration import ScenarioConfig
-from eco_planner.contracts import ExecutionMode, evaluation_plan_cycles
+from eco_planner.contracts import evaluation_plan_cycles
 from eco_planner.envs import (
     MetaDriveEnvSlot,
     TrajectoryExecutionRecord,
@@ -51,7 +51,6 @@ def run_scenario(
         env_slot = MetaDriveEnvSlot(
             env_config,
             mode=mode,
-            execution_mode=ExecutionMode.EVALUATION,
             map_query_radius_m=config.map_query_radius_m,
             history_warmup_steps=config.evaluation.history_warmup_steps,
         )

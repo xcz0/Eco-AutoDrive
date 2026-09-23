@@ -21,16 +21,17 @@ def calibrated_band_score(
     return max(0.0, min(1.0, score))
 
 
-def energy_score(
-    config: EnergyRewardConfig, metrics: TransitionMetrics
+def energy_score_from_fuel(
+    config: EnergyRewardConfig, fuel_ml: float, step_distance_m: float
 ) -> tuple[float, float, bool]:
-    if metrics.energy.fuel_ml is None:
-        raise ValueError("PlannerRFT energy reward requires a fuel-volume metric")
-    distance_valid = metrics.step_distance_m >= config.minimum_step_distance_m
-    measured_ml_per_km = metrics.energy.fuel_ml_per_km
-    fuel_ml_per_km = (
-        measured_ml_per_km if distance_valid and measured_ml_per_km is not None else 0.0
-    )
+    """Score one executed step from its fuel volume and distance.
+
+    Pure so that online per-substep evaluation and offline sub-step rescoring
+    share one definition of validity, intensity, and band/exponential score.
+    """
+
+    distance_valid = step_distance_m >= config.minimum_step_distance_m
+    fuel_ml_per_km = fuel_ml * 1_000.0 / step_distance_m if distance_valid else 0.0
     if not distance_valid:
         score = 0.0
     elif config.mode == "calibrated_band":
@@ -43,4 +44,12 @@ def energy_score(
     return score, fuel_ml_per_km, distance_valid
 
 
-__all__ = ["calibrated_band_score", "energy_score"]
+def energy_score(
+    config: EnergyRewardConfig, metrics: TransitionMetrics
+) -> tuple[float, float, bool]:
+    if metrics.energy.fuel_ml is None:
+        raise ValueError("PlannerRFT energy reward requires a fuel-volume metric")
+    return energy_score_from_fuel(config, metrics.energy.fuel_ml, metrics.step_distance_m)
+
+
+__all__ = ["calibrated_band_score", "energy_score", "energy_score_from_fuel"]

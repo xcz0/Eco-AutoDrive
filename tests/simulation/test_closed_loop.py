@@ -11,7 +11,6 @@ from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 from pydantic import TypeAdapter
 
-from eco_planner.contracts import ExecutionMode
 from eco_planner.envs import MetaDriveEnvSlot
 from eco_planner.envs.domain.geometry import rear_axle_position, world_points_to_local
 from eco_planner.envs.metadrive import MetaDriveBackend
@@ -217,7 +216,6 @@ def test_environment_slot_executes_evaluation_prefix_with_valid_audit() -> None:
     with MetaDriveEnvSlot(
         config,
         mode="no_traffic",
-        execution_mode=ExecutionMode.EVALUATION,
         map_query_radius_m=100.0,
         history_warmup_steps=0,
     ) as slot:
@@ -257,7 +255,6 @@ def test_environment_slot_executes_explicit_prefix_beyond_fixed_modes() -> None:
     with MetaDriveEnvSlot(
         config,
         mode="no_traffic",
-        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=100.0,
         history_warmup_steps=0,
         execution_steps=3,
@@ -276,7 +273,6 @@ def test_same_scenario_reset_restores_spawn_after_trajectory_step() -> None:
     with MetaDriveEnvSlot(
         config,
         mode="no_traffic",
-        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=100.0,
         history_warmup_steps=0,
     ) as slot:
@@ -302,7 +298,6 @@ def test_traffic_history_enters_planner_observation() -> None:
     with MetaDriveEnvSlot(
         config,
         mode="traffic",
-        execution_mode=ExecutionMode.EVALUATION,
         map_query_radius_m=100.0,
         history_warmup_steps=20,
     ) as slot:
@@ -334,10 +329,10 @@ def test_two_slot_vector_rollout_executes_current_training_path() -> None:
     with VectorMetaDriveEnv(
         [_environment_config("S") for _ in scenarios],
         mode="no_traffic",
-        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=100.0,
         history_warmup_steps=0,
         scenarios=scenarios,
+        execution_steps=1,
     ) as envs:
         resets = envs.reset(scenarios)
         steps = envs.step([_straight_trajectory() for _ in scenarios])
@@ -369,7 +364,6 @@ def test_vector_partial_step_preserves_unselected_slot_and_requested_order() -> 
     with VectorMetaDriveEnv(
         [_environment_config("S") for _ in scenarios],
         mode="no_traffic",
-        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=100.0,
         history_warmup_steps=0,
         scenarios=scenarios,
@@ -403,7 +397,6 @@ def test_off_route_lane_is_terminal_with_padded_route_observation() -> None:
     with MetaDriveEnvSlot(
         config,
         mode="no_traffic",
-        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=query_radius_m,
         history_warmup_steps=0,
     ) as source:
@@ -413,7 +406,6 @@ def test_off_route_lane_is_terminal_with_padded_route_observation() -> None:
     with VectorMetaDriveEnv(
         [config],
         mode="no_traffic",
-        execution_mode=ExecutionMode.ROLLOUT,
         map_query_radius_m=query_radius_m,
         history_warmup_steps=0,
         scenarios=(scenario,),

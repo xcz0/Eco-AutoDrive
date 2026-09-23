@@ -12,7 +12,6 @@ import torch
 from tensordict import TensorDictBase
 from torchrl.data import Composite, Unbounded
 
-from eco_planner.contracts import ExecutionMode
 from eco_planner.envs.domain import TrajectoryExecutionResult
 from eco_planner.envs.metadrive import (
     EnvSlotReset,
@@ -165,7 +164,6 @@ class TorchRLScenarioMetaDriveEnv(TorchRLMetaDriveEnv):
 def make_torchrl_scenario_env(
     env_config: Mapping[str, Any],
     mode: ObservationMode,
-    execution_mode: ExecutionMode,
     map_query_radius_m: float,
     history_warmup_steps: int,
     scenarios: tuple[VectorEnvScenario, ...],
@@ -175,7 +173,6 @@ def make_torchrl_scenario_env(
     slot = MetaDriveEnvSlot(
         {**env_config, "map": scenario.map},
         mode=mode,
-        execution_mode=execution_mode,
         map_query_radius_m=map_query_radius_m,
         history_warmup_steps=history_warmup_steps,
         execution_steps=execution_steps,

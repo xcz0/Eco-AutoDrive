@@ -60,8 +60,8 @@ def test_reweight_matches_reward_profiles_without_mutating_source(weight, gate):
     result = evaluator(profile, _metrics())
     episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
     for name in COMPONENTS:
-        episode.audit[f"reward_component_{name}"].fill_(getattr(result.components, name))
-    episode.audit["reward_safety_gate"].fill_(gate)
+        episode.audit[f"reward_substep_component_{name}"].fill_(getattr(result.components, name))
+    episode.audit["reward_substep_safety_gate"].fill_(gate)
     original = episode.training.clone()
     matched = reweight(episode, profile)
     assert matched.audit["reward_base_total"].item() == pytest.approx(result.base_total, abs=1e-7)
@@ -122,8 +122,8 @@ def test_positive_scale_is_removed_by_full_batch_normalization():
 @pytest.mark.parametrize("gate", [0.0, 0.3, 1.0])
 def test_energy_only_reward_composes_gate_times_energy_and_preserves_source(gate):
     episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
-    episode.audit["reward_component_energy"].fill_(0.4)
-    episode.audit["reward_safety_gate"].fill_(gate)
+    episode.audit["reward_substep_component_energy"].fill_(0.4)
+    episode.audit["reward_substep_safety_gate"].fill_(gate)
     training, audit = episode.training.clone(), episode.audit.clone()
     matched = energy_only_reward(episode)
     assert matched.training["next", "reward"].item() == pytest.approx(0.4 * gate)
@@ -237,8 +237,9 @@ def test_rescore_recomputes_energy_only_in_band_mode():
     episodes = []
     for intensity, valid in ((46.0, True), (43.0, True), (47.0, False)):
         episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
-        episode.audit["executed_fuel_proxy_ml_per_km"].fill_(intensity)
-        episode.audit["energy_distance_valid"].fill_(valid)
+        episode.audit["reward_substep_step_distance_m"].fill_(1.0 if valid else 0.001)
+        episode.audit["reward_substep_executed_fuel_proxy_step_energy_ml"].fill_(intensity / 1000.0)
+        episode.audit["reward_substep_energy_distance_valid"].fill_(valid)
         episodes.append(episode)
 
     untouched = [rescore(episode, _no_energy_config()) for episode in episodes]

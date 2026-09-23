@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from eco_planner.contracts import PLANNER_HORIZON
+
 from .arrays import (
     TrajectoryArray,
     WorldAngularVelocityArray,
@@ -27,6 +29,14 @@ class WorldTrajectory:
     headings: WorldHeadingArray
     velocities: WorldVelocityArray
     angular_velocities: WorldAngularVelocityArray
+
+
+def stationary_trajectory() -> TrajectoryArray:
+    """Return the zero-motion ego-local trajectory used for stationary holds."""
+
+    trajectory = np.zeros((PLANNER_HORIZON, 4), dtype=np.float32)
+    trajectory[:, 2] = 1.0
+    return trajectory
 
 
 def to_world_trajectory(

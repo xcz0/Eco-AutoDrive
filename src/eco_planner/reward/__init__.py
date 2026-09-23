@@ -6,6 +6,12 @@ it does not import rollout episodes, PPO batches, collectors, or training state.
 
 from __future__ import annotations
 
+from .aggregation import (
+    SubstepReward,
+    aggregate_substep_rewards,
+    aggregate_transition_reward,
+    substep_reward,
+)
 from .calibration import (
     MOTION_LIMITS,
     CalibrationTargets,
@@ -15,6 +21,7 @@ from .calibration import (
     scored_arrays,
 )
 from .components.comfort import component_score
+from .components.energy import energy_score_from_fuel
 from .components.progress import score_delta
 from .config import (
     PlannerRFTEnergyRewardConfig,
@@ -42,14 +49,19 @@ __all__ = [
     "RewardProfileConfig",
     "RewardProfileName",
     "RewardResult",
+    "SubstepReward",
+    "aggregate_substep_rewards",
+    "aggregate_transition_reward",
     "apply_safety_gate",
     "calibrate",
     "combine_component_scores",
     "component_score",
     "create_reward_evaluator",
     "energy_band_thresholds",
+    "energy_score_from_fuel",
     "evaluate_plannerrft_energy_step",
     "evaluate_plannerrft_no_energy_step",
     "score_delta",
     "scored_arrays",
+    "substep_reward",
 ]

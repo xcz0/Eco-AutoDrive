@@ -21,6 +21,7 @@ from eco_planner.configuration import (
     load_local_environment,
     with_machine_resource_override,
 )
+from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS, TRAFFIC_HISTORY_WARMUP_STEPS
 from eco_planner.evaluation import EvaluationJobConfig, parse_evaluation_config
 from eco_planner.experiments.guidance.sweep import load_energy_study
 from eco_planner.reward_validation import evaluate_sanity, load_sanity_config
@@ -181,6 +182,36 @@ def test_training_jobs_compose_into_typed_boundaries(
             )
         )
     assert isinstance(parse_rollout_config(rollout), RolloutJobConfig)
+
+
+def test_traffic_training_horizon_covers_history_warmup(
+    compose_config: ComposeConfig,
+) -> None:
+    overrides = [
+        RESOURCE_OVERRIDE,
+        "runtime.seed=0",
+        "training.replay_id=0",
+        "training.mode=traffic",
+        f"training.history_warmup_steps={TRAFFIC_HISTORY_WARMUP_STEPS}",
+    ]
+    parsed = parse_training_config(
+        compose_config("jobs/training/ppo", [*overrides, "env.horizon=100"])
+    )
+    assert isinstance(parsed, TrainingJobConfig)
+    assert parsed.training.mode == "traffic"
+    required = (
+        TRAFFIC_HISTORY_WARMUP_STEPS
+        + parsed.training.transitions_per_environment * CLOSED_LOOP_EXECUTION_STEPS
+    )
+    assert required == 100
+    with pytest.raises(ValueError, match="env.horizon must cover"):
+        parse_training_config(
+            compose_config("jobs/training/ppo", [*overrides, f"env.horizon={required - 1}"])
+        )
+    accepted = parse_training_config(
+        compose_config("jobs/training/ppo", [*overrides, f"env.horizon={required}"])
+    )
+    assert accepted.training.mode == "traffic"
 
 
 def test_conservative_training_job_composes_into_typed_boundaries(

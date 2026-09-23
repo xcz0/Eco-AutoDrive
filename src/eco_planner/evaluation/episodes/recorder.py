@@ -8,7 +8,9 @@ import numpy as np
 import torch
 from tensordict import TensorDictBase
 
-from ..artifacts.trace import EXECUTION_PREFIX_STEPS, OBSERVATION_FIELDS, allocate_trace_arrays
+from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS
+
+from ..artifacts.trace import OBSERVATION_FIELDS, allocate_trace_arrays
 
 if TYPE_CHECKING:
     from eco_planner.envs import (
@@ -134,7 +136,7 @@ class EpisodeTraceRecorder:
         if self._plan_cycles >= self._max_plan_cycles:
             raise RuntimeError("planning trace capacity exceeded")
         end = self._simulator_steps + substep_count
-        if end > self._max_plan_cycles * EXECUTION_PREFIX_STEPS:
+        if end > self._max_plan_cycles * CLOSED_LOOP_EXECUTION_STEPS:
             raise RuntimeError("simulator-step trace capacity exceeded")
         anchor_array = np.asarray(anchor, dtype=np.float64)
         if anchor_array.shape != (7,) or not np.isfinite(anchor_array).all():

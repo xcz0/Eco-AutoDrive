@@ -8,13 +8,18 @@ from typing import Literal, cast
 import torch
 from tensordict import TensorDictBase, cat
 
-from eco_planner.contracts import PLANNER_ACTOR_COUNT, PLANNER_HORIZON, PLANNER_STATE_DIM
+from eco_planner.contracts import (
+    CLOSED_LOOP_EXECUTION_STEPS,
+    PLANNER_ACTOR_COUNT,
+    PLANNER_HORIZON,
+    PLANNER_STATE_DIM,
+)
 from eco_planner.planning.policy import (
     POLICY_CONTEXT_KEYS,
     ExplorationPolicyContext,
     policy_context_tensordict,
 )
-from eco_planner.reward import RewardResult
+from eco_planner.reward import RewardResult, aggregate_transition_reward
 from eco_planner.reward.result import RewardProfileName as RewardProfileName
 
 TailKind = Literal["terminated", "truncated", "rollout_limit"]
@@ -129,17 +134,36 @@ _AUDIT_SCALAR_GROUPS = (
         ("collision_score", "drivable_score", "wrong_direction_score"),
     ),
 )
+_SUBSTEP_COMPONENT_NAMES = ("ttc", "progress", "comfort", "speed", "energy")
+# Per-substep reward inputs persisted for offline reweighting/rescoring. Every
+# float/bool field below has shape [T, CLOSED_LOOP_EXECUTION_STEPS] and is only
+# valid up to `reward_substep_count`; padded positions are zero/False.
+_SUBSTEP_AUDIT_KEYS = (
+    "reward_substep_count",
+    "reward_substep_safety_gate",
+    *(f"reward_substep_component_{name}" for name in _SUBSTEP_COMPONENT_NAMES),
+    "reward_substep_route_progress_delta_m",
+    "reward_substep_longitudinal_acceleration_mps2",
+    "reward_substep_lateral_acceleration_mps2",
+    "reward_substep_jerk_mps3",
+    "reward_substep_yaw_rate_radps",
+    "reward_substep_executed_fuel_proxy_step_energy_ml",
+    "reward_substep_step_distance_m",
+    "reward_substep_energy_distance_valid",
+)
 _AUDIT_KEYS = (
     *_DECISION_AUDIT_KEYS,
     *(prefix + field for _, prefix, _, fields in _AUDIT_SCALAR_GROUPS for field in fields),
+    *_SUBSTEP_AUDIT_KEYS,
 )
 
 
 @dataclass(frozen=True)
 class ExecutionTransitionAudit:
-    """Typed environment result for one 10 Hz rollout transition."""
+    """Typed environment result for one closed-loop decision and its execution prefix."""
 
     reward_result: RewardResult
+    substep_results: tuple[RewardResult, ...]
     route_completion_delta: float
     distance_m: float
     speed_mps: float
@@ -287,7 +311,59 @@ def build_rollout_audit(
             for field in fields
         }
     )
+    audit.update(_substep_audit_fields(execution))
     return audit
+
+
+def _substep_audit_fields(execution: ExecutionTransitionAudit) -> dict[str, torch.Tensor]:
+    """Pad per-substep reward inputs to the canonical prefix length."""
+
+    results = execution.substep_results
+    limit = CLOSED_LOOP_EXECUTION_STEPS
+    if not 1 <= len(results) <= limit:
+        raise ValueError(
+            "execution transition must carry between 1 and "
+            f"{limit} substep results, got {len(results)}"
+        )
+    if aggregate_transition_reward(results) != execution.reward_result:
+        raise ValueError("transition reward_result must remain the aggregation of its substeps")
+    float_fields: dict[str, list[float]] = {
+        name: [] for name in _SUBSTEP_AUDIT_KEYS if name != "reward_substep_count"
+    }
+    for result in results:
+        diagnostics = result.diagnostics
+        float_fields["reward_substep_safety_gate"].append(result.safety_gate)
+        for name in _SUBSTEP_COMPONENT_NAMES:
+            float_fields[f"reward_substep_component_{name}"].append(
+                float(getattr(result.components, name))
+            )
+        float_fields["reward_substep_route_progress_delta_m"].append(
+            diagnostics.route_progress_delta_m
+        )
+        float_fields["reward_substep_longitudinal_acceleration_mps2"].append(
+            diagnostics.longitudinal_acceleration_mps2
+        )
+        float_fields["reward_substep_lateral_acceleration_mps2"].append(
+            diagnostics.lateral_acceleration_mps2
+        )
+        float_fields["reward_substep_jerk_mps3"].append(diagnostics.jerk_mps3)
+        float_fields["reward_substep_yaw_rate_radps"].append(diagnostics.yaw_rate_radps)
+        float_fields["reward_substep_executed_fuel_proxy_step_energy_ml"].append(
+            diagnostics.executed_fuel_proxy_step_energy_ml
+        )
+        float_fields["reward_substep_step_distance_m"].append(diagnostics.step_distance_m)
+        float_fields["reward_substep_energy_distance_valid"].append(
+            float(diagnostics.energy_distance_valid)
+        )
+    fields: dict[str, torch.Tensor] = {}
+    for name, values in float_fields.items():
+        dtype = torch.bool if name == "reward_substep_energy_distance_valid" else torch.float32
+        padded = torch.zeros((1, limit), dtype=dtype)
+        for index, value in enumerate(values):
+            padded[0, index] = bool(value) if dtype == torch.bool else value
+        fields[name] = padded
+    fields["reward_substep_count"] = torch.tensor([[len(results)]], dtype=torch.int64)
+    return fields
 
 
 def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
@@ -360,26 +436,61 @@ def _validate_audit_trajectory(
     for key in ("diffusion_rng_state", "policy_rng_state"):
         if trajectory[key].dtype != torch.uint8 or trajectory[key].ndim != 2:
             raise TypeError(f"{key} must have shape [T, state_length] and uint8 dtype")
-    if not torch.allclose(
-        trajectory["reward_total"],
-        trajectory["reward_base_total"] * trajectory["reward_safety_gate"],
-        rtol=0.0,
-        atol=1e-6,
-    ):
-        raise ValueError("rollout reward total must equal base total times safety gate")
     for key in (
         "reward_safety_gate",
-        "reward_component_ttc",
-        "reward_component_progress",
-        "reward_component_comfort",
-        "reward_component_speed",
-        "reward_component_energy",
         "reward_diagnostic_collision_score",
         "reward_diagnostic_drivable_score",
         "reward_diagnostic_wrong_direction_score",
     ):
         if torch.any((trajectory[key] < 0.0) | (trajectory[key] > 1.0)):
             raise ValueError(f"rollout audit {key} must remain in [0, 1]")
+    # Components are summed over the transition's substeps, so they are
+    # non-negative but no longer bounded by one substep's [0, 1] score.
+    for key in (
+        "reward_component_ttc",
+        "reward_component_progress",
+        "reward_component_comfort",
+        "reward_component_speed",
+        "reward_component_energy",
+    ):
+        if torch.any(trajectory[key] < 0.0):
+            raise ValueError(f"rollout audit {key} must be non-negative")
+    _validate_substep_audit(trajectory)
+
+
+def _validate_substep_audit(trajectory: TensorDictBase) -> None:
+    count = trajectory["reward_substep_count"]
+    if count.dtype != torch.int64 or tuple(count.shape[1:]) != (1,):
+        raise TypeError("rollout audit reward_substep_count must be int64 with shape [T, 1]")
+    if torch.any((count < 1) | (count > CLOSED_LOOP_EXECUTION_STEPS)):
+        raise ValueError(
+            f"rollout audit reward_substep_count must be within [1, {CLOSED_LOOP_EXECUTION_STEPS}]"
+        )
+    for key in _SUBSTEP_AUDIT_KEYS:
+        if key == "reward_substep_count":
+            continue
+        value = trajectory[key]
+        if tuple(value.shape[1:]) != (CLOSED_LOOP_EXECUTION_STEPS,):
+            raise ValueError(
+                f"rollout audit {key} must have shape [T, {CLOSED_LOOP_EXECUTION_STEPS}]"
+            )
+    for key in (
+        "reward_substep_component_ttc",
+        "reward_substep_component_progress",
+        "reward_substep_component_comfort",
+        "reward_substep_component_speed",
+        "reward_substep_component_energy",
+        "reward_substep_route_progress_delta_m",
+        "reward_substep_step_distance_m",
+        "reward_substep_executed_fuel_proxy_step_energy_ml",
+    ):
+        if torch.any(trajectory[key] < 0.0):
+            raise ValueError(f"rollout audit {key} must be non-negative")
+    gate = trajectory["reward_substep_safety_gate"]
+    if torch.any((gate < 0.0) | (gate > 1.0)):
+        raise ValueError("rollout audit reward_substep_safety_gate must remain in [0, 1]")
+    if trajectory["reward_substep_energy_distance_valid"].dtype != torch.bool:
+        raise TypeError("rollout audit reward_substep_energy_distance_valid must be bool")
 
 
 def _validate_trajectory(

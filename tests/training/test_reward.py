@@ -17,6 +17,10 @@ from eco_planner.envs.domain import (
 from eco_planner.reward import (
     PlannerRFTEnergyRewardConfig,
     PlannerRFTNoEnergyRewardConfig,
+    RewardComponents,
+    RewardDiagnostics,
+    RewardResult,
+    aggregate_transition_reward,
     evaluate_plannerrft_energy_step,
     evaluate_plannerrft_no_energy_step,
 )
@@ -549,3 +553,187 @@ def test_reward_results_and_audit_schema_carry_the_configured_profile_name() -> 
     assert rollout_audit_keys("plannerrft_no_energy_calibrated_v1") == rollout_audit_keys(
         "plannerrft_no_energy_v1"
     )
+
+
+def _components(**updates: object) -> RewardComponents:
+    values: dict[str, object] = {
+        "ttc": 1.0,
+        "progress": 2.0,
+        "comfort": 3.0,
+        "speed": 4.0,
+        "energy": 5.0,
+    }
+    values.update(updates)
+    return RewardComponents(**values)  # type: ignore[arg-type]
+
+
+def _diagnostics(**updates: object) -> RewardDiagnostics:
+    values: dict[str, object] = {
+        "collision_score": 1.0,
+        "drivable_score": 1.0,
+        "wrong_direction_score": 1.0,
+        "has_ttc_candidate": True,
+        "min_ttc_s": 4.0,
+        "route_progress_delta_m": 1.0,
+        "speed_mps": 2.0,
+        "speed_limit_mps": 3.0,
+        "overspeed_mps": 4.0,
+        "longitudinal_acceleration_mps2": 5.0,
+        "lateral_acceleration_mps2": 6.0,
+        "jerk_mps3": 7.0,
+        "yaw_rate_radps": 8.0,
+        "step_distance_m": 0.5,
+        "native_step_energy_ml": 0.1,
+        "native_episode_energy_ml": 1.0,
+        "executed_fuel_proxy_step_energy_ml": 0.3,
+        "executed_fuel_proxy_ml_per_km": 8.0,
+        "energy_distance_valid": True,
+    }
+    values.update(updates)
+    return RewardDiagnostics(**values)  # type: ignore[arg-type]
+
+
+def _result(**updates: object) -> RewardResult:
+    values: dict[str, object] = {
+        "profile_name": "plannerrft_energy_v1",
+        "total": 1.0,
+        "base_total": 1.0,
+        "safety_gate": 1.0,
+        "components": _components(),
+        "diagnostics": _diagnostics(),
+    }
+    values.update(updates)
+    return RewardResult(**values)  # type: ignore[arg-type]
+
+
+def test_transition_aggregation_of_one_substep_is_identical_to_that_substep() -> None:
+    single = _result(
+        total=0.75,
+        base_total=0.9,
+        safety_gate=0.5,
+        components=_components(ttc=0.5),
+        diagnostics=_diagnostics(min_ttc_s=2.5, has_ttc_candidate=False),
+    )
+
+    assert aggregate_transition_reward([single]) == single
+
+
+def test_transition_aggregation_uses_explicit_sum_mean_any_all_min_rules() -> None:
+    first = _result(
+        total=1.0,
+        base_total=1.0,
+        safety_gate=1.0,
+        components=_components(ttc=1.0, progress=2.0, comfort=3.0, speed=4.0, energy=5.0),
+        diagnostics=_diagnostics(
+            collision_score=1.0,
+            drivable_score=1.0,
+            wrong_direction_score=1.0,
+            has_ttc_candidate=True,
+            min_ttc_s=4.0,
+            route_progress_delta_m=1.0,
+            speed_mps=2.0,
+            speed_limit_mps=3.0,
+            overspeed_mps=4.0,
+            longitudinal_acceleration_mps2=5.0,
+            lateral_acceleration_mps2=6.0,
+            jerk_mps3=7.0,
+            yaw_rate_radps=8.0,
+            step_distance_m=0.5,
+            native_step_energy_ml=0.1,
+            native_episode_energy_ml=1.0,
+            executed_fuel_proxy_step_energy_ml=0.3,
+            executed_fuel_proxy_ml_per_km=8.0,
+            energy_distance_valid=True,
+        ),
+    )
+    second = _result(
+        total=2.0,
+        base_total=3.0,
+        safety_gate=0.5,
+        components=_components(ttc=10.0, progress=20.0, comfort=30.0, speed=40.0, energy=50.0),
+        diagnostics=_diagnostics(
+            collision_score=0.5,
+            drivable_score=0.25,
+            wrong_direction_score=0.75,
+            has_ttc_candidate=False,
+            min_ttc_s=2.0,
+            route_progress_delta_m=3.0,
+            speed_mps=4.0,
+            speed_limit_mps=5.0,
+            overspeed_mps=6.0,
+            longitudinal_acceleration_mps2=7.0,
+            lateral_acceleration_mps2=8.0,
+            jerk_mps3=9.0,
+            yaw_rate_radps=10.0,
+            step_distance_m=0.25,
+            native_step_energy_ml=0.2,
+            native_episode_energy_ml=2.0,
+            executed_fuel_proxy_step_energy_ml=0.4,
+            executed_fuel_proxy_ml_per_km=10.0,
+            energy_distance_valid=False,
+        ),
+    )
+
+    aggregated = aggregate_transition_reward([first, second])
+
+    assert aggregated.profile_name == "plannerrft_energy_v1"
+    assert aggregated.total == pytest.approx(3.0)
+    assert aggregated.base_total == pytest.approx(4.0)
+    assert aggregated.safety_gate == pytest.approx(0.5)
+    assert aggregated.components == RewardComponents(
+        ttc=11.0, progress=22.0, comfort=33.0, speed=44.0, energy=55.0
+    )
+    # sum for additive diagnostics
+    assert aggregated.diagnostics.route_progress_delta_m == pytest.approx(4.0)
+    assert aggregated.diagnostics.step_distance_m == pytest.approx(0.75)
+    assert aggregated.diagnostics.native_step_energy_ml == pytest.approx(0.3)
+    # MetaDrive exposes episode energy as a running cumulative value: keep the last substep.
+    assert aggregated.diagnostics.native_episode_energy_ml == pytest.approx(2.0)
+    assert aggregated.diagnostics.executed_fuel_proxy_step_energy_ml == pytest.approx(0.7)
+    # mean for intensive diagnostics
+    assert aggregated.diagnostics.min_ttc_s == pytest.approx(3.0)
+    assert aggregated.diagnostics.speed_mps == pytest.approx(3.0)
+    assert aggregated.diagnostics.speed_limit_mps == pytest.approx(4.0)
+    assert aggregated.diagnostics.overspeed_mps == pytest.approx(5.0)
+    assert aggregated.diagnostics.longitudinal_acceleration_mps2 == pytest.approx(6.0)
+    assert aggregated.diagnostics.lateral_acceleration_mps2 == pytest.approx(7.0)
+    assert aggregated.diagnostics.jerk_mps3 == pytest.approx(8.0)
+    assert aggregated.diagnostics.yaw_rate_radps == pytest.approx(9.0)
+    # `ml/km` is a ratio: distance-weighted, not a plain mean.
+    assert aggregated.diagnostics.executed_fuel_proxy_ml_per_km == pytest.approx(
+        (8.0 * 0.5 + 10.0 * 0.25) / 0.75
+    )
+    # any / all for boolean flags
+    assert aggregated.diagnostics.has_ttc_candidate is True
+    assert aggregated.diagnostics.energy_distance_valid is False
+    # min for gate-like scores and the safety gate
+    assert aggregated.diagnostics.collision_score == pytest.approx(0.5)
+    assert aggregated.diagnostics.drivable_score == pytest.approx(0.25)
+    assert aggregated.diagnostics.wrong_direction_score == pytest.approx(0.75)
+
+
+def test_transition_total_is_not_base_total_times_safety_gate_for_multiple_substeps() -> None:
+    results = [
+        _result(total=1.0, base_total=1.0, safety_gate=1.0),
+        _result(total=0.0, base_total=1.0, safety_gate=0.0),
+    ]
+
+    aggregated = aggregate_transition_reward(results)
+
+    assert aggregated.total == pytest.approx(1.0)
+    assert aggregated.base_total == pytest.approx(2.0)
+    assert aggregated.safety_gate == pytest.approx(0.0)
+    assert aggregated.total != pytest.approx(aggregated.base_total * aggregated.safety_gate)
+
+
+def test_transition_aggregation_rejects_empty_and_mixed_profile_inputs() -> None:
+    with pytest.raises(ValueError, match="at least one"):
+        aggregate_transition_reward([])
+
+    with pytest.raises(ValueError, match="different reward profiles"):
+        aggregate_transition_reward(
+            [
+                _result(profile_name="plannerrft_energy_v1"),
+                _result(profile_name="plannerrft_no_energy_v1"),
+            ]
+        )

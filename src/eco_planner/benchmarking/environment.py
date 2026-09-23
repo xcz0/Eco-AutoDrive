@@ -11,8 +11,7 @@ from hydra.core.hydra_config import HydraConfig
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig
 
-from eco_planner.contracts import PLANNER_HORIZON, ExecutionMode
-from eco_planner.envs import MetaDriveEnvSlot
+from eco_planner.envs import MetaDriveEnvSlot, stationary_trajectory
 from eco_planner.planning.diffusion import OfficialDiffusionPlannerConfig
 
 from .config import (
@@ -72,11 +71,10 @@ def _run_once(
     env_slot = MetaDriveEnvSlot(
         env_config,
         mode="traffic" if traffic else "no_traffic",
-        execution_mode=ExecutionMode.EVALUATION,
         map_query_radius_m=benchmark.map_query_radius_m,
         history_warmup_steps=benchmark.history_warmup_steps if traffic else 0,
     )
-    trajectory = _stationary_trajectory()
+    trajectory = stationary_trajectory()
     try:
         env_slot.reset(map_name=benchmark.map, seed=benchmark.seed)
 
@@ -99,12 +97,6 @@ def _run_cycle(
     step = env_slot.step(trajectory).execution
     if step.terminated or step.truncated:
         raise RuntimeError("environment benchmark ended before measurement completed")
-
-
-def _stationary_trajectory() -> np.ndarray:
-    trajectory = np.zeros((PLANNER_HORIZON, 4), dtype=np.float32)
-    trajectory[:, 2] = 1.0
-    return trajectory
 
 
 def _validate_baselines(report: dict[str, object], benchmark: EnvironmentBenchmarkConfig) -> None:
