@@ -8,7 +8,7 @@ Scenario 定义场景条件，episode 是单次闭环运行，job 是配置、�
 
 ## Evaluation cycle 与 rollout transition
 
-两条路径执行的轨迹前缀不同，reward、done、bootstrap、GAE 和 trace 索引必须按所在路径解释。即使使用同一 policy checkpoint，evaluation 也不沿用训练 transition 的时间尺度。精确频率见[坐标、时间与单位](system-contract.md#坐标时间与单位)。
+training rollout 与 evaluation 执行同一 canonical closed-loop cadence：每个 planning cycle 5 个子步（0.5 s），一个 PPO transition 等于一个 decision 加其完整 execution prefix。两条路径仍使用不同的编排、产物 schema 与索引单位：evaluation trace 以 planning cycle / simulator substep 组织并保留逐 substep 客观事实，training 以 transition 组织并把 reward、done、bootstrap 聚合到 transition 级。解释某个数组或标量时必须先确认其所属路径，不能把 training 的 transition 聚合量当作 evaluation 的逐 substep 事实，反之亦然。精确频率见[坐标、时间与单位](system-contract.md#坐标时间与单位)。
 
 ## 随机种子的命名空间
 

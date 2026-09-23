@@ -33,7 +33,7 @@
 * MetaDrive vehicle center 与后轴中心的偏移必须按车辆 heading 显式转换；地图、目标轨迹和实际车辆状态使用同一车辆中心约定。
 * heading 使用 `[cos(h), sin(h)]`，角差使用最短有向角。
 * 模型轨迹为 10 Hz 的 80 个未来点，共 8 s；MetaDrive 物理步长为 0.02 s，`decision_repeat=5`，对外子步为 0.1 s。
-* evaluation 每个规划周期只执行前 5 点，即 0.5 s，规划频率为 2 Hz；policy-guided rollout 只执行第 1 点，即 0.1 s，规划频率为 10 Hz。两条入口不得混用 transition、reward、done 或 bootstrap 语义。诊断 experiment 可显式传入 `MetaDriveEnvSlot`/`VectorMetaDriveEnv` 的 `execution_steps` 覆盖前缀长度（默认 `None` 等于上述固定模式）；该覆盖仅供 matched causal intervention，不改变 baseline 执行契约或正式 transition 语义。
+* training rollout 与 evaluation 运行同一 canonical closed-loop cadence：每个 planning cycle 执行前 `CLOSED_LOOP_EXECUTION_STEPS=5` 个子步，即 `DECISION_INTERVAL_S=0.5 s`，规划频率为 2 Hz。一个 PPO transition = 一个 planner/policy decision + 其完整 execution prefix；training 与 evaluation 不再使用不同前缀或不同 transition 时间尺度。诊断 experiment 可显式传入 `MetaDriveEnvSlot`/`VectorMetaDriveEnv` 的 `execution_steps` 覆盖前缀长度（默认 `None` 等于 canonical）；该覆盖仅供 matched causal intervention，不改变 baseline 执行契约或正式 transition/reward/GAE 语义。
 * 这些共享 ABI 值仅定义于 `eco_planner.contracts`。其中 `TRAFFIC_HISTORY_FRAMES=21` 包含当前帧，`TRAFFIC_HISTORY_WARMUP_STEPS=20` 是形成该完整历史所需的过去子步数；MetaDrive physics step 与 decision repeat 必须显式验证其乘积等于 0.1 s。
 * 程序化地图限速配置使用 km/h，模型限速使用 m/s；单位转换只在地图适配边界执行一次。
 * 能耗、距离、速度、加速度和角速度字段名必须显式标出单位。
@@ -47,7 +47,7 @@
 
 该接口不生成 steering、throttle 或 brake，也不证明低层车辆动力学可执行性。原始轨迹必须原样执行和保存；不得平滑、裁剪、限幅、旋转、投影到中心线、选择最佳噪声 seed、切换回退控制器，或在异常时返回零轨迹。
 
-`MetaDriveEnvSlot.step()` 调用 trajectory executor：executor 使用 canonical local-to-world conversion，逐个请求 backend 的 0.1 s transition；stateful transition extractor 从连续 ego state、目标点、交通快照、route/lane 与 typed MetaDrive termination outcome 生成 objective-neutral `TransitionMetrics`。executor 在 terminal/truncation 时停止并生成 domain-owned `TrajectoryExecutionResult(execution, metrics, terminated, truncated)`；slot 提交 traffic frames、构造下一 `EnvSlotState`，再作为原子 `EnvSlotStep` 返回。`TrajectoryExecutionRecord` 只保存 start/target/actual trajectory、traffic、route 与 termination 等执行事实。backend、executor、slot、worker 都不携带 builtin reward、训练 reward callback 或 reward-specific audit。RL collector 从结果的单步 metrics 生成 `RewardResult`；evaluation recorder 从同一结果映射客观 trace 字段，不保存 reward。数组的 shape/dtype 由固定容量执行缓冲、jaxtyping 接口契约和 producer 测试保证。
+`MetaDriveEnvSlot.step()` 调用 trajectory executor：executor 使用 canonical local-to-world conversion，逐个请求 backend 的 0.1 s transition；stateful transition extractor 从连续 ego state、目标点、交通快照、route/lane 与 typed MetaDrive termination outcome 生成 objective-neutral `TransitionMetrics`。executor 在 terminal/truncation 时停止并生成 domain-owned `TrajectoryExecutionResult(execution, metrics, terminated, truncated)`；slot 提交 traffic frames、构造下一 `EnvSlotState`，再作为原子 `EnvSlotStep` 返回。`TrajectoryExecutionRecord` 只保存 start/target/actual trajectory、traffic、route 与 termination 等执行事实。backend、executor、slot、worker 都不携带 builtin reward、训练 reward callback 或 reward-specific audit。RL collector 对结果的每个 substep `TransitionMetrics` 求 `RewardResult`，再按 `reward.aggregate_transition_reward` 聚合为该 transition 的一个 `RewardResult`；evaluation recorder 从同一结果映射客观 trace 字段，不保存 reward。数组的 shape/dtype 由固定容量执行缓冲、jaxtyping 接口契约和 producer 测试保证。
 
 ## 能耗记录
 
@@ -80,7 +80,7 @@ trace recorder 必须在回合开始时按最大 planning/warmup 容量，根据
 * `trace.npz` 的字段集合、shape、dtype 和有限性由 `TRACE_FIELDS` / `validate_trace_arrays` 明确定义。
 * trace 字段必须是预期的 NumPy array；缺失或未声明的数组都会导致验证失败。
 * guided trace 的 guidance 数组必须完整出现或完整缺失，不能只保存其中一部分。
-* 动态数组必须在 planning、simulator 和 warmup 轴上保持一致；实现还校验 trace status、planning-cycle 数、simulator-step 数、warmup 数、plan index 顺序、五步 execution prefix、terminal flag 位置、非负计数以及其他已实现的跨数组不变量。
+* 动态数组必须在 planning、simulator 和 warmup 轴上保持一致；实现还校验 trace status、planning-cycle 数、simulator-step 数、warmup 数、plan index 顺序、canonical `CLOSED_LOOP_EXECUTION_STEPS` execution prefix、terminal flag 位置、非负计数以及其他已实现的跨数组不变量。
 * trace 显式保存 `complete`、`partial` 或 `empty` 状态、initial-state validity、普通及 route lane 的限速与有效性。
 * `evaluation.artifacts.trace` 只保存轻量字段声明和 I/O structural validation；依赖 Torch/MetaDrive 的在线预分配与记录由 `evaluation.episodes.recorder` 拥有。reader 在 I/O 边界完整校验一次，`evaluation.artifacts.io` 只补充 trace 与 typed episode result 的计数/status 对齐、route/traffic、seed 配对和接口误差语义；实验的 retention、safety 或统计接受规则保留在各自 `experiments` 模块。
 * `evaluation.engine` 是在线 job 编排入口；serial/vector 回合控制流位于 `evaluation.episodes`，agent、episode protocol 与 trace/artifact 适配位于 `evaluation.inference`。learned-guidance 的 planner/policy 单次决策 runtime 归 `planning`（`planning.inference`），training rollout 与 policy-checkpoint evaluation 复用同一实现；base/fixed-guidance 的 planner execution runtime 暂仍由 `evaluation.inference` 拥有，待 runtime/benchmark 收口。`evaluation.artifacts.report` 是通用离线矩阵报告入口，typed reader/writer 位于 `evaluation.artifacts.io`。仓库内消费者通过 `eco_planner.evaluation` 的延迟公开接口访问这些能力；读取 summary、trace 或 report 不得加载 Torch、MetaDrive/Panda3D 或 GIF rendering。

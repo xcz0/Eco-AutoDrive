@@ -1,5 +1,7 @@
 # Add a 10 Hz closed-loop rollout contract
 
+> 关于 10 Hz 单点 rollout transition 与 2 Hz evaluation 分离 cadence 的决定已由 [ADR 0039](0039-unify-closed-loop-cadence.md) 取代；DDIM、buffer、bootstrap 与随机流约束继续有效。
+
 PlannerRFT PPO-only collection uses one 0.1 s trajectory point as one MDP transition. The existing
 evaluation path remains a separate 2 Hz/0.5 s receding-horizon contract that executes five points;
 its baseline artifacts and conclusions are not reinterpreted as PPO rollouts.
