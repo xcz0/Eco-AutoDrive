@@ -3,10 +3,22 @@
 from __future__ import annotations
 
 import numpy as np
+from pydantic import Field, StrictFloat, model_validator
 
 from eco_planner.envs.domain import TransitionMetrics
 
-from ..config import SpeedRewardConfig
+from .strict import StrictRewardModel
+
+
+class SpeedRewardConfig(StrictRewardModel):
+    overspeed_margin_mps: StrictFloat = Field(ge=0.0)
+    zero_score_overspeed_mps: StrictFloat = Field(gt=0.0)
+
+    @model_validator(mode="after")
+    def validate_speed_bounds(self) -> SpeedRewardConfig:
+        if self.zero_score_overspeed_mps <= self.overspeed_margin_mps:
+            raise ValueError("speed.zero_score_overspeed_mps must exceed overspeed_margin_mps")
+        return self
 
 
 def speed_score(config: SpeedRewardConfig, metrics: TransitionMetrics) -> tuple[float, float]:
@@ -23,4 +35,4 @@ def speed_score(config: SpeedRewardConfig, metrics: TransitionMetrics) -> tuple[
     return score, overspeed_mps
 
 
-__all__ = ["speed_score"]
+__all__ = ["SpeedRewardConfig", "speed_score"]

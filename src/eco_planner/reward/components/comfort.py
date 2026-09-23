@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import numpy as np
+from pydantic import Field, StrictFloat
 
 from eco_planner.envs.domain import TransitionMetrics
 
-from ..config import ComfortRewardConfig
+from .strict import StrictRewardModel
+
+
+class ComfortRewardConfig(StrictRewardModel):
+    longitudinal_acceleration_limit_mps2: StrictFloat = Field(gt=0.0)
+    lateral_acceleration_limit_mps2: StrictFloat = Field(gt=0.0)
+    jerk_limit_mps3: StrictFloat = Field(gt=0.0)
+    yaw_rate_limit_radps: StrictFloat = Field(gt=0.0)
 
 
 def comfort_score(config: ComfortRewardConfig, metrics: TransitionMetrics) -> float:
@@ -27,4 +35,4 @@ def component_score(value: float, limit: float) -> float:
     return float(np.clip(1.0 - max(0.0, value - limit) / limit, 0.0, 1.0))
 
 
-__all__ = ["comfort_score"]
+__all__ = ["ComfortRewardConfig", "comfort_score"]

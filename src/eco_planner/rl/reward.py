@@ -35,7 +35,7 @@ from eco_planner.reward import (
     energy_score_from_fuel,
     scored_arrays,
 )
-from eco_planner.reward.config import EnergyRewardConfig
+from eco_planner.reward.components import EnergyRewardConfig
 from eco_planner.rl import RolloutEpisode
 
 COMPONENTS = ("ttc", "progress", "comfort", "speed", "energy")

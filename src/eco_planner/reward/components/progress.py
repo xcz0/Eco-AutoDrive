@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import numpy as np
+from pydantic import Field, StrictFloat
 
 from eco_planner.envs.domain import TransitionMetrics
 
-from ..config import ProgressRewardConfig
+from .strict import StrictRewardModel
+
+
+class ProgressRewardConfig(StrictRewardModel):
+    full_score_delta_m: StrictFloat = Field(gt=0.0)
 
 
 def progress_score(config: ProgressRewardConfig, metrics: TransitionMetrics) -> float:
@@ -23,4 +28,4 @@ def score_delta(delta_m: float, full_score_delta_m: float) -> float:
     )
 
 
-__all__ = ["progress_score"]
+__all__ = ["ProgressRewardConfig", "progress_score"]

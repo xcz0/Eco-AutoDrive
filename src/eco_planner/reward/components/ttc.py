@@ -5,10 +5,28 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from pydantic import Field, StrictFloat, model_validator
 
 from eco_planner.envs.domain import TransitionMetrics
 
-from ..config import TTCRewardConfig
+from .strict import StrictRewardModel
+
+
+class TTCRewardConfig(StrictRewardModel):
+    critical_ttc_s: StrictFloat = Field(ge=0.0)
+    safe_ttc_s: StrictFloat = Field(gt=0.0)
+    maximum_ttc_s: StrictFloat = Field(gt=0.0)
+    minimum_closing_speed_mps: StrictFloat = Field(gt=0.0)
+    lateral_margin_m: StrictFloat = Field(ge=0.0)
+    longitudinal_margin_m: StrictFloat = Field(ge=0.0)
+
+    @model_validator(mode="after")
+    def validate_ttc_bounds(self) -> TTCRewardConfig:
+        if self.safe_ttc_s <= self.critical_ttc_s:
+            raise ValueError("ttc.safe_ttc_s must exceed critical_ttc_s")
+        if self.maximum_ttc_s < self.safe_ttc_s:
+            raise ValueError("ttc.maximum_ttc_s must cover safe_ttc_s")
+        return self
 
 
 def ttc_score(config: TTCRewardConfig, metrics: TransitionMetrics) -> tuple[float, float, bool]:
@@ -79,4 +97,4 @@ def _minimum_time_to_collision_s(
     return min(min(candidates), config.maximum_ttc_s), True
 
 
-__all__ = ["ttc_score"]
+__all__ = ["TTCRewardConfig", "ttc_score"]

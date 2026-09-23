@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+from pydantic import StrictBool
+
 from eco_planner.envs.domain import TransitionMetrics
 
-from ..config import RewardGatesConfig
+from .strict import StrictRewardModel
+
+
+class RewardGatesConfig(StrictRewardModel):
+    collision_vehicle: StrictBool
+    collision_object: StrictBool
+    collision_building: StrictBool
+    collision_human: StrictBool
+    collision_sidewalk: StrictBool
 
 
 def safety_gate(
@@ -31,4 +41,4 @@ def safety_gate(
     )
 
 
-__all__ = ["safety_gate"]
+__all__ = ["RewardGatesConfig", "safety_gate"]
