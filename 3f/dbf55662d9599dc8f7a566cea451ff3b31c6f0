@@ -1,0 +1,80 @@
+src/eco_planner/reward/aggregation.py
+  s_3b726d7987b568::t_5a8b1411ebc378 93-94
+  s_3b726d7987b568::t_4f851d3d55beca 5-9,15,17-79,85-86,88-92,95,97,99-100,104,107,128,132,136-140,145-148,161-166
+  s_3b726d7987b568::t_7c8ab8815fcd8f 149-153
+  s_3b726d7987b568::t_8f5b62146b88d3 154-155
+src/eco_planner/reward/components/energy.py
+  s_3b726d7987b568::t_ff0b6c523a93d0 24-25,27-34,47-55
+tests/training/test_credit_assignment.py
+  s_3b726d7987b568::t_4763dcdd877db2 63
+  s_3b726d7987b568::t_56419ed66ed794 125-126
+  s_3b726d7987b568::t_7ae90eda926de1 241-242
+  s_3b726d7987b568::t_c90d0d7e05d386 240
+  s_3b726d7987b568::t_39cf4d1eff50c8 64
+tests/training/test_reward_calibration.py
+  s_3b726d7987b568::t_6a505c85945c22 4,12-20,22-36,38-39
+  s_3b726d7987b568::t_ddacc83f23afdc 117,136-137
+  s_3b726d7987b568::t_fa0700c818f83c 180-261,263-281
+  s_3b726d7987b568::t_4763dcdd877db2 262
+src/eco_planner/rl/rollout/collector.py
+  s_3b726d7987b568::t_a3da724406ff6c 667-668,671
+tests/training/test_fixed_batch.py
+  s_3b726d7987b568::t_8664e078b0f6bb 56-63
+src/eco_planner/reward/__init__.py
+  s_3b726d7987b568::t_230fe8e9d72b4f 52-53,61,66
+  s_3b726d7987b568::t_94234a8d9a0b27 24
+  s_3b726d7987b568::t_31f3c286cf8a45 9-14
+tests/training/test_reward.py
+  s_3b726d7987b568::t_623dfc4c2d85e0 690-691,702-705
+src/eco_planner/rl/config.py
+  s_3b726d7987b568::t_58435a66622289 156-158
+docs/adr/0039-unify-closed-loop-cadence.md
+  s_3b726d7987b568::t_06038b11801346 28-36,40-45
+  s_3b726d7987b568::t_6829575ceb11b9 46
+docs/agents/contracts/experiments.md
+  s_3b726d7987b568::t_f9313ea0109218 12
+  s_3b726d7987b568::t_dbe1d2b880ca34 37
+tests/configuration/test_jobs.py
+  s_3b726d7987b568::t_0815868a8cf928 24
+  s_3b726d7987b568::t_ac41f70c17a2b4 187-216
+src/eco_planner/rl/reward.py
+  s_3b726d7987b568::t_4763dcdd877db2 59
+  s_3b726d7987b568::t_f394a705ce6287 5,8-13,24,35,54,56,61-68,70,75,77-82,84,89-90,92-104,108,112-119,121-123,130-131,133-137,161,163-172,181-190,200
+  s_3b726d7987b568::t_17c167ce54fd74 120
+src/eco_planner/rl/rollout/contracts.py
+  s_3b726d7987b568::t_ffcf4b2f2de139 166
+  s_3b726d7987b568::t_6c3ca6357e257c 137-153,157
+  s_3b726d7987b568::t_e2379f462e4a87 458-493
+  s_3b726d7987b568::t_3119497950a3d3 314,318-366
+  s_3b726d7987b568::t_8d05a30a7f47b5 11-16,22,367-368
+tests/training/test_ppo.py
+  s_3b726d7987b568::t_13ab14c293ac17 102-127,129-132
+docs/agents/contracts/training.md
+  s_3b726d7987b568::t_2e6b7120de68c5 31
+  s_3b726d7987b568::t_d28e3d32f90d34 29
+docs/agents/system-contract.md
+  s_3b726d7987b568::t_8f157b722cef20 50
+src/eco_planner/experiments/reward/runner.py
+  s_3b726d7987b568::t_7a4acf082a4ff7 26
+  s_3b726d7987b568::t_f09837a5df1bb4 59,68-69
+tests/training/test_rollout.py
+  s_3b726d7987b568::t_2e4d6fe48de306 186-193,202,205-211
+  s_3b726d7987b568::t_b655bbd503722a 65-66
+  s_3b726d7987b568::t_9e780b71c4fab5 154-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "3fdbf55662d9599dc8f7a566cea451ff3b31c6f0",
+  "prompts": {},
+  "sessions": {
+    "s_3b726d7987b568": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f340c75eaffePN00tInfbjN1TR",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
