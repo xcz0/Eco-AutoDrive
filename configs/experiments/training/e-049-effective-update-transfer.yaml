@@ -1,0 +1,37 @@
+version: 1
+study_name: effective_update_transfer
+protocol: experiments/comparison/calibrated.yaml
+arm: r0
+training_seed: 0
+update_count: 50
+base_overrides:
+- components/resources=rtx_a4000
+grid:
+  learning_rates:
+  - 0.00015
+  epochs:
+  - 1
+  max_gradient_norms:
+  - 0.5
+gate:
+  target_kl: 0.006
+  kl_floor: 1.0e-06
+  within_target_kl_fraction: 0.9
+  runaway_tail_updates: 10
+  runaway_tail_factor: 10.0
+  ratio_change_floor: 0.0001
+  guidance_rms_shift_floor: 0.01
+  beta_parameter_floor: 0.1
+  boundary_mass_ceiling: 0.2
+  episode_length_retention_floor: 0.5
+  collision_budget: 2
+  heldout_relative_change_floor: 0.001
+  heldout_metrics:
+  - mean_speed_mps
+  - distance_m
+  - route_completion
+  - energy_total_ml
+  - energy_ml_per_km
+selection: lowest_learning_rate_then_epochs_then_max_gradient_norm
+mc_draws: 4096
+mc_seed: 1000003

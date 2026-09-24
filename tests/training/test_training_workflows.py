@@ -5,11 +5,14 @@ import json
 import pytest
 from omegaconf import OmegaConf
 
+from eco_planner._repository import CONFIG_ROOT
 from eco_planner.analysis.runner import analyze
 from eco_planner.artifacts import write_json
 from eco_planner.evaluation.artifacts.models import PolicyCheckpointProvenance
-from eco_planner.experiments.protocol.config import DEFAULT_PROTOCOL
+from eco_planner.experiments.protocol.composition import compose_arm_training_config
+from eco_planner.experiments.protocol.config import DEFAULT_PROTOCOL, load_protocol
 from eco_planner.experiments.training import grid, runner
+from eco_planner.experiments.training.config import load_training_grid
 from tests.analysis.test_reports import job
 from tests.evaluation.test_artifacts import _training_summary
 from tests.training.test_effective_update import _metrics, _study
@@ -224,3 +227,34 @@ def test_grid_preserves_failure_and_propagates_original_error(tmp_path, monkeypa
     assert data["arms"][0]["status"] == "failed"
     assert "original training failure" in data["arms"][0]["failure"]["traceback"]
     analyze("training", output, tmp_path / "report", figures=False)
+
+
+def test_e049_transfer_manifest_pins_calibrated_r0_e039_candidate() -> None:
+    """Task 1B reuses frozen Gate F on the single E-039 candidate arm."""
+
+    manifest = CONFIG_ROOT / "experiments" / "training" / "e-049-effective-update-transfer.yaml"
+    study = load_training_grid(manifest)
+    assert study.grid.combinations() == ((1.5e-4, 1, 0.5),)
+    assert study.arm == "r0"
+    assert study.training_seed == 0
+    assert study.update_count == 50
+    # Gate T2 reuses the frozen E-039 Gate F thresholds verbatim.
+    assert (
+        study.gate
+        == load_training_grid(CONFIG_ROOT / "experiments" / "training" / "grid.yaml").gate
+    )
+
+    protocol = load_protocol(study.protocol_path())
+    _, parsed = compose_arm_training_config(protocol, study.arm, study.training_seed)
+    assert parsed.reward.name == "plannerrft_no_energy_calibrated_v1"
+    assert parsed.ppo.learning_rate == pytest.approx(1.5e-4)
+    assert parsed.ppo.epochs == 1
+    assert parsed.ppo.max_gradient_norm == 0.5
+    assert parsed.ppo.target_kl == pytest.approx(0.006)
+    assert parsed.ppo.batch_size == parsed.ppo.minibatch_size == 128
+    assert parsed.ppo.optimizer_steps_per_update == 1
+    assert parsed.training.update_count == 50
+    assert parsed.cadence.simulator_step_s == 0.1
+    assert parsed.cadence.closed_loop_execution_steps == 5
+    assert parsed.cadence.decision_interval_s == 0.5
+    assert grid.arm_label(*study.grid.combinations()[0]) == "lr1.5000e-04-epochs1-mgn0.5"
