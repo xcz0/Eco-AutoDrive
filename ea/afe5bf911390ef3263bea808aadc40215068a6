@@ -1,0 +1,73 @@
+docs/research/issue83-task-1a-identifiability-transfer-plan.md
+  s_6e7800032376b1::t_a7736092c9b1a6 1-189
+src/eco_planner/reward/__init__.py
+  s_2f3d172707f000::t_5999e7a159be27 59
+  s_2f3d172707f000::t_afe37425119b96 19-20
+  s_2f3d172707f000::t_32e0f511df92dd 46
+tests/training/test_fixed_batch.py
+  s_2f3d172707f000::t_04a3913d054191 202
+  s_2f3d172707f000::t_240cd0a3099c0e 121,130-136,145-158
+tests/configuration/test_scalar_reward.py
+  s_2f3d172707f000::t_afbe6e921d1ce9 11
+  s_2f3d172707f000::t_53a204d4c7655b 121-138
+configs/experiments/reward/e-048-collection.yaml
+  s_2f3d172707f000::t_2a2c02ece20975 1-18
+configs/experiments/credit/ablation.yaml
+  s_2f3d172707f000::t_7089164d2bff6e 22
+configs/experiments/credit/e-048-identifiability-transfer.yaml
+  s_2f3d172707f000::t_5ca9bcb8955d87 1-42
+configs/experiments/credit/energy-band.yaml
+  s_2f3d172707f000::t_3fe5b5d4a26f88 22
+src/eco_planner/experiments/credit/runner.py
+  s_2f3d172707f000::t_4082a6f5fa9c99 12,18,25,32,69
+  s_2f3d172707f000::t_2ec2ac38d68e9a 50,62-68
+  s_2f3d172707f000::t_f2c8b20e8dd960 157-158
+configs/experiments/credit/sensitivity.yaml
+  s_2f3d172707f000::t_de8a41f9df03d7 16
+configs/experiments/reward/collection.yaml
+  s_2f3d172707f000::t_f83651d4f7d052 4
+configs/experiments/credit/objectives.yaml
+  s_2f3d172707f000::t_8e6124b974ee15 20
+docs/agents/contracts/experiments.md
+  s_2f3d172707f000::t_769901c1268056 35
+  s_2f3d172707f000::t_69d4e634e5c80d 43-44
+  s_2f3d172707f000::t_e61e5732e91564 33
+src/eco_planner/reward/calibration.py
+  s_2f3d172707f000::t_4ec2256c9d383c 13
+  s_2f3d172707f000::t_250030611997cb 87-116
+  s_2f3d172707f000::t_bd2694594752a0 129-130
+tests/training/test_credit_assignment.py
+  s_2f3d172707f000::t_2e557f6e6fd69f 292-376
+  s_2f3d172707f000::t_aecfcce1e59255 9,21-22,24
+  s_2f3d172707f000::t_8fdcfba7f1516f 54
+src/eco_planner/experiments/credit/config.py
+  s_2f3d172707f000::t_efd350c9151378 9
+  s_2f3d172707f000::t_1bf8e7a5dff93a 37,46-47
+tests/training/test_reward.py
+  s_2f3d172707f000::t_6efe7b93389801 18,25
+  s_2f3d172707f000::t_b08c0c1d96d8b2 479-508
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "eaafe5bf911390ef3263bea808aadc40215068a6",
+  "prompts": {},
+  "sessions": {
+    "s_2f3d172707f000": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f32c3278affeuilfMNBDKd7XYw",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    },
+    "s_6e7800032376b1": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f33051685ffezhOFj0lHDHVmjK",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
