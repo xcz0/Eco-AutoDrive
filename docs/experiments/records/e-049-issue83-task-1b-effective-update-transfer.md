@@ -133,6 +133,8 @@ schema 未同步。Gate T2 裁定所依据的 KL/ratio/RMS 统计不受此修复
   `policy-initial/final/update-NNN.pt`、`updates/update-NNN/*.npz`（完整 rollout audit）、
   `resolved_config.yaml`、`runtime_metadata.json`。
 - `summary.json`：逐 arm metrics、Gate T2 判定与（空的）选择结果；无 `heldout/`（c7 未评估）。
+- `analysis.json` / `report.md`：由 `training grid` 收尾的 analysis publish 生成的分析产物。
+- `figures/post-update-kl.png`、`figures/post-update-kl.svg`：逐 update KL 曲线图。
 
 ## Issue Task 5 provenance 清单
 

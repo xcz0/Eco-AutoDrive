@@ -64,8 +64,8 @@ search**，应回到 #80 新建/指定独立 cadence-PPO 诊断任务。
   c4=Beta mean RMS shift、c5=boundary collapse、c6=behavioral collapse、c7=held-out 超噪声；
   训练内非有限值由 `post_update_kl_series` 与 PPO 的 finite guard 直接抛错。
 - **`training grid` 支持单臂**：`GridConfig` 只要求非空且排序唯一；单元素笛卡尔积
-  （1×1×1）不构成搜索，runner 仍执行完整 Gate F 与 matched held-out 评测，产物
-  `summary.json → update_gate_passed` 即 Gate T2 裁定。
+  （1×1×1）不构成搜索，产物 `summary.json → update_gate_passed` 即 Gate T2 裁定。注意
+  runner 的 held-out c7 只对通过 c1–c6 的候选臂评测：若 c1–c6 未全通过则不进入 held-out。
 
 ## 3. 设计决策
 
@@ -155,8 +155,9 @@ just exp training grid `
   --output-dir outputs/studies/scalar-reward/e-049-issue83-task-1b-effective-update-transfer
 ```
 
-runner 依次：训练 `r0` 单臂 50 updates（canonical k=5）→ 提取 c1–c6 → matched initial/final
-held-out 评测得 c7 → 写 `summary.json`（含 `update_gate_passed`）。
+runner 依次：训练 `r0` 单臂 50 updates（canonical k=5）→ 提取 c1–c6 → **若**该臂通过 c1–c6，
+再做 matched initial/final held-out 评测得 c7 → 写 `summary.json`（含 `update_gate_passed`）。
+若 c1–c6 未全通过则不进行 held-out 评测，c7 未评估。
 
 运行后核对：resolved config 的 cadence（0.1×5=0.5）、reward profile
 `plannerrft_no_energy_calibrated_v1`、seeds（training/runtime seed 0、replay 0）；initial policy
