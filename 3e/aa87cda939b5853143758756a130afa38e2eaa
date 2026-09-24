@@ -1,0 +1,21 @@
+docs/experiments/records/e-050-issue105-phase-a-cadence-attribution.md
+  s_884c9969ab9f5f::t_6001c7c53248d7 1-206
+docs/experiments/README.md
+  s_884c9969ab9f5f::t_b8d0a4c0c1caf4 97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "3eaa87cda939b5853143758756a130afa38e2eaa",
+  "prompts": {},
+  "sessions": {
+    "s_884c9969ab9f5f": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f2da82784ffeY7o26RKBv91eUy",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
