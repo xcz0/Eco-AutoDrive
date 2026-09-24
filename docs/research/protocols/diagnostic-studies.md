@@ -173,9 +173,9 @@ planner/environment overhead。Worker busy 为 environment+observation，
 [ADR 0039](../../adr/0039-unify-closed-loop-cadence.md)。具体实验的阈值与判据由对应显式配置持久化，
 不将某次 gate 升格为通用科学真值。
 
-盘点评论指出 #83 计划混有已实现机制和未运行实验。本篇仅区分 frozen band 的设计，
-不据旧计划重做机制，不把配置存在解释为 T1/T2/T3 已完成；transfer 验收仍归
-[Issue #83](https://github.com/xcz0/Eco-AutoDrive/issues/83)。
+本篇仅区分 frozen band 的设计，不据旧计划重做机制，也不把配置存在解释为实验通过。
+Transfer 验收归 [Issue #83](https://github.com/xcz0/Eco-AutoDrive/issues/83)；
+旧计划与新增评论的状态差异见 [Findings 的核验边界](../findings.md#canonical-cadence-transfer-的证据边界)。
 
 | 任务 | 实现／配置定位 | 相关测试（未运行） |
 | --- | --- | --- |

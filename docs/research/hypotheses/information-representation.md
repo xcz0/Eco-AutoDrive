@@ -1,5 +1,9 @@
 # Information and Representation Study
 
+> 类型：Hypothesis。信息消融和 encoder adaptation 均为拟议研究，不表示 preview 已被利用、
+> encoder 已微调或相应实验已完成。已接受的比较方法引用
+> [planning/evaluation protocol 草案](../protocols/planning-and-evaluation.md)。
+
 ## 研究问题
 
 本专题研究：
@@ -8,16 +12,16 @@
 
 当前不把“道路预瞄”预设为唯一核心信息。道路几何、导航、限速变化、动态交通和当前局部场景都属于候选信息来源，需要通过消融判断其增量价值。
 
-## 当前起点
+## 拟议起点
 
-现阶段暂借用 Diffusion Planner 预训练得到的感知/scene representation。
+拟先固定 Diffusion Planner 预训练得到的感知/scene representation。
 
 这样做的目的不是假设预训练 representation 已经最优，而是先把两个问题解耦：
 
 1. **information value**：某类信息本身是否对 energy-oriented policy 有用；
 2. **representation learning**：已有 encoder 是否能够把这些信息表示得足够适合 RL。
 
-第一阶段固定 encoder，只比较信息；第二阶段再在相同信息条件下比较 frozen / fine-tuned representation。
+拟议第一阶段固定 encoder，只比较信息；第二阶段再在相同信息条件下比较 frozen / fine-tuned representation。
 
 ## 第一阶段：信息价值消融
 
@@ -187,6 +191,19 @@ Information study 与 multi-head critic 原则上正交。
 - critic architecture。
 
 否则难以判断收益来源。
+
+## 可能需要的实验支持
+
+承接旧 PPO support plan B/C 与 G-P5，仅在相应假设被接受后确定实施范围：
+
+- 信息分组的 mask / include-exclude、可见范围和 matched perturbation；保存输入条件与 action 响应，
+  区分 ego/reference、local scene、road/navigation 与 traffic，优先支持实验控制。
+- 若进入 representation adaptation，明确 frozen reference planner 与 trainable RL representation
+  的边界、参数组与 checkpoint 身份，以及 representation drift / gradient diagnostics。
+- 比较哪些参数参与 RL update、是否需要 encoder-specific learning rate 或 staged unfreezing、
+  encoder 与 actor/critic 的优化耦合是否影响稳定性，并保留 frozen-vs-tuned 对照。
+
+不把这些候选能力写成当前缺失功能；稳定性迁移问题见 [PPO 工具假设](ppo-tooling.md)。
 
 ## 本专题暂不回答
 

@@ -1,6 +1,6 @@
 # RL-based Energy Management Survey — 对 Eco-AutoDrive 的可借鉴点
 
-> 文档性质：primary-source research note。用于记录外部综述对当前研究问题的支持、启发与边界；不代表已接受的技术决定或 active implementation work。
+> 文档性质：非规范性 primary-source reference。用于记录外部综述对研究问题的支持、启发与边界；不代表本项目 Protocol、Finding、已接受决定或 active implementation work。
 
 ## 来源
 
@@ -37,7 +37,7 @@
 
 综述指出，RL-based EMS 的研究目标已经从传统的 fuel economy / SOC 扩展到效率、温度、寿命等多目标；同时列举了 multi-objective RL、reward-function comparison、IRL-based reward-weight determination 等工作。
 
-这与 [`reward-objective.md`](reward-objective.md) 当前的问题高度一致：
+这与 [reward/objective 假设](hypotheses/reward-objective.md) 的问题高度一致：
 
 ```text
 energy
@@ -86,7 +86,7 @@ progress / speed / safety / comfort
 
 这些结果支持一个较弱但重要的结论：**能量管理确实可能受未来工况影响，单步局部状态未必足够。**
 
-这与当前 `reward-objective.md` 中的 temporal credit assignment 研究方向一致。
+这与 [reward/objective 假设](hypotheses/reward-objective.md) 中的 temporal credit assignment 研究方向一致。
 
 但综述没有证明：
 
@@ -114,7 +114,7 @@ better energy optimization
 - slope、curvature、road signs 等道路属性；
 - global / local trip information。
 
-这为 [`information-representation.md`](information-representation.md) 中的 I2 提供了较直接的领域依据：
+这为 [information/representation 假设](hypotheses/information-representation.md) 中的 I2 提供了较直接的领域依据：
 
 ```text
 I2 — Long-range road / navigation information

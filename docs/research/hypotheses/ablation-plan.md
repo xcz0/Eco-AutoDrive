@@ -1,5 +1,8 @@
 # Ablation Plan
 
+> 类型：Hypothesis。阶段顺序、组合与收益判据均为候选设计，不是默认执行计划。
+> 已接受工作及其验收由对应 GitHub Issue 拥有；本篇不声明任何阶段完成。
+
 ## 目的
 
 本文件组织研究级消融逻辑，不维护具体运行参数和 Issue 状态。
@@ -20,15 +23,9 @@ Reward study 中固定 observation；information study 中固定 reward；repres
 
 ### 使用 matched evaluation
 
-主要比较应尽量保持：
-
-- scenario / map seed 一致；
-- planner noise / policy action seed 可解释；
-- evaluation horizon 与 termination semantics 一致；
-- 初始 checkpoint 一致；
-- reward-independent metrics 一致。
-
-训练 reward 只用于优化和诊断，不作为方法优劣的唯一证据。
+已接受的随机配对、checkpoint、horizon、termination 和 reward-independent metrics
+统一引用 [planning/evaluation protocol 草案](../protocols/planning-and-evaluation.md#matched-comparison-与随机条件)。
+迁移切换前仍由 [AGENTS](../../../AGENTS.md) 路由到有效入口，不在本篇复制规范。
 
 ### 先做主效应，再做交互效应
 
@@ -187,19 +184,13 @@ representation:
 
 ## 统一指标
 
-主表至少包含：
+现行指标定义与解释边界见 [planning/evaluation protocol 草案](../protocols/planning-and-evaluation.md#指标及累计窗口)。
+不同 energy normalization 可以作为候选 reward 变量，不据此另建一套 evaluation 指标定义。
 
-| Category | Metrics |
-| --- | --- |
-| Energy | total proxy energy、energy intensity / normalized variants |
-| Task | route progress、completion、distance |
-| Efficiency | mean speed、travel time / travel efficiency |
-| Safety | collision、out-of-road、wrong-direction、必要时 TTC |
-| Comfort | 当 reward 或行为变化涉及舒适性时报告 |
+## 候选结果判据
 
-不同 energy normalization 可作为 reward 变量，但最终 evaluation 应保留至少一个统一 reward-independent energy metric，避免“优化哪个指标就用哪个指标证明自己更好”。
-
-## 结果解释
+以下是待具体实验预先确定的判据结构；“materially”“comparable”“collapse”的 margin、
+最小能耗效应和统计方法均未在此冻结，不是通用默认阈值。已接受任务使用其 Issue 中的验收标准。
 
 ### 可以支持 energy improvement 的基本形式
 
@@ -215,16 +206,8 @@ AND
 result is reproducible across matched seeds/scenarios
 ```
 
-### 常见伪改善
-
-以下情况应单独标记，不计为 energy optimization 成功：
-
-- 提前 termination 导致 total energy 更低；
-- distance / progress 显著减少；
-- 长时间停车；
-- mean speed 显著下降；
-- 只在单一 seed 或极少场景出现；
-- training reward 上升但独立 evaluation 无改善。
+失败、少走、停车与速度混淆的共同解释规则引用 planning/evaluation protocol；
+本篇不将候选 non-inferiority margins 升级为现行规范。
 
 ## 证据推进顺序
 
@@ -257,4 +240,5 @@ energy-model robustness
 - encoder layer freeze policy；
 - seed 数量与显著性检验方法。
 
-这些应在具体研究假设转化为 active work 后，由 GitHub Issue 和 experiment record 维护。
+这些应在具体研究假设被接受后由对应 Issue 冻结执行范围与验收；实际运行条件记录在
+experiment record，成为通用规范的内容归 Protocol/Contract。

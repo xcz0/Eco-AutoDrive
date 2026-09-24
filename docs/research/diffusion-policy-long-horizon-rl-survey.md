@@ -1,6 +1,6 @@
 # Long-horizon RL for Diffusion Policies / Planners
 
-> Status: research note, not an accepted project decision or implementation plan.
+> Status: non-normative external reference, not a project Protocol, Finding, accepted decision or implementation plan.
 >
 > Scope: summarize reinforcement-learning methods that improve the long-horizon behavior of diffusion-based decision policies, especially autonomous-driving planners and embodied-control policies. The note distinguishes environment actions, denoising-chain actions, latent actions, value estimation, and open-source implementation references.
 

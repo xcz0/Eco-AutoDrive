@@ -1,5 +1,9 @@
 # Reward and Objective Study
 
+> 类型：Hypothesis。以下是待验证的候选方法和消融设想，不是 active protocol 或实施清单。
+> 已有结论见 [Findings](../findings.md)；已接受的训练方法见
+> [training protocol 草案](../protocols/training.md)，切换前仍按 [AGENTS](../../../AGENTS.md) 路由。
+
 ## 研究问题
 
 本专题研究：
@@ -8,23 +12,12 @@
 
 当前阶段先研究单一标量 reward。多头 critic、约束式强化学习和其他 multi-objective 方法属于后续扩展，只有在 scalar reward 已经产生可解释行为信号后再进入。
 
-## 当前起点
+## 证据入口与待回答问题
 
-项目已经具备：
-
-- closed-loop rollout + GAE/PPO；
-- `plannerrft_energy_v1` 单一已实现 reward profile，reward 由父进程 collector 单次计算；
-- execution-trace proxy energy；
-- 已完成的历史 matched reward A/B 实验记录；
-- 受限 no-traffic S/SC 条件下的 PPO 稳定候选配置。
-
-现有证据只说明 reward 可以正确进入 PPO 数据流，并且短趋势 A/B 没有观察到明显 reward hacking；尚没有证据证明当前 energy reward 能够产生 learned-policy energy improvement。
-
-相关实验：
-
-- [`E-019`](../experiments/records/e-019-metadrive-native-energy-proxy-comparison.md)
-- [`E-026`](../experiments/records/e-026-issue59-stage-b-ppo-reward-ab-short-trend.md)
-- [`E-028`](../experiments/records/e-028-issue76-ppo-stability-search.md)
+[Findings](../findings.md) 分开整理 objective 可辨识性、有效更新、行为方向和执行时间语义。
+这里继续研究：这些条件满足后，scalar objective 能否带来跨 seed、场景可重复的节能收益？
+已接受的 canonical-cadence transfer 与 λ 实验由
+[Issue #83](https://github.com/xcz0/Eco-AutoDrive/issues/83) 拥有，不在本篇维护执行状态。
 
 ## 研究变量
 
@@ -50,7 +43,8 @@
    progress + speed + comfort + energy quality
    ```
 
-   当前 `plannerrft_energy_v1` 属于这一类扩展。该结构适合避免“先牺牲基本驾驶合法性，再交换 energy score”的情况，但仍需要实验验证其 trade-off。
+   项目已接受 reward 的定义见 [training protocol 草案](../protocols/training.md)。
+   本候选结构的研究动机是避免“先牺牲基本驾驶合法性，再交换 energy score”，但仍需要实验验证其 trade-off。
 
 3. **reference-relative objective**
 
@@ -71,7 +65,8 @@
 
 这些指标必须与 completion、distance、progress、speed 和 termination type 联合解释。
 
-当前 MetaDrive native energy 在 kinematic waypoint execution 下不可直接使用；研究仍以 execution boundary 重算的 proxy energy 为主。
+Native energy 与执行 trace proxy 的已观测差异见 [Findings](../findings.md#能耗读数能否代表实际执行)。
+候选归一化方案不改变该证据的仿真与 proxy 解释边界。
 
 ### 3. Trade-off weight
 
@@ -131,22 +126,9 @@ R4  temporal credit horizon ablation
 
 ## 评价与判据
 
-Reward study 的主要结果来自独立闭环 evaluation，不以 training return 排名。
-
-至少报告：
-
-- energy / energy intensity；
-- route progress / completion；
-- mean speed / travel efficiency；
-- collision / out-of-road / wrong-direction；
-- comfort（若该实验涉及）。
-
-以下情况不能被解释为 energy improvement：
-
-- energy 降低但有效距离或 route progress 明显降低；
-- energy 降低主要来自停车或显著降速；
-- energy 降低同时 collision / out-of-road 增加；
-- 只有单个 seed 或少量特定场景出现改善。
+已接受的 matched comparison、指标与失败解释统一引用
+[planning/evaluation protocol 草案](../protocols/planning-and-evaluation.md)。
+本专题尚待确定的 trade-off / non-inferiority 判据见 [候选消融设计](ablation-plan.md#候选结果判据)。
 
 对 reward 的评价优先关注方向一致性与 trade-off，而不是过早定义单一“通过阈值”。
 
@@ -182,6 +164,14 @@ comfort return     -> V_comfort(s)
 
 - 如果 scalar reward 已能形成稳定且可接受的 trade-off，多头 critic 主要用于提高可解释性或鲁棒性；
 - 如果 scalar reward 持续出现目标冲突或 reward-weight sensitivity，多头 critic 才成为更强的研究动机。
+
+若进入该研究，还需比较多个 value heads 是否共享 trunk、actor/critic 是否共享 representation、
+各 objective 的 target scale 与梯度竞争，以及 advantage aggregation / constraint bookkeeping。
+这些承接旧 PPO support plan D 与 G-P4，仍是未接受的设计问题，不预设网络结构。
+
+为验证候选 reward / credit horizon，可能需要扩展明确的 reward profiles、component/raw metric
+审计与 return ablation 配置。是否存在具体支持缺口应在实验设计确定后判断，不据旧 support plan A
+重复实现已有机制，也不在这里维护工具能力清单。
 
 ## 本专题暂不回答
 

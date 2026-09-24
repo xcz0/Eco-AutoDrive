@@ -1,14 +1,15 @@
 # PlannerRFT PPO / Exploration Optimization 一手资料核查
 
-> 状态：研究记录，不是当前系统契约、ADR、active task 或实验结果。
+> 状态：非规范性外部参考资料，不是本项目 Protocol、Contract、Finding、active task 或实验结果。
 >
 > 核查日期：2026-08-11。
 >
 > 范围：仅核查 PlannerRFT 的 PPO / Exploration Optimization，以及它与官方
 > Diffusion-Planner 的接口边界；暂不设计或实现 GRPO。
 
-工程适配、阶段验收与 design gates 见
-[PlannerRFT PPO-only 复现研究](plannerrft-ppo/README.md)。
+项目方法见 [training protocol 草案](../protocols/training.md)，已有证据见
+[Findings](../findings.md)，未决工具问题见 [PPO 假设](../hypotheses/ppo-tooling.md)。
+下文外部已公开事实、未公开信息与复现者候选选择分别解释；建议验证顺序不自动成为项目规范。
 
 ## 结论先行
 
