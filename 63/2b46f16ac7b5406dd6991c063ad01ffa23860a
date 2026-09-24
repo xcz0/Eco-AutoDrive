@@ -1,0 +1,23 @@
+docs/experiments/records/e-049-issue83-task-1b-effective-update-transfer.md
+  s_543496e137d5e0::t_81c81482183f13 1-174
+docs/research/issue83-task-1b-effective-update-transfer-plan.md
+  s_543496e137d5e0::t_7d225c93f9e543 3-6
+docs/experiments/README.md
+  s_543496e137d5e0::t_ed4ef3bfe02011 96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "632b46f16ac7b5406dd6991c063ad01ffa23860a",
+  "prompts": {},
+  "sessions": {
+    "s_543496e137d5e0": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f2ed0a819ffe6BOm22y7ImZR06",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
