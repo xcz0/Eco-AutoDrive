@@ -1,0 +1,25 @@
+configs/experiments/training/e-049-effective-update-transfer.yaml
+  s_543496e137d5e0::t_f37e17cd8a01ac 1-37
+docs/research/issue83-task-1b-effective-update-transfer-plan.md
+  s_543496e137d5e0::t_7e39fc8d0c7043 1-190
+tests/training/test_training_workflows.py
+  s_543496e137d5e0::t_12c4edbced931a 242-245
+  s_543496e137d5e0::t_4a495c7eb4c7c1 230-241,246-260
+  s_543496e137d5e0::t_1d583f99e76c7c 8,12-13,15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "0df44f65d012fc8d448f56f294c69280417019db",
+  "prompts": {},
+  "sessions": {
+    "s_543496e137d5e0": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f2ed0a819ffe6BOm22y7ImZR06",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
