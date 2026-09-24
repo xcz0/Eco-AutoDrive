@@ -1,6 +1,8 @@
 # Issue #83 Task 1A — Objective identifiability transfer 执行计划
 
-状态：**已规划、未执行**（工作文档）。
+状态：**已执行**（工作文档）。执行结果与 provenance 见
+[E-048 实验记录](../../experiments/records/e-048-issue83-task-1a-objective-identifiability-transfer.md)；
+本文件保留预登记方案，不在此维护结果。
 
 任务边界、验收标准与冻结契约的权威来源是 [Issue #83](https://github.com/)（Parent #80；历史前置 #94/#98 已关闭；execution protocol 来自 #96 Task E / ADR 0039）。本文档只记录本次 Task 1A 的执行方案；执行完成后由 `docs/experiments/records/` 的实验记录与对应权威文档取代，不在本文件维护结果。
 

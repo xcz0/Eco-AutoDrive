@@ -92,6 +92,8 @@
 | [E-046](records/e-046-issue98-task-d-training-adequacy.md) | 2026-09-17 | 正式离线固定来源诊断 | Issue #98 Task D：复用 E-040 冻结产物，沿 4 runs × 50 updates 轨迹比较 standard GAE vs critic-free V=0 reward-only GAE 的 actor 梯度（pre-update policy、CPU、backward-only、无 optimizer step），含 provenance / 策略不变守卫 | 预登记 all-checkpoint 判据 `critic_material_candidate`：20/200 checkpoint 的 actor_head/lateral/longitudinal cosine < 0.99（min 0.8849），集中在 update 24–49 且偏 rstress；但 advantage 排序未重排（sign-flip ≤ 0.0078、Spearman ≥ 0.9945），critic EV 全程 ≈0；critic 至多为有界、非重排序的次要贡献，非 E-040 反向行为主因；Task E 未执行 |
 | [E-047](records/e-047-issue98-frozen-policy-execution-bridge.md) | 2026-09-17 | 正式配对闭环诊断 + 固定来源 offline 归因 | Issue #98 frozen-policy execution-contract bridge：E-040 四个 final checkpoints（r0/rstress × seeds {0,1}）在 matched held-out 协议下只改 execution prefix k∈{1,2,5}，并做同状态双 policy 反事实 planner 审计 | `execution_contract_causal_crossover_confirmed`：`Rstress-R0` speed/energy 由 k=1 negative（speed 中位 -0.021/-0.037 m/s）转为 k=2/5 positive（+0.140/+0.196、+0.100/+0.146 m/s），双 seed 一致，k=5 复现 E-040 positive；Part B `local_temporal_bridge`（Δg_lon 全正、0.1 s 中位 ≤0、0.2/0.5 s >0）；0 collision、各臂 safety 计数对称；Task E 未执行 |
 
+| [E-048](records/e-048-issue83-task-1a-objective-identifiability-transfer.md) | 2026-09-24 | 正式离线固定批次诊断 | Issue #83 Task 1A：canonical k=5（0.1 s × 5）source batch 上复用 E-034 冻结校准 + E-038 冻结 band 阈值，离线比较 calibrated R0 / λ={16,64,256} / Energy-only，Gate T1 判定 | Gate T1 PASSED：endpoint z-form head cosine 0.910851、sign-flip 18.75%、RMSE 0.664142；λ16/λ64/λ256 达 endpoint 分离 58.79%/85.29%/95.89%（单调、增加）；k=5 可辨识度全面优于 E-038/k=1（λ16 越过 50%）；raw 形式亦可分（cosine 0.0736），非 normalization 伪影；冻结 representation transfer 成立；Task 1B 未执行 |
+
 ## 服务器训练与正式实验登记模板
 
 ```markdown
