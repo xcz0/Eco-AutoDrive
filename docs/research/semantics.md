@@ -1,6 +1,6 @@
 ---
 kind: semantics
-status: proposed
+status: active
 scope: [planning, training, evaluation, interpretation]
 read_when:
   - clarifying research terms or interpretation limits
@@ -8,8 +8,6 @@ read_when:
 
 # Semantics：概念与解释边界
 
-这是 [Issue #102](https://github.com/xcz0/Eco-AutoDrive/issues/102) 的规范草案。
-旧入口尚未切换，本篇不取代现行文档；`proposed` 表示迁移待审阅，不表示下述概念都是新提案。
 本篇只定义概念。方法归 [planning/evaluation](protocols/planning-and-evaluation.md)、
 [training](protocols/training.md) 和 [diagnostic studies](protocols/diagnostic-studies.md)；
 软件保证归 [data/model](../contracts/data-and-model.md)、[execution](../contracts/execution.md)、
@@ -88,7 +86,7 @@ Bootstrap mask 表示 TD target 是否允许利用尾状态 value；是否停止
 
 ## 迁移依据
 
-概念来源：[CONTEXT](../../CONTEXT.md)、[domain](../agents/domain.md)。
+概念来源：[CONTEXT](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/CONTEXT.md)、[domain](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/domain.md)。
 精细能耗解释依据：[ADR 0032](../adr/0032-separate-online-proxy-and-offline-fastsim-energy.md)。
-本次把旧文档混入的数值 cadence、动作分布、bootstrap 关系和实现状态分流至相应草案，
+本次把旧文档混入的数值 cadence、动作分布、bootstrap 关系和实现状态分流至相应 Protocol/Contract，
 不产生新的研究结论。代码／测试导航放在对应 Contract，概念篇不维护实现目录表。

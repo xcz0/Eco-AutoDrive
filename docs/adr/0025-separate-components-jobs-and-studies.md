@@ -17,5 +17,4 @@ jobs 与研究 manifests，导致接口所有权不清。因此选择 component/
 
 规范归属：[Execution contract](../contracts/execution.md)。
 
-> #102 迁移阶段：上述新规范仍为 proposed，生效入口遵循 [AGENTS](../../AGENTS.md)。
-> 本篇保存设计理由与历史决定，不作为第二套现行规范；本次收口不激活新 owner。
+> 本篇保存设计理由与历史决定；现行要求由上述 Protocol/Contract 拥有，读取路由见 [AGENTS](../../AGENTS.md)。

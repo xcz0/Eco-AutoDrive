@@ -24,8 +24,8 @@ Reward study 中固定 observation；information study 中固定 reward；repres
 ### 使用 matched evaluation
 
 已接受的随机配对、checkpoint、horizon、termination 和 reward-independent metrics
-统一引用 [planning/evaluation protocol 草案](../protocols/planning-and-evaluation.md#matched-comparison-与随机条件)。
-迁移切换前仍由 [AGENTS](../../../AGENTS.md) 路由到有效入口，不在本篇复制规范。
+统一引用 [planning/evaluation protocol](../protocols/planning-and-evaluation.md#matched-comparison-与随机条件)。
+其他规范按 [AGENTS](../../../AGENTS.md) 路由，不在本篇复制定义。
 
 ### 先做主效应，再做交互效应
 
@@ -184,7 +184,7 @@ representation:
 
 ## 统一指标
 
-现行指标定义与解释边界见 [planning/evaluation protocol 草案](../protocols/planning-and-evaluation.md#指标及累计窗口)。
+现行指标定义与解释边界见 [planning/evaluation protocol](../protocols/planning-and-evaluation.md#指标及累计窗口)。
 不同 energy normalization 可以作为候选 reward 变量，不据此另建一套 evaluation 指标定义。
 
 ## 候选结果判据

@@ -40,5 +40,4 @@ CLI 收口为薄入口并删除旧 studies、stage A/B/C、top-N 晋升、prunin
 
 规范归属：[Execution contract](../contracts/execution.md)、[Artifacts contract](../contracts/artifacts.md)、[Diagnostic protocol](../research/protocols/diagnostic-studies.md)、[Planning/evaluation protocol](../research/protocols/planning-and-evaluation.md)。
 
-> #102 迁移阶段：上述新规范仍为 proposed，生效入口遵循 [AGENTS](../../AGENTS.md)。
-> 本篇保存设计理由与历史决定，不作为第二套现行规范；本次收口不激活新 owner。
+> 本篇保存设计理由与历史决定；现行要求由上述 Protocol/Contract 拥有，读取路由见 [AGENTS](../../AGENTS.md)。

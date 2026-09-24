@@ -23,5 +23,4 @@ logging failure 也不应静默关闭追踪。这些取舍保护了历史身份�
 
 规范归属：[Artifacts contract](../contracts/artifacts.md)、[Training contract](../contracts/training.md)。
 
-> #102 迁移阶段：上述新规范仍为 proposed，生效入口遵循 [AGENTS](../../AGENTS.md)。
-> 本篇保存设计理由与历史决定，不作为第二套现行规范；本次收口不激活新 owner。
+> 本篇保存设计理由与历史决定；现行要求由上述 Protocol/Contract 拥有，读取路由见 [AGENTS](../../AGENTS.md)。

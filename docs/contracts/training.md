@@ -1,6 +1,6 @@
 ---
 kind: contract
-status: proposed
+status: active
 scope: [policy-abi, rollout, rng, bootstrap, resume]
 read_when:
   - changing policy probability accounting or rollout boundaries
@@ -9,8 +9,7 @@ read_when:
 
 # Training contract
 
-这是 [Issue #102](https://github.com/xcz0/Eco-AutoDrive/issues/102) 的 proposed 草案，旧入口未切换。
-MUST／MUST NOT 表示拟保留的软件保证。优化／reward 方法由
+MUST／MUST NOT 表示强制的软件保证。优化／reward 方法由
 [training protocol](../research/protocols/training.md) 拥有；执行／配置边界见 [execution](execution.md)，
 持久化载体及 tracking 身份见 [artifacts](artifacts.md)。
 
@@ -134,11 +133,11 @@ Policy-only export 只表示可加载策略参数，不能用它宣称精确续�
 
 ## 来源、冲突与代码导航
 
-来源：[旧 training contract](../agents/contracts/training.md)、[旧 experiments](../agents/contracts/experiments.md)；
+来源：[旧 training contract](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/training.md)、[旧 experiments](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/experiments.md)；
 接受依据：[ADR 0016](../adr/0016-add-forward-only-exploration-policy.md)、
 [0018](../adr/0018-use-torchrl-for-gae-and-ppo-math.md)、[0039](../adr/0039-unify-closed-loop-cadence.md)。
 ADR 0018 已将原闭区间表述标明为与 ADR 0016 冲突的历史文字问题，并引用本篇动作定义。
-草案保留 ADR 0016 的严格开区间及端点失败决定；这不是根据当前实现新增或放宽规范。
+本篇保留 ADR 0016 的严格开区间及端点失败决定；这不是根据当前实现新增或放宽规范。
 
 | 任务 | 实现定位 | 相关测试（未运行） |
 | --- | --- | --- |

@@ -1,6 +1,6 @@
 ---
 kind: contract
-status: proposed
+status: active
 scope: [observation, model, coordinates, padding]
 read_when:
   - changing observation shapes coordinates normalization or model boundaries
@@ -8,8 +8,7 @@ read_when:
 
 # Data and model contract
 
-这是 [Issue #102](https://github.com/xcz0/Eco-AutoDrive/issues/102) 的迁移草案，旧入口仍有效。
-本篇 MUST／MUST NOT 是待切换的软件要求；研究方法见
+本篇 MUST／MUST NOT 表示强制的软件要求；研究方法见
 [planning/evaluation](../research/protocols/planning-and-evaluation.md)，策略 context 另见
 [training contract](training.md)。不以当前模块组织定义规范。
 
@@ -26,7 +25,7 @@ Raw observation 在 normalizer 前未归一化；padding 全零，normalization 
 Checkpoint MUST 严格加载官方 `ema_state_dict`，缺失／额外 keys 和 shape 不匹配直接失败。
 配套 normalization 使用官方参数配置，MUST 保持其输入／输出含义，不能静默 fallback。
 Planner MUST 冻结、eval mode；编码上下文脱离训练图，policy backward 不产生 planner `.grad`。
-本草案不新增独立 checkpoint metadata、tensor 数／参数数校验或兼容机制。
+本篇不要求新增独立 checkpoint metadata、tensor 数／参数数校验或兼容机制。
 
 ## Observation 与 prediction ABI
 
@@ -98,7 +97,7 @@ DDIM transition state 保持初始 state dtype，denoiser 的混合精度输出�
 
 ## 来源与导航
 
-迁移来源：[旧 planner](../agents/contracts/planner.md)、[system contract](../agents/system-contract.md)；
+迁移来源：[旧 planner](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/planner.md)、[system contract](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/system-contract.md)；
 接受依据包括 [ADR 0001](../adr/0001-preserve-official-baseline.md)、
 [0004](../adr/0004-require-explicit-programmatic-speed-limits.md)、
 [0005](../adr/0005-separate-traffic-observation-boundaries.md)、

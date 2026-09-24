@@ -22,7 +22,7 @@ Resolve refs before reviewing. If the selected scope is empty, report that rathe
 
 Start with the current user request and any supplied Issue or spec. Read only the Issue details needed for goals, scope, non-goals, and acceptance criteria, using available GitHub integration or the repository's documented fallback. No Issue is required: the user request can supply the spec. If intended behavior is incomplete, state which requirements cannot be assessed and continue the semantic and correctness review.
 
-Follow `AGENTS.md` for authority and source selection. Read relevant sections of `docs/agents/domain.md`, `docs/agents/system-contract.md`, and accepted ADRs as needed; use `CONTEXT.md` when a precise domain definition matters. Code and tests establish current implementation facts. An Issue or research proposal describes intent, not proof that a behavior exists. Surface conflicting sources instead of synthesizing a new contract; the current request controls this task's scope.
+Follow `AGENTS.md` for authority and source selection. Read `docs/research/semantics.md` for concepts and only the relevant active Protocol and Contract sections routed there for research methods and software guarantees. Read ADRs when design rationale matters. Runtime observations, code, tests, and config establish actual behavior; a conflict with active Protocol/Contract is a conformance mismatch to investigate, not automatic evidence that the specification is stale. An Issue or hypothesis does not replace active requirements or prove that a behavior exists. Surface conflicting sources instead of synthesizing a new contract; the current request controls this task's scope.
 
 ## Review axes
 

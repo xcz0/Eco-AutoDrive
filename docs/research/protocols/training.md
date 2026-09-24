@@ -1,6 +1,6 @@
 ---
 kind: protocol
-status: proposed
+status: active
 scope: [policy, reward, gae, ppo]
 read_when:
   - changing policy optimization action sampling or reward
@@ -9,8 +9,7 @@ read_when:
 
 # Training protocol
 
-这是 [Issue #102](https://github.com/xcz0/Eco-AutoDrive/issues/102) 的迁移草案，旧入口切换前保持
-`proposed`。MUST／MUST NOT 为拟保留的强制要求。本篇拥有优化方法、reward 和统计定义；
+MUST／MUST NOT 表示强制要求。本篇拥有优化方法、reward 和统计定义；
 动作 ABI、RNG、bootstrap 和 resume 保证归 [training contract](../../contracts/training.md)，
 正式 cadence 与评测设计归 [planning/evaluation](planning-and-evaluation.md)。
 
@@ -154,7 +153,7 @@ pre-clip gradient max 只在实际 optimizer steps 上统计，无 step 时为�
 [0018](../../adr/0018-use-torchrl-for-gae-and-ppo-math.md)、
 [0024](../../adr/0024-add-plannerrft-energy-reward.md)、
 [0039](../../adr/0039-unify-closed-loop-cadence.md)；详细迁移来源是
-[旧 training contract](../../agents/contracts/training.md) 与 [旧 experiments](../../agents/contracts/experiments.md)。
+[旧 training contract](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/training.md) 与 [旧 experiments](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/experiments.md)。
 
 ADR 0018 已显式记录原闭区间表述与 ADR 0016 的冲突；有效动作域只由 training contract
 定义，本次收口不放宽端点。ADR 0024 已将环境持有 reward 标为历史位置；后续

@@ -1,6 +1,6 @@
 ---
 kind: contract
-status: proposed
+status: active
 scope: [artifacts, provenance, readers, failures, tracking]
 read_when:
   - changing artifact writers readers or missing-result semantics
@@ -9,8 +9,7 @@ read_when:
 
 # Artifacts contract
 
-这是 [Issue #102](https://github.com/xcz0/Eco-AutoDrive/issues/102) 的 proposed 草案，旧入口仍有效。
-MUST／MUST NOT 表示拟保留的软件保证。
+MUST／MUST NOT 表示强制的软件保证。
 
 本篇拥有 writer/reader、provenance 与失败含义；指标估计与研究判据分别归 [planning/evaluation](../research/protocols/planning-and-evaluation.md)、[training](../research/protocols/training.md)、[diagnostics](../research/protocols/diagnostic-studies.md)。
 怎样登记真实运行仍见 [experiments README](../experiments/README.md)，本篇不复制登记模板或历史索引。
@@ -133,12 +132,12 @@ Invocation artifacts 包括 config、metadata、initial/final policy、按显式
 
 ## 来源与代码导航
 
-来源：[旧 system contract](../agents/system-contract.md)、[training](../agents/contracts/training.md)、[experiments](../agents/contracts/experiments.md)。
+来源：[旧 system contract](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/system-contract.md)、[training](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/training.md)、[experiments](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/experiments.md)。
 接受依据包括
 [ADR 0033](../adr/0033-track-ppo-with-fabric-and-mlflow.md)、
 [0037](../adr/0037-simplify-experiments-and-report-seed-effects.md)、
 [0038](../adr/0038-consolidate-scientific-workflows.md)、[0039](../adr/0039-unify-closed-loop-cadence.md)。
-本草案不迁移历史 artifacts、不改 records，也不根据历史共同资产表创建新的当前规范。
+本篇不迁移历史 artifacts、不改 records，也不根据历史共同资产表创建新的当前规范。
 
 | 任务 | 实现定位 | 相关测试（未运行） |
 | --- | --- | --- |

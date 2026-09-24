@@ -2,7 +2,7 @@
 
 > 类型：Hypothesis。信息消融和 encoder adaptation 均为拟议研究，不表示 preview 已被利用、
 > encoder 已微调或相应实验已完成。已接受的比较方法引用
-> [planning/evaluation protocol 草案](../protocols/planning-and-evaluation.md)。
+> [planning/evaluation protocol](../protocols/planning-and-evaluation.md)。
 
 ## 研究问题
 

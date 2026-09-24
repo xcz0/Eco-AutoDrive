@@ -1,6 +1,6 @@
 ---
 kind: protocol
-status: proposed
+status: active
 scope: [baseline, sampling, guidance, evaluation]
 read_when:
   - changing baseline sampling guidance or evaluation cadence
@@ -9,8 +9,7 @@ read_when:
 
 # Planning and evaluation protocol
 
-本篇是 [Issue #102](https://github.com/xcz0/Eco-AutoDrive/issues/102) 的迁移草案，旧入口仍有效，
-尚不成为 active owner。MUST／MUST NOT 表示拟保留的强制要求，SHOULD 表示建议，MAY 表示允许；
+本篇定义规划与评测的研究方法。MUST／MUST NOT 表示强制要求，SHOULD 表示建议，MAY 表示允许；
 接受依据与待确认边界列在末尾。概念见 [Semantics](../semantics.md)，执行保证见
 [execution](../../contracts/execution.md)，输入与坐标见 [data/model](../../contracts/data-and-model.md)。
 
@@ -134,8 +133,8 @@ runtime seed 760025 是一项具体设计，不是所有实验的普适常量。
 
 改变 baseline、采样分布／schedule、guidance objective、正式 cadence、场景分布、配对随机变量、
 metric estimator、窗口或终止含义，均是 protocol change，不能作为普通重构静默发生。
-实际行为查 code/tests/config/observation；正式切换后与 active 规范不一致应调查为 conformance mismatch，
-不能仅凭“代码如此”认定规范过期。本草案阶段不宣称完成 conformance 验证。
+实际行为查 code/tests/config/observation；与 active 规范不一致应调查为 conformance mismatch，
+不能仅凭“代码如此”认定规范过期。文档切换不代表已完成源码 conformance 验证。
 
 接受依据：[ADR 0001](../../adr/0001-preserve-official-baseline.md)、
 [0007](../../adr/0007-use-stable-energy-scenarios.md)、
@@ -145,8 +144,8 @@ metric estimator、窗口或终止含义，均是 protocol change，不能作为
 [0032](../../adr/0032-separate-online-proxy-and-offline-fastsim-energy.md)、
 [0037](../../adr/0037-simplify-experiments-and-report-seed-effects.md)、
 [0039](../../adr/0039-unify-closed-loop-cadence.md)。迁移细节来自
-[旧 planner](../../agents/contracts/planner.md)、[system contract](../../agents/system-contract.md)、
-[旧 experiments](../../agents/contracts/experiments.md)。ADR 保留 rationale 与历史决定，不重复维护本篇规范。
+[旧 planner](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/planner.md)、[system contract](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/system-contract.md)、
+[旧 experiments](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/experiments.md)。ADR 保留 rationale 与历史决定，不重复维护本篇规范。
 
 ## 代码与测试导航
 

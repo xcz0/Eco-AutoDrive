@@ -1,6 +1,6 @@
 ---
 kind: protocol
-status: proposed
+status: active
 scope: [fixed-batch, attribution, intervention, measurement]
 read_when:
   - designing fixed-batch credit or guidance diagnostics
@@ -9,8 +9,7 @@ read_when:
 
 # Diagnostic studies protocol
 
-这是 [Issue #102](https://github.com/xcz0/Eco-AutoDrive/issues/102) 的迁移草案，旧入口未切换。
-MUST／MUST NOT 表示拟保留的要求。本篇记录已声明诊断设计，不规定每次任务运行全部实验，
+MUST／MUST NOT 表示强制要求。本篇记录已声明诊断设计，不规定每次任务运行全部实验，
 也不把有实现／有配置视为已运行或已通过。正式 baseline 见
 [planning/evaluation](planning-and-evaluation.md)，reward/GAE 定义见 [training](training.md)。
 研究阈值、干预轴和对比方向 MUST 预先显式配置，不能看结果后改 gate 或挑 seed。
@@ -167,8 +166,8 @@ planner/environment overhead。Worker busy 为 environment+observation，
 
 ## 来源、待确认项与导航
 
-迁移来源：[旧 experiments contract](../../agents/contracts/experiments.md)、
-[旧 runtime 计时](../../agents/contracts/runtime.md)；机制边界依据
+迁移来源：[旧 experiments contract](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/experiments.md)、
+[旧 runtime 计时](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/runtime.md)；机制边界依据
 [ADR 0038](../../adr/0038-consolidate-scientific-workflows.md)，正式／诊断 cadence 边界依据
 [ADR 0039](../../adr/0039-unify-closed-loop-cadence.md)。具体实验的阈值与判据由对应显式配置持久化，
 不将某次 gate 升格为通用科学真值。

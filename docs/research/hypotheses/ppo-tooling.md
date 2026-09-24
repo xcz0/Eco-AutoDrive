@@ -49,5 +49,5 @@ policy/action 见 [ADR 0016](../../adr/0016-add-forward-only-exploration-policy.
 PPO 数学选择见 [ADR 0018](../../adr/0018-use-torchrl-for-gae-and-ppo-math.md)。
 旧 G-01 的 [ADR 0017](../../adr/0017-add-10hz-rollout-contract.md) cadence 已由
 [ADR 0039](../../adr/0039-unify-closed-loop-cadence.md) 取代，不能借“Closed”复活旧训练步长。
-方法与软件保证分别引用 [training protocol 草案](../protocols/training.md) 和
-[training contract 草案](../../contracts/training.md)；两者在全局入口切换前仍为 proposed。
+方法与软件保证分别引用 [training protocol](../protocols/training.md) 和
+[training contract](../../contracts/training.md)，不在本篇另建规范。

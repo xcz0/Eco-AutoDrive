@@ -2,7 +2,7 @@
 
 > 类型：Hypothesis。以下是待验证的候选方法和消融设想，不是 active protocol 或实施清单。
 > 已有结论见 [Findings](../findings.md)；已接受的训练方法见
-> [training protocol 草案](../protocols/training.md)，切换前仍按 [AGENTS](../../../AGENTS.md) 路由。
+> [training protocol](../protocols/training.md)，其他规范按 [AGENTS](../../../AGENTS.md) 路由。
 
 ## 研究问题
 
@@ -43,7 +43,7 @@
    progress + speed + comfort + energy quality
    ```
 
-   项目已接受 reward 的定义见 [training protocol 草案](../protocols/training.md)。
+   项目已接受 reward 的定义见 [training protocol](../protocols/training.md)。
    本候选结构的研究动机是避免“先牺牲基本驾驶合法性，再交换 energy score”，但仍需要实验验证其 trade-off。
 
 3. **reference-relative objective**
@@ -127,7 +127,7 @@ R4  temporal credit horizon ablation
 ## 评价与判据
 
 已接受的 matched comparison、指标与失败解释统一引用
-[planning/evaluation protocol 草案](../protocols/planning-and-evaluation.md)。
+[planning/evaluation protocol](../protocols/planning-and-evaluation.md)。
 本专题尚待确定的 trade-off / non-inferiority 判据见 [候选消融设计](ablation-plan.md#候选结果判据)。
 
 对 reward 的评价优先关注方向一致性与 trade-off，而不是过早定义单一“通过阈值”。

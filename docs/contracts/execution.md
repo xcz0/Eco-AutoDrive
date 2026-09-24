@@ -1,6 +1,6 @@
 ---
 kind: contract
-status: proposed
+status: active
 scope: [execution, configuration, resources, rng, ownership]
 read_when:
   - changing execution timing simulator slots or resource boundaries
@@ -9,8 +9,7 @@ read_when:
 
 # Execution contract
 
-这是 [Issue #102](https://github.com/xcz0/Eco-AutoDrive/issues/102) 的 proposed 草案，尚不替换旧入口。
-MUST／MUST NOT 表示拟保留的软件保证。正式 cadence、sampling 与 no-repair 方法的唯一草案定义在
+MUST／MUST NOT 表示强制的软件保证。正式 cadence、sampling 与 no-repair 方法的唯一定义在
 [planning/evaluation protocol](../research/protocols/planning-and-evaluation.md)；数据 ABI 在
 [data/model](data-and-model.md)，训练特有 RNG 在 [training](training.md)。
 
@@ -100,8 +99,8 @@ Wh 与每公里量从同一结果派生。在线 proxy 从相邻实际 center �
 
 ## 来源与待确认边界
 
-来源：[旧 system contract](../agents/system-contract.md)、[runtime](../agents/contracts/runtime.md)、
-[planner](../agents/contracts/planner.md)、[training](../agents/contracts/training.md)。
+来源：[旧 system contract](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/system-contract.md)、[runtime](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/runtime.md)、
+[planner](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/planner.md)、[training](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/training.md)。
 接受依据包括 [ADR 0028](../adr/0028-consolidate-runtime-ownership-and-evaluation-topology.md)、
 [0038](../adr/0038-consolidate-scientific-workflows.md)、[0039](../adr/0039-unify-closed-loop-cadence.md)。
 
@@ -110,7 +109,7 @@ Wh 与每公里量从同一结果派生。在线 proxy 从相邻实际 center �
 留给环境调用方；旧 system/training contract 明确了后续 collector-side 求值边界；
 [ADR 0039](../adr/0039-unify-closed-loop-cadence.md) 接受在线／离线共享子步归约及审计输入。
 这些来源支持客观 execution facts 与 reward 求值分离，不等于 ADR 0024 整体失效，
-也不把原位置决定改写成新位置。本文仍为 proposed，等待全局 owner 原子切换；未做源码 conformance 审计。
+也不把原位置决定改写成新位置。文档切换不代表已完成源码 conformance 审计。
 
 ## 代码与测试导航
 

@@ -11,7 +11,7 @@ Choose a diagnosis path proportional to the observed problem, available evidence
 
 Distinguish a request to diagnose or explain from a request to fix. Diagnosis may inspect code and run appropriate non-destructive probes, but does not authorize persistent implementation changes. When repair is already authorized, proceed within that scope without seeking repeated confirmation.
 
-Identify the reported symptom and expected behavior from the request and relevant contracts. Follow `AGENTS.md` to select domain, system-contract, ADR, or experiment sources as needed; avoid reading unrelated background by default. Use repository entrypoints and the prepared environment for checks.
+Identify the reported symptom and expected behavior from the request and relevant active Protocol/Contract. Follow `AGENTS.md` to select Semantics, the needed specification sections, ADR rationale, or Findings/Evidence; avoid unrelated background. Runtime observations, code, tests, and config establish actual behavior. Treat a conflict with active requirements as a conformance mismatch to investigate, without silently changing the specification to match the code. Use repository entrypoints and the prepared environment for checks.
 
 Establish the cheapest reliable failure or measurement signal available under current conditions. Prefer an existing failing test, benchmark, trace, log, or saved artifact over building a new harness. Check that it captures the reported symptom and note the conditions that affect its interpretation, such as input/configuration, code revision, seed, device, or workload.
 

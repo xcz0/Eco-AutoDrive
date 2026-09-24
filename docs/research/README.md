@@ -17,9 +17,8 @@
 | 如何登记与检索真实运行 | [实验记录](../experiments/README.md) |
 | 已接受的工作与验收 | 对应 GitHub Issue；当前 cadence-transfer / λ 研究见 [#83](https://github.com/xcz0/Eco-AutoDrive/issues/83) |
 
-**迁移状态：** Semantics、Protocol 和 Contract 是 #102 的 `proposed` 草案；本次只整理研究与证据入口，
-全局 owner 尚未切换。切换前继续按 [AGENTS](../../AGENTS.md) 的有效路由处理规范问题，
-不把草案或当前实现自动视为新 active 要求。当前具体实现由 code/tests/config 回答。
+规范读取与冲突处理遵循 [AGENTS](../../AGENTS.md)：active Protocol/Contract 拥有规范要求，
+当前具体实现由 observation/code/tests/config 回答；二者不一致时调查 conformance mismatch。
 
 ## 未解决研究问题
 
