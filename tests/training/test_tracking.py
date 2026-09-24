@@ -10,6 +10,7 @@ from lightning.fabric import Fabric
 from mlflow import MlflowClient
 from omegaconf import OmegaConf
 
+from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS
 from eco_planner.jobs import compose_job_config
 from eco_planner.planning.policy import ExplorationPolicy
 from eco_planner.rl.artifacts import PolicyProbeSummary, build_update_summary
@@ -100,6 +101,24 @@ def test_unequal_episode_summary_uses_transition_weights_and_ratio_of_totals(sum
     short.audit["step_distance_m"][:] = 0.0
     long.audit["step_distance_m"][:] = 0.0
     assert build_update_summary(0, (short, long), report).executed_fuel_proxy_ml_per_km is None
+
+
+def test_update_summary_persists_multi_substep_component_sums() -> None:
+    """Canonical k=5 transitions aggregate up to k subtask scores per component."""
+
+    with torch.random.fork_rng():
+        torch.manual_seed(0)
+        policy = ExplorationPolicy(_policy_config())
+        episodes = tuple(
+            _episode(reward=r, terminated=True, truncated=False, bootstrap=0.0) for r in (0.25, 2.0)
+        )
+    for episode in episodes:
+        for component in ("ttc", "progress", "comfort", "speed", "energy"):
+            episode.audit[f"reward_component_{component}"][:] = CLOSED_LOOP_EXECUTION_STEPS
+    report = PPOUpdater(policy, _ppo_config()).update(episodes)
+    summary = build_update_summary(0, episodes, report)
+    assert summary.reward_component_means.ttc == CLOSED_LOOP_EXECUTION_STEPS
+    assert summary.reward_component_means.energy == CLOSED_LOOP_EXECUTION_STEPS
 
 
 def test_real_mlflow_runs_metrics_artifacts_and_same_run_resume(tmp_path, summary):

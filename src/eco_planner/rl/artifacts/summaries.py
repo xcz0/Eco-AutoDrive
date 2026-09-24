@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt
 
+from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS
 from eco_planner.reward.result import RewardProfileName
 
 
@@ -12,11 +13,14 @@ class _ArtifactModel(BaseModel):
 
 
 class RewardComponentMeans(_ArtifactModel):
-    ttc: StrictFloat = Field(ge=0.0, le=1.0)
-    progress: StrictFloat = Field(ge=0.0, le=1.0)
-    comfort: StrictFloat = Field(ge=0.0, le=1.0)
-    speed: StrictFloat = Field(ge=0.0, le=1.0)
-    energy: StrictFloat = Field(ge=0.0, le=1.0)
+    # One transition aggregates the per-substep component score of every executed
+    # closed-loop substep (canonical k=5), so each entry is a subtotal in
+    # [0, CLOSED_LOOP_EXECUTION_STEPS], not a single [0, 1] score.
+    ttc: StrictFloat = Field(ge=0.0, le=CLOSED_LOOP_EXECUTION_STEPS)
+    progress: StrictFloat = Field(ge=0.0, le=CLOSED_LOOP_EXECUTION_STEPS)
+    comfort: StrictFloat = Field(ge=0.0, le=CLOSED_LOOP_EXECUTION_STEPS)
+    speed: StrictFloat = Field(ge=0.0, le=CLOSED_LOOP_EXECUTION_STEPS)
+    energy: StrictFloat = Field(ge=0.0, le=CLOSED_LOOP_EXECUTION_STEPS)
 
 
 class RewardDiagnosticMeans(_ArtifactModel):
