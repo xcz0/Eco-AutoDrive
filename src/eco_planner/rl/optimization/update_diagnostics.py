@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
 
-from eco_planner.analysis.training import beta_statistics
+from eco_planner.analysis.training import beta_kl, beta_statistics
 from eco_planner.planning.policy import (
     POLICY_CONTEXT_KEYS,
     AffineBeta,
@@ -230,6 +230,11 @@ def post_update_kl_series(
     floor (1e-6). The primary estimate therefore Monte-Carlo integrates the
     expectation over the persisted old Beta parameters with
     ``mc_draws`` seeded draws per context, which resolves ~1e-6 medians.
+
+    The persisted old Beta parameters and the recomputed new parameters also
+    give a deterministic, sampling-free analytic ``KL(old || new)`` (sum of the
+    two per-dimension Beta KLs, the affine Jacobian cancelling), reported as
+    ``post_update_kl_analytic`` alongside the seeded-MC and k1/k3 estimates.
     """
 
     config = OmegaConf.load(run_dir / "resolved_config.yaml")
@@ -238,6 +243,7 @@ def post_update_kl_series(
     policy = ExplorationPolicy(parse_exploration_policy_config(config["policy"]))
     policy.eval()
     kl_series: list[float] = []
+    analytic_series: list[float] = []
     k1_series: list[float] = []
     k3_series: list[float] = []
     for index in range(update_count):
@@ -252,6 +258,7 @@ def post_update_kl_series(
             new_beta = new_beta.to(dtype=torch.float32)
             old_alpha = batch["beta_alpha"].to(dtype=torch.float32)
             old_beta = batch["beta_beta"].to(dtype=torch.float32)
+            analytic_series.append(float(beta_kl(old_alpha, old_beta, new_alpha, new_beta).mean()))
             batch_size = old_alpha.shape[0]
             generator = torch.Generator()
             generator.manual_seed(mc_seed + index)
@@ -290,6 +297,9 @@ def post_update_kl_series(
         "post_update_kl_median": _median(kl_series),
         "post_update_kl_max": max(kl_series),
         "post_update_kl_mc_draws_per_context": mc_draws,
+        "post_update_kl_analytic": analytic_series,
+        "post_update_kl_analytic_median": _median(analytic_series),
+        "post_update_kl_analytic_max": max(analytic_series),
         "post_update_kl_single_draw_k1": k1_series,
         "post_update_kl_single_draw_k1_median": _median(k1_series),
         "post_update_kl_single_draw_k3_median": _median(k3_series),

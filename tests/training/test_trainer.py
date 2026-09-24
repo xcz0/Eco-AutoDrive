@@ -60,7 +60,7 @@ def test_training_order_fixed_probes_and_completed_resume(
     )
     monkeypatch.setattr(trainer, "create_fabric_rollout_runtime", lambda *a, **k: runtime)
     monkeypatch.setattr(trainer, "resume_training_state", lambda *a: state)
-    monkeypatch.setattr(trainer, "write_training_runtime_metadata", lambda *a: None)
+    monkeypatch.setattr(trainer, "write_training_runtime_metadata", lambda *a, **k: None)
     monkeypatch.setattr(trainer, "write_rollout_episode", lambda *a: None)
     monkeypatch.setattr(
         trainer,
@@ -131,6 +131,35 @@ def test_training_order_fixed_probes_and_completed_resume(
         f"policy-update-{i:03d}.pt" for i in range(start_update, 2)
     ] + ["policy-final.pt"]
     assert (tmp_path / "summary.json").is_file()
+
+
+def test_vector_collector_forwards_diagnostic_execution_steps(tmp_path, monkeypatch):
+    from eco_planner.rl.rollout import collector as collector_module
+    from eco_planner.rl.rollout.collector import VectorRolloutCollector
+
+    config = _config(tmp_path, enabled=False)
+    captured: dict[str, object] = {}
+
+    class FakeVectorEnv:
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(collector_module, "VectorMetaDriveEnv", FakeVectorEnv)
+    collector = VectorRolloutCollector(
+        config.scenarios,
+        SimpleNamespace(),
+        config.env,
+        mode=config.training.mode,
+        map_query_radius_m=config.map_query_radius_m,
+        history_warmup_steps=config.training.history_warmup_steps,
+        reward_profile=config.reward,
+        execution_steps=1,
+    )
+    collector.close()
+    assert captured["execution_steps"] == 1
 
 
 def trainer_policy():

@@ -85,6 +85,14 @@ COMMANDS = {
         source=True,
     ),
     ("training", "critic-attribution", "analyze"): Command("", "", None, source=True),
+    ("training", "cadence-attribution", "run"): Command(
+        "training.cadence_attribution.runner",
+        "run",
+        "training/cadence-attribution.yaml",
+        environment=True,
+        cuda=True,
+    ),
+    ("training", "cadence-attribution", "analyze"): Command("", "", None, source=True),
     ("training", "analyze"): Command("", "", None, source=True),
 }
 
@@ -110,7 +118,10 @@ def build_parser() -> argparse.ArgumentParser:
             nested = {
                 "critic-attribution": sub.add_parser("critic-attribution").add_subparsers(
                     required=True
-                )
+                ),
+                "cadence-attribution": sub.add_parser("cadence-attribution").add_subparsers(
+                    required=True
+                ),
             }
         else:
             nested = {}

@@ -20,6 +20,7 @@ from eco_planner.configuration import ModelPathsConfig, ScenarioConfig, resolve_
 from eco_planner.contracts import (
     CLOSED_LOOP_EXECUTION_STEPS,
     DECISION_INTERVAL_S,
+    PLANNER_HORIZON,
     SIMULATOR_STEP_S,
     TRAFFIC_HISTORY_WARMUP_STEPS,
 )
@@ -102,6 +103,10 @@ class TrainingLoopConfig(_StrictModel):
     boundary_sample_count: StrictInt = Field(gt=0)
     diagnostic_seed: StrictInt = Field(ge=0)
     planner_compile_mode: Literal["eager", "dit_reduce_overhead"]
+    # Diagnostic-only execution-prefix override for matched causal interventions
+    # (ADR 0039); None keeps the canonical CLOSED_LOOP_EXECUTION_STEPS contract.
+    # It never relaxes ClosedLoopCadenceConfig, which stays pinned to canonical.
+    diagnostic_execution_steps: StrictInt | None = None
     resume_checkpoint_path: str | None = None
 
     @model_validator(mode="after")
@@ -113,7 +118,18 @@ class TrainingLoopConfig(_StrictModel):
                 "traffic training requires exactly "
                 f"{TRAFFIC_HISTORY_WARMUP_STEPS} history warmup steps"
             )
+        if self.diagnostic_execution_steps is not None and not (
+            1 <= self.diagnostic_execution_steps < PLANNER_HORIZON
+        ):
+            raise ValueError("diagnostic_execution_steps must lie in [1, PLANNER_HORIZON) when set")
         return self
+
+    def effective_execution_steps(self) -> int:
+        """Execution-prefix length actually used by this run (canonical unless overridden)."""
+
+        if self.diagnostic_execution_steps is None:
+            return CLOSED_LOOP_EXECUTION_STEPS
+        return self.diagnostic_execution_steps
 
 
 class TrainingTrackingConfig(_StrictModel):
@@ -187,7 +203,10 @@ class TrainingJobConfig(_StrictModel):
         if not self.scenarios:
             raise ValueError("training requires at least one scenario")
         _validate_rollout_environment(
-            self.env, self.training.history_warmup_steps, self.training.transitions_per_environment
+            self.env,
+            self.training.history_warmup_steps,
+            self.training.transitions_per_environment,
+            self.training.effective_execution_steps(),
         )
         sample_count = len(self.scenarios) * self.training.transitions_per_environment
         if self.ppo.batch_size != sample_count:
@@ -224,10 +243,13 @@ def parse_training_config(config: DictConfig) -> TrainingJobConfig:
 
 
 def _validate_rollout_environment(
-    env: dict[str, Any], history_warmup_steps: int, transition_count: int
+    env: dict[str, Any],
+    history_warmup_steps: int,
+    transition_count: int,
+    execution_steps: int = CLOSED_LOOP_EXECUTION_STEPS,
 ) -> None:
     horizon = env.get("horizon")
-    required_horizon = history_warmup_steps + transition_count * CLOSED_LOOP_EXECUTION_STEPS
+    required_horizon = history_warmup_steps + transition_count * execution_steps
     if type(horizon) is not int or horizon < required_horizon:
         raise ValueError(
             "rollout env.horizon must cover warmup plus requested transitions "

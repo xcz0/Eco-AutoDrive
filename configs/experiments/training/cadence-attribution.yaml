@@ -1,0 +1,32 @@
+version: 1
+study_name: canonical_cadence_ppo_attribution
+protocol: experiments/comparison/calibrated.yaml
+arm: r0
+training_seed: 0
+update_count: 50
+base_overrides: []
+execution_steps:
+- 1
+- 5
+historical_comparator: E-039 effective-update region (k=1, plain R0, historical commit)
+mc_draws: 4096
+mc_seed: 1000003
+gate:
+  target_kl: 0.006
+  kl_floor: 1.0e-06
+  within_target_kl_fraction: 0.9
+  runaway_tail_updates: 10
+  runaway_tail_factor: 10.0
+  ratio_change_floor: 0.0001
+  guidance_rms_shift_floor: 0.01
+  beta_parameter_floor: 0.1
+  boundary_mass_ceiling: 0.2
+  episode_length_retention_floor: 0.5
+  collision_budget: 2
+  heldout_relative_change_floor: 0.001
+  heldout_metrics:
+  - mean_speed_mps
+  - distance_m
+  - route_completion
+  - energy_total_ml
+  - energy_ml_per_km

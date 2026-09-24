@@ -16,7 +16,7 @@
 | `evaluation.policy_intervention` | 已加载的 frozen `PolicyGuidanceRuntime`、环境、场景与显式 execution prefix；用 policy mean action 复现同一 matched-group 语义，并采集 same-state 双 policy 反事实 planner response |
 | `analysis` | 已保存结果、统计、matched 差值、逐 seed 汇总和报告再生成；不执行训练、backward 或 gate 裁定 |
 
-`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance deferral run/analyze、guidance decomposition run/analyze、guidance execution-bridge run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/critic-attribution run/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
+`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance deferral run/analyze、guidance decomposition run/analyze、guidance execution-bridge run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/critic-attribution run/analyze、training cadence-attribution run/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
 
 ## Comparison matched protocol
 
@@ -90,6 +90,12 @@ training eval 显式配置 protocol、records（arm、training_summary、checkpo
 
 standard GAE 重建的 raw advantage mean/std 必须与源 summary 记录的逐 update 值在容差内一致；每个 checkpoint 前后 policy hash 不变且 optimizer steps 为 0。梯度按 actor head / shared trunk / lateral / longitudinal 分组，advantage 与梯度对照复用固定批次 credit 的统计量。all-checkpoint 判据不通过即 `critic_material_candidate`，全部通过为 `critic_not_material_to_actor_direction`；cross-arm r0/rstress 对照为 unmatched 描述量，不作因果。离线分析从 `diagnostics.npz` 重算 advantage 对照并与记录逐值核对，梯度测量不重算。
 
+## Training cadence attribution
+
+`training cadence-attribution`（Issue #105 Phase A）在 calibrated R0 arm 上跑两次 matched PPO 训练，除 `training.diagnostic_execution_steps` 外全部相同（同一 initial policy、training seed、replay、scenario 池、batch 与 update 预算）：一个非 canonical 诊断臂（k=1）与 canonical k=5 臂。非 canonical 臂只是 matched causal diagnostic，不进入正式执行契约；cadence 仍 pin 在 canonical 常数。每个 update 以 `ppo.gradient_diagnostics=true` 持久化六组 gradient norm。
+
+输入显式给出 protocol、arm、training_seed、update_count、`execution_steps`（须含 canonical 与恰好一个诊断值）、`mc_draws`/`mc_seed`、复用 Gate F 阈值与 historical comparator 标签。每臂从 persisted summary 读 advantage（raw/center/z）、value target、reward total/component、pre/post-clip norm、effective global clip coefficient、参数 delta、policy ratio、Beta concentration 与 boundary；经 `read_rollout_episode` + `build_ppo_batch` 离线重算 GAE/bootstrap 统计并与记录的 raw advantage/value target 做 provenance 核对；post-update KL 同时给出 analytic Beta KL、seeded-MC KL 与 k3。matched held-out 对 initial 与两个 final policy 始终执行（即使 mechanical KL floor 未过），且只用于归因，不改写历史 Gate T2。汇总按 actor/state/advantage geometry、reward/value scale、physical-time credit semantics、critic/shared-trunk/global-clipping coupling 四类输出 Gate A 证据，裁定在实验记录中给出。
+
 ## 实验离线分析与报告
 
 所有 analyze 从新生成的持久化证据独立写出 analysis.json、report.md 和 SVG/PNG。source/output 不得相同或互相嵌套，源文件不变。run 在保存原始证据后复用同一发布函数，默认在本次输出目录生成报告；--no-figures 禁用图片。help、offline analyze、typed summaries 不加载 Torch、MetaDrive/Panda3D 或执行器；仅启用图片时加载 Matplotlib，先设置 Agg。
@@ -107,6 +113,7 @@ standard GAE 重建的 raw advantage mean/std 必须与源 summary 记录的逐 
 | guidance sweep | matrix_summary.json 和各 evaluation summaries |
 | training | summary.json 中已持久化的 grid/diagnostics/evaluation 测量及各运行事实 |
 | training critic-attribution | diagnostics.npz、sample_index.json、summary.json、diagnostic_config.yaml、runtime_metadata.json |
+| training cadence-attribution | summary.json（两臂逐 update 测量、matched 归因与 Gate A 证据）、study_manifest.yaml、各臂 training run 目录、heldout/、逐臂 report/analysis |
 
 reward/credit 从数组重算分布与配对，核验 sample 长度、重复身份和 scenario 顺序；不以旧 summary 冒充缺失原始数组。advantage 全批标准差使用 ddof=1，value target 使用配置持久化的 value_target_ddof（ablation=1，其他命名配置=0），其余分布 ddof=0。Pearson/Spearman 使用 SciPy 的 ties 定义；常量或不足样本为 undefined。报告引用已保存的 gate，不重裁定。图提供 cosine、1−cosine、norm ratio 与 undefined 标注，不裁剪原值。
 

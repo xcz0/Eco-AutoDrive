@@ -11,6 +11,7 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner.analysis.training import (
+    beta_kl,
     beta_probe_statistics,
     heldout_metric_values,
     paired_beta_deltas,
@@ -326,8 +327,39 @@ def test_post_update_kl_series_recomputes_kl_on_persisted_updates(tmp_path: Path
     assert series["post_update_kl_median"] == pytest.approx(
         0.5 * (series["post_update_kl"][0] + series["post_update_kl"][1])
     )
+    assert series["post_update_kl_analytic"][0] == pytest.approx(0.0, abs=1.0e-12)
+    assert series["post_update_kl_analytic"][1] > series["post_update_kl"][1]
+    assert all(math.isfinite(value) for value in series["post_update_kl_analytic"])
+    assert series["post_update_kl_analytic_median"] == pytest.approx(
+        0.5 * (series["post_update_kl_analytic"][0] + series["post_update_kl_analytic"][1])
+    )
+    assert series["post_update_kl_analytic_max"] == series["post_update_kl_analytic"][1]
     with pytest.raises(ValueError, match="no persisted rollout episodes"):
         post_update_kl_series(run_dir, update_count=3, mc_draws=4096, mc_seed=1000003)
+
+
+def test_beta_kl_matches_closed_form_and_is_zero_for_identical_parameters() -> None:
+    identical = beta_kl(
+        torch.tensor([[2.0, 3.0]]),
+        torch.tensor([[4.0, 1.5]]),
+        torch.tensor([[2.0, 3.0]]),
+        torch.tensor([[4.0, 1.5]]),
+    )
+    assert identical.item() == pytest.approx(0.0, abs=1.0e-12)
+
+    uniform_to_beta = beta_kl(
+        torch.tensor([[1.0, 1.0]]),
+        torch.tensor([[1.0, 1.0]]),
+        torch.tensor([[2.0, 3.0]]),
+        torch.tensor([[2.0, 5.0]]),
+    )
+    expected_first_dimension = 2.0 - math.log(6.0)
+    expected_second_dimension = 6.0 - math.log(105.0)
+    assert uniform_to_beta.item() == pytest.approx(
+        expected_first_dimension + expected_second_dimension, rel=1.0e-6
+    )
+    with pytest.raises(ValueError, match="equally shaped"):
+        beta_kl(torch.ones(1, 2), torch.ones(1, 2), torch.ones(2, 2), torch.ones(1, 2))
 
 
 def _write_kl_update(
