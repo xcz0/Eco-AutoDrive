@@ -1,0 +1,24 @@
+docs/experiments/README.md
+  s_2f3d172707f000::t_24b01bc90b6acc 95-96
+docs/research/issue83-task-1a-identifiability-transfer-plan.md
+  s_2f3d172707f000::t_a05cf68f9368c9 3-5
+docs/experiments/records/e-048-issue83-task-1a-objective-identifiability-transfer.md
+  s_2f3d172707f000::t_05a02880987dfb 1-2,4-165
+  s_2f3d172707f000::t_3009cf1903b65c 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "70768a072d38c1093aa65287abef1737b9877933",
+  "prompts": {},
+  "sessions": {
+    "s_2f3d172707f000": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f32c3278affeuilfMNBDKd7XYw",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
