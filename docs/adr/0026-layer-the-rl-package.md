@@ -1,35 +1,19 @@
 # Layer the RL package
 
-## Context
+原先平面的 RL package 没有表达 policy、rollout、optimization 与 artifact 的依赖方向，
+serial/vector 还重复构造训练与审计 transition。因此当时选择按四类职责分层，
+由上层 trainer 编排，而让 collection 共用 episode boundary 机制。
 
-The RL implementation had grown as one flat package. Policy math, rollout execution, PPO
-optimization, persisted artifacts, and training orchestration were individually implemented, but
-their Python import surface did not express their dependency direction. Serial and vector
-collectors also assembled the same training and audit transition in separate loops.
+关键理由是让参数所有权和数据边界清晰，避免 next-value、tail、reward audit 在两条路径
+分叉；不是永久维护一份模块地图。具体目录与导出由代码拥有，共同 boundary/RNG 保证
+由 training contract 定义。
 
-## Decision
+当时以直接 cutover 移除 flat imports 和广泛 re-exports，并把 Hydra 子树从 rl 改称 ppo，
+没有新增迁移层。历史 resolved config 仍是原运行记录，不自动成为新输入。
+该次分层没有改变 checkpoint、PPO、seed、reward 或冻结 planner；当时“10 Hz 不变”
+是历史上下文，正式 cadence 后由 [ADR 0039](0039-unify-closed-loop-cadence.md) 改变。
 
-Organize `eco_planner.rl` into four explicit layers:
+规范归属：[Execution contract](../contracts/execution.md)、[Training contract](../contracts/training.md)、[Artifacts contract](../contracts/artifacts.md)。
 
-1. `policy` owns the Exploration Policy, affine-Beta distribution, context, and architecture
-   configuration.
-2. `rollout` depends on `policy` and owns inference, collection, and episode contracts.
-3. `optimization` depends on `policy` and `rollout` and owns GAE/PPO plus checkpoints.
-4. `artifacts` depends on the preceding contracts and owns persisted schemas, I/O, and analysis.
-
-`config` composes complete Hydra job models, while `trainer` is the top-level orchestrator allowed
-to depend on every layer. Serial and vector collection share one episode builder for next-value
-linking, reward-profile consistency, audit assembly, and tail finalization.
-
-The migration is a direct cutover: old flat-module imports and broad `eco_planner.rl` re-exports
-are removed. The Hydra PPO subtree is named `ppo`, not `rl`. Episode artifacts carry an explicit
-reward profile and summaries require all current fields; no compatibility aliases or schema
-migration branch is added. Policy and resumable training checkpoint contents remain unchanged.
-
-## Consequences
-
-Imports now communicate ownership and dependency direction, and rollout boundary logic has one
-implementation. Existing Python callers and Hydra overrides must migrate atomically. Historical
-resolved configs that use `rl` are records of their original run and are not accepted as current
-training input. PPO mathematics, seed namespaces, 10 Hz transition semantics, reward definitions,
-and frozen-planner behavior are unchanged.
+> #102 迁移阶段：上述新规范仍为 proposed，生效入口遵循 [AGENTS](../../AGENTS.md)。
+> 本篇保存设计理由与历史决定，不作为第二套现行规范；本次收口不激活新 owner。

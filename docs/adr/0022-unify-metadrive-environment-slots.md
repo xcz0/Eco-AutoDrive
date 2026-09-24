@@ -3,21 +3,20 @@
 **Status:** Accepted and implemented
 **Date:** 2026-08-25
 
-Serial evaluation、single-environment rollout 和 vector worker 曾分别创建 MetaDrive
-environment、observation adapter、traffic history，并各自实现 reset、stationary warmup、
-observation build、trajectory step、vehicle state 与 route-length 读取。这些路径表达同一仿真
-生命周期，但重复实现会使交通历史、换图和失败语义逐渐分叉。
+Serial evaluation、single-environment rollout 和 vector worker 曾分别装配环境、
+交通历史与轨迹执行，重复的 reset/warmup/step 容易让换图和失败语义分叉。
 
-因此，使用 `MetaDriveEnvSlot` 作为单个物理环境的共同所有者。slot 组合只负责原生仿真生命周期的
-`MetaDriveBackend`、trajectory executor、严格 traffic/no-traffic observation source 和地图缓存，
-提供 reset、warmup、observe 与 step 边界。Serial evaluation 和 rollout 直接使用 slot；
-`runtime/envs` 下的 TorchRL worker 在独立进程中持有同一对象，`ParallelEnv` 负责进程、共享 buffer
-和 partial mask。Evaluation trace、artifact failure classification、RL reward/GAE/PPO 仍由各自
-调用方拥有，不下沉到环境层。
+因此选择单个物理环境 slot 统一拥有仿真生命周期、observation/history 与 execution；
+evaluation 的证据分类和 RL 的 reward/GAE/PPO 留在调用方。这让共同物理边界可以复用，
+又不把不同研究消费者的语义合并。Observation spec 与完整 planner config 分离，
+也避免 worker 为局部适配重建模型配置。
 
-环境适配器只接收 `PlannerObservationSpec` 中实际使用的 observation shape 字段，不再依赖或在
-worker 中重建完整 `OfficialDiffusionPlannerConfig`。Windows spawn payload 保持为仅含普通 Python
-值的映射；torch-free trampoline 在子进程开始执行后才导入 worker runtime。
+[ADR 0023](0023-use-torchrl-parallel-env-for-vector-metadrive.md) 只取代自定义 IPC
+client/worker protocol 部分，保留 slot 所有权；逻辑 scenario、RNG、episode 仍归各自编排。
+本次统一没有实现 [ADR 0009](0009-prewarm-background-traffic-without-ego-interaction.md)
+的 ego-independent prewarm，也没有改变交通、坐标、reward 或 timing 的定义。
 
-该选择不改变 trajectory、坐标、交通历史、限速、随机流、reward、termination、artifact 或
-timing 字段语义，也不实现 ADR 0009 中尚未完成的 ego-independent traffic prewarm。
+规范归属：[Execution contract](../contracts/execution.md)、[Training contract](../contracts/training.md)。
+
+> #102 迁移阶段：上述新规范仍为 proposed，生效入口遵循 [AGENTS](../../AGENTS.md)。
+> 本篇保存设计理由与历史决定，不作为第二套现行规范；本次收口不激活新 owner。

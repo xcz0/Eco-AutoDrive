@@ -1,37 +1,23 @@
 # Use TorchRL for GAE and PPO mathematics
 
-Exploration Policy 的 PPO 更新使用 TorchRL/TensorDict 提供的 GAE 和 clipped PPO 数学实现，而不是在项目中维护另一套自定义 PPO 公式。
+选择 TorchRL/TensorDict 的 GAE 与 clipped PPO，避免项目维护第二套通用数学实现。
+项目仍拥有 scenario/episode 的顺序、递归边界与 tail value；成熟库不能代替这些领域保证。
+Actor/critic 共享一个 policy 参数所有者，避免独立网络副本使 collection 与更新失配。
 
-按 scenario、episode、transition 顺序拼接各 `RolloutEpisode` 的 training TensorDict 后，统一执行 GAE。每个 episode 最后一个 transition 的 `done=true` 是递归边界：
+PPO 优化的是 Exploration Policy 的 guidance 概率，不是 Diffusion/DDIM 转移概率。
+当时采用完整 batch 的一次 advantage 标准化、unclipped L2 value objective，
+并保持 collection/update 网络模式确定，以免 dropout 污染 old/new ratio。
+退化 batch 显式失败的选择保留了问题可见性。公式与软件记账分别归 training protocol/contract。
 
-- 真实 `terminated` transition 不进行 bootstrap；
-- truncation 或 rollout-limit tail 使用显式保存的 tail value bootstrap；
-- 拼接后仍必须保留每个 episode 的递归边界，不能将相邻 episode 视为连续轨迹。
+**历史文字澄清（#102）：** 原文将 Beta 基础动作与 guidance 写成 `[0,1]`、`[-1,1]`，
+与 [ADR 0016](0016-add-forward-only-exploration-policy.md) 拒绝端点的决定冲突。
+这里记录该表述问题，不将其解释为允许端点或放宽动作域；有效域统一见 training contract。
+固定人工干预的闭区间接口不属于 Beta 概率空间。
 
-因此，advantage 不得跨 collector 或 episode boundary 泄漏。
+Policy export 与 resumable checkpoint 的区别仍保留；优化参数、库版本、reward 与运行规模
+由各自配置及规范拥有，不从本篇推断当前实现。
 
-Exploration Policy 是 actor 和 critic 的单一参数所有者。TensorDict actor/critic adapter 共享同一个 policy module，而不是维护相互独立的网络副本。
+规范归属：[Training protocol](../research/protocols/training.md)、[Training contract](../contracts/training.md)、[Artifacts contract](../contracts/artifacts.md)。
 
-Actor 的基础随机变量位于 Beta distribution 的 `[0, 1]` 区间，并通过
-
-`g = 2u - 1`
-
-映射到 guidance action 的 `[-1, 1]` 区间。PPO 使用变换后 action space 中的 joint log-probability，因此 log-probability 和 entropy 都必须包含 affine transform 的 Jacobian。
-
-PPO ratio 使用 rollout 时保存的 transformed old log-probability 与当前 policy 重新计算的 transformed log-probability：
-
-`ratio = exp(new_log_prob - old_log_prob)`
-
-Diffusion/DDIM transition probability 不属于这个 PPO ratio。扩散规划器在这里提供被冻结的规划与 policy context，而 PPO 优化的随机策略是 Exploration Policy。
-
-GAE 产生的 advantage 在当前完整 PPO batch 上统一标准化一次。标准化使用 sample standard deviation。样本数不足、方差为零或出现非有限统计时直接失败，而不是通过 clamp 隐藏退化 batch。
-
-Value objective 使用 unclipped L2。Policy loss、value loss 和 entropy term 的梯度共同更新 actor head、value head 以及共享 trunk。
-
-Collection 和 PPO optimization 均保持 policy 的确定性网络模式，使 dropout 等训练模式随机性不会污染 old/new probability ratio；这不妨碍优化阶段记录梯度。
-
-TorchRL/TensorDict 的具体版本、optimizer 参数、scheduler horizon、minibatch 大小和 update 数量属于训练配置和当前系统契约，而不是本 ADR 的架构不变量。
-
-Policy export checkpoint 与 resumable training-state checkpoint 是两个不同边界。前者用于保存可加载的 Exploration Policy 参数；后者用于恢复一次训练运行，还必须包含 optimizer、scheduler、训练随机状态以及训练循环进度等状态。不能用 policy export 的格式约束推断训练是否可恢复。
-
-Reward 定义、MetaDrive rollout 配置、并行采样规模和具体 smoke profile 由其他 ADR 或实验配置决定。
+> #102 迁移阶段：上述新规范仍为 proposed，生效入口遵循 [AGENTS](../../AGENTS.md)。
+> 本篇保存设计理由与历史决定，不作为第二套现行规范；本次收口不激活新 owner。

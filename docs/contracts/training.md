@@ -137,8 +137,8 @@ Policy-only export 只表示可加载策略参数，不能用它宣称精确续�
 来源：[旧 training contract](../agents/contracts/training.md)、[旧 experiments](../agents/contracts/experiments.md)；
 接受依据：[ADR 0016](../adr/0016-add-forward-only-exploration-policy.md)、
 [0018](../adr/0018-use-torchrl-for-gae-and-ppo-math.md)、[0039](../adr/0039-unify-closed-loop-cadence.md)。
-ADR 0018 的闭区间表述与 ADR 0016/旧现行 contract 不一致：草案保留严格开区间，
-待 ADR 审计收口，不据当前实现自动宣布另一份规范失效。
+ADR 0018 已将原闭区间表述标明为与 ADR 0016 冲突的历史文字问题，并引用本篇动作定义。
+草案保留 ADR 0016 的严格开区间及端点失败决定；这不是根据当前实现新增或放宽规范。
 
 | 任务 | 实现定位 | 相关测试（未运行） |
 | --- | --- | --- |

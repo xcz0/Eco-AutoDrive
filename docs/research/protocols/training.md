@@ -156,9 +156,9 @@ pre-clip gradient max 只在实际 optimizer steps 上统计，无 step 时为�
 [0039](../../adr/0039-unify-closed-loop-cadence.md)；详细迁移来源是
 [旧 training contract](../../agents/contracts/training.md) 与 [旧 experiments](../../agents/contracts/experiments.md)。
 
-ADR 0018 的闭区间动作文字与 ADR 0016 的严格开区间要求冲突；本草案保持后者的有效动作域，
-不放宽端点，待 ADR 审计处理原文。ADR 0024 的环境持有 reward 是历史位置，与旧现行 contract
-的 collector-side ownership 不同；见 execution contract 的冲突说明。历史 builtin/smoke reward
+ADR 0018 已显式记录原闭区间表述与 ADR 0016 的冲突；有效动作域只由 training contract
+定义，本次收口不放宽端点。ADR 0024 已将环境持有 reward 标为历史位置；后续
+collector-side ownership 的迁移依据见 execution contract 的来源说明。历史 builtin/smoke reward
 不据 ADR 自动恢复为当前可用 profile。未公开的方法选择不宣称论文 parity。
 
 ## 代码与测试导航

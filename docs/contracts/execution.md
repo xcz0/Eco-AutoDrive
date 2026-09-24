@@ -105,9 +105,12 @@ Wh 与每公里量从同一结果派生。在线 proxy 从相邻实际 center �
 接受依据包括 [ADR 0028](../adr/0028-consolidate-runtime-ownership-and-evaluation-topology.md)、
 [0038](../adr/0038-consolidate-scientific-workflows.md)、[0039](../adr/0039-unify-closed-loop-cadence.md)。
 
-[ADR 0024](../adr/0024-add-plannerrft-energy-reward.md) 仍把 reward 放在 slot/worker；
-旧现行 contracts 已明确 collector-side reward，ADR 0039 支持共享子步归约与离线边界。
-本草案按后者提炼 ownership，显式保留这项来源差异；本次不宣布 ADR 0024 被整体取代，后续 ADR 审计须补清位置演变的接受依据，再原子切换 owner。未做源码 conformance 审计。
+[ADR 0024](../adr/0024-add-plannerrft-energy-reward.md) 已将 slot/worker 求 reward 标为历史位置。
+所有权的迁移依据是：[ADR 0022](../adr/0022-unify-metadrive-environment-slots.md) 将 RL reward
+留给环境调用方；旧 system/training contract 明确了后续 collector-side 求值边界；
+[ADR 0039](../adr/0039-unify-closed-loop-cadence.md) 接受在线／离线共享子步归约及审计输入。
+这些来源支持客观 execution facts 与 reward 求值分离，不等于 ADR 0024 整体失效，
+也不把原位置决定改写成新位置。本文仍为 proposed，等待全局 owner 原子切换；未做源码 conformance 审计。
 
 ## 代码与测试导航
 

@@ -3,28 +3,22 @@
 **Status:** Partially superseded by ADR 0030; the resource-overlay decision remains accepted.
 **Date:** 2026-08-31
 
-As benchmark and study workflows grew, `scripts/` accumulated typed configuration, composition,
-ranking, artifact interpretation, and orchestration logic. Tests imported those modules directly,
-while the project's static type-check boundary covered only `src/eco_planner/`. Study workflows also
-reused training and evaluation through inconsistent Hydra and subprocess paths.
+Scripts 曾积累配置组合、ranking、产物解释与编排，测试直接导入这些文件，但类型检查只
+覆盖安装包。稳定 application logic 移到内部 package，是为让它接受同样验证并通过共享
+typed boundary 复用；这不把科研仓库变成第三方 SDK，也不把 CLI 当内部 RPC。
 
-The following application-ownership terminology is historical and superseded by ADR 0030. Stable
-repository application logic belongs in internal `eco_planner.benchmarking`,
-`eco_planner.studies`, and `eco_planner.analysis` modules. `scripts/` contains only CLI parsing,
-bootstrap, presentation, and exit-code mapping. Moving these modules into the installed package makes
-them tested and type-checked project code; it does not create a stable third-party public API.
+当时 benchmarking/studies/analysis 的命名已由
+[ADR 0030](0030-align-cli-and-experiment-config-layout.md) 修订；
+scripts 只承担入口、bootstrap、展示与退出码的设计理由继续有效。
 
-ADR 0030 retains the `components / jobs / experiments` configuration layering. A job owns its
-complete experiment semantics, while an experiment manifest selects jobs and declares pairing,
-search, ranking, or explicit overrides. Shared composition and typed execution boundaries are used
-by both CLIs and experiment workflows instead of treating another CLI as an internal RPC endpoint.
+Resources 被选为独立 overlay，使 job 的科学定义不受机器容量影响。显式选择优先于
+机器自动选择，缺少预算时失败而不猜测，这是可追溯性与使用便利之间的明确取舍。
+具体 precedence、composition 和执行保证由 execution contract 拥有。
 
-Versioned `components/resources` profiles are execution overlays. Semantic jobs contain a null Hydra
-group placeholder, so they compose and validate without local machine state. At CLI or study
-bootstrap, an explicit Hydra resource override wins over `MACHINE_NAME`; an existing process value
-wins over the optional repository `.env`. Resource-dependent execution fails when no profile is
-selected rather than inventing a worker budget or hardware fallback.
+Justfile 被定位为 Windows PowerShell 下的薄 alias，避免工作流语义在第二处出现。
+历史入口和配置命名不作为当前操作说明。
 
-The repository `justfile` is a Windows PowerShell task alias layer. It forwards workflow arguments to
-their owning CLI, keeps formatting separate from read-only validation, and uses pytest markers as the
-sole smoke-suite membership source.
+规范归属：[Execution contract](../contracts/execution.md)。
+
+> #102 迁移阶段：上述新规范仍为 proposed，生效入口遵循 [AGENTS](../../AGENTS.md)。
+> 本篇保存设计理由与历史决定，不作为第二套现行规范；本次收口不激活新 owner。

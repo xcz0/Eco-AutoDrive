@@ -146,7 +146,7 @@ metric estimator、窗口或终止含义，均是 protocol change，不能作为
 [0037](../../adr/0037-simplify-experiments-and-report-seed-effects.md)、
 [0039](../../adr/0039-unify-closed-loop-cadence.md)。迁移细节来自
 [旧 planner](../../agents/contracts/planner.md)、[system contract](../../agents/system-contract.md)、
-[旧 experiments](../../agents/contracts/experiments.md)。ADR 保留 rationale，本阶段不改历史正文。
+[旧 experiments](../../agents/contracts/experiments.md)。ADR 保留 rationale 与历史决定，不重复维护本篇规范。
 
 ## 代码与测试导航
 

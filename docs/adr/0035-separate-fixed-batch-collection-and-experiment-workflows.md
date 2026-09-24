@@ -1,42 +1,29 @@
 # Separate fixed-batch collection and unify experiment workflows
 
-> 关于机制归属、旧 CLI、强制参考链和历史工作流保留的决定已由 [ADR 0038](0038-consolidate-scientific-workflows.md) 取代；其他数值、配对与证据约束继续有效。
-
-
 **Status:** Accepted and implemented
 **Date:** 2026-09-10
 
-Experiment runners depended on other runners for batch restoration and calibration guards.
-Reusable reward transformations and gradient extraction were owned by individual diagnostics.
-Collection was inseparable from lambda analysis, and critic/GAE reference comparisons assumed
-a fixed number of decomposition arms. These dependencies followed the order experiments were
-introduced rather than the responsibilities of the code.
+> [ADR 0038](0038-consolidate-scientific-workflows.md) 已取代通用机制留在 experiments、
+> 旧 CLI、强制参考链和历史工作流保留的部分；数值、配对与证据边界保留。
 
-Place batch collection/storage, reward transformations/calibration and actor backward primitives
-in `experiments.fixed_batch`. Keep each diagnostic's configuration, numerical decisions and
-orchestration separate. The four diagnostics consume an explicit batch directory; calibration and
-ablation additionally consume explicit diagnostic references. Match references by source, policy
-and sample order, and find decomposition endpoints by their recorded labels and indices.
+Runner 之间曾互相借用 batch 恢复与校准，通用 reward/gradient 操作归属个别诊断，
+collection 又与 lambda analysis 绑定。选择将采集、共享数值机制和各诊断编排分开，
+让依赖方向表达职责而非实验出现顺序。
 
-Training and diagnostics use the same named PPO batch/normalization operations. Seed derivation
-belongs to rollout, not the trainer. Scalar-reward and stability configuration composition are
-independent of their execution runners, and stability comparison models do not import execution.
-These are repository-internal interfaces, not an external SDK or an experiment framework.
+当时把共享 fixed-batch 放在 experiments，使用显式 batch 与诊断 references，并统一命令；
+这是历史选择。它取代了 [ADR 0030](0030-align-cli-and-experiment-config-layout.md) 的
+experiment-specific aliases，以及 [ADR 0034](0034-separate-experiment-analysis-and-reporting.md)
+的独立分析 CLI／旧 artifact 兼容要求，保留了后者的职责分离。
 
-Use `just experiment <experiment> <action>` and `python -m scripts.experiments`, with explicit
-subcommand dispatch and lazy execution imports after argument parsing and bootstrap. Config
-directories follow experiment command names. This supersedes ADR 0030's experiment-specific
-CLI aliases and ADR 0034's standalone analysis command and artifact-compatibility requirement;
-ADR 0034's execution/analysis/presentation responsibilities remain in place.
+[ADR 0036](0036-group-research-domains-and-explicit-cli-operations.md) 后续调整模块位置
+与 flat CLI，[ADR 0038](0038-consolidate-scientific-workflows.md) 再移除强制历史参考链。
+样本／策略身份对齐和共享数值 primitive 的理由继续成立，但不能据此恢复 reference-dir 守卫。
 
-Only new experiment artifacts are supported. Do not provide legacy import/CLI aliases, schema
-migrations or automatic fallbacks. Preserve the numerical algorithms and tolerances, and change
-storage only where collection/reference separation requires it. Historical experiment records
-remain historical evidence with their original commands and paths.
+当时直接切换内部路径和新 artifact，未建设兼容框架；软件验证不等于新研究证据，
+历史命令、路径与实验结果保持其原条件。
 
-Verification uses the original diagnostic tests, exact comparison of synthetic numerical results,
-storage roundtrips, a synthetic complete offline chain, explicit reference failures, CLI tests and
-a small real-simulator collection test. These checks are software verification, not new research
-evidence or a rerun of historical studies. Current invocation and artifact details are maintained
-in README and the system contract rather than duplicated here.
+规范归属：[Execution contract](../contracts/execution.md)、[Artifacts contract](../contracts/artifacts.md)、[Diagnostic protocol](../research/protocols/diagnostic-studies.md)。
+
+> #102 迁移阶段：上述新规范仍为 proposed，生效入口遵循 [AGENTS](../../AGENTS.md)。
+> 本篇保存设计理由与历史决定，不作为第二套现行规范；本次收口不激活新 owner。
 

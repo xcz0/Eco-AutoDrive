@@ -1,16 +1,15 @@
 # Add an explicit five-step DDIM sampler
 
-Keep the official 10-step DPM-Solver++ profile as the default, immutable baseline. Add DDIM as a
-separate Hydra-selected sampling boundary so its initial distribution, time schedule and
-stochasticity remain visible research variables.
+选择把五步 DDIM 作为显式研究变量加入，同时保留官方十步 DPM-Solver++ 受控基线，
+以免将 sampler 替换混入模型适配。独立配置使初始噪声尺度、时间序列和 stochasticity
+能够分别比较和追溯。
 
-The PlannerRFT paper-text profile starts from standard Gaussian future noise. It makes five
-continuous-time DDIM transitions, evaluating the denoiser at `t = [1.0, 0.8, 0.6, 0.4, 0.2]` and
-ending each transition at `[0.8, 0.6, 0.4, 0.2, 0.0]`. Evaluation uses
-`ddim_stochasticity = 0`. Non-zero stochasticity uses the episode's explicit diffusion generator;
-the clean endpoint does not consume a random draw.
+PlannerRFT 论文没有公开 DDIM timestep subsequence，因此本项目选择均匀连续时间 schedule，
+不能将它描述为作者实现。标准高斯 profile 用于论文文本条件的复现；另设半尺度噪声 profile
+只用于隔离它与官方 baseline 的初始分布差异，不构成 PlannerRFT parity。
+具体 schedule 与随机流消费规则分别归 Protocol 和 Contract，不在 ADR 维护另一套采样定义。
 
-The paper does not publish its DDIM timestep subsequence. The uniform continuous-time schedule is
-therefore a project reproduction decision, not an author fact. A separately labelled
-`0.5 * N(0,I)` profile is retained only to isolate the initial-noise-scale difference from the
-official baseline and cannot be reported as PlannerRFT parity.
+规范归属：[Planning/evaluation protocol](../research/protocols/planning-and-evaluation.md)、[Execution contract](../contracts/execution.md)。
+
+> #102 迁移阶段：上述新规范仍为 proposed，生效入口遵循 [AGENTS](../../AGENTS.md)。
+> 本篇保存设计理由与历史决定，不作为第二套现行规范；本次收口不激活新 owner。
