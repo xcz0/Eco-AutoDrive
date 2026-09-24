@@ -1,0 +1,23 @@
+src/eco_planner/rl/artifacts/summaries.py
+  s_543496e137d5e0::t_fcb650df319f1f 7,16-23
+tests/training/test_tracking.py
+  s_543496e137d5e0::t_ae476df8226e3a 106-112,114-123
+  s_543496e137d5e0::t_92dd40a3568c65 113
+  s_543496e137d5e0::t_973d89dc539b8c 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "996d0e8bf9f4aa29ae33678cae3d979b8a216bb0",
+  "prompts": {},
+  "sessions": {
+    "s_543496e137d5e0": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f2ed0a819ffe6BOm22y7ImZR06",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
