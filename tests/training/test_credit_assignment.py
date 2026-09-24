@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import torch
+from pydantic import ValidationError
 
 from eco_planner.analysis.statistics import advantage_comparison, cosine
 from eco_planner.experiments.credit.decisions import (
@@ -17,7 +18,10 @@ from eco_planner.experiments.credit.decisions import (
 )
 from eco_planner.reward import (
     EnergyBandConfig,
+    FrozenEnergyBand,
+    PlannerRFTEnergyRewardConfig,
     PlannerRFTNoEnergyRewardConfig,
+    apply_frozen_energy_band,
     evaluate_plannerrft_energy_step,
     evaluate_plannerrft_no_energy_step,
 )
@@ -47,7 +51,7 @@ from tests.training.test_ppo import (
     _execution_audit,
     _ppo_config,
 )
-from tests.training.test_reward import _metrics, _no_energy_config
+from tests.training.test_reward import _metrics, _no_energy_config, _task_g_profile_payload
 
 
 @pytest.mark.parametrize("weight", [0.0, 1.0, 16.0])
@@ -283,6 +287,91 @@ def test_energy_band_config_validation():
         _band_study(full_score_intensity_quantile=0.6)
     with pytest.raises(ValueError):
         _band_study(zero_score_intensity_quantile=0.4)
+
+
+def _credit_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "arms": [
+            {"label": "r0", "weight": 0.0},
+            {"label": "energy_only", "weight": "energy_only"},
+        ],
+        "advantage_forms": ["raw", "center", "z"],
+        "credit_forms": ["standard_gae"],
+        "value_target_ddof": 0,
+        "quantiles": [0.0, 0.5, 1.0],
+        "calibration": None,
+        "energy_band": None,
+        "frozen_energy_band": None,
+        "objective_gate": None,
+        "attribution_gate": None,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_credit_study_config_requires_and_isolates_the_frozen_band():
+    from eco_planner.experiments.credit.config import CreditStudyConfig
+
+    CreditStudyConfig.model_validate(_credit_payload())
+    band = {"full_score_ml_per_km": 46.37, "zero_score_ml_per_km": 48.75}
+    valid = CreditStudyConfig.model_validate(_credit_payload(frozen_energy_band=band))
+    assert valid.frozen_energy_band == FrozenEnergyBand(
+        full_score_ml_per_km=46.37, zero_score_ml_per_km=48.75
+    )
+
+    with pytest.raises(ValueError, match="cannot derive and freeze"):
+        CreditStudyConfig.model_validate(
+            _credit_payload(
+                energy_band={
+                    "full_score_intensity_quantile": 0.1,
+                    "zero_score_intensity_quantile": 0.9,
+                },
+                frozen_energy_band=band,
+            )
+        )
+
+    missing = _credit_payload()
+    del missing["frozen_energy_band"]
+    with pytest.raises(ValidationError):
+        CreditStudyConfig.model_validate(missing)
+
+
+def test_frozen_band_arm_matches_the_named_band_profile_objective():
+    # The offline credit arm (calibrated R0 + frozen band, lambda=64) must be the
+    # formal plannerrft_energy_band_lam64_v1 objective value for value.
+    r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
+        _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
+    )
+    named = PlannerRFTEnergyRewardConfig.model_validate(
+        _task_g_profile_payload("plannerrft_energy_band_lam64_v1")
+    )
+    frozen = apply_frozen_energy_band(
+        r0,
+        FrozenEnergyBand(
+            full_score_ml_per_km=46.37086372375488,
+            zero_score_ml_per_km=48.7514030456543,
+        ),
+    )
+    offline = reward_profile(frozen, 64.0)
+
+    episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
+    episode.audit["reward_substep_step_distance_m"].fill_(1.0)
+    episode.audit["reward_substep_executed_fuel_proxy_step_energy_ml"].fill_(0.047)
+    episode.audit["reward_substep_energy_distance_valid"].fill_(True)
+
+    offline_matched = reweight(rescore(episode, frozen), offline)
+    named_matched = reweight(rescore(episode, named), named)
+    for key in ("reward_total", "reward_base_total"):
+        torch.testing.assert_close(
+            offline_matched.audit[key], named_matched.audit[key], rtol=0, atol=1e-7
+        )
+    for name in COMPONENTS:
+        torch.testing.assert_close(
+            offline_matched.audit[f"reward_component_{name}"],
+            named_matched.audit[f"reward_component_{name}"],
+            rtol=0,
+            atol=1e-7,
+        )
 
 
 def _objective_study():

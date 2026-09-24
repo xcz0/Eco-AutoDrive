@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, model_validator
 
-from eco_planner.reward import CalibrationTargets, EnergyBandConfig
+from eco_planner.reward import CalibrationTargets, EnergyBandConfig, FrozenEnergyBand
 
 from .decisions import AttributionThresholds, GateThresholds
 
@@ -34,6 +34,7 @@ class CreditStudyConfig(BaseModel):
     value_target_ddof: Literal[0, 1]
     calibration: CalibrationTargets | None
     energy_band: EnergyBandConfig | None
+    frozen_energy_band: FrozenEnergyBand | None
     objective_gate: GateThresholds | None
     attribution_gate: AttributionThresholds | None
 
@@ -42,6 +43,8 @@ class CreditStudyConfig(BaseModel):
         for axis in ([a.label for a in self.arms], self.advantage_forms, self.credit_forms):
             if len(axis) != len(set(axis)):
                 raise ValueError("diagnostic axes must be unique")
+        if self.energy_band is not None and self.frozen_energy_band is not None:
+            raise ValueError("credit study cannot derive and freeze the energy band simultaneously")
         if (
             self.quantiles != sorted(set(self.quantiles))
             or self.quantiles[0] != 0

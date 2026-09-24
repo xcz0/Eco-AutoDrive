@@ -15,12 +15,14 @@ from eco_planner.envs.domain import (
     derive_transition_metrics,
 )
 from eco_planner.reward import (
+    FrozenEnergyBand,
     PlannerRFTEnergyRewardConfig,
     PlannerRFTNoEnergyRewardConfig,
     RewardComponents,
     RewardDiagnostics,
     RewardResult,
     aggregate_transition_reward,
+    apply_frozen_energy_band,
     evaluate_plannerrft_energy_step,
     evaluate_plannerrft_no_energy_step,
 )
@@ -472,6 +474,36 @@ def test_task_g_profiles_freeze_calibration_band_and_lambda_64() -> None:
         rstress.weights.comfort,
         rstress.weights.speed,
     )
+
+
+def test_frozen_energy_band_switches_a_profile_to_the_e038_thresholds() -> None:
+    r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
+        _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
+    )
+    band = FrozenEnergyBand(
+        full_score_ml_per_km=46.37086372375488,
+        zero_score_ml_per_km=48.7514030456543,
+    )
+
+    applied = apply_frozen_energy_band(r0, band)
+
+    assert applied.energy.mode == "calibrated_band"
+    assert applied.energy.band_full_score_ml_per_km == pytest.approx(46.37086372375488)
+    assert applied.energy.band_zero_score_ml_per_km == pytest.approx(48.7514030456543)
+    # Only the energy representation changes; Progress/Comfort calibration, the
+    # shared weights, and the no-energy profile identity are untouched.
+    assert applied.name == r0.name
+    assert applied.progress == r0.progress
+    assert applied.comfort == r0.comfort
+    assert applied.weights == r0.weights
+
+
+def test_frozen_energy_band_rejects_inverted_thresholds() -> None:
+    with pytest.raises(ValueError, match="zero_score above full_score"):
+        FrozenEnergyBand(full_score_ml_per_km=48.0, zero_score_ml_per_km=47.0)
+
+    with pytest.raises(ValueError):
+        FrozenEnergyBand(full_score_ml_per_km=0.0, zero_score_ml_per_km=48.0)
 
 
 def test_task_g_rstress_reward_uses_band_energy_at_lambda_64() -> None:

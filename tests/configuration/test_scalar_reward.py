@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from omegaconf import DictConfig, MissingMandatoryValue
 
+from eco_planner._repository import CONFIG_ROOT
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation import parse_evaluation_config
 from eco_planner.experiments.protocol.composition import (
@@ -115,6 +116,24 @@ def test_issue83_lambda_arms_compose_from_the_formal_training_protocol(
         if lam == 0:
             continue
         assert parsed.model_dump(mode="json", exclude={"reward"}) == baseline
+
+
+def test_issue83_task_1a_collection_configs_compose_the_canonical_cadence() -> None:
+    expected = {
+        "collection": "plannerrft_no_energy_v1",
+        "e-048-collection": "plannerrft_no_energy_calibrated_v1",
+    }
+    for name, profile in expected.items():
+        spec = load_resolved_yaml_mapping(CONFIG_ROOT / f"experiments/reward/{name}.yaml")
+        resolved = compose_job_config(spec["job"], list(spec["overrides"]))
+        parsed = parse_training_config(resolved)
+
+        assert parsed.reward.name == profile
+        assert parsed.runtime.seed == 0
+        assert parsed.training.replay_id == 0
+        assert parsed.cadence.simulator_step_s == 0.1
+        assert parsed.cadence.closed_loop_execution_steps == 5
+        assert parsed.cadence.decision_interval_s == 0.5
 
 
 def test_protocol_manifest_rejects_overlapping_train_and_eval_pools() -> None:

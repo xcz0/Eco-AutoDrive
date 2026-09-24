@@ -1,6 +1,7 @@
 job: jobs/training/ppo_conservative
 overrides:
 - runtime.seed=0
+- training.replay_id=0
 - components/reward=plannerrft_no_energy_v1
 - components/resources=rtx_a4000
 - ppo.learning_rate=1.6301e-05

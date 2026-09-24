@@ -9,24 +9,27 @@ from typing import Any
 
 import numpy as np
 from omegaconf import OmegaConf
+from tensordict import cat
 
 from eco_planner.analysis import publish
 from eco_planner.analysis.statistics import advantage_comparison, gradient_comparison, rmse
 from eco_planner.artifacts import write_json, write_npz
 from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.reward import calibrate
+from eco_planner.reward import apply_frozen_energy_band, calibrate
 from eco_planner.reward.config import PlannerRFTNoEnergyRewardConfig
 from eco_planner.rl.optimization import PPOUpdater
 from eco_planner.rl.optimization.credit import credit_batch
 from eco_planner.rl.optimization.diagnostic_runtime import restore_runtime, write_runtime_metadata
 from eco_planner.rl.optimization.gradients import GRADIENT_GROUPS, diagnostic_variants
 from eco_planner.rl.reward import (
+    COMPONENTS,
     apply_energy_band,
     energy_only_reward,
     raw_arrays,
     rescore,
     reward_profile,
     reweight,
+    substep_counts,
     verify_original_components,
 )
 from eco_planner.rl.rollout.contracts import RolloutEpisode
@@ -44,6 +47,7 @@ def measure(
     scenario_ids: np.ndarray,
 ) -> tuple[dict, dict]:
     arrays: dict[str, np.ndarray] = {"scenario_index": scenario_ids}
+    arrays["substep_count"] = substep_counts(episodes)
     measurements: dict[tuple[str, str], Any] = {}
     arms, pairs = [], []
     for arm in study.arms:
@@ -54,6 +58,14 @@ def measure(
         )
         arrays[f"{arm.label}__reward"] = np.concatenate(
             [e.training["next", "reward"].cpu().numpy().reshape(-1) for e in matched]
+        )
+        audit = cat([e.audit for e in matched])
+        for name in COMPONENTS:
+            arrays[f"{arm.label}__reward_component_{name}"] = (
+                audit[f"reward_component_{name}"].cpu().numpy().reshape(-1)
+            )
+        arrays[f"{arm.label}__reward_safety_gate"] = (
+            audit["reward_safety_gate"].cpu().numpy().reshape(-1)
         )
         entry = {"label": arm.label, "weight": arm.weight, "actor_losses": {}}
         for credit in study.credit_forms:
@@ -142,6 +154,8 @@ def run(source: Path, config_path: Path, output: Path, *, figures: bool = True) 
         base = calibrate(raw_arrays(batch.episodes), base, study.calibration)
     if study.energy_band:
         base = apply_energy_band(base, batch.episodes, study.energy_band)
+    if study.frozen_energy_band:
+        base = apply_frozen_energy_band(base, study.frozen_energy_band)
     episodes = [rescore(e, base) for e in batch.episodes]
     runtime = restore_runtime(source, batch)
     summary, arrays = measure(runtime.updater, episodes, base, study, batch.scenario_ids)

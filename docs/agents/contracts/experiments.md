@@ -30,15 +30,17 @@
 
 reward collect 配置显式提供 job 和 overrides，底层采集不认识 scalar protocol、arm 标签或研究目录。采集只执行 initial-policy rollout，保存 resolved config、initial policy、runtime metadata、training TensorDict、episode audit NPZ、sample index 和 summary。保持无 optimizer/scheduler step，核对 batch 与动作、log-prob、value/next-value、reward、boundary 的配对。所有 reward/credit 条件共享同一 transition 顺序与初始策略。
 
-reward run 读取该源 batch，重算原始/校准/energy-band reward 组件及权重对照，不恢复 actor 或执行 backward。credit run 从同一源 batch 独立重算校准；无需任何前序诊断目录。两者均保存实际 reward 配置和校准尺度。命名 credit 配置 sensitivity、objectives、ablation、energy-band 保留既有对照数值轴；不默认运行全部组合。
+reward run 读取该源 batch，重算原始/校准/energy-band reward 组件及权重对照，不恢复 actor 或执行 backward。credit run 从同一源 batch 独立重算校准；无需任何前序诊断目录。credit 配置的 `calibration`、`energy_band`、`frozen_energy_band` 均为必填可空字段：`energy_band` 从本 batch 分位数推导阈值，`frozen_energy_band` 直接写入显式冻结阈值（两者互斥，同时给出即拒绝）；`frozen_energy_band` 只切换 energy 表示，不读取 episodes，Progress/Comfort 校准仍由源 batch 的 calibrated profile 承担。两者均保存实际 reward 配置和校准尺度。命名 credit 配置 sensitivity、objectives、ablation、energy-band 保留既有对照数值轴；不默认运行全部组合。
 
-Progress 使用完整批次正向 delta 中位数除以目标分数。Comfort 仅对存在零分的子项使用 `max(原 limit, P50(abs(metric))/(2-target_score))`，保留原分段线性评分与四项取最小值。启动 transition 不删除，未失活子项与 Energy/TTC/Speed/Safety 不变。energy-band 由本 batch 的配置分位数推导，不核验 E-034/E-038 冻结数值。全局 reward profile 默认值不变。
+Progress 使用完整批次正向 delta 中位数除以目标分数。Comfort 仅对存在零分的子项使用 `max(原 limit, P50(abs(metric))/(2-target_score))`，保留原分段线性评分与四项取最小值。启动 transition 不删除，未失活子项与 Energy/TTC/Speed/Safety 不变。energy-band 由本 batch 的配置分位数推导，不核验 E-034/E-038 冻结数值；冻结表示走 `frozen_energy_band`，不重新推导。全局 reward profile 默认值不变。
 
 校准后的 Comfort 仅表示该运动学执行分布下的相对平顺性，不重新定义物理限值。audit 保存有符号原始量、评分绝对值、原 limit 超限率、零分/满分率、含并列的最小值归因和逐 scenario/planning-cycle 数组。Energy-only 是逐 substep `safety_gate × energy component` 的聚合（与在线该目标 endpoint 同义），仅作诊断，不是新训练 profile。
 
 credit 配置显式声明 reward arms、raw/center/z advantage forms 和 standard_gae/reward_only_gae/discounted_return credit forms。standard GAE 保留原 critic；reward-only GAE 同时置零 current/next value（含 tail bootstrap），保留 gamma/lambda/boundary；discounted return 逐 episode 反向递推，无 critic/bootstrap。raw 原样，center 仅减 full-batch 均值，z 复用训练 sample-std normalization。全部复用训练 `build_ppo_batch` 与 `ClipPPOLoss`，仅对 loss_objective backward，不混入 critic/entropy 梯度，不做 clipping、optimizer 或 scheduler step。
 
 梯度按 actor head、shared trunk、lateral/longitudinal head 行分组。统计使用 float64，GAE/backward 保持训练 dtype/device。零初始化 head 阻断 initial trunk actor 梯度；零 norm cosine 和零分母 ratio 为 null，不解释为相同方向。配置中的 objective/attribution gate 只适用于当前实验；数值恒等式（梯度混合线性、center/z 比例、critic 抵消、discounted return）由独立测试覆盖。固定批次证据不证明训练后行为改变。
+
+credit `diagnostics.npz` 在 advantage/梯度之外还保存 per-transition reward 诊断：arm 无关的单列 `substep_count`，以及每 arm 的 `{arm}__reward_component_{ttc,progress,comfort,speed,energy}`（multi-substep sum 聚合）与 `{arm}__reward_safety_gate`（min gate）。这些数组与既有 advantage/梯度一起满足 `analysis.workflows.fixed` 的“非梯度数组长度 == sample 数”契约，component variance 由其分布覆盖；per-substep 原始审计仍以源 batch NPZ 为权威，不在 comparison artifact 重复。
 
 ## Guidance control-authority intervention
 

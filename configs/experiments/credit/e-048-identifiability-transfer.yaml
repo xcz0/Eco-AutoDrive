@@ -1,3 +1,8 @@
+# Issue #83 Task 1A objective identifiability transfer: reuse the E-038 Gate C
+# primary thresholds (z-form / actual PPO preprocessing) against the frozen
+# E-034 calibration and E-038 band thresholds, without re-deriving either from
+# this canonical k=5 batch. Progress/Comfort calibration is carried by the
+# source batch's calibrated profile; energy uses the explicitly frozen band.
 value_target_ddof: 0
 advantage_forms:
 - raw
@@ -13,11 +18,11 @@ quantiles:
 - 0.9
 - 0.95
 - 1.0
-calibration:
-  progress_target_score: 0.6
-  comfort_target_score: 0.6
+calibration: null
 energy_band: null
-frozen_energy_band: null
+frozen_energy_band:
+  full_score_ml_per_km: 46.37086372375488
+  zero_score_ml_per_km: 48.7514030456543
 objective_gate:
   endpoint_max_actor_head_cosine: 0.99
   min_normalized_advantage_rmse: 0.1

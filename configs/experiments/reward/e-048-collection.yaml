@@ -1,0 +1,18 @@
+# Issue #83 Task 1A canonical k=5 source batch: calibrated R0 profile under the
+# ADR 0039 closed-loop cadence (0.1 s x 5 = 0.5 s decision interval). The
+# resolved config pins the #83 frozen PPO control so latency provenance matches
+# the transfer comparison even though update-0 rollout never steps the optimizer.
+job: jobs/training/ppo_conservative
+overrides:
+- runtime.seed=0
+- training.replay_id=0
+- components/reward=plannerrft_no_energy_calibrated_v1
+- components/resources=rtx_a4000
+- ppo.learning_rate=1.5e-4
+- ppo.max_gradient_norm=0.5
+- ppo.target_kl=0.006
+- ppo.batch_size=128
+- ppo.minibatch_size=128
+- training.transitions_per_environment=8
+- training.update_count=50
+- ppo.scheduler_total_optimizer_steps=50

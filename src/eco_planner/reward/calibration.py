@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, StrictFloat
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, model_validator
 
 from .components.comfort import component_score
 from .components.progress import score_delta
@@ -84,6 +84,36 @@ def calibrate(
     return PlannerRFTNoEnergyRewardConfig.model_validate(payload)
 
 
+class FrozenEnergyBand(BaseModel):
+    """Explicitly frozen efficiency-band thresholds, not derived from a batch."""
+
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid", allow_inf_nan=False)
+    full_score_ml_per_km: StrictFloat = Field(gt=0.0)
+    zero_score_ml_per_km: StrictFloat = Field(gt=0.0)
+
+    @model_validator(mode="after")
+    def validate_frozen_band(self) -> FrozenEnergyBand:
+        if self.zero_score_ml_per_km <= self.full_score_ml_per_km:
+            raise ValueError("energy band requires zero_score above full_score")
+        return self
+
+
+def apply_frozen_energy_band(
+    profile: PlannerRFTNoEnergyRewardConfig, band: FrozenEnergyBand
+) -> PlannerRFTNoEnergyRewardConfig:
+    """Switch a profile to the frozen calibrated-band energy representation.
+
+    Pure profile transform: it never reads rollout episodes, so the thresholds
+    are the caller's frozen constants rather than a new batch statistic.
+    """
+
+    payload = profile.model_dump()
+    payload["energy"]["mode"] = "calibrated_band"
+    payload["energy"]["band_full_score_ml_per_km"] = band.full_score_ml_per_km
+    payload["energy"]["band_zero_score_ml_per_km"] = band.zero_score_ml_per_km
+    return PlannerRFTNoEnergyRewardConfig.model_validate(payload)
+
+
 def energy_band_thresholds(intensity: np.ndarray, band: EnergyBandConfig) -> tuple[float, float]:
     """Derive the calibrated-band full/zero intensity thresholds from this batch."""
 
@@ -96,6 +126,8 @@ __all__ = [
     "MOTION_LIMITS",
     "CalibrationTargets",
     "EnergyBandConfig",
+    "FrozenEnergyBand",
+    "apply_frozen_energy_band",
     "calibrate",
     "energy_band_thresholds",
     "scored_arrays",
