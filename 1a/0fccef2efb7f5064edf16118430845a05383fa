@@ -1,0 +1,84 @@
+configs/experiments/training/cadence-attribution.yaml
+  s_884c9969ab9f5f::t_d1b48fafde7f53 1-32
+tests/configuration/test_jobs.py
+  s_884c9969ab9f5f::t_3f414c88f2f25b 27
+  s_884c9969ab9f5f::t_b3c93bdc1f1bcb 214-239
+src/eco_planner/experiments/training/cadence_attribution/runner.py
+  s_884c9969ab9f5f::t_5693afc38beb04 151-152
+  s_884c9969ab9f5f::t_805bc20296a9af 1-137,139,141-150,153-166,169-202,204-221,224-233,238-499,501-516
+  s_884c9969ab9f5f::t_df301e9e1f90c2 167-168
+  s_884c9969ab9f5f::t_92ef3169ee2a4c 234-237
+  s_884c9969ab9f5f::t_82c9281ecba7d4 138,140,203,500
+  s_884c9969ab9f5f::t_d072ff9175f2cc 222-223
+src/eco_planner/analysis/training.py
+  s_884c9969ab9f5f::t_ddc9671085f2da 7-8,22-56
+src/eco_planner/rl/artifacts/io.py
+  s_884c9969ab9f5f::t_ac12104afe9fb3 15
+  s_884c9969ab9f5f::t_ad6f521ebe9ef8 83-87,89-94,99-101
+src/eco_planner/rl/config.py
+  s_884c9969ab9f5f::t_e0e6acd3872185 246-249,252
+  s_884c9969ab9f5f::t_54f489bde83ab4 106-109,121-123,127-132
+  s_884c9969ab9f5f::t_82c9281ecba7d4 124
+  s_884c9969ab9f5f::t_944060c0394de5 23,133
+  s_884c9969ab9f5f::t_eb5539125a48c5 206-209
+configs/components/ppo_training.yaml
+  s_884c9969ab9f5f::t_33d12431488c6c 37-39
+src/eco_planner/experiments/training/cadence_attribution/diagnostics.py
+  s_884c9969ab9f5f::t_5cfbc102221099 1-54,56-64
+  s_884c9969ab9f5f::t_82c9281ecba7d4 55
+tests/training/test_trainer.py
+  s_884c9969ab9f5f::t_9f40c68233572b 136-164
+  s_884c9969ab9f5f::t_d1228ae13baf85 63
+tests/training/test_cadence_attribution.py
+  s_884c9969ab9f5f::t_575a829016c88e 222-223,228
+  s_884c9969ab9f5f::t_5c3ed589482beb 175
+  s_884c9969ab9f5f::t_a0deb9c2df680c 1-174,176-221,224-227,229-273
+src/eco_planner/analysis/workflows.py
+  s_884c9969ab9f5f::t_98b928cddee850 125-130
+src/eco_planner/rl/optimization/update_diagnostics.py
+  s_884c9969ab9f5f::t_53d79aada3a4d4 300-302
+  s_884c9969ab9f5f::t_381850dba63426 14
+  s_884c9969ab9f5f::t_d855a7df625884 246
+  s_884c9969ab9f5f::t_adfffdcddec71d 233-237
+  s_884c9969ab9f5f::t_82c9281ecba7d4 261
+docs/agents/system-contract.md
+  s_884c9969ab9f5f::t_39e3790f1efb7e 36
+scripts/experiments.py
+  s_884c9969ab9f5f::t_f602ab285fc5cf 88-95
+  s_884c9969ab9f5f::t_28da95e240cd27 121-124
+docs/agents/contracts/experiments.md
+  s_884c9969ab9f5f::t_19c381716df1c9 19
+  s_884c9969ab9f5f::t_cdd2d5e65e0a71 93-98
+  s_884c9969ab9f5f::t_3b4995c5ed099e 116
+tests/training/test_effective_update.py
+  s_884c9969ab9f5f::t_1a6869da4b4348 357
+  s_884c9969ab9f5f::t_d159e7482094b5 348
+  s_884c9969ab9f5f::t_c51e7914f1f142 14,363-364
+  s_884c9969ab9f5f::t_be246dc6667b04 330-336,341-347,349-356,358-362
+src/eco_planner/experiments/training/cadence_attribution/__init__.py
+  s_884c9969ab9f5f::t_c2592b539a5694 1
+src/eco_planner/rl/rollout/collector.py
+  s_884c9969ab9f5f::t_f84e0996cbb80f 232
+  s_884c9969ab9f5f::t_cf5593cb2d100c 256
+docs/agents/contracts/training.md
+  s_884c9969ab9f5f::t_fc45b0ff173d2e 45
+src/eco_planner/rl/trainer.py
+  s_884c9969ab9f5f::t_5f00ea2f9344a5 94-99
+  s_884c9969ab9f5f::t_f0a919edd51289 121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "1a0fccef2efb7f5064edf16118430845a05383fa",
+  "prompts": {},
+  "sessions": {
+    "s_884c9969ab9f5f": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f2da82784ffeY7o26RKBv91eUy",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
