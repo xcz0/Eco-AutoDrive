@@ -10,10 +10,8 @@ import numpy as np
 import torch
 from tensordict import TensorDict, TensorDictBase
 
-from eco_planner.planning import PolicyGuidanceDecisionResult
+from eco_planner.planning import DiffusionDecisionResult, PolicyGuidanceDecisionResult
 from eco_planner.planning.diffusion import (
-    GuidanceConfig,
-    NoGuidanceConfig,
     OfficialDiffusionPlannerConfig,
     PlannerInferenceResult,
 )
@@ -79,52 +77,6 @@ class InferenceDecision:
         if self._audit is None:
             self._audit = self._resolve_audit()
         return self._audit
-
-
-def validate_optional_guidance_result(
-    result: PlannerInferenceResult,
-    guidance_config: GuidanceConfig,
-    expected_prediction_shape: tuple[int, ...],
-    num_steps: int,
-    device: torch.device,
-) -> None:
-    if isinstance(guidance_config, NoGuidanceConfig):
-        if any(
-            value is not None
-            for value in (
-                result.reference_prediction,
-                result.guidance_action,
-                result.guidance_diagnostics,
-            )
-        ):
-            raise RuntimeError("unguided planner returned guidance audit values")
-        return
-    if result.reference_prediction is None or result.guidance_action is None:
-        raise RuntimeError("guided planner must return reference prediction and action")
-    if result.guidance_diagnostics is None:
-        raise RuntimeError("guided planner must return guidance diagnostics")
-    if tuple(result.reference_prediction.shape) != expected_prediction_shape:
-        raise RuntimeError("reference prediction shape disagrees with planner prediction")
-    if result.reference_prediction.device != device:
-        raise RuntimeError("reference prediction must remain on the runtime device")
-    if tuple(result.guidance_action.shape) != (expected_prediction_shape[0], 2):
-        raise RuntimeError("guidance action must have shape [B, 2]")
-    diagnostics = result.guidance_diagnostics
-    batch = expected_prediction_shape[0]
-    future_len = expected_prediction_shape[2]
-    if tuple(diagnostics.longitudinal_target_speed_delta_mps.shape) != (batch, future_len):
-        raise RuntimeError("longitudinal guidance target must have shape [B, T]")
-    for name in (
-        "lateral_objective_delta",
-        "longitudinal_objective_delta",
-        "applied_gradient_l2",
-        "applied_gradient_max_abs",
-        "raw_neighbor_gradient_l2",
-        "zero_speed_count",
-    ):
-        value = getattr(diagnostics, name)
-        if tuple(value.shape) != (batch, num_steps) or value.device != device:
-            raise RuntimeError(f"guidance diagnostic {name} has an invalid shape or device")
 
 
 def validate_artifact_observation_fields(
@@ -193,6 +145,24 @@ def prepare_batch_inference_decision(
     )
 
 
+def prepare_diffusion_inference_decision(
+    result: DiffusionDecisionResult, host_transfer: HostTransfer
+) -> InferenceDecision:
+    """Map the planning result to synchronous execution and deferred evaluation audit."""
+
+    execution, resolve_audit, execution_to_host_s = prepare_batch_inference_decision(
+        result.initial_noise, result.planner, host_transfer, profile=result.timing is not None
+    )
+    timing = (
+        BatchInferenceTiming(
+            result.timing.host_to_device_s, result.timing.execution_s, execution_to_host_s
+        )
+        if result.timing is not None
+        else None
+    )
+    return InferenceDecision(execution, resolve_audit, timing)
+
+
 def prepare_learned_inference_decision(
     result: PolicyGuidanceDecisionResult,
     host_transfer: HostTransfer,
@@ -229,8 +199,3 @@ def _host_result_from_tensors(
     if diagnostics_present != ("lateral_target_offset_m" in arrays):
         raise RuntimeError("guidance audit tensors disagree with the planner result")
     return TensorDict(host_tensors, batch_size=[arrays["prediction"].shape[0]])
-
-
-def synchronize_if_cuda(device: torch.device, enabled: bool) -> None:
-    if enabled and device.type == "cuda":
-        torch.cuda.synchronize(device)

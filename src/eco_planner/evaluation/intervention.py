@@ -16,9 +16,8 @@ from eco_planner.envs.domain import (
     TrajectoryExecutionRecord,
     TransitionMetrics,
 )
-from eco_planner.evaluation.inference.runtime import (
-    FabricInferenceRuntime,
-)
+from eco_planner.evaluation.inference import DiffusionEvaluationAgent
+from eco_planner.planning import DiffusionRuntime
 from eco_planner.reward.components.energy import EnergyRewardConfig, energy_score
 from eco_planner.runtime.envs import (
     VectorEnvScenario,
@@ -135,7 +134,7 @@ def transition_record(
 
 def collect_group(
     env: VectorMetaDriveEnv,
-    runtime: FabricInferenceRuntime,
+    runtime: DiffusionRuntime,
     scenarios: tuple[VectorEnvScenario, ...],
     noise_seed: int,
     config: InterventionExecution,
@@ -146,6 +145,7 @@ def collect_group(
     include_waypoints: bool = False,
 ) -> list[dict[str, Any]]:
     """Keep the inference batch fixed even after a terminal slot stops executing."""
+    agent = DiffusionEvaluationAgent(runtime)
     batch = len(scenarios)
     all_episodes: list[dict[str, Any]] = []
     baseline_observation: TensorDictBase | None = None
@@ -211,7 +211,7 @@ def collect_group(
                     baseline_noises.append(host_noise.copy())
                 elif not np.array_equal(host_noise, baseline_noises[cycle]):
                     raise RuntimeError("unmatched planner noise across intervention arms")
-                decision = runtime.infer_batch(
+                decision = agent.infer_batch(
                     observation, noise, generators, guidance_action=actions
                 )
                 trajectories = decision.ego_trajectories

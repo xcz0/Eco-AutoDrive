@@ -16,11 +16,11 @@ from tensordict import TensorDictBase
 
 from eco_planner.envs import stationary_trajectory
 from eco_planner.evaluation import (
+    DiffusionEvaluationAgent,
     EvaluationJobConfig,
-    FabricInferenceRuntime,
-    create_fabric_inference_runtime,
     parse_evaluation_config,
 )
+from eco_planner.planning import DiffusionRuntime, create_diffusion_runtime
 from eco_planner.runtime.envs import (
     VectorEnvScenario,
     VectorMetaDriveEnv,
@@ -45,7 +45,7 @@ def run(config: DictConfig) -> None:
     require_resource_profile(parsed.resources)
     output_dir = Path(HydraConfig.get().runtime.output_dir)
     env_config = {**parsed.env, "map": parsed.scenarios[0].map}
-    runtime = create_fabric_inference_runtime(
+    runtime = create_diffusion_runtime(
         parsed.runtime,
         parsed.sampler,
         parsed.guidance,
@@ -73,13 +73,14 @@ def run(config: DictConfig) -> None:
 
 
 def benchmark_planner_batch_scaling(
-    runtime: FabricInferenceRuntime,
+    runtime: DiffusionRuntime,
     observation: TensorDictBase,
     *,
     benchmark: ScalingBenchmarkConfig,
 ) -> list[dict[str, object]]:
     """Measure CPU batch input through the synchronous execution-trajectory copy."""
 
+    agent = DiffusionEvaluationAgent(runtime)
     results: list[dict[str, object]] = []
     for batch_size in benchmark.batch_sizes:
         batched_observation = cast(TensorDictBase, TensorDictBase.stack([observation] * batch_size))
@@ -88,7 +89,7 @@ def benchmark_planner_batch_scaling(
             for index in range(batch_size)
         )
         for _ in range(benchmark.warmup_cycles):
-            runtime.infer_batch(
+            agent.infer_batch(
                 batched_observation,
                 runtime.sample_noise(generators),
                 generators,
@@ -109,7 +110,7 @@ def benchmark_planner_batch_scaling(
             d2h = 0.0
             for _ in range(benchmark.measured_cycles):
                 started = perf_counter()
-                decision = runtime.infer_batch(
+                decision = agent.infer_batch(
                     batched_observation,
                     runtime.sample_noise(generators),
                     generators,
@@ -233,7 +234,7 @@ def _require_active_steps(steps: TensorDictBase) -> None:
 
 
 def _representative_observation(
-    runtime: FabricInferenceRuntime,
+    runtime: DiffusionRuntime,
     config: EvaluationJobConfig,
     env_config: dict[str, object],
 ) -> TensorDictBase:
@@ -252,7 +253,7 @@ def _representative_observation(
 
 def _provenance(
     config: EvaluationJobConfig,
-    runtime: FabricInferenceRuntime,
+    runtime: DiffusionRuntime,
     benchmark: ScalingBenchmarkConfig,
 ) -> dict[str, object]:
     return {

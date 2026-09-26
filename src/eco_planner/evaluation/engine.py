@@ -12,7 +12,7 @@ from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
 from eco_planner.artifacts import collect_repository_metadata, write_json
-from eco_planner.planning import create_policy_guidance_runtime
+from eco_planner.planning import create_diffusion_runtime, create_policy_guidance_runtime
 from eco_planner.planning.diffusion import (
     GuidanceConfig,
     OrthogonalPolicyGuidanceConfig,
@@ -31,7 +31,6 @@ from .inference import (
     DiffusionEvaluationAgent,
     EvaluationAgent,
     PolicyCheckpointEvaluationAgent,
-    create_fabric_inference_runtime,
 )
 
 
@@ -57,7 +56,7 @@ def run_evaluation(config: EvaluationJobConfig, output_dir: Path) -> JobSummary:
     args_path = Path(to_absolute_path(config.model.args_path))
     checkpoint_path = Path(to_absolute_path(config.model.checkpoint_path))
     if config.policy_checkpoint is None:
-        runtime = create_fabric_inference_runtime(
+        runtime = create_diffusion_runtime(
             config.runtime,
             config.sampler,
             config.guidance,

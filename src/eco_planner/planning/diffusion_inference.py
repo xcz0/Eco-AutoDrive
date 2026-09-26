@@ -1,4 +1,4 @@
-"""Fabric-owned evaluation inference runtime."""
+"""Planning-owned base, fixed-guidance, and explicit manual-action execution."""
 
 from __future__ import annotations
 
@@ -11,36 +11,30 @@ from lightning.fabric import Fabric
 from tensordict import TensorDictBase
 from torch import nn
 
-from eco_planner.planning.diffusion import (
-    CheckpointLoadReport,
-    GuidanceConfig,
-    NoGuidanceConfig,
-    OfficialDiffusionPlannerConfig,
-    OrthogonalPolicyGuidanceConfig,
-    SamplerConfig,
-    SamplerReport,
-    load_official_diffusion_planner,
-    sampler_report,
-)
 from eco_planner.runtime.config import RuntimeConfig
 from eco_planner.runtime.fabric import (
     InferenceRuntimeReport,
     create_single_device_fabric,
 )
-from eco_planner.runtime.host_transfer import HostTransfer
 from eco_planner.runtime.random import sample_batched_standard_normal
 
-from .decision import (
-    BatchInferenceTiming,
-    InferenceDecision,
-    prepare_batch_inference_decision,
-    synchronize_if_cuda,
-    validate_artifact_observation_fields,
-    validate_optional_guidance_result,
+from .diffusion import (
+    CheckpointLoadReport,
+    GuidanceConfig,
+    NoGuidanceConfig,
+    OfficialDiffusionPlannerConfig,
+    OrthogonalPolicyGuidanceConfig,
+    PlannerInferenceResult,
+    SamplerConfig,
+    SamplerReport,
+    load_official_diffusion_planner,
+    sampler_report,
 )
+from .inference import _observation_batch_size
+from .result import DiffusionDecisionResult, DiffusionInferenceTiming
 
 
-class FabricInferenceRuntime:
+class DiffusionRuntime:
     """Own Fabric, the wrapped planner, and inference-time tensor placement."""
 
     def __init__(
@@ -60,7 +54,6 @@ class FabricInferenceRuntime:
         self.report = report
         self.sampler_report = sampler_report
         self.guidance_config = guidance_config
-        self._host_transfer = HostTransfer(fabric.device)
 
     @property
     def device(self) -> torch.device:
@@ -81,16 +74,16 @@ class FabricInferenceRuntime:
             device=self.device,
         )
 
-    def infer(
+    def decide(
         self,
         observation: TensorDictBase,
         generator: torch.Generator,
-    ) -> InferenceDecision:
+    ) -> DiffusionDecisionResult:
         """Run one planner pass through the shared batched inference path."""
 
-        return self.infer_batch(observation, self.sample_noise((generator,)), (generator,))
+        return self.decide_batch(observation, self.sample_noise((generator,)), (generator,))
 
-    def infer_batch(
+    def decide_batch(
         self,
         observation: TensorDictBase,
         standard_normal_noise: torch.Tensor,
@@ -98,10 +91,10 @@ class FabricInferenceRuntime:
         *,
         profile: bool = False,
         guidance_action: torch.Tensor | None = None,
-    ) -> InferenceDecision:
+    ) -> DiffusionDecisionResult:
         """Run a batch with independently owned per-slot diffusion RNG streams."""
 
-        batch = validate_artifact_observation_fields(observation, self.planner_config)
+        batch = _observation_batch_size(observation)
         if guidance_action is not None:
             validate_manual_guidance(guidance_action, batch, self.device, self.guidance_config)
         config = self.planner_config
@@ -162,22 +155,8 @@ class FabricInferenceRuntime:
             self.sampler_report.num_steps,
             self.device,
         )
-        execution, resolve_audit, execution_to_host_s = prepare_batch_inference_decision(
-            standard_normal_noise,
-            result,
-            self._host_transfer,
-            profile=profile,
-        )
-        timing = (
-            BatchInferenceTiming(
-                host_to_device_s=host_to_device_s,
-                execution_s=execution_s,
-                execution_to_host_s=execution_to_host_s,
-            )
-            if profile
-            else None
-        )
-        return InferenceDecision(execution, resolve_audit, timing)
+        timing = DiffusionInferenceTiming(host_to_device_s, execution_s) if profile else None
+        return DiffusionDecisionResult(standard_normal_noise, result, timing)
 
 
 def validate_manual_guidance(
@@ -194,13 +173,13 @@ def validate_manual_guidance(
         raise ValueError("manual guidance must be finite and in [-1, 1]")
 
 
-def create_fabric_inference_runtime(
+def create_diffusion_runtime(
     runtime_config: RuntimeConfig,
     sampler_config: SamplerConfig,
     guidance_config: GuidanceConfig,
     args_path: Path,
     checkpoint_path: Path,
-) -> FabricInferenceRuntime:
+) -> DiffusionRuntime:
     """Resolve settings, seed all RNGs, and assemble the frozen planner with Fabric."""
 
     fabric, report = create_single_device_fabric(
@@ -216,7 +195,7 @@ def create_fabric_inference_runtime(
     wrapped_planner = fabric.setup_module(planner)
     if report.world_size != 1:
         raise RuntimeError("closed-loop inference requires Fabric world_size=1")
-    return FabricInferenceRuntime(
+    return DiffusionRuntime(
         fabric,
         wrapped_planner,
         planner_config,
@@ -225,3 +204,54 @@ def create_fabric_inference_runtime(
         sampler_report(sampler_config),
         guidance_config,
     )
+
+
+def validate_optional_guidance_result(
+    result: PlannerInferenceResult,
+    guidance_config: GuidanceConfig,
+    expected_prediction_shape: tuple[int, ...],
+    num_steps: int,
+    device: torch.device,
+) -> None:
+    if isinstance(guidance_config, NoGuidanceConfig):
+        if any(
+            value is not None
+            for value in (
+                result.reference_prediction,
+                result.guidance_action,
+                result.guidance_diagnostics,
+            )
+        ):
+            raise RuntimeError("unguided planner returned guidance audit values")
+        return
+    if result.reference_prediction is None or result.guidance_action is None:
+        raise RuntimeError("guided planner must return reference prediction and action")
+    if result.guidance_diagnostics is None:
+        raise RuntimeError("guided planner must return guidance diagnostics")
+    if tuple(result.reference_prediction.shape) != expected_prediction_shape:
+        raise RuntimeError("reference prediction shape disagrees with planner prediction")
+    if result.reference_prediction.device != device:
+        raise RuntimeError("reference prediction must remain on the runtime device")
+    if tuple(result.guidance_action.shape) != (expected_prediction_shape[0], 2):
+        raise RuntimeError("guidance action must have shape [B, 2]")
+    diagnostics = result.guidance_diagnostics
+    batch = expected_prediction_shape[0]
+    future_len = expected_prediction_shape[2]
+    if tuple(diagnostics.longitudinal_target_speed_delta_mps.shape) != (batch, future_len):
+        raise RuntimeError("longitudinal guidance target must have shape [B, T]")
+    for name in (
+        "lateral_objective_delta",
+        "longitudinal_objective_delta",
+        "applied_gradient_l2",
+        "applied_gradient_max_abs",
+        "raw_neighbor_gradient_l2",
+        "zero_speed_count",
+    ):
+        value = getattr(diagnostics, name)
+        if tuple(value.shape) != (batch, num_steps) or value.device != device:
+            raise RuntimeError(f"guidance diagnostic {name} has an invalid shape or device")
+
+
+def synchronize_if_cuda(device: torch.device, enabled: bool) -> None:
+    if enabled and device.type == "cuda":
+        torch.cuda.synchronize(device)

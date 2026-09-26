@@ -1,4 +1,4 @@
-"""Typed results of one planning-owned learned-guidance policy decision."""
+"""Device results of planning-owned diffusion and learned-guidance decisions."""
 
 from __future__ import annotations
 
@@ -6,9 +6,25 @@ from dataclasses import dataclass
 
 import torch
 
-from .diffusion.guidance import GuidanceDiagnostics
-from .policy.inputs import ExplorationPolicyContext
-from .policy.model import ExplorationPolicyOutput
+from .diffusion import GuidanceDiagnostics, PlannerInferenceResult
+from .policy import ExplorationPolicyContext, ExplorationPolicyOutput
+
+
+@dataclass(frozen=True)
+class DiffusionInferenceTiming:
+    """Opt-in synchronized model timings, excluding host result adaptation."""
+
+    host_to_device_s: float
+    execution_s: float
+
+
+@dataclass(frozen=True)
+class DiffusionDecisionResult:
+    """One base/fixed/manual decision before workflow host or artifact mapping."""
+
+    initial_noise: torch.Tensor
+    planner: PlannerInferenceResult
+    timing: DiffusionInferenceTiming | None = None
 
 
 @dataclass(frozen=True)

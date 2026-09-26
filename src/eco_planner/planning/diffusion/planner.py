@@ -44,6 +44,14 @@ class PlannerInferenceResult:
 
 
 @dataclass
+class _DiffusionInputs:
+    initial: torch.Tensor
+    denoiser: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+    constrain: Callable[[torch.Tensor], torch.Tensor]
+    current_states: torch.Tensor
+
+
+@dataclass
 class PreparedPrediction:
     """One-use DDIM reference pass retained until the policy selects an action."""
 
@@ -92,29 +100,11 @@ class PretrainedDiffusionPlanner(nn.Module):
         inputs = self.config.observation_normalizer(observation)
         encoding = self.model.encode(inputs)
         route_encoding = self.model.encode_route(inputs)
-        ego_current = inputs["ego_current_state"][:, None, :4]
-        neighbors_current = inputs["neighbor_agents_past"][
-            :, : self.config.predicted_neighbor_num, -1, :4
-        ]
-        neighbor_current_mask = torch.sum(torch.ne(neighbors_current, 0), dim=-1) == 0
-        current_states = torch.cat([ego_current, neighbors_current], dim=1)
-        initial = torch.cat(
-            [current_states[:, :, None], self._sampler.initial_noise_scale * standard_normal_noise],
-            dim=2,
-        ).reshape(batch, participants, -1)
-
-        def denoiser(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
-            prediction = self.model.denoise(
-                sample, timestep, encoding, route_encoding, neighbor_current_mask
-            )
-            if self.sampler_config.name == "ddim5":
-                return prediction.to(dtype=sample.dtype)
-            return prediction
-
-        def constrain(sample: torch.Tensor) -> torch.Tensor:
-            constrained = sample.reshape(batch, participants, self.config.future_len + 1, 4).clone()
-            constrained[:, :, 0] = current_states
-            return constrained.reshape(batch, participants, -1)
+        prepared = self._prepare_diffusion(inputs, standard_normal_noise, encoding, route_encoding)
+        initial = prepared.initial
+        denoiser = prepared.denoiser
+        constrain = prepared.constrain
+        current_states = prepared.current_states
 
         if isinstance(self.guidance_config, NoGuidanceConfig):
             guidance_randomness = (
@@ -161,27 +151,13 @@ class PretrainedDiffusionPlanner(nn.Module):
         representations = self.model.encode_representations(inputs)
         encoding = representations.scene_tokens
         route_encoding = representations.route_encoding
-        ego_current = inputs["ego_current_state"][:, None, :4]
-        neighbors_current = inputs["neighbor_agents_past"][
-            :, : self.config.predicted_neighbor_num, -1, :4
-        ]
-        neighbor_current_mask = torch.sum(torch.ne(neighbors_current, 0), dim=-1) == 0
-        current_states = torch.cat([ego_current, neighbors_current], dim=1)
-        initial = torch.cat(
-            [current_states[:, :, None], self._sampler.initial_noise_scale * standard_normal_noise],
-            dim=2,
-        ).reshape(batch, participants, -1)
-
-        def denoiser(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
-            prediction = self.model.denoise(
-                sample, timestep, encoding, route_encoding, neighbor_current_mask
-            )
-            return prediction.to(dtype=sample.dtype)
-
-        def constrain(sample: torch.Tensor) -> torch.Tensor:
-            constrained = sample.reshape(batch, participants, self.config.future_len + 1, 4).clone()
-            constrained[:, :, 0] = current_states
-            return constrained.reshape(batch, participants, -1)
+        prepared = self._prepare_diffusion(
+            inputs, standard_normal_noise, encoding, route_encoding, preserve_sample_dtype=True
+        )
+        initial = prepared.initial
+        denoiser = prepared.denoiser
+        constrain = prepared.constrain
+        current_states = prepared.current_states
 
         guidance_randomness = self._sampler.prepare_guidance_randomness(
             initial, transition_generator
@@ -207,6 +183,45 @@ class PretrainedDiffusionPlanner(nn.Module):
             current_states=current_states,
             representations=representations,
         )
+
+    def _prepare_diffusion(
+        self,
+        inputs: Mapping[str, torch.Tensor],
+        standard_normal_noise: torch.Tensor,
+        encoding: torch.Tensor,
+        route_encoding: torch.Tensor,
+        *,
+        preserve_sample_dtype: bool = False,
+    ) -> _DiffusionInputs:
+        """Share state and denoising mechanics while preserving each encoding/precision path."""
+
+        batch = inputs["ego_current_state"].shape[0]
+        participants = 1 + self.config.predicted_neighbor_num
+        ego_current = inputs["ego_current_state"][:, None, :4]
+        neighbors_current = inputs["neighbor_agents_past"][
+            :, : self.config.predicted_neighbor_num, -1, :4
+        ]
+        neighbor_current_mask = torch.sum(torch.ne(neighbors_current, 0), dim=-1) == 0
+        current_states = torch.cat([ego_current, neighbors_current], dim=1)
+        initial = torch.cat(
+            [current_states[:, :, None], self._sampler.initial_noise_scale * standard_normal_noise],
+            dim=2,
+        ).reshape(batch, participants, -1)
+
+        def denoiser(sample: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
+            prediction = self.model.denoise(
+                sample, timestep, encoding, route_encoding, neighbor_current_mask
+            )
+            if preserve_sample_dtype or self.sampler_config.name == "ddim5":
+                return prediction.to(dtype=sample.dtype)
+            return prediction
+
+        def constrain(sample: torch.Tensor) -> torch.Tensor:
+            constrained = sample.reshape(batch, participants, self.config.future_len + 1, 4).clone()
+            constrained[:, :, 0] = current_states
+            return constrained.reshape(batch, participants, -1)
+
+        return _DiffusionInputs(initial, denoiser, constrain, current_states)
 
     def complete_policy_guidance(
         self,

@@ -7,15 +7,12 @@ from .agent import (
     PolicyCheckpointEvaluationAgent,
 )
 from .decision import BatchInferenceTiming, InferenceDecision
-from .runtime import FabricInferenceRuntime, create_fabric_inference_runtime
 
 __all__ = [
     "BatchInferenceTiming",
     "DiffusionEvaluationAgent",
     "EvaluationAgent",
     "EvaluationDecision",
-    "FabricInferenceRuntime",
     "InferenceDecision",
     "PolicyCheckpointEvaluationAgent",
-    "create_fabric_inference_runtime",
 ]

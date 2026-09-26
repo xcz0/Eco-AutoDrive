@@ -29,7 +29,6 @@ from eco_planner.envs.domain import (
     TransitionMetrics,
 )
 from eco_planner.evaluation import (
-    InferenceDecision,
     load_episode_summary,
     load_job_summary,
     load_trace_artifact,
@@ -39,8 +38,13 @@ from eco_planner.evaluation.artifacts import (
     validate_episode_artifact,
     validate_matrix_episode,
 )
-from eco_planner.planning.diffusion import CheckpointLoadReport, NoGuidanceConfig, SamplerReport
-from eco_planner.runtime.contracts import HostTrajectories
+from eco_planner.planning import DiffusionDecisionResult
+from eco_planner.planning.diffusion import (
+    CheckpointLoadReport,
+    NoGuidanceConfig,
+    PlannerInferenceResult,
+    SamplerReport,
+)
 from eco_planner.runtime.fabric import InferenceRuntimeReport
 from eco_planner.runtime.host_transfer import HostTransfer
 
@@ -51,7 +55,7 @@ def test_runner_writes_readable_finite_short_episode(
 ) -> None:
     runtime = _ShortEpisodeRuntime()
     monkeypatch.setattr(episode_engine, "MetaDriveEnvSlot", _ShortEpisodeSlot)
-    monkeypatch.setattr(engine, "create_fabric_inference_runtime", lambda *_: runtime)
+    monkeypatch.setattr(engine, "create_diffusion_runtime", lambda *_: runtime)
     monkeypatch.setattr(engine, "write_runtime_metadata", lambda *_: None)
 
     summary = engine.run_evaluation(parse_evaluation_config(_config()), tmp_path)
@@ -189,13 +193,16 @@ class _ShortEpisodeRuntime:
     def new_noise_generator(self) -> torch.Generator:
         return torch.Generator(device="cpu").manual_seed(self.report.seed)
 
-    def infer(self, observation: TensorDictBase, generator: torch.Generator) -> InferenceDecision:
+    device = torch.device("cpu")
+
+    def sample_noise(self, generators):
+        return torch.randn((1, 11, 80, 4), generator=generators[0])
+
+    def decide_batch(self, observation, noise, generators, **kwargs):
         assert observation["ego_current_state"].shape == (1, 10)
-        noise = torch.randn((1, 11, 80, 4), generator=generator)
         prediction = torch.zeros_like(noise)
         prediction[..., 2] = 1.0
-        audit = TensorDict({"initial_noise": noise, "prediction": prediction}, batch_size=[1])
-        return InferenceDecision(HostTrajectories(prediction[:, 0].numpy()), lambda: audit)
+        return DiffusionDecisionResult(noise, PlannerInferenceResult(prediction))
 
 
 def _config() -> object:

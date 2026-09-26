@@ -15,9 +15,6 @@ from eco_planner.analysis import publish
 from eco_planner.artifacts import collect_repository_metadata, write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation import parse_evaluation_config
-from eco_planner.evaluation.inference.runtime import (
-    create_fabric_inference_runtime,
-)
 from eco_planner.evaluation.intervention import InterventionExecution, collect_group
 from eco_planner.experiments.guidance.decomposition.diagnostics import (
     DecompositionConfig,
@@ -27,6 +24,9 @@ from eco_planner.experiments.guidance.decomposition.diagnostics import (
 from eco_planner.experiments.protocol.composition import compose_arm_training_config
 from eco_planner.experiments.protocol.config import load_protocol
 from eco_planner.jobs import compose_job_config
+from eco_planner.planning import (
+    create_diffusion_runtime,
+)
 from eco_planner.planning.diffusion import Ddim5SamplerConfig
 from eco_planner.runtime.envs import (
     VectorEnvScenario,
@@ -61,7 +61,7 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
     torch.use_deterministic_algorithms(True)
     torch.set_num_threads(resources.torch_threads_per_worker)
     started = time.perf_counter()
-    runtime = create_fabric_inference_runtime(
+    runtime = create_diffusion_runtime(
         job.runtime,
         job.sampler,
         job.guidance,

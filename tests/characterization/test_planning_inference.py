@@ -1,7 +1,7 @@
 """Characterization tests for the planning-owned learned-guidance decision.
 
 These pin that ``PlanningInference`` alone reproduces the same decision tensors and
-RNG consumption as the golden snapshot recorded from the rollout runtime, and that
+RNG consumption as the rollout runtime under the same execution conditions, and that
 deterministic mean mode still leaves the policy generator untouched.
 """
 
@@ -14,8 +14,9 @@ from eco_planner.runtime.host_transfer import HostTransfer
 from tests.characterization.harness import (
     AUDIT_FIELDS,
     RNG_FIELDS,
-    load_reference_fixture,
+    decision_snapshot,
     planning_decision_snapshot,
+    run_decision,
     run_planning_decision,
 )
 
@@ -38,8 +39,9 @@ _EXPECTED_AUDIT_KEYS = frozenset(
 )
 
 
-def test_planning_inference_matches_characterization_snapshot() -> None:
-    expected = load_reference_fixture()
+def test_planning_inference_matches_rollout_decision() -> None:
+    decision, rollout_rng = run_decision(sample=True)
+    expected = decision_snapshot(decision, rollout_rng)
     result, rng = run_planning_decision(sample=True)
     actual = planning_decision_snapshot(result, rng)
 

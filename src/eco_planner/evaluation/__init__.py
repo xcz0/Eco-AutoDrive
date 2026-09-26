@@ -42,10 +42,8 @@ if TYPE_CHECKING:
         DiffusionEvaluationAgent,
         EvaluationAgent,
         EvaluationDecision,
-        FabricInferenceRuntime,
         InferenceDecision,
         PolicyCheckpointEvaluationAgent,
-        create_fabric_inference_runtime,
     )
 
 _EXPORTS = {
@@ -82,9 +80,7 @@ _EXPORTS = {
     "WarmupSummary": (".artifacts", "WarmupSummary"),
     "build_matrix_report": (".artifacts", "build_matrix_report"),
     "summarize_matrix": (".artifacts", "summarize_matrix"),
-    "FabricInferenceRuntime": (".inference", "FabricInferenceRuntime"),
     "InferenceDecision": (".inference", "InferenceDecision"),
-    "create_fabric_inference_runtime": (".inference", "create_fabric_inference_runtime"),
 }
 
 __all__ = [
@@ -98,7 +94,6 @@ __all__ = [
     "EvaluationDecision",
     "EvaluationJobConfig",
     "ExecutionErrorSummary",
-    "FabricInferenceRuntime",
     "FailedEpisodeSummary",
     "InferenceDecision",
     "JobSummary",
@@ -115,7 +110,6 @@ __all__ = [
     "TrafficObservationSummary",
     "WarmupSummary",
     "build_matrix_report",
-    "create_fabric_inference_runtime",
     "load_episode_summary",
     "load_job_summary",
     "load_runtime_metadata",
