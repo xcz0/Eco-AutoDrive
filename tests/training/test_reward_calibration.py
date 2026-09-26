@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import torch
 
-from eco_planner.analysis.reward import dynamic_range_audit
+from eco_planner.experiments.reward.analysis import dynamic_range_audit
 from eco_planner.reward import (
     MOTION_LIMITS,
     PlannerRFTEnergyRewardConfig,

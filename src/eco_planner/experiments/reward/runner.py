@@ -8,10 +8,9 @@ import numpy as np
 from omegaconf import OmegaConf
 from tensordict import cat
 
-from eco_planner.analysis import publish
-from eco_planner.analysis.reward import dynamic_range_audit
 from eco_planner.artifacts import write_json, write_npz
 from eco_planner.configuration import load_resolved_yaml_mapping
+from eco_planner.experiments.reward.analysis import dynamic_range_audit, publish
 from eco_planner.jobs import compose_job_config
 from eco_planner.reward import MOTION_LIMITS, calibrate, scored_arrays
 from eco_planner.reward.config import PlannerRFTNoEnergyRewardConfig
@@ -103,5 +102,5 @@ def run(source: Path, config_path: Path, output: Path, *, figures: bool = True) 
         "interpretation": "Batch-relative calibration; no actor backward or learned behavior.",
     }
     write_json(output / "summary.json", summary)
-    publish("reward", output, output, figures=figures)
+    publish(output, output, figures=figures)
     return {"status": "completed", "output_dir": str(output), "sample_count": len(batch.samples)}

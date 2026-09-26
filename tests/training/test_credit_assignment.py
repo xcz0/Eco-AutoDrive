@@ -8,7 +8,6 @@ import pytest
 import torch
 from pydantic import ValidationError
 
-from eco_planner.analysis.statistics import advantage_comparison, cosine
 from eco_planner.experiments.credit.decisions import (
     CREDIT_FORMS,
     AttributionThresholds,
@@ -44,6 +43,7 @@ from eco_planner.rl.rollout import (
     RolloutProvenance,
     build_training_decision,
 )
+from eco_planner.statistics import advantage_comparison, cosine
 from tests.training.test_ppo import (
     _context,
     _decision_audit,

@@ -107,7 +107,7 @@ def _noise(row: dict[str, Any]) -> float:
 
 
 def _grid(names: list[str]) -> tuple[Any, list[Any]]:
-    from .plots import plt
+    from eco_planner.reporting.plots import plt
 
     count = len(names)
     columns = min(4, count)
@@ -123,7 +123,7 @@ def _grid(names: list[str]) -> tuple[Any, list[Any]]:
 
 
 def plot(result: dict[str, Any], episodes: list[dict[str, Any]], output: Path) -> list[str]:
-    from .plots import save
+    from eco_planner.reporting.plots import save
 
     horizons = sorted(int(value) for value in result["horizons"])
     names = list(result["horizons"][str(horizons[0])]["metrics"]["speed_mps"]["scenarios"])

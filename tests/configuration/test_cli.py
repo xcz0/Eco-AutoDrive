@@ -30,9 +30,8 @@ def test_current_operations_parse_and_route(monkeypatch, key):
     cli.validate_arguments(cli.build_parser(), parsed)
     calls = []
     if parsed.action == "analyze":
-        from eco_planner.analysis import runner
-
-        monkeypatch.setattr(runner, "analyze", lambda *a, **k: calls.append((a, k)) or {})
+        module = import_module("eco_planner.experiments." + spec.module)
+        monkeypatch.setattr(module, "analyze", lambda *a, **k: calls.append((a, k)) or {})
         if parsed.domain == "compare":
             from eco_planner.experiments.comparison import inputs
 
@@ -75,7 +74,7 @@ def test_collection_bootstrap_sets_cuda_before_environment(monkeypatch):
     [
         (
             "scripts.validation",
-            "eco_planner.reward_validation",
+            "eco_planner.experiments.reward.validation",
             "run_sanity",
             "reward run --output-dir out --no-figures",
         ),
@@ -107,7 +106,9 @@ def test_non_research_execution_routes(monkeypatch, adapter, module, function, c
     ],
 )
 def test_non_research_analysis_routes(monkeypatch, adapter, command, evidence):
-    from eco_planner.analysis import runner
+    from tests.analysis.routing import MODULES
+
+    runner = import_module(MODULES[evidence])
 
     calls = []
     monkeypatch.setattr(runner, "analyze", lambda *a, **kw: calls.append((a, kw)) or {})
@@ -124,7 +125,7 @@ def test_non_research_analysis_routes(monkeypatch, adapter, command, evidence):
             ]
         )
     )
-    assert calls[0][0][0] == evidence
+    assert str(calls[0][0][0]) == "in"
     assert calls[0][1]["figures"] is False
 
 

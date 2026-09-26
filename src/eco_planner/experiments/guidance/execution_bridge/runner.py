@@ -17,7 +17,6 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner._repository import REPOSITORY_ROOT
-from eco_planner.analysis import publish
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation import parse_evaluation_config
@@ -25,6 +24,7 @@ from eco_planner.evaluation.policy_intervention import (
     collect_policy_pair,
     collect_same_state_audit,
 )
+from eco_planner.experiments.guidance.execution_bridge.analysis import publish
 from eco_planner.experiments.guidance.execution_bridge.diagnostics import (
     ExecutionBridgeConfig,
     analyze_episodes,
@@ -250,7 +250,7 @@ def run(
         },
     )
     save_decisions(episodes, contexts, study, [s.name for s in scenarios], output_dir)
-    return publish("guidance-execution-bridge", output_dir, output_dir, figures=figures)
+    return publish(output_dir, output_dir, figures=figures)
 
 
 def _make_env(

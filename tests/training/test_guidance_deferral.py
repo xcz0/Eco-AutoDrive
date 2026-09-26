@@ -7,11 +7,11 @@ import pytest
 from omegaconf import OmegaConf
 
 from eco_planner._repository import CONFIG_ROOT
-from eco_planner.analysis.deferral import (
+from eco_planner.contracts import PLANNER_HORIZON
+from eco_planner.experiments.guidance.deferral.analysis import (
     analyze_deferral_episodes,
     zero_crossing_step,
 )
-from eco_planner.contracts import PLANNER_HORIZON
 from eco_planner.experiments.guidance.deferral.diagnostics import (
     DeferralConfig,
     analyze_episodes,
@@ -190,8 +190,8 @@ def test_early_termination_uses_matched_common_cycles():
 
 @pytest.mark.parametrize("figures", [False, True])
 def test_offline_recompute_matches_live_statistics(tmp_path, figures):
-    from eco_planner.analysis.runner import analyze
     from eco_planner.artifacts import write_json
+    from tests.analysis.routing import analyze
     from tests.analysis.test_reports import assert_report
 
     source = tmp_path / "source"

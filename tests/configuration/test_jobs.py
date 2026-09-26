@@ -29,7 +29,7 @@ from eco_planner.contracts import (
 )
 from eco_planner.evaluation import EvaluationJobConfig, parse_evaluation_config
 from eco_planner.experiments.guidance.sweep import load_energy_study
-from eco_planner.reward_validation import evaluate_sanity, load_sanity_config
+from eco_planner.experiments.reward.validation import evaluate_sanity, load_sanity_config
 from eco_planner.rl.config import (
     RolloutJobConfig,
     TrainingJobConfig,

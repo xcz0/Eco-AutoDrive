@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..horizon import PLANNER_RESPONSE_CHECKPOINTS_S
+from eco_planner.experiments.guidance.horizon.analysis import PLANNER_RESPONSE_CHECKPOINTS_S
 
 _CHECKPOINT_INDICES = [round(value * 10) - 1 for value in PLANNER_RESPONSE_CHECKPOINTS_S]
 
@@ -85,7 +85,7 @@ def _median(effect: dict[str, Any]) -> float:
 
 
 def plot(result: dict[str, Any], episodes: list[dict[str, Any]], output: Path) -> list[str]:
-    from .plots import curves
+    from eco_planner.reporting.plots import curves
 
     gate = result["gate"]
     counterfactual = next(iter(gate["part_a"]["detail"].values()))["counterfactual_arm"]

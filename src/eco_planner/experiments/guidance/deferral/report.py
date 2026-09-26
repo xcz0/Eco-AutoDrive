@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..horizon import PLANNER_RESPONSE_CHECKPOINTS_S
+from eco_planner.experiments.guidance.horizon.analysis import PLANNER_RESPONSE_CHECKPOINTS_S
 
 _CHECKPOINT_INDICES = [round(value * 10) - 1 for value in PLANNER_RESPONSE_CHECKPOINTS_S]
 
@@ -80,7 +80,7 @@ def write_report(result: dict[str, Any], output: Path, files: list[str]) -> None
 
 
 def plot(result: dict[str, Any], episodes: list[dict[str, Any]], output: Path) -> list[str]:
-    from .plots import curves, heatmap, plt, save
+    from eco_planner.reporting.plots import curves, heatmap, plt, save
 
     checkpoints = list(PLANNER_RESPONSE_CHECKPOINTS_S)
     median_curves = result["aggregate"]["median_effect_by_cycle"]

@@ -18,10 +18,9 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner._repository import REPOSITORY_ROOT
-from eco_planner.analysis import publish
-from eco_planner.analysis.statistics import advantage_comparison, gradient_comparison
 from eco_planner.artifacts import write_json, write_npz
 from eco_planner.configuration import load_resolved_yaml_mapping
+from eco_planner.experiments.training.critic_attribution.analysis import publish
 from eco_planner.planning.policy import (
     ExplorationPolicy,
     load_exploration_policy_checkpoint,
@@ -35,6 +34,7 @@ from eco_planner.rl import (
 from eco_planner.rl.optimization.credit import credit_batch
 from eco_planner.rl.optimization.gradients import GRADIENT_GROUPS, diagnostic_variants
 from eco_planner.runtime.metadata import collect_repository_metadata
+from eco_planner.statistics import advantage_comparison, gradient_comparison
 
 from .diagnostics import AttributionRun, CriticAttributionConfig, evaluate_materiality
 
@@ -275,7 +275,7 @@ def run(source: Path, config_path: Path, output: Path, *, figures: bool = True) 
     write_json(output / "sample_index.json", {"samples": samples})
     write_npz(output / "diagnostics.npz", arrays)
     write_json(output / "summary.json", summary)
-    publish("training-critic-attribution", output, output, figures=figures)
+    publish(output, output, figures=figures)
     return {
         "status": "completed",
         "output_dir": str(output),

@@ -5,11 +5,11 @@ import json
 import pytest
 from omegaconf import OmegaConf
 
-from eco_planner.analysis.runner import analyze
 from eco_planner.artifacts import write_json
 from eco_planner.evaluation.artifacts.models import PolicyActionSummary, PolicyCheckpointProvenance
 from eco_planner.experiments.protocol.config import DEFAULT_PROTOCOL
 from eco_planner.experiments.training import grid, runner
+from tests.analysis.routing import analyze
 from tests.analysis.test_reports import job
 from tests.evaluation.test_artifacts import _training_summary
 from tests.training.test_effective_update import _metrics, _study

@@ -11,10 +11,10 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner._repository import REPOSITORY_ROOT
-from eco_planner.analysis import publish
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation.intervention import InterventionExecution, collect_group
+from eco_planner.experiments.guidance.horizon.analysis import publish
 from eco_planner.experiments.guidance.horizon.diagnostics import (
     HorizonInterventionConfig,
     analyze_episodes,
@@ -137,7 +137,7 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
         },
     )
     save_decisions(episodes, study, [s.name for s in scenarios], output_dir)
-    return publish("guidance-horizon", output_dir, output_dir, figures=figures)
+    return publish(output_dir, output_dir, figures=figures)
 
 
 def save_decisions(

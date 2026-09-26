@@ -7,20 +7,19 @@ import numpy as np
 import pytest
 from scipy.stats import bootstrap, pearsonr, spearmanr
 
-from eco_planner.analysis.evaluation import (
+from eco_planner.evaluation.artifacts.models import FailedEpisodeSummary
+from eco_planner.experiments.comparison.analysis import (
     PolicyComparison,
     PolicyComparisonRun,
     paired,
     scalar_reward,
 )
-from eco_planner.analysis.reporting.experiments import experiment_figures
-from eco_planner.analysis.reporting.markdown import write_report
-from eco_planner.analysis.statistics import (
+from eco_planner.experiments.comparison.report import plot, write_report
+from eco_planner.statistics import (
     ScenarioBootstrapConfig,
     advantage_comparison,
     scenario_effect,
 )
-from eco_planner.evaluation.artifacts.models import FailedEpisodeSummary
 from tests.analysis.test_reports import job
 from tests.evaluation.test_artifacts import _episode, _training_summary
 
@@ -169,8 +168,8 @@ def test_three_layer_report_and_seed_figures(comparison, tmp_path, missing):
             ),
         )
     data = scalar_reward(comparison)
-    files = experiment_figures("scalar-reward", data, tmp_path)
-    write_report("scalar-reward", tmp_path, tmp_path, data, files)
+    files = plot(data, tmp_path)
+    write_report(tmp_path, tmp_path, data, files)
     report = (tmp_path / "report.md").read_text(encoding="utf-8")
     assert (
         report.index("## 1. Completion")
@@ -192,7 +191,7 @@ def test_three_layer_report_and_seed_figures(comparison, tmp_path, missing):
         )
     no_figures = tmp_path / "without-figures"
     no_figures.mkdir()
-    write_report("scalar-reward", tmp_path, no_figures, data, [])
+    write_report(tmp_path, no_figures, data, [])
     assert "Scenario 95% CI" in (no_figures / "report.md").read_text()
     assert not (no_figures / "figures").exists()
 
@@ -227,6 +226,6 @@ def test_dual_reward_comparison_retains_missing_seed_and_initial_diagnostics(tmp
     assert contrast["final"]["effects"][0]["estimate"] == -3
     assert contrast["final"]["direction_counts"]["unavailable"] == 1
     assert "direction_counts" not in contrast["initial"]
-    files = experiment_figures("scalar-reward", data, tmp_path)
-    write_report("scalar-reward", tmp_path, tmp_path, data, files)
+    files = plot(data, tmp_path)
+    write_report(tmp_path, tmp_path, data, files)
     assert "rstress-r0" in (tmp_path / "report.md").read_text(encoding="utf-8")

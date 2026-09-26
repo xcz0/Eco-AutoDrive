@@ -11,10 +11,9 @@ import numpy as np
 from omegaconf import OmegaConf
 from tensordict import cat
 
-from eco_planner.analysis import publish
-from eco_planner.analysis.statistics import advantage_comparison, gradient_comparison, rmse
 from eco_planner.artifacts import write_json, write_npz
 from eco_planner.configuration import load_resolved_yaml_mapping
+from eco_planner.experiments.credit.analysis import publish
 from eco_planner.reward import apply_frozen_energy_band, calibrate
 from eco_planner.reward.config import PlannerRFTNoEnergyRewardConfig
 from eco_planner.rl.optimization import PPOUpdater
@@ -34,6 +33,7 @@ from eco_planner.rl.reward import (
 )
 from eco_planner.rl.rollout.contracts import RolloutEpisode
 from eco_planner.rl.rollout.fixed_batch import load_fixed_batch
+from eco_planner.statistics import advantage_comparison, gradient_comparison, rmse
 
 from .config import CreditStudyConfig
 from .decisions import evaluate_attribution, evaluate_gate
@@ -180,5 +180,5 @@ def run(source: Path, config_path: Path, output: Path, *, figures: bool = True) 
     write_runtime_metadata(output, source, batch, runtime)
     write_npz(output / "diagnostics.npz", arrays)
     write_json(output / "summary.json", summary)
-    publish("credit", output, output, figures=figures)
+    publish(output, output, figures=figures)
     return {"status": "completed", "output_dir": str(output), "optimizer_steps": 0}

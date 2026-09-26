@@ -11,11 +11,11 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner._repository import REPOSITORY_ROOT
-from eco_planner.analysis import publish
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation import parse_evaluation_config
 from eco_planner.evaluation.intervention import InterventionExecution, collect_group
+from eco_planner.experiments.guidance.decomposition.analysis import publish
 from eco_planner.experiments.guidance.decomposition.diagnostics import (
     DecompositionConfig,
     SeedArms,
@@ -138,7 +138,7 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
         },
     )
     save_decisions(episodes, study, [s.name for s in scenarios], output_dir)
-    return publish("guidance-decomposition", output_dir, output_dir, figures=figures)
+    return publish(output_dir, output_dir, figures=figures)
 
 
 def _annotate(rows: list[dict[str, Any]], spec: SeedArms) -> None:

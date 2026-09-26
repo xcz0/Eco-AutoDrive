@@ -38,7 +38,7 @@ def _series(checkpoints: list[dict], metric: str, group: str | None = None) -> d
 
 
 def plot(result: dict[str, Any], output: Path) -> list[str]:
-    from .plots import curves
+    from eco_planner.reporting.plots import curves
 
     checkpoints = result["checkpoints"]
     comparisons = list(dict.fromkeys(row["comparison"] for row in checkpoints))

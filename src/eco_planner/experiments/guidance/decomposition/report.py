@@ -79,7 +79,7 @@ def _effect(row: dict[str, Any]) -> float:
 
 
 def plot(result: dict[str, Any], episodes: list[dict[str, Any]], output: Path) -> list[str]:
-    from .plots import plt, save
+    from eco_planner.reporting.plots import plt, save
 
     verdict = result["verdict"]
     metrics = verdict["attribution_metrics"]

@@ -12,9 +12,9 @@ from omegaconf import OmegaConf
 from tensordict import TensorDict
 
 from eco_planner._repository import CONFIG_ROOT
-from eco_planner.analysis.guidance import aggregate
 from eco_planner.evaluation.inference import DiffusionEvaluationAgent
 from eco_planner.evaluation.intervention import InterventionExecution
+from eco_planner.experiments.guidance.authority.analysis import aggregate
 from eco_planner.experiments.guidance.authority.diagnostics import (
     InterventionConfig,
     analyze_episodes,
@@ -151,10 +151,10 @@ def test_temporal_reversal_and_incomplete_matrix():
 
 @pytest.mark.parametrize("figures", [False, True])
 def test_offline_recompute_matches_live_statistics(tmp_path, figures):
-    from eco_planner.analysis.guidance import recompute
-    from eco_planner.analysis.reporting import guidance as presentation
-    from eco_planner.analysis.runner import analyze
     from eco_planner.artifacts import write_json
+    from eco_planner.experiments.guidance.authority import report as presentation
+    from eco_planner.experiments.guidance.authority.analysis import recompute
+    from tests.analysis.routing import analyze
     from tests.analysis.test_reports import assert_report
 
     source = tmp_path / "source"
@@ -361,8 +361,8 @@ def test_real_rollout_intervention_window_and_noise_pairing(tmp_path, horizon):
     saved = json.loads((tmp_path / "raw/group-000-arm-4/episodes.json").read_text())
     assert saved["episodes"][0]["status"] == "window_complete"
 
-    from eco_planner.analysis.runner import analyze
     from eco_planner.artifacts import write_json
+    from tests.analysis.routing import analyze
 
     source = tmp_path / "source"
     source.mkdir()

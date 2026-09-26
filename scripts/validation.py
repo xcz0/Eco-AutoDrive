@@ -28,12 +28,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def dispatch(args: argparse.Namespace) -> dict:
     if args.action == "run":
-        from eco_planner.reward_validation import run_sanity
+        from eco_planner.experiments.reward.validation import run_sanity
 
         return run_sanity(args.config, args.output_dir, figures=not args.no_figures)
-    from eco_planner.analysis.runner import analyze
+    from eco_planner.experiments.reward.sanity_analysis import analyze
 
-    return analyze("reward-sanity", args.source_dir, args.output_dir, figures=not args.no_figures)
+    return analyze(args.source_dir, args.output_dir, figures=not args.no_figures)
 
 
 def main() -> None:

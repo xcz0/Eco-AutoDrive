@@ -11,8 +11,8 @@ from typing import cast
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
-from eco_planner.analysis import mode_report, publish
 from eco_planner.benchmarking import write_benchmark_artifacts
+from eco_planner.benchmarking.execution_analysis import mode_report, publish
 from eco_planner.evaluation import JobSummary, load_job_summary, load_runtime_metadata
 from eco_planner.runtime.metadata import collect_repository_metadata
 
@@ -54,7 +54,7 @@ def write_report(
         output.name,
         report,
     )
-    publish("execution-backend", output.parent, output.parent, figures=figures, source_file=output)
+    publish(output.parent, output.parent, figures=figures, source_file=output)
     return report
 
 

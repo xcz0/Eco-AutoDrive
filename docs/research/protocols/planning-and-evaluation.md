@@ -155,4 +155,4 @@ metric estimator、窗口或终止含义，均是 protocol change，不能作为
 | --- | --- | --- |
 | Sampler / guidance | [diffusion](../../../src/eco_planner/planning/diffusion/) | [sampling](../../../tests/planning/test_sampling.py)、[guidance](../../../tests/planning/test_guidance.py) |
 | Cadence | [shared ABI](../../../src/eco_planner/contracts.py)、[jobs](../../../configs/jobs/) | [execution consistency](../../../tests/simulation/test_execution_consistency.py)、[job config](../../../tests/configuration/test_jobs.py) |
-| Episode 指标与配对统计 | [summary](../../../src/eco_planner/evaluation/artifacts/summary.py)、[analysis](../../../src/eco_planner/analysis/evaluation.py)、[comparison](../../../src/eco_planner/experiments/comparison/) | [artifacts](../../../tests/evaluation/test_artifacts.py)、[scalar effects](../../../tests/analysis/test_scalar_effects.py) |
+| Episode 指标与配对统计 | [metrics](../../../src/eco_planner/evaluation/metrics.py)、[analysis](../../../src/eco_planner/experiments/comparison/analysis.py)、[comparison](../../../src/eco_planner/experiments/comparison/) | [artifacts](../../../tests/evaluation/test_artifacts.py)、[scalar effects](../../../tests/analysis/test_scalar_effects.py) |

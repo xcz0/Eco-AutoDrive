@@ -13,9 +13,9 @@ from typing import Any
 
 import numpy as np
 
-from .decomposition import episode_metrics
-from .horizon import PLANNER_RESPONSE_CHECKPOINTS_S
-from .io import read_json
+from eco_planner.artifacts import read_json
+from eco_planner.experiments.guidance.decomposition.analysis import episode_metrics
+from eco_planner.experiments.guidance.horizon.analysis import PLANNER_RESPONSE_CHECKPOINTS_S
 
 PART_A_METRICS = (
     "speed_mps",
@@ -307,3 +307,32 @@ def recompute(source: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     result["same_state"] = analyze_same_state(contexts) if contexts else None
     result["gate"] = decisions["gate"]
     return result, episodes
+
+
+def analyze(source: Path, output: Path, *, figures: bool = True) -> dict:
+    from eco_planner.reporting.artifacts import separate_output
+
+    source, output = separate_output(source, output)
+    return publish(source, output, figures=figures)
+
+
+def publish(source: Path, output: Path, *, figures: bool = True) -> dict:
+    from eco_planner.artifacts import write_json
+    from eco_planner.reporting.artifacts import write_analysis
+
+    from .report import write_report
+
+    data, episodes = recompute(source)
+    output.mkdir(parents=True, exist_ok=True)
+    write_json(output / "summary.json", {"status": "completed", **data})
+    files = []
+    if figures:
+        from eco_planner.reporting.plots import plt
+
+        from .report import plot
+
+        with plt.style.context("default"):
+            files = plot(data, episodes, output)
+    write_analysis(output, data, files, experiment="guidance-execution-bridge", source=source)
+    write_report(data, output, files)
+    return {"status": "completed", "output_dir": str(output), "verdict": data["gate"]["verdict"]}

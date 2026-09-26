@@ -9,10 +9,10 @@ from omegaconf import OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, field_validator
 
 from eco_planner._repository import CONFIG_ROOT
-from eco_planner.analysis import publish
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation import load_job_summary
+from eco_planner.experiments.guidance.sweep_analysis import publish
 from eco_planner.jobs import compose_job_config, run_evaluation_job
 
 DEFAULT_STUDY = CONFIG_ROOT / "experiments" / "guidance" / "energy-sweep" / "matrix.yaml"
@@ -142,5 +142,5 @@ def run_study(study_path: Path, output_root: Path, *, figures: bool = True) -> i
             records.append(record)
             write_json(output_root / "matrix_summary.json", {"runs": records})
             failed = failed or returncode != 0 or record["status"] != "completed"
-    publish("energy-sweep", output_root, output_root, figures=figures)
+    publish(output_root, output_root, figures=figures)
     return 1 if failed else 0

@@ -8,16 +8,18 @@ from typing import Literal
 from omegaconf import OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from eco_planner.analysis import publish
-from eco_planner.analysis.evaluation import arm_outcomes, paired
-from eco_planner.analysis.training import beta_probe_statistics
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation.artifacts import load_job_summary
-from eco_planner.experiments.protocol.composition import compose_policy_evaluation_config
+from eco_planner.experiments.comparison.analysis import arm_outcomes, paired
+from eco_planner.experiments.protocol.composition import (
+    compose_policy_evaluation_config,
+)
 from eco_planner.experiments.protocol.config import load_protocol
 from eco_planner.experiments.protocol.validation import validate_evaluation
+from eco_planner.experiments.training.analysis import publish
 from eco_planner.experiments.training.measurements import extract_arm_metrics
+from eco_planner.experiments.training.statistics import beta_probe_statistics
 from eco_planner.jobs import run_evaluation_job
 from eco_planner.rl.artifacts import TrainingRunSummary
 from eco_planner.rl.optimization.update_diagnostics import post_update_kl_series
@@ -107,7 +109,7 @@ def diagnose(config_path: Path, output: Path, *, figures: bool = True) -> dict:
             ),
         },
     )
-    return publish("training", output, output, figures=figures)
+    return publish(output, output, figures=figures)
 
 
 def evaluate(config_path: Path, output: Path, *, figures: bool = True) -> dict:
@@ -228,4 +230,4 @@ def evaluate(config_path: Path, output: Path, *, figures: bool = True) -> dict:
             ),
         },
     )
-    return publish("training", output, output, figures=figures)
+    return publish(output, output, figures=figures)

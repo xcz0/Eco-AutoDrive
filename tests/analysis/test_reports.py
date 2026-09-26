@@ -10,14 +10,7 @@ import numpy as np
 import pytest
 from omegaconf import OmegaConf
 
-from eco_planner.analysis.io import read_json, write_json
-from eco_planner.analysis.runner import analyze
-from eco_planner.analysis.statistics import (
-    advantage_comparison,
-    cosine,
-    paired_difference,
-    statistics,
-)
+from eco_planner.artifacts import read_json, write_json
 from eco_planner.evaluation.artifacts.models import (
     CheckpointSummary,
     EvaluationWorkload,
@@ -27,6 +20,13 @@ from eco_planner.evaluation.artifacts.models import (
     PolicyCheckpointProvenance,
     WorkloadScenario,
 )
+from eco_planner.statistics import (
+    advantage_comparison,
+    cosine,
+    paired_difference,
+    statistics,
+)
+from tests.analysis.routing import analyze
 from tests.evaluation.test_artifacts import _episode, _training_summary
 
 
@@ -106,7 +106,7 @@ def job(energy=2.0):
 
 
 def test_energy_matched_comparison_and_protocol_mismatch(tmp_path):
-    from eco_planner.analysis.evaluation import paired
+    from eco_planner.experiments.comparison.analysis import paired
 
     source = tmp_path / "source"
     records = []
@@ -137,9 +137,9 @@ def test_energy_matched_comparison_and_protocol_mismatch(tmp_path):
 
 
 def test_failed_episode_is_visible_and_never_zero_filled(tmp_path):
-    from eco_planner.analysis.evaluation import paired
-    from eco_planner.analysis.reporting.experiments import experiment_figures
     from eco_planner.evaluation.artifacts.models import FailedEpisodeSummary
+    from eco_planner.experiments.comparison.analysis import paired
+    from eco_planner.experiments.guidance.sweep_report import plot
 
     original = job()
     episode = original.episodes[0].model_dump(mode="json")
@@ -165,7 +165,7 @@ def test_failed_episode_is_visible_and_never_zero_filled(tmp_path):
     assert result["statistics"]["energy_ml"] is None
     assert result["pairs"][0]["energy_ml_delta"] is None
     assert result["pairs"][0]["comparison"]["failure"]["message"] == "fixture failure"
-    assert experiment_figures("energy-sweep", {"comparisons": {"failed": result}}, tmp_path)
+    assert plot({"comparisons": {"failed": result}}, tmp_path)
 
 
 @pytest.fixture
@@ -330,7 +330,7 @@ def test_sanity_keeps_failed_checks(tmp_path):
 
 @pytest.mark.parametrize("training", [False, True])
 def test_scalar_run_uses_common_report_writer(tmp_path, training_summary, training):
-    from eco_planner.analysis.runner import publish_scalar_run
+    from eco_planner.experiments.comparison.analysis import publish_scalar_run
 
     summary = training_summary if training else job()
     write_json(tmp_path / "summary.json", summary.model_dump(mode="json"))
@@ -357,7 +357,8 @@ class BlockImports:
         if any(fullname == root or fullname.startswith(root + '.') for root in blocked):
             raise AssertionError('unexpected import: ' + fullname)
 sys.meta_path.insert(0, BlockImports())
-from eco_planner.analysis.runner import analyze, publish_scalar_run
+from tests.analysis.routing import analyze
+from eco_planner.experiments.comparison.analysis import publish_scalar_run
 source = Path(sys.argv[1])
 analyze('reward-sanity', source, source.parent / 'report', figures=figures)
 publish_scalar_run(source, training=False, figures=figures)
@@ -376,10 +377,11 @@ def test_offline_imports_do_not_load_execution_modules():
     script = """
 import sys
 import scripts.experiments
-import eco_planner.analysis.evaluation
-import eco_planner.analysis.simple
-import eco_planner.analysis.workflows
-import eco_planner.analysis.reporting.guidance
+import eco_planner.experiments.comparison.analysis
+import eco_planner.benchmarking.execution_analysis
+import eco_planner.experiments.fixed_batch
+import eco_planner.experiments.comparison.inputs
+import eco_planner.experiments.guidance.authority.report
 from eco_planner.rl.artifacts import TrainingRunSummary
 roots = (
     'torch',
@@ -394,7 +396,7 @@ for root in roots:
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
-@pytest.mark.parametrize("module", ["eco_planner.analysis", "eco_planner.rl.artifacts"])
+@pytest.mark.parametrize("module", ["eco_planner.reporting", "eco_planner.rl.artifacts"])
 def test_offline_package_initialization_never_imports_torch(module):
     script = f"""
 import importlib

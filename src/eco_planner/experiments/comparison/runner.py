@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
-from eco_planner.analysis.runner import publish_scalar_run
+from eco_planner.experiments.comparison.analysis import publish_scalar_run
 from eco_planner.experiments.protocol.composition import (
     CheckpointLabel,
     arm_config,

@@ -10,11 +10,6 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from eco_planner.analysis.training import (
-    beta_probe_statistics,
-    heldout_metric_values,
-    paired_beta_deltas,
-)
 from eco_planner.experiments.training.config import (
     GateConfig,
     GridConfig,
@@ -26,6 +21,11 @@ from eco_planner.experiments.training.grid import (
     compose_arm_overrides,
 )
 from eco_planner.experiments.training.measurements import extract_arm_metrics, policy_ratio_change
+from eco_planner.experiments.training.statistics import (
+    beta_probe_statistics,
+    heldout_metric_values,
+    paired_beta_deltas,
+)
 from eco_planner.planning.policy import ExplorationPolicy
 from eco_planner.planning.policy.distribution import AffineBeta
 from eco_planner.rl.optimization.update_diagnostics import post_update_kl_series

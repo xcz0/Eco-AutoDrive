@@ -6,10 +6,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 
-from eco_planner.analysis.deferral import (
+from eco_planner.experiments.guidance.deferral.analysis import (
     DeferralDesign,
 )
-from eco_planner.analysis.deferral import (
+from eco_planner.experiments.guidance.deferral.analysis import (
     analyze_deferral_episodes as describe_episodes,
 )
 

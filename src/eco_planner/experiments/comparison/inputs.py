@@ -6,9 +6,9 @@ from typing import Any
 from omegaconf import OmegaConf
 from pydantic import BaseModel, ConfigDict, Field
 
-from eco_planner.analysis.evaluation import PolicyComparison, PolicyComparisonRun
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation.artifacts import load_job_summary
+from eco_planner.experiments.comparison.analysis import PolicyComparison, PolicyComparisonRun
 from eco_planner.experiments.protocol.config import ComparisonProtocol, load_protocol
 from eco_planner.experiments.protocol.validation import validate_evaluation
 from eco_planner.rl.artifacts import TrainingRunSummary

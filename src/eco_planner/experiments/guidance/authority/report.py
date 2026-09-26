@@ -62,7 +62,7 @@ def write_report(result: dict[str, Any], output: Path, files: list[str]) -> None
 
 
 def plot(result: dict[str, Any], episodes: list[dict[str, Any]], output: Path) -> list[str]:
-    from .plots import plt, save
+    from eco_planner.reporting.plots import plt, save
 
     files = []
     for metric, label in (

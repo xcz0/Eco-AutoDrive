@@ -6,11 +6,9 @@ from typing import Any
 
 import numpy as np
 
-from eco_planner.evaluation.artifacts import JobSummary, load_job_summary
+from eco_planner.evaluation.artifacts import JobSummary
 from eco_planner.rl.artifacts import TrainingRunSummary
-
-from .io import read_json
-from .statistics import ScenarioBootstrapConfig, scenario_effect, statistics
+from eco_planner.statistics import ScenarioBootstrapConfig, scenario_effect, statistics
 
 
 def episode_records(summary: JobSummary) -> list[dict[str, Any]]:
@@ -104,35 +102,6 @@ def paired(reference: JobSummary, comparison: JobSummary) -> dict[str, Any]:
     }
 
 
-def energy_sweep(source: Path) -> dict[str, Any]:
-    matrix = read_json(source / "matrix_summary.json")
-    groups: dict[str, dict[str, tuple[dict, JobSummary | None]]] = {}
-    for record in matrix["runs"]:
-        job, guidance = record["job"], record["guidance"]
-        if guidance in groups.setdefault(job, {}):
-            raise ValueError(f"duplicate energy job/guidance: {job}/{guidance}")
-        summary = (
-            None
-            if record["status"] == "launcher_failure"
-            else load_job_summary(source / job / guidance / "summary.json")
-        )
-        groups[job][guidance] = record, summary
-    comparisons = {}
-    for job, runs in groups.items():
-        if "baseline" not in runs:
-            raise ValueError(f"energy job {job} has no baseline")
-        baseline = runs["baseline"][1]
-        for guidance, (record, summary) in runs.items():
-            if guidance == "baseline":
-                continue
-            comparisons[f"{job}/{guidance}"] = (
-                paired(baseline, summary)
-                if baseline is not None and summary is not None
-                else {"unavailable": "launcher failure", "run": record}
-            )
-    return {"runs": matrix["runs"], "comparisons": comparisons}
-
-
 @dataclass(frozen=True)
 class PolicyComparisonRun:
     arm: str
@@ -187,7 +156,10 @@ def arm_outcomes(summary: JobSummary) -> dict:
 
 
 def scalar_reward(comparison: PolicyComparison) -> dict[str, Any]:
-    from .training import beta_probe_statistics, paired_beta_deltas
+    from eco_planner.experiments.training.statistics import (
+        beta_probe_statistics,
+        paired_beta_deltas,
+    )
 
     baseline = comparison.baseline
     runs = []
@@ -280,3 +252,64 @@ def scalar_reward(comparison: PolicyComparison) -> dict[str, Any]:
             "not uncertainty across training seeds. Initial/update0 is diagnostic only."
         ),
     }
+
+
+def analyze(
+    source: Path, output: Path, *, figures: bool = True, scalar_comparison: PolicyComparison
+) -> dict:
+    from eco_planner.reporting.artifacts import separate_output
+
+    source, output = separate_output(source, output, sources=scalar_comparison.source_directories)
+    return publish(source, output, figures=figures, scalar_comparison=scalar_comparison)
+
+
+def publish(
+    source: Path, output: Path, *, figures: bool = True, scalar_comparison: PolicyComparison
+) -> dict:
+    from eco_planner.experiments.comparison.report import write_report
+    from eco_planner.reporting.artifacts import write_analysis
+
+    data = scalar_reward(scalar_comparison)
+    output.mkdir(parents=True, exist_ok=True)
+    files = []
+    if figures:
+        from eco_planner.experiments.comparison.report import plot
+        from eco_planner.reporting.plots import plt
+
+        with plt.style.context("default"):
+            files = plot(data, output)
+    payload = write_analysis(output, data, files, experiment="scalar-reward", source=source)
+    write_report(source, output, data, files)
+    return {"status": "completed", "output_dir": str(output), **payload}
+
+
+def publish_scalar_run(source: Path, *, training: bool, figures: bool = True) -> None:
+    """Single-run presentation; cross-arm comparisons require explicit input grouping."""
+    from .analysis import episode_records
+
+    if training:
+        from eco_planner.rl.artifacts.summaries import TrainingRunSummary
+
+        summary = TrainingRunSummary.model_validate_json(
+            (source / "summary.json").read_text(encoding="utf-8")
+        )
+        data = summary.model_dump(mode="json")
+    else:
+        from eco_planner.evaluation.artifacts.io import load_job_summary
+
+        rows = episode_records(load_job_summary(source / "summary.json"))
+        data = {"episodes": rows}
+    files = []
+    if figures:
+        from eco_planner.reporting.plots import plt
+
+        from .report import scalar_run_figures
+
+        with plt.style.context("default"):
+            files = scalar_run_figures(data, source, training=training)
+    from eco_planner.reporting.artifacts import write_analysis
+
+    from .report import write_report
+
+    write_analysis(source, data, files)
+    write_report(source, source, data, files)

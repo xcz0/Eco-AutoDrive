@@ -7,8 +7,8 @@ from typing import Any
 
 import numpy as np
 
-from .io import read_json
-from .statistics import advantage_comparison
+from eco_planner.artifacts import read_json
+from eco_planner.statistics import advantage_comparison
 
 _ADVANTAGE_FIELDS = (
     "pearson",
@@ -81,3 +81,30 @@ def recompute(source: Path) -> dict:
                 }
             )
     return {**summary, "checkpoints": checkpoints}
+
+
+def analyze(source: Path, output: Path, *, figures: bool = True) -> dict:
+    from eco_planner.reporting.artifacts import separate_output
+
+    source, output = separate_output(source, output)
+    return publish(source, output, figures=figures)
+
+
+def publish(source: Path, output: Path, *, figures: bool = True) -> dict:
+    from eco_planner.reporting.artifacts import write_analysis
+
+    from .report import write_report
+
+    data = recompute(source)
+    output.mkdir(parents=True, exist_ok=True)
+    files = []
+    if figures:
+        from eco_planner.reporting.plots import plt
+
+        from .report import plot
+
+        with plt.style.context("default"):
+            files = plot(data, output)
+    write_analysis(output, data, files, experiment="training-critic-attribution", source=source)
+    write_report(data, output, files)
+    return {"status": "completed", "output_dir": str(output), "verdict": data["gate"]["verdict"]}

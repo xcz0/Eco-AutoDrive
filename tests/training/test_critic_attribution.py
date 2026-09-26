@@ -216,8 +216,8 @@ def test_read_rollout_episode_roundtrip(tmp_path):
 
 @pytest.mark.parametrize("figures", [False, True])
 def test_runner_and_offline_recompute(synthetic_source, tmp_path, figures):
-    from eco_planner.analysis.runner import analyze
     from eco_planner.experiments.training.critic_attribution.runner import run
+    from tests.analysis.routing import analyze
     from tests.analysis.test_reports import assert_report
 
     source, config_path = synthetic_source
@@ -257,7 +257,7 @@ def test_runner_and_offline_recompute(synthetic_source, tmp_path, figures):
 
 
 def test_recompute_detects_tampering(synthetic_source, tmp_path):
-    from eco_planner.analysis.critic_attribution import recompute
+    from eco_planner.experiments.training.critic_attribution.analysis import recompute
     from eco_planner.experiments.training.critic_attribution.runner import run
 
     source, config_path = synthetic_source

@@ -30,28 +30,34 @@ COMMANDS = {
     ("compare", "eval"): Command(
         "comparison.runner", "run_command", "comparison/default.yaml", environment=True, cuda=True
     ),
-    ("compare", "analyze"): Command("comparison.inputs", "load_comparison", None, source=True),
+    ("compare", "analyze"): Command("comparison.analysis", "analyze", None, source=True),
     ("reward", "collect"): Command(
         "reward.runner", "collect", "reward/collection.yaml", environment=True, cuda=True
     ),
     ("reward", "run"): Command("reward.runner", "run", "reward/default.yaml", source=True),
-    ("reward", "analyze"): Command("", "", None, source=True),
+    ("reward", "analyze"): Command("reward.analysis", "analyze", None, source=True),
     ("credit", "run"): Command(
         "credit.runner", "run", "credit/objectives.yaml", source=True, cuda=True
     ),
-    ("credit", "analyze"): Command("", "", None, source=True),
+    ("credit", "analyze"): Command("credit.analysis", "analyze", None, source=True),
     ("guidance", "authority", "run"): Command(
         "guidance.authority.runner", "run", "guidance/authority.yaml", environment=True, cuda=True
     ),
-    ("guidance", "authority", "analyze"): Command("", "", None, source=True),
+    ("guidance", "authority", "analyze"): Command(
+        "guidance.authority.analysis", "analyze", None, source=True
+    ),
     ("guidance", "horizon", "run"): Command(
         "guidance.horizon.runner", "run", "guidance/horizon.yaml", environment=True, cuda=True
     ),
-    ("guidance", "horizon", "analyze"): Command("", "", None, source=True),
+    ("guidance", "horizon", "analyze"): Command(
+        "guidance.horizon.analysis", "analyze", None, source=True
+    ),
     ("guidance", "deferral", "run"): Command(
         "guidance.deferral.runner", "run", "guidance/deferral.yaml", environment=True, cuda=True
     ),
-    ("guidance", "deferral", "analyze"): Command("", "", None, source=True),
+    ("guidance", "deferral", "analyze"): Command(
+        "guidance.deferral.analysis", "analyze", None, source=True
+    ),
     ("guidance", "decomposition", "run"): Command(
         "guidance.decomposition.runner",
         "run",
@@ -59,7 +65,9 @@ COMMANDS = {
         environment=True,
         cuda=True,
     ),
-    ("guidance", "decomposition", "analyze"): Command("", "", None, source=True),
+    ("guidance", "decomposition", "analyze"): Command(
+        "guidance.decomposition.analysis", "analyze", None, source=True
+    ),
     ("guidance", "execution-bridge", "run"): Command(
         "guidance.execution_bridge.runner",
         "run",
@@ -68,11 +76,15 @@ COMMANDS = {
         environment=True,
         cuda=True,
     ),
-    ("guidance", "execution-bridge", "analyze"): Command("", "", None, source=True),
+    ("guidance", "execution-bridge", "analyze"): Command(
+        "guidance.execution_bridge.analysis", "analyze", None, source=True
+    ),
     ("guidance", "sweep", "run"): Command(
         "guidance.sweep", "run_study", "guidance/energy-sweep/matrix.yaml", environment=True
     ),
-    ("guidance", "sweep", "analyze"): Command("", "", None, source=True),
+    ("guidance", "sweep", "analyze"): Command(
+        "guidance.sweep_analysis", "analyze", None, source=True
+    ),
     ("training", "grid"): Command(
         "training.grid", "run", "training/grid.yaml", environment=True, cuda=True
     ),
@@ -84,8 +96,10 @@ COMMANDS = {
         "training/critic-attribution.yaml",
         source=True,
     ),
-    ("training", "critic-attribution", "analyze"): Command("", "", None, source=True),
-    ("training", "analyze"): Command("", "", None, source=True),
+    ("training", "critic-attribution", "analyze"): Command(
+        "training.critic_attribution.analysis", "analyze", None, source=True
+    ),
+    ("training", "analyze"): Command("training.analysis", "analyze", None, source=True),
 }
 
 
@@ -160,32 +174,16 @@ def bootstrap(args: argparse.Namespace) -> None:
 
 def dispatch(args: argparse.Namespace) -> dict[str, Any] | int:
     figures = not getattr(args, "no_figures", False)
-    if args.action == "analyze":
-        from eco_planner.analysis.runner import analyze
-
-        evidence = {
-            ("guidance", "authority"): "guidance-control-authority",
-            ("guidance", "horizon"): "guidance-horizon",
-            ("guidance", "deferral"): "guidance-deferral",
-            ("guidance", "decomposition"): "guidance-decomposition",
-            ("guidance", "execution-bridge"): "guidance-execution-bridge",
-            ("guidance", "sweep"): "energy-sweep",
-            ("training", "critic-attribution"): "training-critic-attribution",
-        }
-        kind = evidence.get(
-            args.key[:-1], "scalar-reward" if args.domain == "compare" else args.domain
-        )
-        comparison = None
-        if args.domain == "compare":
-            from eco_planner.experiments.comparison.inputs import load_comparison
-
-            comparison = load_comparison(args.config)
-        return analyze(
-            kind, args.source_dir, args.output_dir, figures=figures, scalar_comparison=comparison
-        )
     function = getattr(
         import_module("eco_planner.experiments." + args.command.module), args.command.function
     )
+    if args.action == "analyze":
+        kwargs = {"figures": figures}
+        if args.domain == "compare":
+            from eco_planner.experiments.comparison.inputs import load_comparison
+
+            kwargs["scalar_comparison"] = load_comparison(args.config)
+        return function(args.source_dir, args.output_dir, **kwargs)
     if args.domain == "compare":
         kwargs = {"arm": args.arm, "figures": figures}
         if args.action == "train":

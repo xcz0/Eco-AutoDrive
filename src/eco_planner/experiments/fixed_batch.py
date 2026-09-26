@@ -7,8 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
-from .io import read_json
-from .statistics import (
+from eco_planner.artifacts import read_json
+from eco_planner.statistics import (
     advantage_comparison,
     gradient_comparison,
     paired_difference,
@@ -117,11 +117,3 @@ def fixed(source: Path) -> dict:
                 if key not in ("scenario_index", "planning_cycle_index")
             }
     return result
-
-
-def training(source: Path) -> dict:
-    # All Torch/checkpoint measurements are persisted by diagnose/grid; reporting stays lightweight.
-    summary = read_json(source / "summary.json")
-    if summary["kind"] not in ("training-grid", "training-diagnostics", "training-evaluation"):
-        raise ValueError("source is not a current training workflow result")
-    return summary

@@ -114,9 +114,9 @@ def test_reward_and_credit_recompute_without_reference_artifacts(
     fixed_source, tmp_path, monkeypatch
 ):
     from eco_planner._repository import CONFIG_ROOT
-    from eco_planner.analysis.runner import analyze
     from eco_planner.experiments.credit.runner import run as credit
     from eco_planner.experiments.reward.runner import run as reward
+    from tests.analysis.routing import analyze
 
     source, _, samples = fixed_source
     before = {p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()}
@@ -251,8 +251,8 @@ def test_credit_preserves_ppo_gradients_and_objective_identities(fixed_source, m
 
 def test_missing_gradient_and_sample_mismatch_are_errors(fixed_source, tmp_path):
     from eco_planner._repository import CONFIG_ROOT
-    from eco_planner.analysis.workflows import fixed
     from eco_planner.experiments.credit.runner import run
+    from eco_planner.experiments.fixed_batch import fixed
 
     source, _, _ = fixed_source
     output = tmp_path / "credit"

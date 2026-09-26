@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from .markdown import number
+from eco_planner.reporting.markdown import number
 
 
 def _arms(data: dict, label: str) -> list[tuple[str, dict]]:
@@ -140,7 +140,7 @@ def render_scalar(data: dict) -> str:
 def scalar_effect_figures(data: dict, output: Path) -> list[str]:
     import matplotlib.pyplot as plt
 
-    from .plots import save
+    from eco_planner.reporting.plots import save
 
     files = []
     for contrast, checkpoints in data["contrasts"].items():
@@ -183,3 +183,67 @@ def scalar_effect_figures(data: dict, output: Path) -> list[str]:
         )
         files += save(fig, output, contrast + "-seed-effects")
     return files
+
+
+def plot(data: dict, output: Path) -> list[str]:
+    from eco_planner.reporting.plots import curves
+
+    files = scalar_effect_figures(data, output)
+    files += curves(
+        output,
+        "training-rewards",
+        {
+            f"{r['arm']}-seed-{r['training_seed']}-{r['checkpoint_label']}": (
+                r["training_curve"]["update"],
+                r["training_curve"]["reward"],
+            )
+            for r in data["runs"]
+        },
+        "PPO update",
+        "total reward",
+    )
+    return files
+
+
+def write_report(source: Path, output: Path, data: dict, files: list[str]) -> None:
+    from eco_planner.reporting.markdown import write_report as write_markdown
+
+    write_markdown(
+        "scalar-reward",
+        source,
+        output,
+        data,
+        files,
+        body=render_scalar(data) if "contrasts" in data else None,
+    )
+
+
+def scalar_run_figures(data: dict, output: Path, *, training: bool) -> list[str]:
+    from eco_planner.reporting.plots import curves
+
+    if training:
+        return curves(
+            output,
+            "training-reward",
+            {
+                "reward": (
+                    [u["update_index"] for u in data["updates"]],
+                    [u["total_reward"] for u in data["updates"]],
+                )
+            },
+            "PPO update",
+            "total reward",
+        )
+    return curves(
+        output,
+        "energy-progress",
+        {
+            "episodes": (
+                [r["route_completion"] for r in data["episodes"]],
+                [r["energy_ml"] for r in data["episodes"]],
+            )
+        },
+        "route completion",
+        "MetaDrive fuel proxy (mL)",
+        scatter=True,
+    )

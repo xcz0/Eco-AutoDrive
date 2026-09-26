@@ -8,9 +8,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from eco_planner._repository import CONFIG_ROOT
-from eco_planner.analysis.statistics import ScenarioBootstrapConfig
 from eco_planner.configuration import ScenarioConfig, load_resolved_yaml_mapping
 from eco_planner.reward.result import RewardProfileName
+from eco_planner.statistics import ScenarioBootstrapConfig
 
 DEFAULT_PROTOCOL = CONFIG_ROOT / "experiments" / "comparison" / "default.yaml"
 

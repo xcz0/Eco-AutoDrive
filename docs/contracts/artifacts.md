@@ -110,8 +110,8 @@ Critic attribution 的 offline reporting 可核对 advantage，不重算梯度�
 | Critic attribution | diagnostics NPZ、sample index、summary、diagnostic config、runtime metadata |
 
 Help、offline analyze、summary/trace/report reader MUST 不加载 Torch、MetaDrive/Panda3D 或渲染器。
-公共 JSON/NPZ I/O 不加载执行环境，运行环境采集归 runtime。
-仅生成图片时加载绘图库并使用 headless backend。Analysis 不反向依赖 experiments，不将库调用链写成规范；
+仅生成图片时加载绘图库并使用 headless backend。分析与报告归各实验主题，离线入口不依赖 run 初始化；
+公共 JSON/NPZ I/O 不加载执行环境，运行环境采集归 runtime，底层不依赖实验主题。不将库调用链写成规范；
 具体字段集合仍由 machine-readable schema 拥有。
 
 ## Tracking 身份与续写
@@ -148,5 +148,5 @@ Invocation artifacts 包括 config、metadata、initial/final policy、按显式
 | Evaluation schema / failure | [artifacts](../../src/eco_planner/evaluation/artifacts/) | [artifacts](../../tests/evaluation/test_artifacts.py) |
 | Training audit / persistence | [RL artifacts](../../src/eco_planner/rl/artifacts/)、[training state](../../src/eco_planner/rl/training_state.py) | [rollout](../../tests/training/test_rollout.py)、[PPO](../../tests/training/test_ppo.py) |
 | Fixed batch | [fixed batch](../../src/eco_planner/rl/rollout/fixed_batch.py) | [fixed batch](../../tests/training/test_fixed_batch.py)、[credit](../../tests/training/test_credit_assignment.py) |
-| Pairing / read-only analysis | [comparison inputs](../../src/eco_planner/experiments/comparison/inputs.py)、[analysis](../../src/eco_planner/analysis/) | [scalar effects](../../tests/analysis/test_scalar_effects.py)、[reports](../../tests/analysis/test_reports.py) |
+| Pairing / read-only analysis | [comparison inputs](../../src/eco_planner/experiments/comparison/inputs.py)、[experiments](../../src/eco_planner/experiments/) | [scalar effects](../../tests/analysis/test_scalar_effects.py)、[reports](../../tests/analysis/test_reports.py) |
 | Tracking | [tracking](../../src/eco_planner/rl/tracking.py) | [tracking](../../tests/training/test_tracking.py)、[simulation tracking](../../tests/simulation/test_training_tracking.py) |

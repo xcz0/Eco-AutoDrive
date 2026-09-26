@@ -1,4 +1,4 @@
-"""Markdown presentation of structured evidence, including unavailable values."""
+"""Markdown formatting shared by independently owned research reports."""
 
 import json
 import os
@@ -28,7 +28,21 @@ def evidence_tables(value: Any, title: str = "Evidence") -> str:
     return "\n".join(lines)
 
 
-def write_report(experiment: str, source: Path, output: Path, data: dict, files: list[str]) -> None:
+def number(value: float | None) -> str:
+    return "undefined" if value is None else f"{value:.9g}"
+
+
+def write_report(
+    experiment: str,
+    source: Path,
+    output: Path,
+    data: dict,
+    files: list[str],
+    *,
+    body: str | None = None,
+    description: str | None = None,
+    evidence: dict | None = None,
+) -> None:
     source_link = Path(os.path.relpath(source, output)).as_posix()
     lines = [
         f"# {experiment} analysis",
@@ -41,20 +55,11 @@ def write_report(experiment: str, source: Path, output: Path, data: dict, files:
         f"[Source artifacts](<{source_link}>) · [Analysis JSON](analysis.json)",
         "",
     ]
-    scalar_comparison = experiment == "scalar-reward" and "contrasts" in data
-    if scalar_comparison:
-        from .scalar import render_scalar
-
-        lines.append(render_scalar(data))
-    chain = {
-        "reward-sanity": "Reward: synthetic checks establish component correctness, not learning.",
-        "reward": "Reward distributions and calibration from one persisted batch.",
-        "credit": "Reward to credit assignment to actor gradient; no optimizer updates.",
-        "training": "Policy update measurements and matched evaluation; all seeds retained.",
-    }
-    if experiment in chain:
+    if body is not None:
+        lines.append(body)
+    if description is not None:
         lines += [
-            chain[experiment],
+            description,
             "",
             "Saved gates remain experimental decisions. Fixed-batch gradient evidence "
             "alone does not establish learned behavioral improvement.",
@@ -68,32 +73,6 @@ def write_report(experiment: str, source: Path, output: Path, data: dict, files:
                 f"[SVG](<{path[:-4]}.svg>) · [PNG](<{path}>)",
                 "",
             ]
-    if not scalar_comparison:
-        lines.append(evidence_tables(report_evidence(experiment, data)))
+    if body is None:
+        lines.append(evidence_tables(data if evidence is None else evidence))
     (output / "report.md").write_text("\n".join(lines), encoding="utf-8")
-
-
-def report_evidence(experiment: str, data: dict) -> dict:
-    """Keep reviewable summaries in Markdown; full structured evidence remains in JSON."""
-
-    def comparison(entry: dict) -> dict:
-        return {
-            **{k: v for k, v in entry.items() if k != "pairs"},
-            "unavailable_pairs": [r for r in entry.get("pairs", []) if not r["available"]],
-        }
-
-    if experiment == "energy-sweep":
-        return {
-            "runs": [{k: v for k, v in r.items() if k != "episodes"} for r in data["runs"]],
-            "comparisons": {k: comparison(v) for k, v in data["comparisons"].items()},
-        }
-    if experiment == "execution-backend":
-        return {
-            "modes": data["modes"],
-            "recorded_provenance": data["recorded_comparison"].get("provenance"),
-        }
-    return data
-
-
-def number(value: float | None) -> str:
-    return "undefined" if value is None else f"{value:.9g}"

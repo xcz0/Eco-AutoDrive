@@ -8,9 +8,8 @@ from typing import Any
 
 import numpy as np
 
+from eco_planner.artifacts import read_json
 from eco_planner.contracts import PLANNER_HORIZON
-
-from .io import read_json
 
 
 @dataclass(frozen=True)
@@ -249,3 +248,32 @@ def recompute(source: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     result.pop("proxy_errors")
     result["gate_c"] = decisions["gate_c"]
     return result, episodes
+
+
+def analyze(source: Path, output: Path, *, figures: bool = True) -> dict:
+    from eco_planner.reporting.artifacts import separate_output
+
+    source, output = separate_output(source, output)
+    return publish(source, output, figures=figures)
+
+
+def publish(source: Path, output: Path, *, figures: bool = True) -> dict:
+    from eco_planner.artifacts import write_json
+    from eco_planner.reporting.artifacts import write_analysis
+
+    from .report import write_report
+
+    data, episodes = recompute(source)
+    output.mkdir(parents=True, exist_ok=True)
+    write_json(output / "summary.json", {"status": "completed", **data})
+    files = []
+    if figures:
+        from eco_planner.reporting.plots import plt
+
+        from .report import plot
+
+        with plt.style.context("default"):
+            files = plot(data, episodes, output)
+    write_analysis(output, data, files, experiment="guidance-deferral", source=source)
+    write_report(data, output, files)
+    return {"status": "completed", "output_dir": str(output), "gate_c": data["gate_c"]}

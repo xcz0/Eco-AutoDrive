@@ -8,12 +8,11 @@ import pytest
 from omegaconf import OmegaConf
 
 from eco_planner._repository import CONFIG_ROOT
-from eco_planner.analysis.decomposition import (
+from eco_planner.experiments.guidance.decomposition.analysis import (
     ARM_NAMES,
     analyze_decomposition_episodes,
     episode_metrics,
 )
-from eco_planner.analysis.horizon import PLANNER_RESPONSE_CHECKPOINTS_S
 from eco_planner.experiments.guidance.decomposition.diagnostics import (
     DecompositionConfig,
     SeedArms,
@@ -21,6 +20,7 @@ from eco_planner.experiments.guidance.decomposition.diagnostics import (
     design,
 )
 from eco_planner.experiments.guidance.decomposition.runner import _annotate, save_decisions
+from eco_planner.experiments.guidance.horizon.analysis import PLANNER_RESPONSE_CHECKPOINTS_S
 
 CHECKPOINT_STEPS = [round(value * 10) for value in PLANNER_RESPONSE_CHECKPOINTS_S]
 
@@ -203,8 +203,8 @@ def test_prefix_and_first_waypoint_metrics():
 
 @pytest.mark.parametrize("figures", [False, True])
 def test_offline_recompute_matches_live_statistics(tmp_path, figures):
-    from eco_planner.analysis.runner import analyze
     from eco_planner.artifacts import write_json
+    from tests.analysis.routing import analyze
     from tests.analysis.test_reports import assert_report
 
     source = tmp_path / "source"
