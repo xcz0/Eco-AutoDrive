@@ -1,0 +1,3 @@
+interface:
+  display_name: "Diagnose Hard Bug"
+  short_description: "Diagnose hard bugs with proportionate evidence"

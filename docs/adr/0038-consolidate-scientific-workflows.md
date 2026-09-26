@@ -1,53 +1,43 @@
 # 0038 — 按当前科研工作流整合实验架构
 
-> 第 47 行关于人工 intervention/rollout 0.1 s 与普通 evaluation 0.5 s 边界保持不变的决定已由 [ADR 0039](0039-unify-closed-loop-cadence.md) 取代；其余决定继续有效。
-
 - 状态：接受
 - 日期：2026-09-14
 - 来源：Issue #97
 - 部分取代：ADR 0034、0035、0036、0037
 
+> 关于人工 intervention/rollout 0.1 s 与普通 evaluation 0.5 s 边界保持不变的决定，
+> 已由 [ADR 0039](0039-unify-closed-loop-cadence.md) 取代；其他决定按下述范围保留。
+
 ## 背景
 
-历史 study 将固定批次采集、reward 校准、actor backward、人工回合执行与实验设计放在同层。
-多个工作流通过历史 reference-dir 和冻结数值串联，旧搜索阶段及专属报告继续约束当前研究入口。
-这使底层机制依赖研究命名，也使新 batch 无法独立执行已有诊断。
+历史 study 把采集、reward 校准、backward、人工干预和实验设计放在同层，
+又通过 reference-dir 和冻结数值串联，导致底层机制依赖研究命名，新 batch 不能独立诊断。
 
 ## 决定
 
-实验层仅编排 comparison、reward、credit、guidance、training 五类科研职责。
-共享 train/held-out 定义及配置组合集中到小型 experiments.protocol，不建立通用调度框架。
+选择让 experiments 只编排研究 protocol，共享机制回到拥有它的稳定下层，
+配置组合保持轻量，不建立通用调度框架。Fixed-batch、reward 变换、优化诊断与人工干预
+各有独立所有者；analysis 只消费持久化测量，避免通用机制反向依赖具体实验。
 
-固定批次归 rl.rollout；reward 提取、变换及本 batch 校准归 rl.reward；策略恢复、credit/advantage
-变体、backward-only 梯度和参数/post-update KL 测量归 rl.optimization；人工干预的 reset/step、
-固定噪声、终止与部分证据归 evaluation。底层不导入 experiments。
+当时将校准与 energy-band 改为按源 batch 和显式配置重算并保存实际尺度，
+以独立数值测试替代历史 reference-dir／expected-value 守卫。
+这描述该次选择；后续显式 frozen-band 设计与 batch-derived 的区别由 diagnostic protocol
+拥有，不能将本篇解释成所有未来诊断都必须重估 band。
 
-comparison 配置声明 arms/reward profiles/contrasts，共用三臂与 calibrated 双臂执行和比较机制。
-reward run 只诊断奖励数据，credit run 统一编排命名的 objective/advantage/credit 轴。
-校准和 energy-band 每次由源 batch 按显式配置重算，保存实际尺度，删除历史 reference-dir 与冻结
-expected 值守卫；其覆盖的数值一致性由独立测试验证。
-
-training 保留 optimizer 笛卡尔积、预算、阈值及最低 learning rate/epochs/gradient norm 选择规则。
-无通过项明确报告无候选，失败保留原始证据。训练诊断先持久化 checkpoint/Torch 测量，确定性与
-随机策略评测使用显式输入及 checkpoint/随机条件核验，不依赖 positive-control 目录。
-
-CLI 为 just exp 的薄入口，由现有 Python CLI 延迟分派。删除旧 study CLI/import、stage A/B/C、
-top-N 晋升、pruning、stability 数据库分析与独立 reproducibility 目录协议，不保留兼容层。
-依赖清理不在本次范围内。
-
-analysis 读取持久化数组与 typed summaries，重算分布、matched 差值并逐 seed 报告缺项；
-离线报告不执行 backward、评测或 gate 裁定，不改写源目录。保留 JSON、Markdown、SVG/PNG。
+训练诊断保留预算、预声明阈值及确定候选规则，测量先保存，报告不重裁 gate。
+CLI 收口为薄入口并删除旧 studies、stage A/B/C、top-N 晋升、pruning、stability 数据库分析
+及独立 reproducibility 目录协议，没有保留兼容层。具体 current topology 不在 ADR 维护。
 
 ## 保留的约束与取代范围
 
-取代 ADR 0034–0037 中将通用执行机制留在 experiments、旧研究入口和历史工作流保留、强制参考链
-及冻结来源检查的决定。保留其中关于轻量离线分析、原始证据、source/output 分离、typed summaries、
-配对/随机性、逐 seed bootstrap、未定义统计和结论边界的决定。
+仅取代 ADR 0034–0037 的通用机制位置、旧入口／历史工作流保留、强制参考链和冻结来源检查。
+保留轻量离线分析、原始证据、source/output 分离、typed summaries、配对／随机性、
+逐 seed bootstrap、undefined 与解释边界；规范要求收口到对应 Protocol/Contract。
 
-planner、PPO 更新算法、reward 公式与仿真语义不变。batch/action/log-prob/value/boundary 配对、
-checkpoint 身份、train/held-out 不相交、无 optimizer 更新和失败证据继续由代码及测试保证。
-人工 intervention/rollout 的 0.1 s 与普通 evaluation 的 0.5 s 边界保持不变。
+当时没有改变 planner、PPO、reward 与仿真含义；原文“0.1 s rollout / 0.5 s evaluation 不变”
+只代表当时范围，已由 ADR 0039 局部取代。历史记录仍保留原命令、路径和结果，
+组织调整及软件验收不代表历史结果已重现或节能结论成立。
 
-历史实验记录及其原始命令、路径和结果不改写；新实现不声称重现历史结果。本次验收只运行相关
-数值、配置、CLI、报告及 simulator 测试，不运行研究网格，不产生节能结论。当前实现契约见
-[实验工具与离线分析](../agents/contracts/experiments.md)。
+规范归属：[Execution contract](../contracts/execution.md)、[Artifacts contract](../contracts/artifacts.md)、[Diagnostic protocol](../research/protocols/diagnostic-studies.md)、[Planning/evaluation protocol](../research/protocols/planning-and-evaluation.md)。
+
+> 本篇保存设计理由与历史决定；现行要求由上述 Protocol/Contract 拥有，读取路由见 [AGENTS](../../AGENTS.md)。

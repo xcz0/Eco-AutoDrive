@@ -19,6 +19,7 @@ calibration:
   progress_target_score: 0.6
   comfort_target_score: 0.6
 energy_band: null
+frozen_energy_band: null
 objective_gate: null
 attribution_gate:
   endpoint_max_actor_head_cosine: 0.99

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Literal, TypeAlias
 
-from pydantic import Field, StrictFloat
+from pydantic import Field, StrictFloat, model_validator
 
 from .components import (
     ComfortRewardConfig,
@@ -41,7 +42,14 @@ class NoEnergyRewardWeightsConfig(StrictRewardModel):
 
 
 class PlannerRFTEnergyRewardConfig(StrictRewardModel):
-    name: Literal["plannerrft_energy_v1", "plannerrft_energy_band_lam64_v1"]
+    name: Literal[
+        "plannerrft_energy_v1",
+        "plannerrft_energy_band_lam1_v1",
+        "plannerrft_energy_band_lam2_v1",
+        "plannerrft_energy_band_lam4_v1",
+        "plannerrft_energy_band_lam8_v1",
+        "plannerrft_energy_band_lam64_v1",
+    ]
     weights: RewardWeightsConfig
     gates: RewardGatesConfig
     ttc: TTCRewardConfig
@@ -49,6 +57,18 @@ class PlannerRFTEnergyRewardConfig(StrictRewardModel):
     comfort: ComfortRewardConfig
     speed: SpeedRewardConfig
     energy: EnergyRewardConfig
+
+    @model_validator(mode="after")
+    def validate_band_lambda_name(self) -> PlannerRFTEnergyRewardConfig:
+        """A named band profile must carry exactly the lambda encoded in its name."""
+
+        match = re.fullmatch(r"plannerrft_energy_band_lam(\d+)_v1", self.name)
+        if match is not None and self.weights.energy != float(match.group(1)):
+            raise ValueError(
+                f"reward profile {self.name} requires weights.energy={match.group(1)}, "
+                f"got {self.weights.energy}"
+            )
+        return self
 
 
 class PlannerRFTNoEnergyRewardConfig(StrictRewardModel):

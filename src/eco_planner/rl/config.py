@@ -17,7 +17,12 @@ from pydantic import (
 )
 
 from eco_planner.configuration import ModelPathsConfig, ScenarioConfig, resolve_config_mapping
-from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS, TRAFFIC_HISTORY_WARMUP_STEPS
+from eco_planner.contracts import (
+    CLOSED_LOOP_EXECUTION_STEPS,
+    DECISION_INTERVAL_S,
+    SIMULATOR_STEP_S,
+    TRAFFIC_HISTORY_WARMUP_STEPS,
+)
 from eco_planner.planning.diffusion import (
     OrthogonalPolicyGuidanceConfig,
     SamplerConfig,
@@ -133,9 +138,37 @@ class TrainingTrackingConfig(_StrictModel):
         raise ValueError("tracking_uri requires sqlite:///path or an HTTP(S) server URL")
 
 
+class ClosedLoopCadenceConfig(_StrictModel):
+    """Canonical closed-loop cadence recorded in the resolved training config.
+
+    Values are pinned to the code contracts; a training job cannot override the
+    execution cadence, so every resolved config states it explicitly.
+    """
+
+    simulator_step_s: StrictFloat
+    closed_loop_execution_steps: StrictInt
+    decision_interval_s: StrictFloat
+
+    @model_validator(mode="after")
+    def validate_canonical_cadence(self) -> ClosedLoopCadenceConfig:
+        if (
+            self.simulator_step_s != SIMULATOR_STEP_S
+            or self.closed_loop_execution_steps != CLOSED_LOOP_EXECUTION_STEPS
+            or self.decision_interval_s != DECISION_INTERVAL_S
+        ):
+            raise ValueError(
+                "training cadence is pinned to the canonical closed-loop contract: "
+                f"simulator_step_s={SIMULATOR_STEP_S}, "
+                f"closed_loop_execution_steps={CLOSED_LOOP_EXECUTION_STEPS}, "
+                f"decision_interval_s={DECISION_INTERVAL_S}"
+            )
+        return self
+
+
 class TrainingJobConfig(_StrictModel):
     name: str = Field(min_length=1)
     map_query_radius_m: StrictFloat = Field(gt=0.0)
+    cadence: ClosedLoopCadenceConfig
     training: TrainingLoopConfig
     env: dict[str, Any]
     model: ModelPathsConfig

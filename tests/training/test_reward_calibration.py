@@ -11,6 +11,7 @@ import torch
 from eco_planner.analysis.reward import dynamic_range_audit
 from eco_planner.reward import (
     MOTION_LIMITS,
+    PlannerRFTEnergyRewardConfig,
     PlannerRFTNoEnergyRewardConfig,
     aggregate_transition_reward,
     calibrate,
@@ -36,7 +37,12 @@ from eco_planner.rl.rollout import (
 )
 from eco_planner.rl.rollout.fixed_batch import load_batch
 from tests.training.test_ppo import _context, _decision_audit, _episode
-from tests.training.test_reward import _metrics, _no_energy_config
+from tests.training.test_reward import (
+    ISSUE83_LAMBDA_PROFILES,
+    _metrics,
+    _no_energy_config,
+    _task_g_profile_payload,
+)
 
 
 def _study():
@@ -191,7 +197,10 @@ def _band_profile() -> PlannerRFTNoEnergyRewardConfig:
     return PlannerRFTNoEnergyRewardConfig.model_validate(payload)
 
 
-def _five_substep_parity_case(base: PlannerRFTNoEnergyRewardConfig):
+def _five_substep_parity_case(
+    base: PlannerRFTNoEnergyRewardConfig | PlannerRFTEnergyRewardConfig,
+    evaluate=evaluate_plannerrft_no_energy_step,
+):
     metrics = (
         _metrics(),
         _metrics(route_progress_delta_m=0.4, velocity_xy_mps=(12.0, 0.0)),
@@ -199,7 +208,7 @@ def _five_substep_parity_case(base: PlannerRFTNoEnergyRewardConfig):
         _metrics(crash_vehicle=True),
         _metrics(route_heading_rad=math.pi),
     )
-    results = tuple(evaluate_plannerrft_no_energy_step(base, metric) for metric in metrics)
+    results = tuple(evaluate(base, metric) for metric in metrics)
     execution = ExecutionTransitionAudit(
         reward_result=aggregate_transition_reward(results),
         substep_results=results,
@@ -279,3 +288,31 @@ def test_five_substep_fixed_batch_online_offline_parity(tmp_path):
             getattr(online_rescorced.components, name)
         )
     assert rescorced.training["next", "reward"].item() == pytest.approx(online_rescorced.total)
+
+
+@pytest.mark.parametrize("profile_name", ISSUE83_LAMBDA_PROFILES)
+def test_five_substep_online_offline_parity_for_issue83_band_lambda_profiles(
+    tmp_path, profile_name
+):
+    profile = PlannerRFTEnergyRewardConfig.model_validate(_task_g_profile_payload(profile_name))
+    episode, metrics, results = _five_substep_parity_case(
+        profile, evaluate=evaluate_plannerrft_energy_step
+    )
+    path = tmp_path / "updates/update-000/slot-0-episode-0.npz"
+    write_rollout_episode(path, episode)
+    loaded = read_rollout_episode(path)
+
+    # Gate I: offline reweighting of the persisted multi-substep audit
+    # reproduces the online per-substep objective of the named band lambda arm.
+    reweighted = reweight(loaded, profile)
+    assert reweighted.reward_profile == profile_name
+    assert reweighted.training["next", "reward"].item() == pytest.approx(
+        sum(result.total for result in results)
+    )
+    for name in COMPONENTS:
+        assert reweighted.audit[f"reward_component_{name}"].item() == pytest.approx(
+            sum(getattr(result.components, name) for result in results)
+        )
+    assert reweighted.audit["reward_base_total"].item() == pytest.approx(
+        sum(result.base_total for result in results)
+    )

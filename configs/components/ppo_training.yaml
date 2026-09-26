@@ -15,6 +15,14 @@ defaults:
 
 map_query_radius_m: 100.0
 
+# Canonical closed-loop cadence (ADR 0039); pinned by ClosedLoopCadenceConfig
+# so the resolved config states the execution contract explicitly and any
+# non-canonical override fails at the typed boundary.
+cadence:
+  simulator_step_s: 0.1
+  closed_loop_execution_steps: 5
+  decision_interval_s: 0.5
+
 training:
   update_count: 4
   transitions_per_environment: 16

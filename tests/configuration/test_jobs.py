@@ -21,7 +21,12 @@ from eco_planner.configuration import (
     load_local_environment,
     with_machine_resource_override,
 )
-from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS, TRAFFIC_HISTORY_WARMUP_STEPS
+from eco_planner.contracts import (
+    CLOSED_LOOP_EXECUTION_STEPS,
+    DECISION_INTERVAL_S,
+    SIMULATOR_STEP_S,
+    TRAFFIC_HISTORY_WARMUP_STEPS,
+)
 from eco_planner.evaluation import EvaluationJobConfig, parse_evaluation_config
 from eco_planner.experiments.guidance.sweep import load_energy_study
 from eco_planner.reward_validation import evaluate_sanity, load_sanity_config
@@ -182,6 +187,27 @@ def test_training_jobs_compose_into_typed_boundaries(
             )
         )
     assert isinstance(parse_rollout_config(rollout), RolloutJobConfig)
+
+
+def test_training_job_resolves_and_pins_the_canonical_cadence(
+    compose_config: ComposeConfig,
+) -> None:
+    overrides = [RESOURCE_OVERRIDE, "runtime.seed=0", "training.replay_id=0"]
+
+    parsed = parse_training_config(compose_config("jobs/training/ppo", overrides))
+
+    assert isinstance(parsed, TrainingJobConfig)
+    # The resolved training config states the canonical closed-loop cadence
+    # explicitly (Issue #83 Gate I) and is pinned to the code contracts.
+    assert parsed.cadence.simulator_step_s == SIMULATOR_STEP_S
+    assert parsed.cadence.closed_loop_execution_steps == CLOSED_LOOP_EXECUTION_STEPS
+    assert parsed.cadence.decision_interval_s == DECISION_INTERVAL_S
+    with pytest.raises(ValueError, match="canonical closed-loop contract"):
+        parse_training_config(
+            compose_config(
+                "jobs/training/ppo", [*overrides, "cadence.closed_loop_execution_steps=1"]
+            )
+        )
 
 
 def test_traffic_training_horizon_covers_history_warmup(

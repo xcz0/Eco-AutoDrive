@@ -13,6 +13,7 @@ quantiles:
 - 1.0
 calibration: null
 energy_band: null
+frozen_energy_band: null
 objective_gate: null
 attribution_gate: null
 arms:

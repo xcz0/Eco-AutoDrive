@@ -1,38 +1,24 @@
 # Separate experiment execution, descriptive analysis, and static reporting
 
-> 关于机制归属、旧 CLI、强制参考链和历史工作流保留的决定已由 [ADR 0038](0038-consolidate-scientific-workflows.md) 取代；其他数值、配对与证据约束继续有效。
-
-
 **Status:** Accepted and implemented
 **Date:** 2026-09-09
 
-Experiment modules combined fixed-batch backward passes, reusable NumPy statistics, and Markdown
-presentation. Reusing statistics or changing figures consequently pulled training dependencies into
-artifact inspection. Several report paths also lacked an independent way to regenerate their output.
+> [ADR 0038](0038-consolidate-scientific-workflows.md) 已取代通用机制留在 experiments、
+> 旧 CLI、强制参考链和历史工作流保留的部分；数值、配对与证据边界保留。
 
-Keep experiment execution and protocol decisions in `experiments`, including calibration, GAE,
-backward-only diagnostics, gate attribution, exact replay validation, and candidate promotion.
-Introduce `analysis` for descriptive computations on saved arrays, typed summaries, and Optuna state;
-place presentation in `analysis.reporting`. Experiment writers and an explicit offline `analyze` CLI
-reuse these computations and figure helpers. Directory moves follow responsibilities, rather than
-moving every function whose name contains “analyze” or “report”.
+Experiment 曾把 backward、可复用 NumPy 统计和 Markdown 展示放在一起，导致检查 artifact
+也引入训练依赖，且一些报告无法独立再生成。因此选择分离执行／研究裁定、描述统计和展示，
+通过持久化证据连接它们，而不按函数名机械移动代码。
 
-The interface is the existing artifact collection. Original artifact names, array meanings, and
-experimental acceptance results remain authoritative. Derived results are separate JSON, Markdown,
-SVG, and PNG artifacts. Training summary models load independently of rollout code. Statistics that
-already had multiple consumers move to the analysis layer, retaining their numerical definitions.
-Typed evaluation readers remain owned by evaluation, consistent with ADR 0031.
+当时采用 Matplotlib 与 Optuna 原生图，并保留 read-only study inspection，避免引入 dashboard
+或新框架。实验裁定作为已记录证据供报告读取，不由画图重裁；undefined 与不足数据保持可见。
+这些理由不要求恢复后来移除的旧数据库分析入口。
 
-Use Matplotlib and Optuna's native Matplotlib visualizations. No dashboard, plugin registry, schema
-migration framework, or statistical inference platform is introduced. Existing user-added analysis
-dependencies remain available without creating new research tasks merely to use them.
+[ADR 0035](0035-separate-fixed-batch-collection-and-experiment-workflows.md) 已取代
+本篇独立 analyze CLI 和 artifact-compatibility 要求，但保留执行／分析／展示的职责分离。
+后续 ADR 0038 进一步收口机制归属；当前命令、字段与工作流不在本篇重复维护。
 
-Scalar reward comparisons require an explicit list of artifacts because existing job summaries do
-not completely encode arm/training-seed grouping. Study inspection opens existing SQLite state in
-read-only mode. Experimental decisions remain recorded evidence, never silently re-evaluated by
-plotting. Insufficient data and undefined quantities remain visible in reports.
+规范归属：[Execution contract](../contracts/execution.md)、[Artifacts contract](../contracts/artifacts.md)、[Diagnostic protocol](../research/protocols/diagnostic-studies.md)。
 
-The implemented input/output and numerical contracts have one authoritative home in
-[experiment analysis contract](../agents/contracts/experiments.md#实验离线分析与报告). This decision adds the analysis
-boundary without replacing evaluation's artifact ownership or changing training and simulator semantics.
+> 本篇保存设计理由与历史决定；现行要求由上述 Protocol/Contract 拥有，读取路由见 [AGENTS](../../AGENTS.md)。
 

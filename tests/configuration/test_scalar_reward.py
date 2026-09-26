@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from omegaconf import DictConfig, MissingMandatoryValue
 
+from eco_planner._repository import CONFIG_ROOT
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation import parse_evaluation_config
 from eco_planner.experiments.protocol.composition import (
@@ -22,7 +23,7 @@ from eco_planner.experiments.protocol.config import (
 )
 from eco_planner.jobs import compose_job_config
 from eco_planner.planning.diffusion import Ddim5SamplerConfig
-from eco_planner.rl.config import TrainingJobConfig
+from eco_planner.rl.config import TrainingJobConfig, parse_training_config
 
 ComposeConfig = Callable[[str, list[str] | None], DictConfig]
 PROTOCOL_PATH = Path(__file__).resolve().parents[2] / (
@@ -67,6 +68,72 @@ def test_calibrated_comparison_composes_two_matched_reward_arms():
     assert configs[0].ppo == configs[1].ppo
     assert configs[0].scenarios == configs[1].scenarios
     assert configs[0].runtime.seed == configs[1].runtime.seed == 0
+
+
+def test_issue83_lambda_arms_compose_from_the_formal_training_protocol(
+    compose_config: ComposeConfig,
+) -> None:
+    protocol = load_protocol(PROTOCOL_PATH.with_name("calibrated.yaml"))
+    arms = {}
+    for lam in (0, 1, 2, 4, 8):
+        profile = (
+            "plannerrft_no_energy_calibrated_v1"
+            if lam == 0
+            else f"plannerrft_energy_band_lam{lam}_v1"
+        )
+        parsed = parse_training_config(
+            compose_config(
+                protocol.training.base_job,
+                [
+                    *protocol.training.overrides,
+                    "runtime.seed=0",
+                    "training.replay_id=0",
+                    f"components/reward={profile}",
+                ],
+            )
+        )
+        assert isinstance(parsed, TrainingJobConfig)
+        assert parsed.reward.name == profile
+        arms[lam] = parsed
+
+    # Gate I: the resolved config states lambda, the reward profile, the
+    # training seed, and the canonical cadence for every arm.
+    for lam, parsed in arms.items():
+        if lam == 0:
+            # lambda=0 is the calibrated R0 profile, never an energy weight of zero.
+            assert parsed.reward.name == "plannerrft_no_energy_calibrated_v1"
+            assert "energy" not in type(parsed.reward.weights).model_fields
+        else:
+            assert parsed.reward.weights.energy == float(lam)
+        assert parsed.runtime.seed == 0
+        assert parsed.cadence.closed_loop_execution_steps == 5
+        assert parsed.cadence.decision_interval_s == 0.5
+
+    # Gate I: apart from the reward profile, the lambda arms share one matched
+    # training condition (scenarios, PPO control, cadence, seeds).
+    baseline = arms[0].model_dump(mode="json", exclude={"reward"})
+    for lam, parsed in arms.items():
+        if lam == 0:
+            continue
+        assert parsed.model_dump(mode="json", exclude={"reward"}) == baseline
+
+
+def test_issue83_task_1a_collection_configs_compose_the_canonical_cadence() -> None:
+    expected = {
+        "collection": "plannerrft_no_energy_v1",
+        "e-048-collection": "plannerrft_no_energy_calibrated_v1",
+    }
+    for name, profile in expected.items():
+        spec = load_resolved_yaml_mapping(CONFIG_ROOT / f"experiments/reward/{name}.yaml")
+        resolved = compose_job_config(spec["job"], list(spec["overrides"]))
+        parsed = parse_training_config(resolved)
+
+        assert parsed.reward.name == profile
+        assert parsed.runtime.seed == 0
+        assert parsed.training.replay_id == 0
+        assert parsed.cadence.simulator_step_s == 0.1
+        assert parsed.cadence.closed_loop_execution_steps == 5
+        assert parsed.cadence.decision_interval_s == 0.5
 
 
 def test_protocol_manifest_rejects_overlapping_train_and_eval_pools() -> None:

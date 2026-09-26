@@ -19,6 +19,7 @@ calibration:
 energy_band:
   full_score_intensity_quantile: 0.1
   zero_score_intensity_quantile: 0.9
+frozen_energy_band: null
 objective_gate:
   endpoint_max_actor_head_cosine: 0.99
   min_normalized_advantage_rmse: 0.1

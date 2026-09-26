@@ -1,22 +1,16 @@
 # Add reference-centered orthogonal guidance
 
-Use one frozen official-EMA Diffusion Planner instance to produce both the reference and guided
-DDIM trajectories. For each planning cycle, share one scene encoding, initial standard-normal
-noise, and DDIM transition draws. Refresh the reference every planning cycle.
+选择 reference-centered 正交 guidance，使横纵动作有明确的物理参照，且中性动作精确返回
+同次 unguided reference。Reference 与 guided pass 共用冻结官方 EMA、编码和随机样本，
+每周期刷新 reference，以免把场景或噪声差异误认为 guidance 效果。
 
-Define tangent from the normalized reference heading and use its left normal. Derive 10 Hz
-velocity from the current point followed by 80 future points. Repeated positions are valid zero
-speed; non-finite trajectories and degenerate headings fail.
+切向／左法向目标、差分速度、centered energy-gradient delta、单位注入系数及 ego-only
+梯度作用范围都是项目复现选择；PlannerRFT 未公开这些细节，不能宣称作者实现 parity。
+保留未应用的邻车梯度审计，是为了使梯度屏蔽的效果可检查。
 
-Use a project-defined centered energy-gradient delta so action `(0, 0)` is exactly neutral. The
-lateral target is at most `2.5 m`; the longitudinal target is at most `25%` of reference
-along-track speed. Differentiate the physical ego objective through checkpoint normalization and
-the frozen DiT with respect to the normalized noisy joint sample. After every DDIM transition,
-apply the unit-coefficient negative gradient only to ego future channels, reapply the current-state
-constraint, and detach before the next transition. Preserve and audit the masked neighbor
-gradient rather than applying it.
+选择将 active guidance 限于标准高斯 DDIM5，保留 DPM10 和半尺度 DDIM 为 unguided 对照。
+具体目标、梯度步骤、动作接口与 audit 字段分别由 Protocol/Contract 拥有。
 
-This discretization, neutral-action correction, unit injection coefficient, and gradient scope are
-project reproduction decisions because PlannerRFT does not publish those implementation details.
-Active guidance is restricted to the standard-Gaussian DDIM-5 profile. DPM-10 and the isolated
-`0.5 * N(0,I)` DDIM variant remain unguided controlled baselines.
+规范归属：[Planning/evaluation protocol](../research/protocols/planning-and-evaluation.md)、[Data/model contract](../contracts/data-and-model.md)、[Execution contract](../contracts/execution.md)、[Artifacts contract](../contracts/artifacts.md)。
+
+> 本篇保存设计理由与历史决定；现行要求由上述 Protocol/Contract 拥有，读取路由见 [AGENTS](../../AGENTS.md)。
