@@ -80,10 +80,18 @@ Per-transition gamma 与 GAE 公式见 training protocol，本篇不另定义时
 
 ## Reward 与 audit 对齐
 
+Reward 的通用优化结果只要求 scalar total；PlannerRFT 的 component scores、gated objective 解释数据与 profile identity 分开表达，不能要求其他 scalar objective 虚构 base/gate。
+现行 profile 的 collector/audit 适配仍使用 PlannerRFT 专属结果；这不声明新增研究 profile。
+GAE/PPO 只要求含 scalar reward 的 training trajectory，不依赖 profile、gate、base 或 audit。
+
 Collector 使用同一 execution facts 求每个实际子步 reward，再按 training protocol 归约。
 同一个 `reward_total` MUST 写入 PPO `next.reward` 与 audit，PPO 不消费 worker 零 reward 占位。
 离线 reweight/rescore 逐子步复用同一 reward 数学与归约，不从 transition 的 min gate 和 component sum
 反推 scalar reward，也不维护第二套公式。
+
+离线 reweight 只重组已存 component scores，不因传入 profile 含有不同阈值就宣称重算了分量。
+重算 component 必须具备该评分所需的原始 measurements/facts；缺失输入必须失败，不能用 transition 汇总、其他 score 或 profile 默认值代替。
+现有 calibration rescore 只重算 Progress/Comfort 及请求的 calibrated-band Energy，保留其余已存 scores/gate；完整 facts 未持久化的 TTC、gate 等不能从该 audit 宣称重新求值。
 
 Audit MUST 保存逐子步 component scores、gate、progress/comfort 运动量、proxy step mL、distance、
 distance-valid 与 `reward_substep_count`。数组容量为 canonical prefix，terminal 后无效 suffix

@@ -12,11 +12,13 @@ class _ArtifactModel(BaseModel):
 
 
 class RewardComponentMeans(_ArtifactModel):
-    ttc: StrictFloat = Field(ge=0.0, le=1.0)
-    progress: StrictFloat = Field(ge=0.0, le=1.0)
-    comfort: StrictFloat = Field(ge=0.0, le=1.0)
-    speed: StrictFloat = Field(ge=0.0, le=1.0)
-    energy: StrictFloat = Field(ge=0.0, le=1.0)
+    """Transition means of component sums over the actual execution prefix."""
+
+    ttc: StrictFloat = Field(ge=0.0)
+    progress: StrictFloat = Field(ge=0.0)
+    comfort: StrictFloat = Field(ge=0.0)
+    speed: StrictFloat = Field(ge=0.0)
+    energy: StrictFloat = Field(ge=0.0)
 
 
 class RewardDiagnosticMeans(_ArtifactModel):

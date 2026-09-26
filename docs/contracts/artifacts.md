@@ -67,7 +67,7 @@ job 最终失败、CLI 非零。配置、checkpoint、runtime 初始化、artifa
 ## Training、replay 与 checkpoint
 
 Training 与 evaluation 保持独立 schema：evaluation 不保存或聚合训练 reward。
-Training episode audit MUST 保存 reward_total、base_total、safety_gate、五个 component 与独立 diagnostic 字段，不能用旧 dense_reward/terminal_override 混指不同 objective。
+现行 PlannerRFT profiles 的 training episode audit MUST 保存 reward_total、base_total、safety_gate、五个 component 与独立 diagnostic 字段，不能用旧 dense_reward/terminal_override 混指不同 objective。
 同时保存 policy context、Beta 参数、base/guidance action、old log-prob/value、initial noise、diffusion/action RNG states、episode status、collision flags、native/proxy energy、distance、强度、denominator validity、seeds，以及 [training contract](training.md#reward-与-audit-对齐) 的子步数据。
 不保存完整 DDIM denoise chain。
 

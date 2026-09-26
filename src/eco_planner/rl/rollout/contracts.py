@@ -19,7 +19,7 @@ from eco_planner.planning.policy import (
     ExplorationPolicyContext,
     policy_context_tensordict,
 )
-from eco_planner.reward import RewardResult, aggregate_transition_reward
+from eco_planner.reward import PlannerRFTRewardResult, aggregate_transition_reward
 from eco_planner.reward.result import RewardProfileName as RewardProfileName
 
 TailKind = Literal["terminated", "truncated", "rollout_limit"]
@@ -162,8 +162,8 @@ _AUDIT_KEYS = (
 class ExecutionTransitionAudit:
     """Typed environment result for one closed-loop decision and its execution prefix."""
 
-    reward_result: RewardResult
-    substep_results: tuple[RewardResult, ...]
+    reward_result: PlannerRFTRewardResult
+    substep_results: tuple[PlannerRFTRewardResult, ...]
     route_completion_delta: float
     distance_m: float
     speed_mps: float

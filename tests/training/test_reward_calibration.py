@@ -15,6 +15,7 @@ from eco_planner.reward import (
     PlannerRFTNoEnergyRewardConfig,
     aggregate_transition_reward,
     calibrate,
+    create_reward_evaluator,
     evaluate_plannerrft_energy_step,
     evaluate_plannerrft_no_energy_step,
     scored_arrays,
@@ -23,6 +24,7 @@ from eco_planner.reward.components.comfort import component_score
 from eco_planner.rl.artifacts import read_rollout_episode, write_rollout_episode
 from eco_planner.rl.reward import (
     COMPONENTS,
+    energy_only_reward,
     raw_arrays,
     rescore,
     reward_profile,
@@ -200,6 +202,7 @@ def _band_profile() -> PlannerRFTNoEnergyRewardConfig:
 def _five_substep_parity_case(
     base: PlannerRFTNoEnergyRewardConfig | PlannerRFTEnergyRewardConfig,
     evaluate=evaluate_plannerrft_no_energy_step,
+    count=5,
 ):
     metrics = (
         _metrics(),
@@ -208,6 +211,7 @@ def _five_substep_parity_case(
         _metrics(crash_vehicle=True),
         _metrics(route_heading_rad=math.pi),
     )
+    metrics = metrics[:count]
     results = tuple(evaluate(base, metric) for metric in metrics)
     execution = ExecutionTransitionAudit(
         reward_result=aggregate_transition_reward(results),
@@ -315,4 +319,121 @@ def test_five_substep_online_offline_parity_for_issue83_band_lambda_profiles(
         )
     assert reweighted.audit["reward_base_total"].item() == pytest.approx(
         sum(result.base_total for result in results)
+    )
+
+
+@pytest.mark.parametrize("count", [1, 3, 5])
+@pytest.mark.parametrize(
+    "profile_name",
+    [
+        "plannerrft_energy_v1",
+        "plannerrft_no_energy_v1",
+        "plannerrft_no_energy_calibrated_v1",
+        "plannerrft_energy_band_lam64_v1",
+        *ISSUE83_LAMBDA_PROFILES,
+    ],
+)
+def test_all_profiles_preserve_prefix_objective_audit_and_storage(tmp_path, profile_name, count):
+    from pydantic import TypeAdapter
+
+    from eco_planner._repository import CONFIG_ROOT
+    from eco_planner.configuration import load_resolved_yaml_mapping
+    from eco_planner.reward import RewardProfileConfig
+
+    profile = TypeAdapter(RewardProfileConfig).validate_python(
+        load_resolved_yaml_mapping(CONFIG_ROOT / f"components/reward/{profile_name}.yaml")
+    )
+    episode, _, results = _five_substep_parity_case(
+        profile, lambda config, metric: create_reward_evaluator(config)(metric), count
+    )
+    path = tmp_path / "episode.npz"
+    write_rollout_episode(path, episode)
+    loaded = read_rollout_episode(path)
+    rebuilt = reweight(loaded, profile)
+    torch.testing.assert_close(
+        rebuilt.training["next", "reward"], rebuilt.audit["reward_total"], rtol=0, atol=0
+    )
+    for name in ("total", "base_total", "safety_gate", *(f"component_{c}" for c in COMPONENTS)):
+        torch.testing.assert_close(
+            rebuilt.audit[f"reward_{name}"], loaded.audit[f"reward_{name}"], rtol=1e-6, atol=1e-7
+        )
+        assert rebuilt.audit[f"reward_{name}"].dtype == torch.float32
+    for key in loaded.audit.keys():
+        if key not in {
+            "reward_total",
+            "reward_base_total",
+            *(f"reward_component_{c}" for c in COMPONENTS),
+        }:
+            torch.testing.assert_close(rebuilt.audit[key], loaded.audit[key], rtol=0, atol=0)
+    assert rebuilt.audit["reward_substep_count"].item() == count
+    for name in COMPONENTS:
+        assert (
+            torch.count_nonzero(rebuilt.audit[f"reward_substep_component_{name}"][:, count:]) == 0
+        )
+
+    # Independently retain the pre-refactor float64 tensor math as a parity oracle.
+    weights = profile.weights.model_dump()
+    base = sum(
+        loaded.audit[f"reward_substep_component_{name}"].double()[:, :count] * weight
+        for name, weight in weights.items()
+    ) / sum(weights.values())
+    expected = (
+        (base * loaded.audit["reward_substep_safety_gate"].double()[:, :count])
+        .sum(1, keepdim=True)
+        .float()
+    )
+    torch.testing.assert_close(rebuilt.audit["reward_total"], expected, rtol=0, atol=0)
+
+    endpoint = energy_only_reward(loaded)
+    assert endpoint.audit["reward_total"].item() == pytest.approx(
+        sum(result.safety_gate * result.components.energy for result in results)
+    )
+    torch.testing.assert_close(
+        endpoint.training["next", "reward"], endpoint.audit["reward_total"], rtol=0, atol=0
+    )
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        "route_progress_delta_m",
+        *MOTION_LIMITS,
+        "executed_fuel_proxy_step_energy_ml",
+        "step_distance_m",
+    ],
+)
+def test_offline_component_rescore_rejects_missing_raw_input(missing):
+    episode = _episode(reward=0.4, terminated=True, truncated=False, bootstrap=0.0)
+    del episode.audit[f"reward_substep_{missing}"]
+    with pytest.raises((KeyError, ValueError), match=missing):
+        rescore(episode, _band_profile())
+
+
+def test_reweight_reuses_scores_even_when_component_thresholds_differ():
+    episode, _, _ = _five_substep_parity_case(_no_energy_config())
+    payload = _no_energy_config().model_dump()
+    payload["progress"]["full_score_delta_m"] *= 10
+    changed = PlannerRFTNoEnergyRewardConfig.model_validate(payload)
+    original = reweight(episode, _no_energy_config())
+    recomposed = reweight(episode, changed)
+    torch.testing.assert_close(
+        original.audit["reward_total"], recomposed.audit["reward_total"], rtol=0, atol=0
+    )
+    assert not torch.equal(
+        rescore(episode, changed).audit["reward_total"], original.audit["reward_total"]
+    )
+
+
+def test_summary_and_reader_preserve_transition_component_sums_above_one():
+    from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
+    from tests.training.test_ppo import _update_report
+
+    episodes = tuple(
+        _five_substep_parity_case(_no_energy_config(), count=count)[0] for count in (1, 5)
+    )
+    summary = build_update_summary(0, episodes, _update_report(episodes))
+    restored = TrainingUpdateSummary.model_validate_json(summary.model_dump_json())
+    assert restored.reward_component_means.ttc > 1.0
+    assert restored.reward_component_means.ttc == pytest.approx(
+        sum(episode.audit["reward_component_ttc"].item() for episode in episodes) / 2
     )

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 import torch
-from tensordict import TensorDictBase, cat
+from tensordict import TensorDict, TensorDictBase, cat
 
 from eco_planner.planning.policy import (
     ExplorationPolicy,
@@ -13,7 +14,13 @@ from eco_planner.planning.policy import (
     ExplorationPolicyContext,
     policy_context_tensordict,
 )
-from eco_planner.reward import RewardComponents, RewardDiagnostics, RewardResult
+from eco_planner.reward import (
+    PlannerRFTRewardResult,
+    RewardComponents,
+    RewardDiagnostics,
+    RewardResult,
+    aggregate_scalar_rewards,
+)
 from eco_planner.reward.result import RewardProfileName
 from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater, compute_episode_gae
@@ -99,7 +106,7 @@ def _execution_audit(
     truncated: bool,
     profile_name: RewardProfileName = "plannerrft_energy_v1",
 ) -> ExecutionTransitionAudit:
-    result = RewardResult(
+    result = PlannerRFTRewardResult(
         profile_name=profile_name,
         total=reward,
         base_total=reward,
@@ -684,3 +691,40 @@ def test_scheduler_horizon_covers_every_epoch_and_minibatch_across_updates() -> 
 
     assert [report.optimizer_step_count for report in reports] == [8, 8, 8, 8]
     assert updater.completed_optimizer_steps == 32
+
+
+def test_ppo_accepts_non_gated_scalar_results_without_plannerrft_audit() -> None:
+    policy = ExplorationPolicy(_policy_config())
+    with torch.no_grad():
+        output = policy(_context())
+    action = torch.tensor([[-0.5, 0.5]])
+    decision = build_training_decision(
+        _context(), action, output.distribution.log_prob(action), output.value
+    )
+    training = cat([decision.clone(), decision.clone()])
+    rewards = [
+        aggregate_scalar_rewards([RewardResult(-0.25), RewardResult(-0.5)]),
+        RewardResult(2.0),
+    ]
+    training["next"] = TensorDict(
+        {
+            "reward": torch.tensor([[result.total] for result in rewards]),
+            "state_value": torch.zeros(2, 1),
+            "done": torch.ones(2, 1, dtype=torch.bool),
+            "terminated": torch.ones(2, 1, dtype=torch.bool),
+            "truncated": torch.zeros(2, 1, dtype=torch.bool),
+        },
+        batch_size=[2],
+    )
+    episode = SimpleNamespace(training=training)
+    assert vars(episode).keys() == {"training"}
+    assert all(
+        not hasattr(result, "safety_gate") and not hasattr(result, "components")
+        for result in rewards
+    )
+    gae = compute_episode_gae(episode, _ppo_config())
+    torch.testing.assert_close(gae["value_target"], training["next", "reward"])
+    before = {name: value.clone() for name, value in policy.state_dict().items()}
+    report = PPOUpdater(policy, _ppo_config()).update([episode])
+    assert report.optimizer_step_count == 1
+    assert any(not torch.equal(before[name], value) for name, value in policy.state_dict().items())

@@ -23,10 +23,11 @@ from ..config import (
     RewardProfileConfig,
 )
 from ..result import (
+    PlannerRFTObjectiveResult,
+    PlannerRFTRewardResult,
     RewardComponents,
     RewardDiagnostics,
     RewardProfileName,
-    RewardResult,
 )
 
 
@@ -51,6 +52,25 @@ def apply_safety_gate(base_total: Any, safety_gate: Any) -> Any:
     """Apply the PlannerRFT safety gate to a base total."""
 
     return safety_gate * base_total
+
+
+def compose_plannerrft_objective(
+    weights: Mapping[str, float], components: RewardComponents, gate: float
+) -> PlannerRFTObjectiveResult:
+    """Recompose stored scores without claiming to recompute any component.
+
+    Profile validation owns the declared weight constraints. The existing
+    energy-only diagnostic uses this same formulation with ``{"energy": 1.0}``;
+    it does not create a new profile or change the stored component mappings.
+    """
+
+    base = combine_component_scores(weights, asdict(components))
+    return PlannerRFTObjectiveResult(
+        total=apply_safety_gate(base, gate),
+        base_total=base,
+        safety_gate=gate,
+        components=components,
+    )
 
 
 def _evaluate_shared(
@@ -95,17 +115,15 @@ def _evaluate_shared(
 
 def _finalize(
     profile_name: RewardProfileName,
-    gate: float,
-    base_total: float,
-    components: RewardComponents,
+    objective: PlannerRFTObjectiveResult,
     diagnostics: RewardDiagnostics,
-) -> RewardResult:
-    result = RewardResult(
+) -> PlannerRFTRewardResult:
+    result = PlannerRFTRewardResult(
         profile_name=profile_name,
-        total=apply_safety_gate(base_total, gate),
-        base_total=base_total,
-        safety_gate=gate,
-        components=components,
+        total=objective.total,
+        base_total=objective.base_total,
+        safety_gate=objective.safety_gate,
+        components=objective.components,
         diagnostics=diagnostics,
     )
     values = [result.total, result.base_total, result.safety_gate]
@@ -125,28 +143,29 @@ def _finalize(
 def evaluate_plannerrft_energy_step(
     config: PlannerRFTEnergyRewardConfig,
     metrics: TransitionMetrics,
-) -> RewardResult:
+) -> PlannerRFTRewardResult:
     """Evaluate one transition without accessing simulator or runtime objects."""
 
     gate, components, diagnostics = _evaluate_shared(config, metrics)
-    base_total = combine_component_scores(config.weights.model_dump(), asdict(components))
-    return _finalize(config.name, gate, base_total, components, diagnostics)
+    objective = compose_plannerrft_objective(config.weights.model_dump(), components, gate)
+    return _finalize(config.name, objective, diagnostics)
 
 
 def evaluate_plannerrft_no_energy_step(
     config: PlannerRFTNoEnergyRewardConfig,
     metrics: TransitionMetrics,
-) -> RewardResult:
+) -> PlannerRFTRewardResult:
     """Evaluate the no-energy R0 objective; energy stays an unweighted diagnostic."""
 
     gate, components, diagnostics = _evaluate_shared(config, metrics)
-    base_total = combine_component_scores(config.weights.model_dump(), asdict(components))
-    return _finalize(config.name, gate, base_total, components, diagnostics)
+    objective = compose_plannerrft_objective(config.weights.model_dump(), components, gate)
+    return _finalize(config.name, objective, diagnostics)
 
 
 __all__ = [
     "apply_safety_gate",
     "combine_component_scores",
+    "compose_plannerrft_objective",
     "evaluate_plannerrft_energy_step",
     "evaluate_plannerrft_no_energy_step",
 ]

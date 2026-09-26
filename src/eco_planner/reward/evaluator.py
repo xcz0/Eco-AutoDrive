@@ -8,7 +8,7 @@ from eco_planner.envs.domain import TransitionMetrics
 
 from .config import PlannerRFTNoEnergyRewardConfig, RewardProfileConfig
 from .objectives import evaluate_plannerrft_energy_step, evaluate_plannerrft_no_energy_step
-from .result import RewardResult
+from .result import PlannerRFTRewardResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,7 +17,7 @@ class RewardEvaluator:
 
     config: RewardProfileConfig
 
-    def __call__(self, metrics: TransitionMetrics) -> RewardResult:
+    def __call__(self, metrics: TransitionMetrics) -> PlannerRFTRewardResult:
         if isinstance(self.config, PlannerRFTNoEnergyRewardConfig):
             return evaluate_plannerrft_no_energy_step(self.config, metrics)
         return evaluate_plannerrft_energy_step(self.config, metrics)

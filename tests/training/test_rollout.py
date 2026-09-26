@@ -15,7 +15,7 @@ from eco_planner.envs.domain import (
     TransitionMetrics,
 )
 from eco_planner.planning.policy import ExplorationPolicyContext, policy_context_tensordict
-from eco_planner.reward import RewardComponents, RewardDiagnostics, RewardResult
+from eco_planner.reward import PlannerRFTRewardResult, RewardComponents, RewardDiagnostics
 from eco_planner.rl.artifacts import (
     ENERGY_ROLLOUT_ARTIFACT_FIELDS,
     write_rollout_episode,
@@ -277,8 +277,8 @@ def test_batch_and_slot_audit_share_one_deferred_payload() -> None:
     torch.testing.assert_close(slot_audit["policy_rng_state"][0], policy_states[1])
 
 
-def _reward_result(total: float, *, safety_gate: float = 1.0) -> RewardResult:
-    return RewardResult(
+def _reward_result(total: float, *, safety_gate: float = 1.0) -> PlannerRFTRewardResult:
+    return PlannerRFTRewardResult(
         profile_name="plannerrft_energy_v1",
         total=total,
         base_total=total,
@@ -390,10 +390,10 @@ def _execution_result(
 
 
 class _ScriptedEvaluator:
-    def __init__(self, results: tuple[RewardResult, ...]) -> None:
+    def __init__(self, results: tuple[PlannerRFTRewardResult, ...]) -> None:
         self._results = list(results)
 
-    def __call__(self, metrics: TransitionMetrics) -> RewardResult:
+    def __call__(self, metrics: TransitionMetrics) -> PlannerRFTRewardResult:
         return self._results.pop(0)
 
 

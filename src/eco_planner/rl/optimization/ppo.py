@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Protocol
 
 import torch
 from tensordict import TensorDictBase, cat
@@ -32,7 +33,6 @@ from eco_planner.rl.rollout.contracts import (
 )
 from eco_planner.rl.rollout.contracts import (
     TRAINING_KEYS,
-    RolloutEpisode,
 )
 
 _PPO_UPDATE_METRIC_NAMES = (
@@ -92,7 +92,14 @@ class PPOUpdateReport:
     gradient_diagnostics: PPOGradientDiagnostics | None
 
 
-def compute_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> TensorDictBase:
+class TrainingEpisode(Protocol):
+    """The optimizer requires only the scalar-reward training trajectory."""
+
+    @property
+    def training(self) -> TensorDictBase: ...
+
+
+def compute_episode_gae(episode: TrainingEpisode, config: PPOConfig) -> TensorDictBase:
     """Run TorchRL GAE and append its detached outputs to the PPO trajectory."""
 
     return _compute_gae(episode.training.select(*TRAINING_KEYS).clone(), config)
@@ -219,7 +226,7 @@ class PPOUpdater:
         self._kl_early_stop_count = early_stops
         self._minibatch_generator.set_state(generator_state)
 
-    def update(self, episodes: Sequence[RolloutEpisode]) -> PPOUpdateReport:
+    def update(self, episodes: Sequence[TrainingEpisode]) -> PPOUpdateReport:
         """Perform all configured PPO epochs over one immutable rollout batch."""
 
         self.policy.eval()
@@ -398,7 +405,7 @@ def _build_torchrl_policy_adapters(
 
 
 def build_ppo_batch(
-    episodes: Sequence[RolloutEpisode],
+    episodes: Sequence[TrainingEpisode],
     config: PPOConfig,
     *,
     device: torch.device | None = None,

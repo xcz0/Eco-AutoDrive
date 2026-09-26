@@ -18,9 +18,9 @@ from eco_planner.reward import (
     FrozenEnergyBand,
     PlannerRFTEnergyRewardConfig,
     PlannerRFTNoEnergyRewardConfig,
+    PlannerRFTRewardResult,
     RewardComponents,
     RewardDiagnostics,
-    RewardResult,
     aggregate_transition_reward,
     apply_frozen_energy_band,
     evaluate_plannerrft_energy_step,
@@ -742,7 +742,7 @@ def _diagnostics(**updates: object) -> RewardDiagnostics:
     return RewardDiagnostics(**values)  # type: ignore[arg-type]
 
 
-def _result(**updates: object) -> RewardResult:
+def _result(**updates: object) -> PlannerRFTRewardResult:
     values: dict[str, object] = {
         "profile_name": "plannerrft_energy_v1",
         "total": 1.0,
@@ -752,7 +752,7 @@ def _result(**updates: object) -> RewardResult:
         "diagnostics": _diagnostics(),
     }
     values.update(updates)
-    return RewardResult(**values)  # type: ignore[arg-type]
+    return PlannerRFTRewardResult(**values)  # type: ignore[arg-type]
 
 
 def test_transition_aggregation_of_one_substep_is_identical_to_that_substep() -> None:
@@ -886,3 +886,23 @@ def test_transition_aggregation_rejects_empty_and_mixed_profile_inputs() -> None
                 _result(profile_name="plannerrft_no_energy_v1"),
             ]
         )
+
+
+@pytest.mark.parametrize("count", [0, -1, 4])
+def test_recomposition_rejects_invalid_prefix(count):
+    from eco_planner.reward import recompose_reward_prefix
+
+    with pytest.raises(ValueError, match="valid substep count"):
+        recompose_reward_prefix({"energy": 1.0}, [_components()] * 3, [1.0] * 3, count)
+
+
+def test_recomposition_excludes_unexecuted_padding_from_gate_and_scores():
+    from eco_planner.reward import energy_only_prefix
+
+    valid = _components(energy=0.25)
+    padded = _components(energy=float("nan"))
+    result = energy_only_prefix([valid, padded], [0.5, 0.0], 1)
+    assert result.total == 0.125
+    assert result.base_total == 0.25
+    assert result.safety_gate == 0.5
+    assert result.components == valid
