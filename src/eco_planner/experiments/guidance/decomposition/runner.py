@@ -12,7 +12,7 @@ from omegaconf import OmegaConf
 
 from eco_planner._repository import REPOSITORY_ROOT
 from eco_planner.analysis import publish
-from eco_planner.artifacts import collect_repository_metadata, write_json
+from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.evaluation import parse_evaluation_config
 from eco_planner.evaluation.intervention import InterventionExecution, collect_group
@@ -32,6 +32,7 @@ from eco_planner.runtime.envs import (
     VectorEnvScenario,
     VectorMetaDriveEnv,
 )
+from eco_planner.runtime.metadata import collect_repository_metadata
 from eco_planner.runtime.resources import require_resource_profile
 
 

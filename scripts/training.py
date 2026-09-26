@@ -12,7 +12,6 @@ from omegaconf import DictConfig
 
 from eco_planner._repository import LOCAL_ENVIRONMENT_PATH
 from eco_planner.configuration import load_local_environment, with_machine_resource_override
-from eco_planner.jobs import run_training_job
 
 
 @hydra.main(
@@ -21,8 +20,10 @@ from eco_planner.jobs import run_training_job
     config_name="jobs/training/ppo",
 )
 def _hydra_main(config: DictConfig) -> None:
+    from eco_planner.jobs import run_training_job
+
     output_dir = Path(HydraConfig.get().runtime.output_dir)
-    summary = run_training_job(config, output_dir)
+    summary = run_training_job(config, output_dir, overrides=HydraConfig.get().overrides.task)
     print(summary.model_dump_json(indent=2))
 
 

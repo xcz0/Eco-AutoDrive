@@ -64,6 +64,7 @@ Resources 只提供 worker／slot／thread 容量，不能决定科学参数或 
 稳定 application logic 属于 `src/eco_planner`，scripts 仅做参数、bootstrap、展示与退出码。
 通用机制归最低稳定层，共享配置不由 evaluation 私有拥有；底层及 analysis 不依赖具体 experiments。
 Reward 数学归 reward 层，collector 消费 domain facts，环境／worker 不执行 reward profile。
+RL 拥有梯度、参数变化和 KL 测量，实验层拥有跨运行汇总与研究判据。
 业务实现不得从只读 `ref/` 导入。CLI 或 offline reader 的轻量依赖保证见 artifacts contract。
 
 配置、文件及第三方返回值首次进入 typed domain 时校验／转换一次。内部受控数据流依赖类型与 producer tests，不重复做同层防御检查；有限性、冻结参数、RNG 等科学语义检查仍必须保留。

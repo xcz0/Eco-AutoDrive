@@ -11,7 +11,8 @@ import torch
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
-from eco_planner.artifacts import collect_repository_metadata, write_json
+from eco_planner.artifacts import write_json
+from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS, DECISION_INTERVAL_S, SIMULATOR_STEP_S
 from eco_planner.planning import create_diffusion_runtime, create_policy_guidance_runtime
 from eco_planner.planning.diffusion import (
     GuidanceConfig,
@@ -23,6 +24,7 @@ from eco_planner.planning.policy import (
     policy_state_hash,
 )
 from eco_planner.runtime.fabric import InferenceRuntimeReport, resolve_runtime_settings
+from eco_planner.runtime.metadata import collect_repository_metadata
 
 from .artifacts import JobSummary, PolicyCheckpointProvenance, RuntimeMetadata
 from .config import EvaluationJobConfig
@@ -160,6 +162,7 @@ def run_evaluation_agent(
                 if agent.policy_checkpoint is None
                 else agent.policy_checkpoint.model_dump(mode="python")
             ),
+            "policy_action": agent.policy_action,
             "workload": {
                 "mode": config.evaluation.mode,
                 "profile": config.evaluation.profile,
@@ -268,6 +271,11 @@ def write_runtime_metadata(
             "sampler": asdict(sampler_report),
             "guidance": asdict(guidance_config),
             "execution": asdict(execution_report),
+            "cadence": {
+                "simulator_step_s": SIMULATOR_STEP_S,
+                "closed_loop_execution_steps": CLOSED_LOOP_EXECUTION_STEPS,
+                "decision_interval_s": DECISION_INTERVAL_S,
+            },
             "elapsed_seconds": elapsed_seconds,
             "cuda_memory": _cuda_memory_report(runtime_report),
         }

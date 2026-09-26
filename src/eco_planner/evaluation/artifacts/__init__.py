@@ -6,6 +6,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from ..metrics import compute_episode_metrics, compute_trace_energy
     from .io import (
         load_episode_summary,
         load_job_summary,
@@ -37,7 +38,6 @@ if TYPE_CHECKING:
         WarmupSummary,
     )
     from .report import build_matrix_report, summarize_matrix
-    from .summary import compute_episode_metrics, compute_trace_energy
 
 _EXPORTS = {
     "CompletedEpisodeSummary": (".models", "CompletedEpisodeSummary"),
@@ -66,8 +66,8 @@ _EXPORTS = {
     "validate_episode_artifact": (".io", "validate_episode_artifact"),
     "validate_matrix_episode": (".io", "validate_matrix_episode"),
     "write_episode_artifacts": (".io", "write_episode_artifacts"),
-    "compute_episode_metrics": (".summary", "compute_episode_metrics"),
-    "compute_trace_energy": (".summary", "compute_trace_energy"),
+    "compute_episode_metrics": ("..metrics", "compute_episode_metrics"),
+    "compute_trace_energy": ("..metrics", "compute_trace_energy"),
     "build_matrix_report": (".report", "build_matrix_report"),
     "summarize_matrix": (".report", "summarize_matrix"),
 }

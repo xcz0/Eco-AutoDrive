@@ -1,18 +1,13 @@
-"""Shared JSON and reproducibility metadata helpers for research artifacts."""
+"""Lightweight JSON and NPZ I/O; domain schemas belong to their readers and writers."""
 
 from __future__ import annotations
 
 import json
-import platform
-import subprocess
-import sys
 from collections.abc import Mapping
-from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
 from pydantic import BaseModel
 
 
@@ -21,7 +16,8 @@ def write_json(path: Path, payload: BaseModel | dict[str, object]) -> None:
 
     value: Any = payload.model_dump(mode="json") if isinstance(payload, BaseModel) else payload
     path.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False),
+        encoding="utf-8",
     )
 
 
@@ -32,29 +28,13 @@ def write_npz(path: Path, arrays: Mapping[str, np.ndarray]) -> None:
     np.savez(path, **arrays)  # pyright: ignore[reportArgumentType]
 
 
-def collect_repository_metadata(repository_root: Path) -> dict[str, object]:
-    """Collect source and runtime facts shared by evaluation and training artifacts."""
-
-    return {
-        "git_head": _git_output(repository_root, "rev-parse", "HEAD").strip(),
-        "git_branch": _git_output(repository_root, "rev-parse", "--abbrev-ref", "HEAD").strip(),
-        "git_status_short": tuple(_git_output(repository_root, "status", "--short").splitlines()),
-        "platform": platform.platform(),
-        "python": sys.version,
-        "torch": torch.__version__,
-        "lightning": version("lightning"),
-        "metadrive": version("metadrive-simulator"),
-        "pydantic": version("pydantic"),
-    }
+def read_json(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"expected a JSON object: {path}")
+    return value
 
 
-def _git_output(repository_root: Path, *arguments: str) -> str:
-    result = subprocess.run(
-        ["git", *arguments],
-        cwd=repository_root,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    return result.stdout
+def read_arrays(path: Path) -> dict[str, np.ndarray]:
+    with np.load(path, allow_pickle=False) as archive:
+        return {key: archive[key] for key in archive.files}

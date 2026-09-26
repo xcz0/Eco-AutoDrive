@@ -7,7 +7,7 @@ from omegaconf import OmegaConf
 
 from eco_planner.analysis.runner import analyze
 from eco_planner.artifacts import write_json
-from eco_planner.evaluation.artifacts.models import PolicyCheckpointProvenance
+from eco_planner.evaluation.artifacts.models import PolicyActionSummary, PolicyCheckpointProvenance
 from eco_planner.experiments.protocol.config import DEFAULT_PROTOCOL
 from eco_planner.experiments.training import grid, runner
 from tests.analysis.test_reports import job
@@ -84,9 +84,13 @@ def test_policy_evaluation_reuses_only_matched_deterministic_evidence(
     def evaluation(directory, seed):
         value = job().model_copy(
             update={
+                "policy_action": PolicyActionSummary(
+                    action_mode="mean" if seed is None else "sample",
+                    policy_action_seeds=() if seed is None else (seed,),
+                ),
                 "policy_checkpoint": PolicyCheckpointProvenance(
                     label="final", path="policy.pt", policy_hash=training.final_policy_hash
-                )
+                ),
             }
         )
         if seed is None and mismatch == "hash":

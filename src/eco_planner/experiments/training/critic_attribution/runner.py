@@ -20,7 +20,7 @@ from omegaconf import OmegaConf
 from eco_planner._repository import REPOSITORY_ROOT
 from eco_planner.analysis import publish
 from eco_planner.analysis.statistics import advantage_comparison, gradient_comparison
-from eco_planner.artifacts import collect_repository_metadata, write_json, write_npz
+from eco_planner.artifacts import write_json, write_npz
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.planning.policy import (
     ExplorationPolicy,
@@ -34,6 +34,7 @@ from eco_planner.rl import (
 )
 from eco_planner.rl.optimization.credit import credit_batch
 from eco_planner.rl.optimization.gradients import GRADIENT_GROUPS, diagnostic_variants
+from eco_planner.runtime.metadata import collect_repository_metadata
 
 from .diagnostics import AttributionRun, CriticAttributionConfig, evaluate_materiality
 

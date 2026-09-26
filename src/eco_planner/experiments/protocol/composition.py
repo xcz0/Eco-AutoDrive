@@ -9,7 +9,6 @@ from typing import Literal
 from omegaconf import DictConfig
 
 from eco_planner.evaluation import EvaluationJobConfig, parse_evaluation_config
-from eco_planner.evaluation.artifacts.models import JobSummary
 from eco_planner.experiments.protocol.config import (
     ComparisonProtocol,
     TrainedPolicyArmConfig,
@@ -158,18 +157,3 @@ def _require_training_protocol(
     num_scenarios = parsed.env.get("num_scenarios")
     if type(num_scenarios) is not int or num_scenarios <= maximum_seed:
         raise ValueError(f"training env.num_scenarios must exceed map seed {maximum_seed}")
-
-
-def validate_evaluation(protocol: ComparisonProtocol, summary: JobSummary) -> None:
-    if {
-        (e.scenario.map_sequence, e.scenario.seed) for e in summary.episodes
-    } != protocol.held_out_pairs():
-        raise ValueError("evaluation does not cover the held-out pool")
-    if summary.runtime.seed != protocol.evaluation.seed:
-        raise ValueError("evaluation seed differs from protocol")
-    if (
-        summary.workload.evaluated_horizon_steps != protocol.evaluation.horizon_steps
-        or summary.sampler.name != protocol.evaluation.sampler
-        or summary.sampler.ddim_stochasticity != 0
-    ):
-        raise ValueError("evaluation horizon/sampler differs from protocol")

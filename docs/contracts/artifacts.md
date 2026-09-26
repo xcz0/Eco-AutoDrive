@@ -20,6 +20,9 @@ MUST／MUST NOT 表示强制的软件保证。
 Sampler 的 backend/profile、步数、初始尺度、stochasticity、时间序列和 parity 标签必须可追溯；
 地图 seed 与 diffusion/action seed 分别记录。Checkpoint label/path/state hash 必须对应所用策略。
 Resolved config 只作 provenance，不是第二个 metric/result source。
+程序化 job 与 CLI 均保存实际 composition overrides，独立于 resolved config；缺失来源不能伪装成空 overrides。
+Evaluation 保存正式 cadence 与实际 policy action mode／seeds；mean mode 不记录被消费的 action RNG。
+Evaluation 的 reward 来源仅由显式训练证据及 comparison 输入追溯，不成为 evaluation reward 或 metric。
 
 正式结果的 clean-commit 要求由登记规则拥有。
 Writer 保留 Git/runtime metadata，不复制 Python source 或 tracked diff，不因此添加新的 preflight／manifest／格式握手。
@@ -107,6 +110,7 @@ Critic attribution 的 offline reporting 可核对 advantage，不重算梯度�
 | Critic attribution | diagnostics NPZ、sample index、summary、diagnostic config、runtime metadata |
 
 Help、offline analyze、summary/trace/report reader MUST 不加载 Torch、MetaDrive/Panda3D 或渲染器。
+公共 JSON/NPZ I/O 不加载执行环境，运行环境采集归 runtime。
 仅生成图片时加载绘图库并使用 headless backend。Analysis 不反向依赖 experiments，不将库调用链写成规范；
 具体字段集合仍由 machine-readable schema 拥有。
 

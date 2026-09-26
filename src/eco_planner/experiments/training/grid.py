@@ -20,11 +20,9 @@ from eco_planner.experiments.protocol.composition import (
 from eco_planner.experiments.protocol.config import load_protocol
 from eco_planner.experiments.training.config import TrainingGridConfig, load_training_grid
 from eco_planner.experiments.training.decisions import evaluate_heldout_change, evaluate_update_gate
+from eco_planner.experiments.training.measurements import extract_arm_metrics
 from eco_planner.jobs import run_evaluation_job, run_training_job
-from eco_planner.rl.optimization.update_diagnostics import (
-    extract_arm_metrics,
-    post_update_kl_series,
-)
+from eco_planner.rl.optimization.update_diagnostics import post_update_kl_series
 
 
 def arm_label(learning_rate: float, epochs: int, max_gradient_norm: float) -> str:

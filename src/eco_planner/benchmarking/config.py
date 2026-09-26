@@ -22,8 +22,9 @@ from pydantic import (
 
 from eco_planner.analysis.statistics import Measurement as Measurement
 from eco_planner.analysis.statistics import measurement as measurement
-from eco_planner.artifacts import collect_repository_metadata, write_json
+from eco_planner.artifacts import write_json
 from eco_planner.configuration import ModelPathsConfig
+from eco_planner.runtime.metadata import collect_repository_metadata
 from eco_planner.runtime.resources import ResourceProfileConfig
 
 

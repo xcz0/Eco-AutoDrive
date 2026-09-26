@@ -68,3 +68,8 @@ def test_reward_does_not_import_rl_or_workflow_modules(
 ) -> None:
     offenders = _offenders(package, forbidden)
     assert not offenders, f"{package} imports forbidden RL/workflow modules: {offenders}"
+
+
+@pytest.mark.parametrize("package", ["rl", "planning", "reward", "runtime", "evaluation"])
+def test_core_does_not_depend_on_experiment_organization(package: str) -> None:
+    assert not _offenders(package, ("eco_planner.analysis", "eco_planner.experiments"))

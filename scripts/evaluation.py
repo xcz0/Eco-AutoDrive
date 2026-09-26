@@ -11,7 +11,6 @@ from omegaconf import DictConfig
 
 from eco_planner._repository import LOCAL_ENVIRONMENT_PATH
 from eco_planner.configuration import load_local_environment, with_machine_resource_override
-from eco_planner.jobs import run_evaluation_job
 
 
 @hydra.main(
@@ -20,8 +19,10 @@ from eco_planner.jobs import run_evaluation_job
     config_name="jobs/evaluation/no_traffic",
 )
 def _hydra_main(config: DictConfig) -> None:
+    from eco_planner.jobs import run_evaluation_job
+
     output_dir = Path(HydraConfig.get().runtime.output_dir)
-    summary = run_evaluation_job(config, output_dir)
+    summary = run_evaluation_job(config, output_dir, overrides=HydraConfig.get().overrides.task)
     print(summary.model_dump_json(indent=2))
     if summary.status == "failed":
         raise SystemExit(1)

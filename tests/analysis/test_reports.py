@@ -23,6 +23,7 @@ from eco_planner.evaluation.artifacts.models import (
     EvaluationWorkload,
     InferenceRuntimeSummary,
     JobSummary,
+    PolicyActionSummary,
     PolicyCheckpointProvenance,
     WorkloadScenario,
 )
@@ -195,9 +196,10 @@ def test_scalar_explicit_grouping_and_checkpoint_validation(tmp_path, training_s
     write_json(source / "a0/summary.json", job().model_dump(mode="json"))
     policy = job(1.0).model_copy(
         update={
+            "policy_action": PolicyActionSummary(action_mode="mean", policy_action_seeds=()),
             "policy_checkpoint": PolicyCheckpointProvenance(
                 label="final", path="policy.pt", policy_hash=training_summary.final_policy_hash
-            )
+            ),
         }
     )
     write_json(source / "a2/summary.json", policy.model_dump(mode="json"))

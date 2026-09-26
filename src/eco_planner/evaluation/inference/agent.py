@@ -20,7 +20,7 @@ from eco_planner.planning.diffusion import (
 from eco_planner.runtime.fabric import InferenceRuntimeReport
 from eco_planner.runtime.host_transfer import HostTransfer
 
-from ..artifacts.models import PolicyCheckpointProvenance
+from ..artifacts.models import PolicyActionSummary, PolicyCheckpointProvenance
 from .decision import (
     InferenceDecision,
     prepare_diffusion_inference_decision,
@@ -58,6 +58,9 @@ class EvaluationAgent(Protocol):
 
     @property
     def policy_checkpoint(self) -> PolicyCheckpointProvenance | None: ...
+
+    @property
+    def policy_action(self) -> PolicyActionSummary | None: ...
 
     @property
     def guided(self) -> bool: ...
@@ -109,6 +112,10 @@ class DiffusionEvaluationAgent:
 
     @property
     def policy_checkpoint(self) -> PolicyCheckpointProvenance | None:
+        return None
+
+    @property
+    def policy_action(self) -> PolicyActionSummary | None:
         return None
 
     @property
@@ -168,6 +175,12 @@ class PolicyCheckpointEvaluationAgent:
     action_mode: Literal["mean", "sample"]
     policy_action_seeds: tuple[int, ...]
     _host_transfer: HostTransfer = field(init=False, repr=False, compare=False)
+
+    @property
+    def policy_action(self) -> PolicyActionSummary:
+        return PolicyActionSummary(
+            action_mode=self.action_mode, policy_action_seeds=self.policy_action_seeds
+        )
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "_host_transfer", HostTransfer(self.runtime.device))
