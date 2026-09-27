@@ -61,7 +61,10 @@ Hydra/OmegaConf 只在 composition 边界存在，领域执行接收严格 typed
 Resources 只提供 worker／slot／thread 容量，不能决定科学参数或 execution topology；换机器不得静默改变 PPO、reward、sampler、guidance 或场景定义。Semantic job 可以无机器 profile 地 compose/validate，执行边界需要预算时缺少 profile 则失败，不合成默认预算。
 显式 resources override 优先；进程环境不被 `.env` 覆盖；自动机器选择仅在无显式 override 时使用。
 
-稳定 application logic 属于 `src/eco_planner`，scripts 仅做参数、bootstrap、展示与退出码。
+正式 application logic 属于 `src/eco_planner`，scripts 仅做参数、bootstrap、展示与退出码。
+性能工作流归仓库级 `benchmarks/`，单向消费 planning、envs、RL 的正式能力及领域 artifact
+校验／映射；核心包不得依赖 benchmarks。Warmup、repeats、规模扫描和性能报告由 benchmark
+拥有，不复制生产执行；安全、能耗与成功率的方法评价仍归 evaluation／experiments。
 通用机制归最低稳定层，共享配置不由 evaluation 私有拥有；planning、reward、RL、runtime 与 evaluation 不依赖具体 experiments。
 实验主题拥有编排、分析和报告；共享统计与报告格式机制不反向分派主题。RL 拥有梯度、参数变化和 KL 测量，实验层拥有跨运行汇总与研究判据。
 MetaDrive vector environment、worker、TorchRL adapter 与 partial reset/step sidecar 归 `envs.parallel`，

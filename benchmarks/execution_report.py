@@ -31,6 +31,7 @@ def plot(data: dict, output: Path) -> list[str]:
 
 
 def write_report(source: Path, output: Path, data: dict, files: list[str]) -> None:
+    from eco_planner.reporting.markdown import evidence_tables
     from eco_planner.reporting.markdown import write_report as write_markdown
 
     write_markdown(
@@ -39,8 +40,17 @@ def write_report(source: Path, output: Path, data: dict, files: list[str]) -> No
         output,
         data,
         files,
-        evidence={
-            "modes": data["modes"],
-            "recorded_provenance": data["recorded_comparison"].get("provenance"),
-        },
+        body=(
+            "Execution-backend timing for a matched workload. Input artifact schemas and "
+            "declared topology are validated by their owners; matching the workload does "
+            "not establish numerical or behavioral parity. Safety, energy and success-rate "
+            "comparisons belong to evaluation and research experiments.\n\n"
+            + evidence_tables(
+                {
+                    "modes": data["modes"],
+                    "recorded_provenance": data["recorded_comparison"].get("provenance"),
+                },
+                "Performance",
+            )
+        ),
     )

@@ -80,7 +80,7 @@ def test_collection_bootstrap_sets_cuda_before_environment(monkeypatch):
         ),
         (
             "scripts.benchmark_execution",
-            "eco_planner.benchmarking.execution",
+            "benchmarks.execution",
             "write_report",
             "report --serial-dir serial --job-level-dir job --vector-dir vector "
             "--serial-wall-s 1 --job-level-wall-s 2 --vector-wall-s 3 "
@@ -142,6 +142,20 @@ def test_reward_validation_exit_status(monkeypatch, status, code, capsys):
 
 
 HYDRA_ENTRYPOINTS = ("scripts.evaluation", "scripts.training", "scripts.benchmark")
+
+
+@pytest.mark.parametrize("kind", ["environment", "throughput", "rollout"])
+def test_benchmark_routes_to_repository_workflow(monkeypatch, kind):
+    from omegaconf import OmegaConf
+
+    from scripts import benchmark
+
+    calls = []
+    module = import_module(f"benchmarks.{kind}")
+    monkeypatch.setattr(module, "run", lambda config: calls.append(config))
+    config = OmegaConf.create({"benchmark": {"kind": kind}})
+    benchmark._hydra_main.__wrapped__(config)
+    assert calls == [config]
 
 
 @pytest.mark.parametrize("module_name", HYDRA_ENTRYPOINTS)

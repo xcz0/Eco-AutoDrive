@@ -1,4 +1,4 @@
-"""Internal benchmark workflows and artifact analysis."""
+"""Repository-only performance workflows consuming production capabilities."""
 
 from importlib import import_module
 from typing import TYPE_CHECKING, Any

@@ -9,7 +9,7 @@ MODULES = {
     "reward-sanity": "eco_planner.experiments.reward.sanity_analysis",
     "energy-sweep": "eco_planner.experiments.guidance.sweep_analysis",
     "scalar-reward": "eco_planner.experiments.comparison.analysis",
-    "execution-backend": "eco_planner.benchmarking.execution_analysis",
+    "execution-backend": "benchmarks.execution_analysis",
     "guidance-control-authority": "eco_planner.experiments.guidance.authority.analysis",
     "guidance-horizon": "eco_planner.experiments.guidance.horizon.analysis",
     "guidance-deferral": "eco_planner.experiments.guidance.deferral.analysis",

@@ -378,7 +378,7 @@ def test_offline_imports_do_not_load_execution_modules():
 import sys
 import scripts.experiments
 import eco_planner.experiments.comparison.analysis
-import eco_planner.benchmarking.execution_analysis
+import benchmarks.execution_analysis
 import eco_planner.experiments.fixed_batch
 import eco_planner.experiments.comparison.inputs
 import eco_planner.experiments.guidance.authority.report

@@ -183,4 +183,4 @@ Transfer 验收归 [Issue #83](https://github.com/xcz0/Eco-AutoDrive/issues/83)�
 | Deferral / decomposition | [guidance studies](../../../src/eco_planner/experiments/guidance/) | [deferral](../../../tests/training/test_guidance_deferral.py)、[decomposition](../../../tests/training/test_guidance_decomposition.py) |
 | Frozen-policy bridge | [policy intervention](../../../src/eco_planner/evaluation/policy_intervention.py) | [bridge](../../../tests/training/test_guidance_execution_bridge.py) |
 | Offline attribution / reporting | [credit math](../../../src/eco_planner/rl/optimization/credit.py)、[experiments](../../../src/eco_planner/experiments/) | [credit](../../../tests/training/test_credit_assignment.py)、[reports](../../../tests/analysis/test_reports.py) |
-| Benchmark | [benchmarking](../../../src/eco_planner/benchmarking/)、[configs](../../../configs/components/benchmark/) | [rollout benchmark](../../../tests/benchmarking/test_rollout.py) |
+| Benchmark | [benchmarks](../../../benchmarks/)、[configs](../../../configs/components/benchmark/) | [rollout benchmark](../../../tests/benchmarking/test_rollout.py) |

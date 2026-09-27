@@ -1,4 +1,4 @@
-"""Descriptive analysis of persisted sanity, replay and execution evidence."""
+"""Performance statistics over persisted execution-backend measurements."""
 
 from pathlib import Path
 from typing import Any
@@ -45,14 +45,14 @@ def analyze(
 def publish(
     source: Path, output: Path, *, figures: bool = True, source_file: Path | None = None
 ) -> dict:
-    from eco_planner.benchmarking.execution_report import write_report
+    from benchmarks.execution_report import write_report
     from eco_planner.reporting.artifacts import write_analysis
 
     data = execution(source_file or source / "evaluation_modes.json")
     output.mkdir(parents=True, exist_ok=True)
     files = []
     if figures:
-        from eco_planner.benchmarking.execution_report import plot
+        from benchmarks.execution_report import plot
         from eco_planner.reporting.plots import plt
 
         with plt.style.context("default"):

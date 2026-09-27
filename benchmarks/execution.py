@@ -11,8 +11,8 @@ from typing import cast
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
 
-from eco_planner.benchmarking import write_benchmark_artifacts
-from eco_planner.benchmarking.execution_analysis import mode_report, publish
+from benchmarks import write_benchmark_artifacts
+from benchmarks.execution_analysis import mode_report, publish
 from eco_planner.evaluation import JobSummary, load_job_summary, load_runtime_metadata
 from eco_planner.runtime.metadata import collect_repository_metadata
 

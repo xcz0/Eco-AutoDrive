@@ -135,6 +135,9 @@ just exp training grid --output-dir outputs/optimizer-grid
 ```
 
 软件验证与后端比较继续使用 `just validation reward` 和 `just benchmark execution`。
+性能工作流位于仓库级 [benchmarks](benchmarks/)，配置入口保留在
+[jobs/benchmark](configs/jobs/benchmark/) 与 [components/benchmark](configs/components/benchmark/)。
+这些入口从仓库根目录运行，不随核心 `eco_planner` wheel 发布。
 
 机器资源通过版本化 profile 选择，例如 `components/resources=rtx_a4000`；它只改变 worker、slot 和线程预算。CLI 与 study bootstrap 会按需读取仓库根目录的可选 `.env`，并以 `MACHINE_NAME` 自动选择同名的 `configs/components/resources/<机器名>.yaml`。进程中已有的 `MACHINE_NAME` 优先于 `.env`，显式 Hydra `components/resources=...` override 又优先于两者；可用值见该目录，`.env.example` 给出格式。
 

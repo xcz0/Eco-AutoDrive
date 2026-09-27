@@ -9,14 +9,14 @@ import pytest
 from hydra.errors import MissingConfigException
 from omegaconf import DictConfig, OmegaConf
 
-from eco_planner import jobs
-from eco_planner.benchmarking.config import (
+from benchmarks.config import (
     EnvironmentBenchmarkJobConfig,
     RolloutBenchmarkConfig,
     ScalingBenchmarkConfig,
     parse_environment_job,
     split_benchmark_config,
 )
+from eco_planner import jobs
 from eco_planner.configuration import (
     load_local_environment,
     with_machine_resource_override,

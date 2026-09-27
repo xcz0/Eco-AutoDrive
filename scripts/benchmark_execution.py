@@ -23,14 +23,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def dispatch(args: argparse.Namespace) -> dict:
     if args.action == "analyze":
-        from eco_planner.benchmarking.execution_analysis import analyze
+        from benchmarks.execution_analysis import analyze
 
         return analyze(
             args.source_dir,
             args.output_dir,
             figures=not args.no_figures,
         )
-    from eco_planner.benchmarking.execution import write_report
+    from benchmarks.execution import write_report
 
     return write_report(
         args.serial_dir,

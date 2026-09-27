@@ -22,11 +22,16 @@ from eco_planner.envs.parallel import (
     operation_results,
 )
 from eco_planner.evaluation import (
-    DiffusionEvaluationAgent,
     EvaluationJobConfig,
     parse_evaluation_config,
 )
+from eco_planner.evaluation.inference.decision import (
+    InferenceDecision,
+    prepare_diffusion_inference_decision,
+    validate_artifact_observation_fields,
+)
 from eco_planner.planning import DiffusionRuntime, create_diffusion_runtime
+from eco_planner.runtime.host_transfer import HostTransfer
 from eco_planner.runtime.resources import require_resource_profile
 
 from .config import (
@@ -80,7 +85,7 @@ def benchmark_planner_batch_scaling(
 ) -> list[dict[str, object]]:
     """Measure CPU batch input through the synchronous execution-trajectory copy."""
 
-    agent = DiffusionEvaluationAgent(runtime)
+    host_transfer = HostTransfer(runtime.device)
     results: list[dict[str, object]] = []
     for batch_size in benchmark.batch_sizes:
         batched_observation = cast(TensorDictBase, TensorDictBase.stack([observation] * batch_size))
@@ -89,7 +94,9 @@ def benchmark_planner_batch_scaling(
             for index in range(batch_size)
         )
         for _ in range(benchmark.warmup_cycles):
-            agent.infer_batch(
+            _infer_batch(
+                runtime,
+                host_transfer,
                 batched_observation,
                 runtime.sample_noise(generators),
                 generators,
@@ -110,7 +117,9 @@ def benchmark_planner_batch_scaling(
             d2h = 0.0
             for _ in range(benchmark.measured_cycles):
                 started = perf_counter()
-                decision = agent.infer_batch(
+                decision = _infer_batch(
+                    runtime,
+                    host_transfer,
                     batched_observation,
                     runtime.sample_noise(generators),
                     generators,
@@ -143,6 +152,21 @@ def benchmark_planner_batch_scaling(
             }
         )
     return results
+
+
+def _infer_batch(
+    runtime: DiffusionRuntime,
+    host_transfer: HostTransfer,
+    observation: TensorDictBase,
+    noise: torch.Tensor,
+    generators: tuple[torch.Generator, ...],
+    *,
+    profile: bool = False,
+) -> InferenceDecision:
+    # Retain the measured evaluation payload and transfer boundary without owning its schema.
+    validate_artifact_observation_fields(observation, runtime.planner_config)
+    result = runtime.decide_batch(observation, noise, generators, profile=profile)
+    return prepare_diffusion_inference_decision(result, host_transfer)
 
 
 def benchmark_vector_environment_scaling(

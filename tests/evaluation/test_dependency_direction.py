@@ -80,3 +80,7 @@ def test_envs_do_not_own_planning_reward_or_workflow_definitions() -> None:
         "envs",
         ("eco_planner.planning", "eco_planner.reward", "eco_planner.rl", "eco_planner.evaluation"),
     )
+
+
+def test_core_does_not_depend_on_repository_benchmarks() -> None:
+    assert not _offenders("", ("benchmarks", "eco_planner.benchmarking"))
