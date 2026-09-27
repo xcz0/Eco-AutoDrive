@@ -1,12 +1,12 @@
-"""TorchRL-backed environment runtime services."""
+"""TorchRL-backed parallel MetaDrive environments and operation sidecars."""
 
-from eco_planner.runtime.envs.torchrl import TorchRLMetaDriveEnv
-from eco_planner.runtime.envs.vector import (
+from eco_planner.envs.parallel.torchrl import TorchRLMetaDriveEnv
+from eco_planner.envs.parallel.vector import (
     VectorMetaDriveEnv,
     VectorMetaDriveWorkerError,
     operation_results,
 )
-from eco_planner.runtime.envs.worker import (
+from eco_planner.envs.parallel.worker import (
     VectorEnvScenario,
     VectorEnvTiming,
     WorkerResetResult,

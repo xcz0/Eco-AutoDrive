@@ -17,7 +17,7 @@ from eco_planner.contracts import (
     TRAFFIC_HISTORY_WARMUP_STEPS,
 )
 from eco_planner.envs.metadrive import ObservationMode
-from eco_planner.runtime.envs.worker import (
+from eco_planner.envs.parallel.worker import (
     VectorEnvScenario,
     WorkerFailure,
     WorkerResetResult,

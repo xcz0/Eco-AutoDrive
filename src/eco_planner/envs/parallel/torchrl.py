@@ -1,4 +1,4 @@
-"""Thin TorchRL structural adapter around one MetaDrive environment slot."""
+"""TorchRL structural adapter around the formal MetaDrive slot execution boundary."""
 
 from __future__ import annotations
 

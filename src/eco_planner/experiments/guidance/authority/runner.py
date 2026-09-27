@@ -13,6 +13,10 @@ from omegaconf import OmegaConf
 from eco_planner._repository import REPOSITORY_ROOT
 from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
+from eco_planner.envs.parallel import (
+    VectorEnvScenario,
+    VectorMetaDriveEnv,
+)
 from eco_planner.evaluation.intervention import InterventionExecution, collect_group
 from eco_planner.experiments.guidance.authority.analysis import publish
 from eco_planner.experiments.guidance.authority.diagnostics import (
@@ -23,10 +27,6 @@ from eco_planner.experiments.protocol.composition import compose_arm_training_co
 from eco_planner.experiments.protocol.config import load_protocol
 from eco_planner.planning import (
     create_diffusion_runtime,
-)
-from eco_planner.runtime.envs import (
-    VectorEnvScenario,
-    VectorMetaDriveEnv,
 )
 from eco_planner.runtime.metadata import collect_repository_metadata
 

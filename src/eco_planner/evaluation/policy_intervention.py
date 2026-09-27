@@ -20,6 +20,13 @@ from tensordict import TensorDictBase
 
 from eco_planner.artifacts import write_json, write_npz
 from eco_planner.contracts import SIMULATOR_STEP_S
+from eco_planner.envs.parallel import (
+    VectorEnvScenario,
+    VectorMetaDriveEnv,
+    WorkerResetResult,
+    WorkerStepResult,
+    operation_results,
+)
 from eco_planner.evaluation.inference.decision import prepare_learned_inference_decision
 from eco_planner.evaluation.intervention import (
     PLANNER_RESPONSE_CHECKPOINT_STEPS,
@@ -28,13 +35,6 @@ from eco_planner.evaluation.intervention import (
 )
 from eco_planner.planning import PolicyGuidanceDecisionResult, PolicyGuidanceRuntime
 from eco_planner.reward.components import EnergyRewardConfig
-from eco_planner.runtime.envs import (
-    VectorEnvScenario,
-    VectorMetaDriveEnv,
-    WorkerResetResult,
-    WorkerStepResult,
-    operation_results,
-)
 from eco_planner.runtime.host_transfer import HostTransfer
 
 _PLANNER_AUDIT_KEYS = (

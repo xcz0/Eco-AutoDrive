@@ -3,8 +3,9 @@ from __future__ import annotations
 import pytest
 import torch
 
-from eco_planner.benchmarking.config import RolloutBenchmarkConfig
+from eco_planner.benchmarking.config import RolloutBenchmarkConfig, ScalingBenchmarkConfig
 from eco_planner.benchmarking.rollout import _effective_ppo_config, _rollout_result
+from eco_planner.benchmarking.throughput import benchmark_vector_environment_scaling
 from eco_planner.rl.optimization import PPOConfig
 from eco_planner.rl.rollout.collector import VectorRolloutRoundTiming
 from eco_planner.rl.rollout.profiling import RolloutPlannerTiming
@@ -13,6 +14,30 @@ from eco_planner.runtime.profiling import (
     finish_profile,
     profile_call,
 )
+from tests.simulation.test_closed_loop import _environment_config
+
+
+@pytest.mark.simulator
+def test_vector_environment_benchmark_smoke() -> None:
+    results = benchmark_vector_environment_scaling(
+        _environment_config("S"),
+        mode="no_traffic",
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+        benchmark=ScalingBenchmarkConfig(
+            kind="throughput",
+            batch_sizes=(1,),
+            worker_counts=(1,),
+            warmup_cycles=1,
+            measured_cycles=1,
+            repeats=1,
+        ),
+    )
+    assert len(results) == 1
+    assert results[0]["worker_count"] == 1
+    for metric in ("env_steps_per_s", "batch_step_wall_s", "worker_environment_s_per_step"):
+        assert len(results[0][metric]["samples"]) == 1  # type: ignore[index]
+        assert results[0][metric]["median"] > 0.0  # type: ignore[index]
 
 
 def _base_ppo_config() -> PPOConfig:

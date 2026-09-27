@@ -16,16 +16,16 @@ from eco_planner.envs.domain import (
     TrajectoryExecutionRecord,
     TransitionMetrics,
 )
-from eco_planner.evaluation.inference import DiffusionEvaluationAgent
-from eco_planner.planning import DiffusionRuntime
-from eco_planner.reward.components.energy import EnergyRewardConfig, energy_score
-from eco_planner.runtime.envs import (
+from eco_planner.envs.parallel import (
     VectorEnvScenario,
     VectorMetaDriveEnv,
     WorkerResetResult,
     WorkerStepResult,
     operation_results,
 )
+from eco_planner.evaluation.inference import DiffusionEvaluationAgent
+from eco_planner.planning import DiffusionRuntime
+from eco_planner.reward.components.energy import EnergyRewardConfig, energy_score
 
 PLANNER_RESPONSE_CHECKPOINT_STEPS: Final = (1, 2, 5, 10, 20, 40, 80)
 
@@ -80,16 +80,6 @@ def transition_record(
         raise RuntimeError("guidance intervention timestep differs from rollout ABI")
     score, intensity, distance_valid = energy_score(energy_config, m)
     e = execution
-    collision = any(
-        getattr(e, name)
-        for name in (
-            "crash_vehicle",
-            "crash_object",
-            "crash_building",
-            "crash_human",
-            "crash_sidewalk",
-        )
-    )
     guided = _along_speed(audit["prediction"][slot].numpy())
     reference = _along_speed(audit["reference_prediction"][slot].numpy())
     target_delta = audit["longitudinal_target_speed_delta_mps"][slot].numpy()
@@ -112,7 +102,7 @@ def transition_record(
         "jerk_mps3": m.jerk_mps3,
         "position_error_m": m.position_error_m,
         "heading_error_rad": m.heading_error_rad,
-        "collision": collision,
+        "collision": e.collision,
         "out_of_road": e.out_of_road,
         "terminated": bool(e.substep_terminated[substep]),
         "truncated": bool(e.substep_truncated[substep]),

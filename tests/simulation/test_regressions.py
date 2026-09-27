@@ -23,9 +23,9 @@ from eco_planner.envs.metadrive import (
 )
 from eco_planner.envs.metadrive.observation import NoTrafficMetaDriveObservationPipeline
 from eco_planner.envs.observation import PLANNER_OBSERVATION_FIELDS
-from eco_planner.runtime.envs.torchrl import TorchRLMetaDriveEnv
-from eco_planner.runtime.envs.vector import VectorMetaDriveEnv, VectorMetaDriveWorkerError
-from eco_planner.runtime.envs.worker import TorchRLScenarioMetaDriveEnv, WorkerFailure
+from eco_planner.envs.parallel.torchrl import TorchRLMetaDriveEnv
+from eco_planner.envs.parallel.vector import VectorMetaDriveEnv, VectorMetaDriveWorkerError
+from eco_planner.envs.parallel.worker import TorchRLScenarioMetaDriveEnv, WorkerFailure
 
 
 def _observation() -> TensorDict:

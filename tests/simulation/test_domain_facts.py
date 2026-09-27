@@ -126,6 +126,25 @@ def test_collision_fact_is_any_raw_crash_flag(flag: str) -> None:
     assert _metrics(**{flag: True}).collision is True
 
 
+@pytest.mark.parametrize("kind", ["vehicle", "object", "building", "human", "sidewalk"])
+def test_reward_collision_selection_does_not_redefine_domain_collision(kind: str) -> None:
+    metrics = _metrics(**{f"crash_{kind}": True})
+    config = _config()
+    selected = evaluate_plannerrft_energy_step(config, metrics)
+    excluded = evaluate_plannerrft_energy_step(
+        config.model_copy(
+            update={"gates": config.gates.model_copy(update={f"collision_{kind}": False})}
+        ),
+        metrics,
+    )
+
+    assert metrics.collision is True
+    assert selected.diagnostics.collision_score == 0.0
+    assert selected.safety_gate == 0.0
+    assert excluded.diagnostics.collision_score == 1.0
+    assert excluded.safety_gate == 1.0
+
+
 def test_reward_safety_gate_consumes_the_domain_wrong_direction_fact() -> None:
     aligned = evaluate_plannerrft_energy_step(
         _config(), _metrics(heading_rad=0.1, route_heading_rad=0.0)

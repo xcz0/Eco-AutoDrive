@@ -82,7 +82,7 @@ class BlockImports:
     def find_spec(self, fullname, path=None, target=None):
         roots = ('torch', 'metadrive', 'panda3d', 'matplotlib',
                  'eco_planner.rl.trainer', 'eco_planner.rl.rollout',
-                 'eco_planner.runtime.envs', 'eco_planner.evaluation.episodes.rendering')
+                 'eco_planner.envs.parallel', 'eco_planner.evaluation.episodes.rendering')
         if any(fullname == root or fullname.startswith(root + '.') for root in roots):
             raise AssertionError('unexpected execution import: ' + fullname)
 sys.meta_path.insert(0, BlockImports())

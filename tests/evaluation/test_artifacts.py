@@ -4,6 +4,7 @@ import json
 import math
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -138,6 +139,15 @@ def test_stopped_fraction_uses_domain_stopped_facts() -> None:
     assert metrics.stopped_fraction == pytest.approx(0.5)
     assert metrics.speed_mps.minimum == pytest.approx(0.05)
     assert metrics.speed_mps.maximum == pytest.approx(10.0)
+
+
+@pytest.mark.parametrize(
+    "flag", ["crash_vehicle", "crash_object", "crash_building", "crash_human", "crash_sidewalk"]
+)
+def test_episode_collision_consumes_terminal_domain_fact(flag: str) -> None:
+    record = replace(_record(), **{flag: True})
+    assert record.collision is True
+    assert compute_episode_metrics(_trace([0.0]), record).collision is True
 
 
 @pytest.mark.parametrize("module", ["eco_planner.evaluation", "eco_planner.evaluation.artifacts"])

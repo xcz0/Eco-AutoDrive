@@ -15,18 +15,18 @@ from omegaconf import DictConfig
 from tensordict import TensorDictBase
 
 from eco_planner.envs import stationary_trajectory
+from eco_planner.envs.parallel import (
+    VectorEnvScenario,
+    VectorMetaDriveEnv,
+    WorkerStepResult,
+    operation_results,
+)
 from eco_planner.evaluation import (
     DiffusionEvaluationAgent,
     EvaluationJobConfig,
     parse_evaluation_config,
 )
 from eco_planner.planning import DiffusionRuntime, create_diffusion_runtime
-from eco_planner.runtime.envs import (
-    VectorEnvScenario,
-    VectorMetaDriveEnv,
-    WorkerStepResult,
-    operation_results,
-)
 from eco_planner.runtime.resources import require_resource_profile
 
 from .config import (

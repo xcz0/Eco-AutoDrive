@@ -12,6 +12,7 @@ from omegaconf import OmegaConf
 from tensordict import TensorDict
 
 from eco_planner._repository import CONFIG_ROOT
+from eco_planner.envs.parallel import VectorEnvScenario
 from eco_planner.evaluation.inference import DiffusionEvaluationAgent
 from eco_planner.evaluation.intervention import InterventionExecution
 from eco_planner.experiments.guidance.authority.analysis import aggregate
@@ -28,7 +29,6 @@ from eco_planner.planning.diffusion_inference import (
     validate_manual_guidance,
 )
 from eco_planner.reward.components import EnergyRewardConfig
-from eco_planner.runtime.envs import VectorEnvScenario
 
 
 def study():
@@ -310,7 +310,7 @@ def test_runtime_forwards_endpoints_without_global_rng_consumption():
 @pytest.mark.simulator
 @pytest.mark.parametrize("horizon", [21, 3])
 def test_real_rollout_intervention_window_and_noise_pairing(tmp_path, horizon):
-    from eco_planner.runtime.envs import VectorMetaDriveEnv
+    from eco_planner.envs.parallel import VectorMetaDriveEnv
 
     env_config = OmegaConf.to_container(OmegaConf.load(CONFIG_ROOT / "components/env.yaml"))
     env_config.update(map="S", horizon=horizon, num_scenarios=1)

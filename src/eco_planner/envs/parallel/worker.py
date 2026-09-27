@@ -20,7 +20,7 @@ from eco_planner.envs.metadrive import (
     ObservationMode,
 )
 from eco_planner.envs.observation import TrafficObservationAudit
-from eco_planner.runtime.envs.torchrl import TorchRLMetaDriveEnv
+from eco_planner.envs.parallel.torchrl import TorchRLMetaDriveEnv
 
 
 @dataclass(frozen=True, slots=True)

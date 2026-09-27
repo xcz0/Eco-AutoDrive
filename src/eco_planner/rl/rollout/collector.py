@@ -17,18 +17,18 @@ from eco_planner.envs import (
     MetaDriveEnvSlot,
     TrajectoryExecutionResult,
 )
-from eco_planner.reward import (
-    RewardEvaluator,
-    RewardProfileConfig,
-    aggregate_transition_reward,
-    create_reward_evaluator,
-)
-from eco_planner.runtime.envs import (
+from eco_planner.envs.parallel import (
     VectorEnvScenario,
     VectorMetaDriveEnv,
     WorkerResetResult,
     WorkerStepResult,
     operation_results,
+)
+from eco_planner.reward import (
+    RewardEvaluator,
+    RewardProfileConfig,
+    aggregate_transition_reward,
+    create_reward_evaluator,
 )
 
 from .contracts import (
