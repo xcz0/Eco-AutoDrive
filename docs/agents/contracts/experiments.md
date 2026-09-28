@@ -16,7 +16,7 @@
 | `evaluation.policy_intervention` | 已加载的 frozen `PolicyGuidanceRuntime`、环境、场景与显式 execution prefix；用 policy mean action 复现同一 matched-group 语义，并采集 same-state 双 policy 反事实 planner response |
 | `analysis` | 已保存结果、统计、matched 差值、逐 seed 汇总和报告再生成；不执行训练、backward 或 gate 裁定 |
 
-`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance deferral run/analyze、guidance decomposition run/analyze、guidance execution-bridge run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/critic-attribution run/analyze、training cadence-attribution run/analyze、training counterfactual-attribution run/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
+`just exp ...` 是无语义 alias。`scripts/experiments.py` 只负责参数解析、bootstrap、延迟分派与退出码。当前命令为 compare train/eval/analyze、reward collect/run/analyze、credit run/analyze、guidance authority run/analyze、guidance deferral run/analyze、guidance decomposition run/analyze、guidance execution-bridge run/analyze、guidance horizon run/analyze、guidance sweep run/analyze、training grid/diagnose/eval/critic-attribution run/analyze、training cadence-attribution run/analyze、training counterfactual-attribution run/analyze、training control-refreeze run/analyze。旧 study 入口、stage A/B/C、晋升/pruning、独立 reproducibility 和 stability 数据库分析已删除，没有旧 CLI/import 别名或历史产物迁移层。历史实验记录保持原样。
 
 ## Comparison matched protocol
 
@@ -102,6 +102,14 @@ standard GAE 重建的 raw advantage mean/std 必须与源 summary 记录的逐 
 
 输入 manifest 显式给出 protocol、arm、training_seed、update_count、`mc_draws`/`mc_seed`、复用 Gate F 阈值、historical comparator、`reference` 与 `arms`；每个 arm 声明 `label`、`mechanism`、`overrides` 与 `description`，校验 label 唯一、reference 无 override、arm 非空 override、不含 `runtime.seed`、单臂不重复 override key。臂可覆盖 `training.diagnostic_execution_steps`（cadence reference）与 `ppo` 诊断开关（`gamma`/`gae_lambda`、`value_coefficient`、`max_gradient_norm`、`diagnostic_reward_divisor`）。每臂从 persisted summary 读与 cadence attribution 相同的逐 update 测量，经 `read_rollout_episode` + `build_ppo_batch` 离线重算 GAE provenance，并执行 matched held-out（只用于归因）。汇总按 mechanism 输出 `ratios_vs_reference` 与 `gate_b_evidence`，裁定在实验记录中给出。
 
+## Training control re-freeze
+
+`training control-refreeze`（Issue #105 Phase C）在 calibrated R0 arm 上跑一个 canonical k=5 reference 与一个**结果前冻结**的有序 control 候选列表，全部共享同一 initial policy、training seed、replay、scenario 池、batch 与 update 预算，唯一差异是各候选声明的 Hydra override。reference 无 override；候选进入正式 control 判定，参考臂只用于 matched 比较。搜索空间与选择规则必须在看到结果前写入 manifest。
+
+输入 manifest 显式给出 protocol、arm、training_seed、update_count、`mc_draws`/`mc_seed`、复用 Gate F 阈值、historical comparator、`selection`（当前仅 `first_passing_in_declared_order`）、`reference` 与 `candidates`。每个候选声明 `label`、`overrides` 与 `description`，校验 label 唯一、reference 无 override、候选非空 override、不含 `runtime.seed`、单臂不重复 override key，且 override key 必须落在 `ALLOWED_CONTROL_OVERRIDE_KEYS`（`ppo.{learning_rate,epochs,minibatch_size,gamma,gae_lambda,value_coefficient,max_gradient_norm,clip_epsilon}`）；reward representation / λ / policy feature / cadence / batch 等实验契约不得被候选覆盖。选择按声明顺序取第一个通过 Gate c1–c7 的候选，**不按 training return 排名**。
+
+每候选从 persisted summary 读与 Phase A/B 相同的逐 update 测量，经 `read_rollout_episode` + `build_ppo_batch` 离线重算 GAE provenance，检查 analytic/MC/k3 三估计量同量级（≤10×）与无非有限值，并执行 matched held-out。候选训练崩溃或记录非有限测量时保留完整 `failure{exception_type,message,traceback}` 并继续筛选其余候选（reference 失败则中止）。汇总输出逐 run metrics/Gate/held-out、`failed_candidates`、`selected_label`、`selected_config`（含 overrides、`resolved_ppo` 与 run_dir）与 `ratios_vs_reference`。
+
 ## 实验离线分析与报告
 
 所有 analyze 从新生成的持久化证据独立写出 analysis.json、report.md 和 SVG/PNG。source/output 不得相同或互相嵌套，源文件不变。run 在保存原始证据后复用同一发布函数，默认在本次输出目录生成报告；--no-figures 禁用图片。help、offline analyze、typed summaries 不加载 Torch、MetaDrive/Panda3D 或执行器；仅启用图片时加载 Matplotlib，先设置 Agg。
@@ -121,6 +129,7 @@ standard GAE 重建的 raw advantage mean/std 必须与源 summary 记录的逐 
 | training critic-attribution | diagnostics.npz、sample_index.json、summary.json、diagnostic_config.yaml、runtime_metadata.json |
 | training cadence-attribution | summary.json（两臂逐 update 测量、matched 归因与 Gate A 证据）、study_manifest.yaml、各臂 training run 目录、heldout/、逐臂 report/analysis |
 | training counterfactual-attribution | summary.json（reference + 各诊断臂逐 update 测量、ratios_vs_reference 与 Gate B 证据）、study_manifest.yaml、各臂 training run 目录、heldout/、逐臂 report/analysis |
+| training control-refreeze | summary.json（reference + 各候选逐 update 测量、Gate、held-out、estimator 一致性、failed_candidates、selected_config 与 ratios_vs_reference）、study_manifest.yaml、各 run training 目录、heldout/、report/analysis |
 
 reward/credit 从数组重算分布与配对，核验 sample 长度、重复身份和 scenario 顺序；不以旧 summary 冒充缺失原始数组。advantage 全批标准差使用 ddof=1，value target 使用配置持久化的 value_target_ddof（ablation=1，其他命名配置=0），其余分布 ddof=0。Pearson/Spearman 使用 SciPy 的 ties 定义；常量或不足样本为 undefined。报告引用已保存的 gate，不重裁定。图提供 cosine、1−cosine、norm ratio 与 undefined 标注，不裁剪原值。
 
