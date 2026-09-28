@@ -1,0 +1,21 @@
+docs/experiments/README.md
+  s_40fb4ae49ae77d::t_d4e5314c3d7bc8 100
+docs/experiments/records/e-053-issue106-task-1-gate-t2-reentry.md
+  s_40fb4ae49ae77d::t_06516fd3e341dc 1-194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "d216688c4b2af73a430d229875831948f1a102f1",
+  "prompts": {},
+  "sessions": {
+    "s_40fb4ae49ae77d": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f18af9305ffeeKStJIia6qPjJ4",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
