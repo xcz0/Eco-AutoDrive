@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import math
+import traceback
 from pathlib import Path
 from statistics import median
 from typing import Any
@@ -67,22 +68,37 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
     parsed_by_label: dict[str, Any] = {}
     metrics_by_label: dict[str, dict[str, Any]] = {}
     gate_by_label: dict[str, dict[str, Any]] = {}
+    failed_by_label: dict[str, dict[str, Any]] = {}
     for spec in specs:
         run_dir = output_dir / spec.label
-        _ensure_training_run(study, protocol, run_dir, spec)
-        parsed = _load_training_config(run_dir)
-        metrics = _arm_metrics(study, run_dir, parsed)
-        gae = _offline_gae_stats(study, run_dir, parsed)
-        _check_provenance(metrics, gae)
-        _require_finite(spec.label, metrics)
+        try:
+            _ensure_training_run(study, protocol, run_dir, spec)
+            parsed = _load_training_config(run_dir)
+            metrics = _arm_metrics(study, run_dir, parsed)
+            gae = _offline_gae_stats(study, run_dir, parsed)
+            _check_provenance(metrics, gae)
+            _require_finite(spec.label, metrics)
+        except Exception as error:
+            # A candidate that crashes training or records invalid/non-finite
+            # measurements is a failed candidate; keep the full failure visible
+            # and continue screening the remaining pre-registered candidates.
+            failed_by_label[spec.label] = {
+                "exception_type": type(error).__name__,
+                "message": str(error),
+                "traceback": traceback.format_exc(),
+            }
+            continue
         metrics["offline_gae"] = gae
         metrics["estimator_consistency"] = _estimator_consistency(metrics)
         parsed_by_label[spec.label] = parsed
         metrics_by_label[spec.label] = metrics
         gate_by_label[spec.label] = evaluate_update_gate(metrics, study.gate)
+    if study.reference.label in failed_by_label:
+        raise RuntimeError(f"reference run failed: {study.reference.label}")
     _check_shared_initial_policy(metrics_by_label)
 
-    heldout = _heldout(study, protocol, output_dir, specs)
+    completed = [spec for spec in specs if spec.label not in failed_by_label]
+    heldout = _heldout(study, protocol, output_dir, completed)
     for label, values in heldout["runs"].items():
         change = evaluate_heldout_change(
             heldout["initial_values"], values["final_values"], study.gate
@@ -106,9 +122,13 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
             "description": spec.description,
             "is_reference": spec.label == study.reference.label,
             "run_dir": str(output_dir / spec.label),
-            "estimator_consistency": metrics_by_label[spec.label]["estimator_consistency"],
-            "metrics": metrics_by_label[spec.label],
-            "gate": gate_by_label[spec.label],
+            "status": "failed" if spec.label in failed_by_label else "completed",
+            "failure": failed_by_label.get(spec.label),
+            "estimator_consistency": metrics_by_label.get(spec.label, {}).get(
+                "estimator_consistency"
+            ),
+            "metrics": metrics_by_label.get(spec.label),
+            "gate": gate_by_label.get(spec.label),
         }
         for spec in specs
     ]
@@ -126,6 +146,8 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
         "control_override_keys": sorted(
             {key for spec in study.candidates for key in spec.overrides}
         ),
+        "candidate_count": len(study.candidates),
+        "failed_candidates": sorted(failed_by_label),
         "selected_label": selected.label if selected is not None else None,
         "selected_config": _selected_config(study, parsed_by_label, output_dir, selected),
         "runs": runs,
@@ -141,8 +163,8 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
         "selected_label": summary["selected_label"],
         "selected_config": summary["selected_config"],
         "analytic_kl_medians": {
-            spec.label: metrics_by_label[spec.label]["post_update_kl_analytic_median"]
-            for spec in specs
+            label: metrics["post_update_kl_analytic_median"]
+            for label, metrics in metrics_by_label.items()
         },
     }
 
@@ -238,7 +260,8 @@ def _select(
     study: ControlRefreezeConfig, gate_by_label: dict[str, dict[str, Any]]
 ) -> ControlCandidate | None:
     for candidate in study.candidates:
-        if gate_by_label[candidate.label]["passed_all"]:
+        gate = gate_by_label.get(candidate.label)
+        if gate is not None and gate["passed_all"]:
             return candidate
     return None
 

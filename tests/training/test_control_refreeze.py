@@ -289,6 +289,62 @@ def test_run_orchestration_selects_and_writes_control(tmp_path, monkeypatch) -> 
     assert not (output / "figures").exists()
 
 
+def test_run_records_failed_candidate_and_continues(tmp_path, monkeypatch) -> None:
+    _study(tmp_path)
+
+    def fake_ensure(study, protocol, run_dir, spec):
+        if spec.label == "lr_fallback":
+            raise ValueError("guidance action must be strictly inside (-1, 1)")
+
+    monkeypatch.setattr(runner, "_ensure_training_run", fake_ensure)
+    monkeypatch.setattr(
+        runner,
+        "_load_training_config",
+        lambda run_dir: SimpleNamespace(
+            ppo=SimpleNamespace(model_dump=lambda mode: {"learning_rate": 1.5e-4})
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_arm_metrics",
+        lambda study, run_dir, parsed: _synthetic_metrics(
+            study.update_count,
+            kl_scale=1.0 if run_dir.name == "mechanism_fix" else 4.0e-02,
+            move_scale=1.2 if run_dir.name == "mechanism_fix" else 1.0,
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_offline_gae_stats",
+        lambda study, run_dir, parsed: _synthetic_gae(study.update_count, 1.0),
+    )
+    monkeypatch.setattr(runner, "_check_provenance", lambda *a: None)
+
+    def fake_heldout(study, protocol, output_dir, specs):
+        runs = {
+            spec.label: {
+                "label": spec.label,
+                "final_values": _heldout_value(
+                    10.0, 5.02 if spec.label == "mechanism_fix" else 5.0
+                ),
+            }
+            for spec in specs
+        }
+        return {"initial_values": _heldout_value(10.0, 5.0), "runs": runs}
+
+    monkeypatch.setattr(runner, "_heldout", fake_heldout)
+
+    output = tmp_path / "out"
+    result = runner.run(tmp_path / "control-refreeze.yaml", output, figures=False)
+    assert result["selected_label"] == "mechanism_fix"
+    summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+    assert summary["failed_candidates"] == ["lr_fallback"]
+    fallback = next(run for run in summary["runs"] if run["label"] == "lr_fallback")
+    assert fallback["status"] == "failed"
+    assert fallback["metrics"] is None
+    assert "strictly inside" in fallback["failure"]["message"]
+
+
 def test_control_refreeze_cli_routes(monkeypatch) -> None:
     from scripts import experiments as cli
 
