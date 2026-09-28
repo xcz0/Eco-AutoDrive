@@ -93,6 +93,14 @@ COMMANDS = {
         cuda=True,
     ),
     ("training", "cadence-attribution", "analyze"): Command("", "", None, source=True),
+    ("training", "counterfactual-attribution", "run"): Command(
+        "training.counterfactual_attribution.runner",
+        "run",
+        "training/counterfactual-attribution.yaml",
+        environment=True,
+        cuda=True,
+    ),
+    ("training", "counterfactual-attribution", "analyze"): Command("", "", None, source=True),
     ("training", "analyze"): Command("", "", None, source=True),
 }
 
@@ -122,6 +130,9 @@ def build_parser() -> argparse.ArgumentParser:
                 "cadence-attribution": sub.add_parser("cadence-attribution").add_subparsers(
                     required=True
                 ),
+                "counterfactual-attribution": sub.add_parser(
+                    "counterfactual-attribution"
+                ).add_subparsers(required=True),
             }
         else:
             nested = {}

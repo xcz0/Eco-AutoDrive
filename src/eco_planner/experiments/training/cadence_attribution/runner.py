@@ -10,45 +10,34 @@ is persisted so the mismatch can be attributed before any counterfactual search.
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
-from statistics import median
-from typing import Any, cast
+from typing import Any
 
-import torch
 from omegaconf import OmegaConf
 
 from eco_planner.analysis import publish
-from eco_planner.analysis.training import heldout_metric_values
 from eco_planner.artifacts import write_json
-from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS
-from eco_planner.experiments.protocol.composition import (
-    CheckpointLabel,
-    compose_arm_training_config,
-    compose_policy_evaluation_config,
-)
+from eco_planner.experiments.protocol.composition import compose_arm_training_config
 from eco_planner.experiments.protocol.config import load_protocol
-from eco_planner.jobs import run_evaluation_job, run_training_job
-from eco_planner.rl import parse_training_config, read_rollout_episode
-from eco_planner.rl.optimization.ppo import build_ppo_batch
-from eco_planner.rl.optimization.update_diagnostics import (
-    extract_arm_metrics,
-    post_update_kl_series,
-)
+from eco_planner.jobs import run_training_job
 
+from ..attribution import (
+    GRADIENT_GROUPS,
+    REWARD_COMPONENTS,
+    arm_metrics,
+    check_provenance,
+    compare,
+    heldout_values,
+    load_training_config,
+    offline_gae_stats,
+    summarize,
+)
 from ..decisions import evaluate_heldout_change, evaluate_update_gate
 from .diagnostics import CadenceAttributionConfig, load_cadence_attribution
 
-_GRADIENT_GROUPS = (
-    "actor_head_policy",
-    "shared_trunk_policy",
-    "value_head_critic",
-    "shared_trunk_critic",
-    "actor_head_entropy",
-    "shared_trunk_entropy",
-)
-_REWARD_COMPONENTS = ("ttc", "progress", "comfort", "speed", "energy")
+_GRADIENT_GROUPS = GRADIENT_GROUPS
+_REWARD_COMPONENTS = REWARD_COMPONENTS
 
 
 def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[str, Any]:
@@ -159,112 +148,26 @@ def _ensure_training_run(
 
 
 def _load_training_config(run_dir: Path) -> Any:
-    resolved = load_resolved_yaml_mapping(run_dir / "resolved_config.yaml")
-    return parse_training_config(OmegaConf.create(resolved))
+    return load_training_config(run_dir)
 
 
 def _arm_metrics(study: CadenceAttributionConfig, run_dir: Path, parsed: Any) -> dict[str, Any]:
-    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
-    updates = summary["updates"]
-    if len(updates) != study.update_count:
-        raise ValueError(
-            f"training run {run_dir} has {len(updates)} updates, expected {study.update_count}"
-        )
-    metrics = extract_arm_metrics(
-        run_dir,
-        max_gradient_norm=parsed.ppo.max_gradient_norm,
+    return arm_metrics(
         update_count=study.update_count,
+        mc_draws=study.mc_draws,
+        mc_seed=study.mc_seed,
+        run_dir=run_dir,
+        parsed=parsed,
     )
-    metrics.update(
-        post_update_kl_series(
-            run_dir,
-            update_count=study.update_count,
-            mc_draws=study.mc_draws,
-            mc_seed=study.mc_seed,
-        )
-    )
-    metrics["raw_advantage_mean"] = [update["raw_advantage_mean"] for update in updates]
-    metrics["raw_advantage_std"] = [update["raw_advantage_std"] for update in updates]
-    metrics["normalized_advantage_mean"] = [
-        update["normalized_advantage_mean"] for update in updates
-    ]
-    metrics["normalized_advantage_std"] = [update["normalized_advantage_std"] for update in updates]
-    # Centering subtracts the full-batch mean; the centered std equals the raw std.
-    metrics["center_advantage_mean"] = [0.0 for _ in updates]
-    metrics["center_advantage_std"] = list(metrics["raw_advantage_std"])
-    metrics["value_target_mean"] = [update["mean_value_target"] for update in updates]
-    metrics["value_target_std"] = [update["std_value_target"] for update in updates]
-    metrics["reward_total"] = [update["total_reward"] for update in updates]
-    metrics["reward_component_means"] = {
-        component: [update["reward_component_means"][component] for update in updates]
-        for component in _REWARD_COMPONENTS
-    }
-    metrics["effective_global_clip_coefficient"] = [
-        min(1.0, parsed.ppo.max_gradient_norm / value) if value > 0.0 else 1.0
-        for value in metrics["pre_clip_gradient_norm"]
-    ]
-    metrics["beta_concentration_mean"] = [
-        [
-            update["beta_alpha_mean"][dimension] + update["beta_beta_mean"][dimension]
-            for dimension in range(2)
-        ]
-        for update in updates
-    ]
-    metrics["gradient_diagnostics"] = {
-        group: [update["gradient_diagnostics"][group] for update in updates]
-        for group in _GRADIENT_GROUPS
-    }
-    return metrics
 
 
 def _offline_gae_stats(
     study: CadenceAttributionConfig, run_dir: Path, parsed: Any
 ) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for index in range(study.update_count):
-        update_dir = run_dir / "updates" / f"update-{index:03d}"
-        paths = sorted(update_dir.glob("slot-*-episode-*.npz"))
-        if not paths:
-            raise ValueError(f"update {index} has no persisted rollout episodes: {run_dir}")
-        episodes = [read_rollout_episode(path) for path in paths]
-        batch = build_ppo_batch(episodes, parsed.ppo, device=torch.device("cpu"))
-        advantage = cast(torch.Tensor, batch["advantage"]).to(dtype=torch.float64)
-        value_target = cast(torch.Tensor, batch["value_target"]).to(dtype=torch.float64)
-        bootstrap = torch.cat(
-            [
-                episode.tail_bootstrap_value.reshape(-1).to(dtype=torch.float64)
-                for episode in episodes
-            ]
-        )
-        rows.append(
-            {
-                "advantage_mean": float(advantage.mean()),
-                "advantage_std": float(advantage.std(correction=1)),
-                "advantage_abs_mean": float(advantage.abs().mean()),
-                "value_target_mean": float(value_target.mean()),
-                "value_target_std": float(value_target.std(correction=0)),
-                "bootstrap_mean": float(bootstrap.mean()),
-                "bootstrap_abs_mean": float(bootstrap.abs().mean()),
-            }
-        )
-    return rows
+    return offline_gae_stats(update_count=study.update_count, run_dir=run_dir, parsed=parsed)
 
 
-def _check_provenance(metrics: dict[str, Any], gae: list[dict[str, Any]]) -> None:
-    for index, row in enumerate(gae):
-        if not math.isclose(
-            row["advantage_mean"], metrics["raw_advantage_mean"][index], rel_tol=1e-4, abs_tol=1e-6
-        ) or not math.isclose(
-            row["advantage_std"], metrics["raw_advantage_std"][index], rel_tol=1e-4, abs_tol=1e-6
-        ):
-            raise ValueError(f"offline GAE advantage differs from recorded update {index}")
-        if not math.isclose(
-            row["value_target_mean"],
-            metrics["value_target_mean"][index],
-            rel_tol=1e-4,
-            abs_tol=1e-6,
-        ):
-            raise ValueError(f"offline GAE value target differs from recorded update {index}")
+_check_provenance = check_provenance
 
 
 def _heldout(
@@ -302,34 +205,11 @@ def _heldout_values(
     label: str,
     checkpoint_path: Path,
 ) -> dict[str, Any]:
-    if (eval_dir / "summary.json").exists():
-        summary = json.loads((eval_dir / "summary.json").read_text(encoding="utf-8"))
-    else:
-        config, _ = compose_policy_evaluation_config(
-            protocol, study.arm, cast(CheckpointLabel, label), checkpoint_path
-        )
-        run_evaluation_job(config, eval_dir)
-        summary = json.loads((eval_dir / "summary.json").read_text(encoding="utf-8"))
-    if summary["status"] != "completed":
-        raise RuntimeError(f"held-out evaluation {eval_dir} did not complete")
-    return heldout_metric_values(summary["episodes"])
+    return heldout_values(protocol, study.arm, eval_dir, label, checkpoint_path)
 
 
-def _summarize(values: list[float]) -> dict[str, float]:
-    if not values:
-        raise ValueError("summary statistics require at least one value")
-    return {
-        "median": median(values),
-        "mean": sum(values) / len(values),
-        "min": min(values),
-        "max": max(values),
-    }
-
-
-def _compare(a: list[float], b: list[float]) -> dict[str, Any]:
-    a_stats, b_stats = _summarize(a), _summarize(b)
-    ratio = b_stats["median"] / a_stats["median"] if a_stats["median"] != 0.0 else None
-    return {"diagnostic": a_stats, "canonical": b_stats, "median_ratio": ratio}
+_summarize = summarize
+_compare = compare
 
 
 def _attribution(

@@ -127,6 +127,7 @@ def training(source: Path) -> dict:
         "training-diagnostics",
         "training-evaluation",
         "training-cadence-attribution",
+        "training-counterfactual-attribution",
     ):
         raise ValueError("source is not a current training workflow result")
     return summary

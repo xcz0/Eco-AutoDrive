@@ -230,6 +230,22 @@ def test_gae_uses_terminal_and_nonterminal_tail_bootstrap_semantics(truncated) -
     torch.testing.assert_close(bootstrapped["value_target"], torch.tensor([[2.23]]))
 
 
+def test_diagnostic_reward_divisor_scales_gae_without_touching_source() -> None:
+    base = _ppo_config()
+    scaled = base.model_copy(update={"diagnostic_reward_divisor": 5.0})
+    episode = _episode(reward=5.0, terminated=True, truncated=False, bootstrap=0.0)
+    snapshot = episode.training.clone()
+
+    base_trajectory = compute_episode_gae(episode, base)
+    scaled_trajectory = compute_episode_gae(episode, scaled)
+
+    assert (episode.training == snapshot).all()
+    torch.testing.assert_close(base_trajectory["value_target"], torch.tensor([[5.0]]))
+    torch.testing.assert_close(scaled_trajectory["value_target"], torch.tensor([[1.0]]))
+    torch.testing.assert_close(base_trajectory["advantage"], torch.tensor([[4.0]]))
+    torch.testing.assert_close(scaled_trajectory["advantage"], torch.tensor([[0.0]]))
+
+
 def test_gae_treats_simultaneous_termination_and_truncation_as_terminal() -> None:
     episode = _episode(reward=0.25, terminated=True, truncated=True, bootstrap=0.0)
 
