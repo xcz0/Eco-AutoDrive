@@ -1,0 +1,25 @@
+docs/experiments/records/e-052-issue105-phase-c-canonical-ppo-refreeze.md
+  s_788f6dfbfd419b::t_79f7c16adedc36 1-219
+docs/agents/contracts/experiments.md
+  s_788f6dfbfd419b::t_d54de4517cbcfe 19
+  s_788f6dfbfd419b::t_684be9f237b5ce 105-112
+  s_788f6dfbfd419b::t_a3bacc404f7d2b 132
+docs/experiments/README.md
+  s_788f6dfbfd419b::t_a3ab1cc5fa3a49 99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "eeae1aceb4343b9875465ce152ec2d29804d42ca",
+  "prompts": {},
+  "sessions": {
+    "s_788f6dfbfd419b": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f1952d06affe01iE7FL9voawwW",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
