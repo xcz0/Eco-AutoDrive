@@ -1,0 +1,52 @@
+src/eco_planner/experiments/training/counterfactual_attribution/__init__.py
+  s_b12f9e351f2895::t_5657d44cf88b45 1
+src/eco_planner/experiments/training/cadence_attribution/runner.py
+  s_b12f9e351f2895::t_887d29b00e3fd3 14
+  s_b12f9e351f2895::t_d6e367ee2b473a 208,211-212
+  s_b12f9e351f2895::t_6e64b49b7554e7 151,155,157-160,167,170
+  s_b12f9e351f2895::t_a6e6904a123b2f 21,23-34,39-40,168-169
+scripts/experiments.py
+  s_b12f9e351f2895::t_ca04b812958425 133-135
+  s_b12f9e351f2895::t_3505e68a571277 96-103
+src/eco_planner/analysis/workflows.py
+  s_b12f9e351f2895::t_0d3490f972156d 130
+tests/training/test_counterfactual_attribution.py
+  s_b12f9e351f2895::t_d2dfc2c18a32a5 1-204,206-209,211-284
+  s_b12f9e351f2895::t_25fec0d07fcf62 205,210
+tests/training/test_ppo.py
+  s_b12f9e351f2895::t_b670a700563e5d 233-248
+configs/experiments/training/counterfactual-attribution.yaml
+  s_b12f9e351f2895::t_a568c9f29a402a 1-61
+src/eco_planner/rl/optimization/config.py
+  s_b12f9e351f2895::t_c19acd554279b7 32-35
+src/eco_planner/rl/optimization/ppo.py
+  s_b12f9e351f2895::t_106f57ae62ba66 102-106
+configs/components/ppo.yaml
+  s_b12f9e351f2895::t_12f4f87ed38f90 11
+src/eco_planner/experiments/training/attribution.py
+  s_b12f9e351f2895::t_25fec0d07fcf62 113
+  s_b12f9e351f2895::t_66d1e702c0ca42 1-112,114-199
+src/eco_planner/experiments/training/counterfactual_attribution/diagnostics.py
+  s_b12f9e351f2895::t_14f2c1b4d2872e 1-85
+src/eco_planner/experiments/training/counterfactual_attribution/runner.py
+  s_b12f9e351f2895::t_5b65fa7522ce9f 1-67,71-158,162-225,227-234,236-322,324-347
+  s_b12f9e351f2895::t_9724a3e3abcb14 159-161
+  s_b12f9e351f2895::t_25fec0d07fcf62 226,235,323
+  s_b12f9e351f2895::t_df0dda11cb9eac 68-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "b788477a392a8f43363153cb99d3da29c5da5e4f",
+  "prompts": {},
+  "sessions": {
+    "s_b12f9e351f2895": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f1a13ab72ffeXyyNKMwp26Y625",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
