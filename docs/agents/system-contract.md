@@ -33,7 +33,7 @@
 * MetaDrive vehicle center 与后轴中心的偏移必须按车辆 heading 显式转换；地图、目标轨迹和实际车辆状态使用同一车辆中心约定。
 * heading 使用 `[cos(h), sin(h)]`，角差使用最短有向角。
 * 模型轨迹为 10 Hz 的 80 个未来点，共 8 s；MetaDrive 物理步长为 0.02 s，`decision_repeat=5`，对外子步为 0.1 s。
-* training rollout 与 evaluation 运行同一 canonical closed-loop cadence：每个 planning cycle 执行前 `CLOSED_LOOP_EXECUTION_STEPS=5` 个子步，即 `DECISION_INTERVAL_S=0.5 s`，规划频率为 2 Hz。一个 PPO transition = 一个 planner/policy decision + 其完整 execution prefix；training 与 evaluation 不再使用不同前缀或不同 transition 时间尺度。诊断 experiment 可显式传入 `MetaDriveEnvSlot`/`VectorMetaDriveEnv` 的 `execution_steps` 覆盖前缀长度（默认 `None` 等于 canonical），training job 通过显式 `training.diagnostic_execution_steps`（默认 `null`）暴露该诊断覆盖并把它写入 runtime metadata；该覆盖仅供 matched causal intervention，不改变 baseline 执行契约或正式 transition/reward/GAE 语义。
+* training rollout 与 evaluation 运行同一 canonical closed-loop cadence：每个 planning cycle 执行前 `CLOSED_LOOP_EXECUTION_STEPS=5` 个子步，即 `DECISION_INTERVAL_S=0.5 s`，规划频率为 2 Hz。一个 PPO transition = 一个 planner/policy decision + 其完整 execution prefix；training 与 evaluation 不再使用不同前缀或不同 transition 时间尺度。诊断 experiment 可显式传入 `MetaDriveEnvSlot`/`VectorMetaDriveEnv` 的 `execution_steps` 覆盖前缀长度（默认 `None` 等于 canonical），training job 通过显式 `training.diagnostic_execution_steps`（默认 `null`）暴露该诊断覆盖并把它写入 runtime metadata；该覆盖仅供 matched causal intervention，不改变 baseline 执行契约或正式 transition/reward/GAE 语义。`ppo.diagnostic_reward_divisor`（默认 `1.0`）是同类 matched causal counterfactual：它只缩放喂给 GAE 的训练 reward，不修改持久化 reward audit 与正式 transition/reward 语义。
 * 这些共享 ABI 值仅定义于 `eco_planner.contracts`。其中 `TRAFFIC_HISTORY_FRAMES=21` 包含当前帧，`TRAFFIC_HISTORY_WARMUP_STEPS=20` 是形成该完整历史所需的过去子步数；MetaDrive physics step 与 decision repeat 必须显式验证其乘积等于 0.1 s。
 * 程序化地图限速配置使用 km/h，模型限速使用 m/s；单位转换只在地图适配边界执行一次。
 * 能耗、距离、速度、加速度和角速度字段名必须显式标出单位。
