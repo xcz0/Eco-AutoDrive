@@ -1,0 +1,29 @@
+docs/experiments/records/e-051-issue105-phase-b-counterfactuals.md
+  s_b12f9e351f2895::t_750995c6c47631 1-172
+docs/experiments/README.md
+  s_b12f9e351f2895::t_44510c5c9c4cfd 98
+docs/agents/contracts/experiments.md
+  s_b12f9e351f2895::t_962e3dc08b5bea 99-104
+  s_b12f9e351f2895::t_24144f56fb270c 123
+  s_b12f9e351f2895::t_61b1f91d25f41a 19
+docs/agents/system-contract.md
+  s_b12f9e351f2895::t_495bfb795f768e 36
+docs/agents/contracts/training.md
+  s_b12f9e351f2895::t_0284f83365c20e 45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "f0f3adf4e067cffaa2a48e31366827990bc82424",
+  "prompts": {},
+  "sessions": {
+    "s_b12f9e351f2895": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f1a13ab72ffeXyyNKMwp26Y625",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
