@@ -1,0 +1,21 @@
+tests/training/test_training_workflows.py
+  s_40fb4ae49ae77d::t_d2d13e20b6ce36 261-299
+configs/experiments/training/e-053-issue106-task-1-gate-t2-reentry.yaml
+  s_40fb4ae49ae77d::t_1124adbdc13db2 1-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "6cd818a359182ebd9fe40662fdd743deb024efb6",
+  "prompts": {},
+  "sessions": {
+    "s_40fb4ae49ae77d": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f18af9305ffeeKStJIia6qPjJ4",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
