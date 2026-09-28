@@ -1,0 +1,24 @@
+tests/training/test_control_refreeze.py
+  s_788f6dfbfd419b::t_f1fdb4a3d16c13 292-347
+src/eco_planner/experiments/training/control_refreeze/runner.py
+  s_788f6dfbfd419b::t_2278adac36669c 263-264
+  s_788f6dfbfd419b::t_9f4fcac2583f75 166-167
+  s_788f6dfbfd419b::t_209f327cd4920c 71,74-90,96-97,100-101,125-131,149-150
+  s_788f6dfbfd419b::t_2c7a680bee3123 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "06a7d62b9e42a8170766a9c4a976c1c298d795e0",
+  "prompts": {},
+  "sessions": {
+    "s_788f6dfbfd419b": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f1952d06affe01iE7FL9voawwW",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
