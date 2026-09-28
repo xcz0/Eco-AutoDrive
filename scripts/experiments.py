@@ -101,6 +101,14 @@ COMMANDS = {
         cuda=True,
     ),
     ("training", "counterfactual-attribution", "analyze"): Command("", "", None, source=True),
+    ("training", "control-refreeze", "run"): Command(
+        "training.control_refreeze.runner",
+        "run",
+        "training/control-refreeze.yaml",
+        environment=True,
+        cuda=True,
+    ),
+    ("training", "control-refreeze", "analyze"): Command("", "", None, source=True),
     ("training", "analyze"): Command("", "", None, source=True),
 }
 
@@ -133,6 +141,9 @@ def build_parser() -> argparse.ArgumentParser:
                 "counterfactual-attribution": sub.add_parser(
                     "counterfactual-attribution"
                 ).add_subparsers(required=True),
+                "control-refreeze": sub.add_parser("control-refreeze").add_subparsers(
+                    required=True
+                ),
             }
         else:
             nested = {}

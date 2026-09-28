@@ -1,0 +1,73 @@
+version: 1
+study_name: canonical_cadence_ppo_control_refreeze
+protocol: experiments/comparison/calibrated.yaml
+arm: r0
+training_seed: 0
+update_count: 50
+base_overrides: []
+mc_draws: 4096
+mc_seed: 1000003
+selection: first_passing_in_declared_order
+historical_comparator: E-051 Phase B causal counterfactuals / E-039 effective-update region
+reference:
+  label: canonical_k5
+  overrides: []
+  description: Canonical k=5 calibrated-R0 reference (lr=1.5e-4 / epochs=1 / mgn=0.5).
+candidates:
+- label: time_consistent_value_scaled
+  overrides:
+  - ppo.value_coefficient=0.1
+  - ppo.gamma=0.9509900499000001
+  - ppo.gae_lambda=0.7737809375
+  description: Correct both identified upstream mechanisms (value-loss magnitude and 0.1 s
+    physical-time credit) with no learning-rate change.
+- label: value_loss_scaled
+  overrides:
+  - ppo.value_coefficient=0.1
+  description: Minimal critic-scale correction only (value-loss coefficient /5).
+- label: time_consistent
+  overrides:
+  - ppo.gamma=0.9509900499000001
+  - ppo.gae_lambda=0.7737809375
+  description: Minimal physical-time credit correction only (gamma^5 / lambda^5).
+- label: time_consistent_value_scaled_lr2
+  overrides:
+  - ppo.value_coefficient=0.1
+  - ppo.gamma=0.9509900499000001
+  - ppo.gae_lambda=0.7737809375
+  - ppo.learning_rate=0.0003
+  description: Mechanism-based combination plus 2x learning-rate recalibration.
+- label: time_consistent_value_scaled_lr3
+  overrides:
+  - ppo.value_coefficient=0.1
+  - ppo.gamma=0.9509900499000001
+  - ppo.gae_lambda=0.7737809375
+  - ppo.learning_rate=0.00045
+  description: Mechanism-based combination plus 3x learning-rate recalibration.
+- label: lr2
+  overrides:
+  - ppo.learning_rate=0.0003
+  description: Learning-rate-only recalibration to 2x canonical.
+- label: lr3
+  overrides:
+  - ppo.learning_rate=0.00045
+  description: Learning-rate-only recalibration to 3x canonical.
+gate:
+  target_kl: 0.006
+  kl_floor: 1.0e-06
+  within_target_kl_fraction: 0.9
+  runaway_tail_updates: 10
+  runaway_tail_factor: 10.0
+  ratio_change_floor: 0.0001
+  guidance_rms_shift_floor: 0.01
+  beta_parameter_floor: 0.1
+  boundary_mass_ceiling: 0.2
+  episode_length_retention_floor: 0.5
+  collision_budget: 2
+  heldout_relative_change_floor: 0.001
+  heldout_metrics:
+  - mean_speed_mps
+  - distance_m
+  - route_completion
+  - energy_total_ml
+  - energy_ml_per_km
