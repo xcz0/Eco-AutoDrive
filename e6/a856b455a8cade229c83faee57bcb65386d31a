@@ -1,0 +1,42 @@
+src/eco_planner/experiments/training/control_refreeze/runner.py
+  s_788f6dfbfd419b::t_d552ebe11430ec 270,278,283-292
+  s_788f6dfbfd419b::t_1c71538ac6eff7 1-72,77-125,129-178,202,209-221,230-232,234-269,271-277,279-282,293-346,348-389
+  s_788f6dfbfd419b::t_90663768574883 126-128
+  s_788f6dfbfd419b::t_e22e577fc2b139 223-229
+  s_788f6dfbfd419b::t_7f5720e762cf37 73-76
+  s_788f6dfbfd419b::t_16eeb9740f12ff 222,233
+  s_788f6dfbfd419b::t_81d8075cfcdf97 183,347
+  s_788f6dfbfd419b::t_e96be2ed9412a8 179-182,184-201,203-208
+configs/experiments/training/control-refreeze.yaml
+  s_788f6dfbfd419b::t_21bcd28ba510a8 1-73
+scripts/experiments.py
+  s_788f6dfbfd419b::t_f82cab8a190457 104-111
+  s_788f6dfbfd419b::t_6f84509da9f6e1 144-146
+tests/training/test_control_refreeze.py
+  s_788f6dfbfd419b::t_81d8075cfcdf97 173,177,256-258
+  s_788f6dfbfd419b::t_0e1591b042d20e 1-83,86-172,174-176,178-255,259-285,287-321
+  s_788f6dfbfd419b::t_347febfc843a76 286
+  s_788f6dfbfd419b::t_37408962cba468 84-85
+src/eco_planner/experiments/training/control_refreeze/__init__.py
+  s_788f6dfbfd419b::t_dcbece7042753d 1
+src/eco_planner/experiments/training/control_refreeze/diagnostics.py
+  s_788f6dfbfd419b::t_c85c5780913781 1-103
+src/eco_planner/analysis/workflows.py
+  s_788f6dfbfd419b::t_d186068764ea3c 131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "e6a856b455a8cade229c83faee57bcb65386d31a",
+  "prompts": {},
+  "sessions": {
+    "s_788f6dfbfd419b": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f1952d06affe01iE7FL9voawwW",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
