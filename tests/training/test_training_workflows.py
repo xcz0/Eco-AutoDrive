@@ -258,3 +258,42 @@ def test_e049_transfer_manifest_pins_calibrated_r0_e039_candidate() -> None:
     assert parsed.cadence.closed_loop_execution_steps == 5
     assert parsed.cadence.decision_interval_s == 0.5
     assert grid.arm_label(*study.grid.combinations()[0]) == "lr1.5000e-04-epochs1-mgn0.5"
+
+
+def test_e053_gate_t2_reentry_manifest_pins_frozen_canonical_control() -> None:
+    """Issue #106 Task 1 reuses frozen Gate F on the E-052 selected control."""
+
+    manifest = (
+        CONFIG_ROOT / "experiments" / "training" / "e-053-issue106-task-1-gate-t2-reentry.yaml"
+    )
+    study = load_training_grid(manifest)
+    assert study.grid.combinations() == ((1.5e-4, 1, 0.5),)
+    assert study.arm == "r0"
+    assert study.training_seed == 0
+    assert study.update_count == 50
+    # Gate T2 reuses the frozen E-039 Gate F thresholds verbatim.
+    assert (
+        study.gate
+        == load_training_grid(CONFIG_ROOT / "experiments" / "training" / "grid.yaml").gate
+    )
+
+    protocol = load_protocol(study.protocol_path())
+    _, parsed = compose_arm_training_config(
+        protocol, study.arm, study.training_seed, grid.compose_arm_overrides(study, 1.5e-4, 1, 0.5)
+    )
+    assert parsed.reward.name == "plannerrft_no_energy_calibrated_v1"
+    assert parsed.ppo.learning_rate == pytest.approx(1.5e-4)
+    assert parsed.ppo.epochs == 1
+    assert parsed.ppo.max_gradient_norm == 0.5
+    assert parsed.ppo.target_kl == pytest.approx(0.006)
+    assert parsed.ppo.batch_size == parsed.ppo.minibatch_size == 128
+    assert parsed.ppo.optimizer_steps_per_update == 1
+    # E-052 selected canonical control overrides.
+    assert parsed.ppo.value_coefficient == pytest.approx(0.1)
+    assert parsed.ppo.gamma == pytest.approx(0.9509900499000001)
+    assert parsed.ppo.gae_lambda == pytest.approx(0.7737809375)
+    assert parsed.training.update_count == 50
+    assert parsed.cadence.simulator_step_s == 0.1
+    assert parsed.cadence.closed_loop_execution_steps == 5
+    assert parsed.cadence.decision_interval_s == 0.5
+    assert grid.arm_label(*study.grid.combinations()[0]) == "lr1.5000e-04-epochs1-mgn0.5"
