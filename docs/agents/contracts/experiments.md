@@ -20,7 +20,7 @@
 
 ## Comparison matched protocol
 
-`configs/experiments/comparison/default.yaml` 默认三臂 a0（frozen）、a1（R0）、a2（energy λ=1）；`calibrated.yaml` 声明 r0/rstress 两个现有 calibrated reward profiles。arm 标签、reward profile 和有方向的 contrasts 均来自配置。相同执行和比较路径支持这两种设计。
+`configs/experiments/comparison/default.yaml` 默认三臂 a0（frozen）、a1（R0）、a2（energy λ=1）；`calibrated.yaml` 声明 r0/rstress 两个现有 calibrated reward profiles；`calibrated-canonical.yaml` 在二者基础上把 E-052/#105 冻结的 canonical k=5 PPO control（`ppo.value_coefficient/gamma/gae_lambda`）写入 `training.overrides`，供 Issue #106 canonical transfer/positive-control 使用，不修改 `calibrated.yaml`。arm 标签、reward profile 和有方向的 contrasts 均来自配置。相同执行和比较路径支持这些设计。
 
 默认训练池为 S/SC map seeds 0–7，held-out 为 S/SC seeds 16–23；协议校验两池不相交。默认 held-out 为 no-traffic、300 步 horizon、DDIM5、runtime seed 760025，训练 seed namespace 和 PPO overrides 显式配置。每次 train 显式指定 seed，replay_id=0；组合后核验 reward、seed、sampler、scenario 池和 num_scenarios 覆盖。initial checkpoint 只作为诊断标签，没有独立 update0 协议字段。
 
@@ -135,7 +135,7 @@ reward/credit 从数组重算分布与配对，核验 sample 长度、重复身�
 
 评测比较要求相同 workload、sampler、runtime seed，按 scenario/map/map seed/noise seed、evaluation mode、traffic density 精确配对；重复或缺失键报错。差值为 comparison−reference。失败原因与不可用配对数保留；不用零填补失败指标。碰撞/越界正常终止仍保留有效指标，completed 不代表到达。
 
-Comparison 报告顺序为 completion/availability → safety → paired energy。completed rate 分母为所有回合；arrival、route completion 和 safety rate 分母为本 arm completed 回合，未知不计安全。每个配置 contrast 单独使用双方 completed 的 matched 交集；每 seed effect 为 mean energy delta（MetaDrive fuel proxy，mL），负值表示更低，需结合失败、安全和提前终止解释。
+Comparison 报告顺序为 completion/availability → safety → paired energy。completed rate 分母为所有回合；arrival、route completion 和 safety rate 分母为本 arm completed 回合，未知不计安全。每个配置 contrast 单独使用双方 completed 的 matched 交集；每 seed effect 为 mean energy delta（MetaDrive fuel proxy，mL），负值表示更低，需结合失败、安全和提前终止解释。`scalar-reward` 汇总另含 `guidance`：对每个 contrast 按 training seed 给出双臂 fixed-context probe 的配对 Beta-stat 差值（`before` 为 matched-initial 守卫，`after` 为训练后 guidance 分布分离），供 transfer/positive-control gate 在实验记录中裁定。
 
 scenario bootstrap 配置显式指定 confidence_level、n_resamples、bootstrap_seed，使用 SciPy percentile 与独立 RNG。无 pair 时 estimate/CI 不可用；单 pair 保留 estimate、CI 不可用；常量双样本允许零宽区间。不重采样 training seed。每 seed 单列点估计、CI 与缺项；initial 不进入 final 方向计数。CI 只表示固定策略及可用场景的不确定性，不是跨 training seed 总体区间。
 
