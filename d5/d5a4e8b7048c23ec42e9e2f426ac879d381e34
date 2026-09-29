@@ -1,0 +1,19 @@
+configs/experiments/guidance/e-054-issue106-task-2-canonical-bridge.yaml
+  s_6591142aebcb02::t_4956eb360fa872 1-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "d5d5a4e8b7048c23ec42e9e2f426ac879d381e34",
+  "prompts": {},
+  "sessions": {
+    "s_6591142aebcb02": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f1888480fffekg1IRzUXsIAChU",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
