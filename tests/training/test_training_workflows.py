@@ -297,3 +297,33 @@ def test_e053_gate_t2_reentry_manifest_pins_frozen_canonical_control() -> None:
     assert parsed.cadence.closed_loop_execution_steps == 5
     assert parsed.cadence.decision_interval_s == 0.5
     assert grid.arm_label(*study.grid.combinations()[0]) == "lr1.5000e-04-epochs1-mgn0.5"
+
+
+def test_canonical_positive_control_protocol_pins_frozen_control_and_two_arms() -> None:
+    """Issue #106 Task 2 runs calibrated R0/rstress under the E-052 frozen control."""
+
+    protocol = load_protocol(
+        CONFIG_ROOT / "experiments" / "comparison" / "calibrated-canonical.yaml"
+    )
+    assert protocol.training.seeds == [0, 1]
+    assert [(pair[0], pair[1]) for pair in protocol.contrasts] == [("r0", "rstress")]
+
+    _, r0 = compose_arm_training_config(protocol, "r0", 0)
+    _, rstress = compose_arm_training_config(protocol, "rstress", 0)
+    assert r0.reward.name == "plannerrft_no_energy_calibrated_v1"
+    assert rstress.reward.name == "plannerrft_energy_band_lam64_v1"
+    assert r0.ppo == rstress.ppo
+    assert r0.scenarios == rstress.scenarios
+    for parsed in (r0, rstress):
+        assert parsed.ppo.value_coefficient == pytest.approx(0.1)
+        assert parsed.ppo.gamma == pytest.approx(0.9509900499000001)
+        assert parsed.ppo.gae_lambda == pytest.approx(0.7737809375)
+        assert parsed.ppo.learning_rate == pytest.approx(1.5e-4)
+        assert parsed.ppo.epochs == 1
+        assert parsed.ppo.max_gradient_norm == 0.5
+        assert parsed.ppo.target_kl == pytest.approx(0.006)
+        assert parsed.ppo.batch_size == parsed.ppo.minibatch_size == 128
+        assert parsed.training.update_count == 50
+        assert parsed.cadence.simulator_step_s == 0.1
+        assert parsed.cadence.closed_loop_execution_steps == 5
+        assert parsed.cadence.decision_interval_s == 0.5

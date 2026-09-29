@@ -261,11 +261,13 @@ def scalar_reward(comparison: PolicyComparison) -> dict[str, Any]:
                 entry["partial"] = len(estimates) != len(effects)
             checkpoints[label] = entry
         contrasts[name] = checkpoints
+    guidance = _guidance_contrasts(comparison)
     return {
         "baseline": arm_outcomes(baseline) if baseline is not None else None,
         "baseline_arm": comparison.baseline_arm,
         "runs": runs,
         "contrasts": contrasts,
+        "guidance": guidance,
         "bootstrap": {
             **comparison.bootstrap.model_dump(),
             "method": "percentile",
@@ -280,3 +282,46 @@ def scalar_reward(comparison: PolicyComparison) -> dict[str, Any]:
             "not uncertainty across training seeds. Initial/update0 is diagnostic only."
         ),
     }
+
+
+def _guidance_contrasts(comparison: PolicyComparison) -> dict[str, Any]:
+    """Paired per-context guidance Beta shifts for each declared contrast.
+
+    The fixed-context probe captures each trained policy's guidance Beta per
+    scenario; the paired deltas isolate the comparison arm's guidance
+    distribution shift relative to the reference arm, per training seed. The
+    ``before`` delta is the matched-initial guard and the ``after`` delta is the
+    post-training separation consumed by transfer/positive-control gates.
+    """
+
+    from .training import paired_beta_deltas
+
+    training_by_key: dict[tuple[str, int], TrainingRunSummary] = {}
+    for run in comparison.runs:
+        training_by_key.setdefault((run.arm, run.training.training_seed), run.training)
+    guidance: dict[str, Any] = {}
+    for reference_arm, comparison_arm in comparison.contrasts:
+        name = f"{comparison_arm}-{reference_arm}"
+        effects = []
+        for seed in comparison.training_seeds:
+            reference = training_by_key.get((reference_arm, seed))
+            target = training_by_key.get((comparison_arm, seed))
+            if reference is None or target is None:
+                effects.append({"training_seed": seed, "available": False})
+                continue
+            effects.append(
+                {
+                    "training_seed": seed,
+                    "available": True,
+                    "before": paired_beta_deltas(
+                        reference.probe_before.model_dump(mode="json"),
+                        target.probe_before.model_dump(mode="json"),
+                    ),
+                    "after": paired_beta_deltas(
+                        reference.probe_after.model_dump(mode="json"),
+                        target.probe_after.model_dump(mode="json"),
+                    ),
+                }
+            )
+        guidance[name] = {"effects": effects}
+    return guidance

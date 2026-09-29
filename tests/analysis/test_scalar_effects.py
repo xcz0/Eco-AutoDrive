@@ -21,6 +21,7 @@ from eco_planner.analysis.statistics import (
     scenario_effect,
 )
 from eco_planner.evaluation.artifacts.models import FailedEpisodeSummary
+from eco_planner.rl.artifacts import PolicyProbeSummary, TrainingRunSummary
 from tests.analysis.test_reports import job
 from tests.evaluation.test_artifacts import _episode, _training_summary
 
@@ -230,3 +231,46 @@ def test_dual_reward_comparison_retains_missing_seed_and_initial_diagnostics(tmp
     files = experiment_figures("scalar-reward", data, tmp_path)
     write_report("scalar-reward", tmp_path, tmp_path, data, files)
     assert "rstress-r0" in (tmp_path / "report.md").read_text(encoding="utf-8")
+
+
+def _probe(scale: float) -> PolicyProbeSummary:
+    return PolicyProbeSummary.model_construct(
+        alpha=((scale, 1.0), (1.0, scale)),
+        beta=((1.0, scale), (scale, 1.0)),
+        guidance_mean=((0.0, 0.0), (0.0, 0.0)),
+        boundary_mass=((0.0, 0.0), (0.0, 0.0)),
+    )
+
+
+def _trained(arm: str, seed: int) -> TrainingRunSummary:
+    summary = _training_summary(seed, 0)
+    return summary.model_copy(update={"probe_after": _probe(1.0 if arm == "r0" else 2.0)})
+
+
+def test_guidance_contrast_reports_paired_probe_separation():
+    comparison = PolicyComparison(
+        None,
+        (
+            PolicyComparisonRun("r0", "final", _trained("r0", 0), scenario_job([10, 20])),
+            PolicyComparisonRun("rstress", "final", _trained("rstress", 0), scenario_job([8, 16])),
+        ),
+        BOOTSTRAP,
+        (0,),
+        (("r0", "rstress"),),
+        None,
+    )
+    effects = scalar_reward(comparison)["guidance"]["rstress-r0"]["effects"]
+    assert effects[0]["training_seed"] == 0 and effects[0]["available"] is True
+    assert effects[0]["before"]["beta_mean"]["rms"] == 0.0
+    assert effects[0]["after"]["beta_mean"]["rms"] > 0.0
+
+    missing = PolicyComparison(
+        None,
+        (run("r0", 0, scenario_job([10, 20])),),
+        BOOTSTRAP,
+        (0, 1),
+        (("r0", "rstress"),),
+        None,
+    )
+    unavailable = scalar_reward(missing)["guidance"]["rstress-r0"]["effects"][1]
+    assert unavailable == {"training_seed": 1, "available": False}
