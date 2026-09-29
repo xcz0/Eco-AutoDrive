@@ -1,0 +1,24 @@
+docs/agents/contracts/experiments.md
+  s_6591142aebcb02::t_9538da2cb85e43 138
+  s_6591142aebcb02::t_d13c32d8308158 23
+docs/experiments/README.md
+  s_6591142aebcb02::t_ba5e8ce5e9a2e9 101
+docs/experiments/records/e-054-issue106-task-2-canonical-positive-control.md
+  s_6591142aebcb02::t_f59122dad1b836 1-221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "737622a6f77787c0da611a4125fba69ad45b2e0c",
+  "prompts": {},
+  "sessions": {
+    "s_6591142aebcb02": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f1888480fffekg1IRzUXsIAChU",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
