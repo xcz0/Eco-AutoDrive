@@ -1,0 +1,27 @@
+src/eco_planner/analysis/evaluation.py
+  s_6591142aebcb02::t_9bd252af4699cb 285-327
+  s_6591142aebcb02::t_7aa5f107323cb9 264,270
+configs/experiments/comparison/calibrated-canonical.yaml
+  s_6591142aebcb02::t_c37d52b73d5f02 1-64
+tests/analysis/test_scalar_effects.py
+  s_6591142aebcb02::t_6743005428978f 234-276
+  s_6591142aebcb02::t_ac727fdc9223a2 24
+tests/training/test_training_workflows.py
+  s_6591142aebcb02::t_9df0d181ce2c53 300-329
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "f2cfaff7fbb55579abea82c730380b463fafaf9e",
+  "prompts": {},
+  "sessions": {
+    "s_6591142aebcb02": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f1888480fffekg1IRzUXsIAChU",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
