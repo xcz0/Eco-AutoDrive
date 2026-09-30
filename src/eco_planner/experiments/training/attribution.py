@@ -27,18 +27,11 @@ from eco_planner.jobs import run_evaluation_job
 from eco_planner.rl import parse_training_config, read_rollout_episode
 from eco_planner.rl.optimization.ppo import build_ppo_batch
 from eco_planner.rl.optimization.update_diagnostics import (
+    GRADIENT_GROUPS,
     extract_arm_metrics,
     post_update_kl_series,
 )
 
-GRADIENT_GROUPS = (
-    "actor_head_policy",
-    "shared_trunk_policy",
-    "value_head_critic",
-    "shared_trunk_critic",
-    "actor_head_entropy",
-    "shared_trunk_entropy",
-)
 REWARD_COMPONENTS = ("ttc", "progress", "comfort", "speed", "energy")
 
 

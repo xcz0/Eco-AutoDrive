@@ -217,11 +217,23 @@ def test_gate_f_rejects_boundary_collapse_and_behavioral_collapse() -> None:
     assert behavioral["conditions"]["c6_no_behavioral_collapse"] is False
 
 
-def _write_run_dir(path: Path, update_count: int) -> None:
+def _write_run_dir(path: Path, update_count: int, *, gradient_diagnostics: bool = False) -> None:
     updates = []
     for index in range(update_count):
         updates.append(
             {
+                "gradient_diagnostics": (
+                    {
+                        "actor_head_policy": 0.3 + index,
+                        "shared_trunk_policy": 0.4,
+                        "value_head_critic": 0.5,
+                        "shared_trunk_critic": 0.6,
+                        "actor_head_entropy": 0.7,
+                        "shared_trunk_entropy": 0.8,
+                    }
+                    if gradient_diagnostics
+                    else None
+                ),
                 "mean_approximate_kl": 1.0e-05 + index * 1.0e-07,
                 "mean_clip_fraction": 0.01,
                 "maximum_pre_clip_gradient_norm": 4.8,
@@ -290,8 +302,18 @@ def test_extract_arm_metrics_reads_persisted_run(tmp_path: Path) -> None:
     assert metrics["parameter_delta_vs_initial"][3]["actor_head"] == pytest.approx(0.008)
     assert metrics["parameter_delta_vs_initial_final"]["actor_head"] == pytest.approx(0.0)
     assert metrics["behavior"]["collision_count"] == 0
+    assert metrics["gradient_diagnostics"] == {}
     with pytest.raises(ValueError, match="expected 3"):
         extract_arm_metrics(run_dir, max_gradient_norm=0.5, update_count=3)
+
+
+def test_extract_arm_metrics_reports_per_group_gradient_diagnostics(tmp_path: Path) -> None:
+    run_dir = tmp_path / "arm-gradient"
+    _write_run_dir(run_dir, 4, gradient_diagnostics=True)
+    metrics = extract_arm_metrics(run_dir, max_gradient_norm=0.5, update_count=4)
+    assert metrics["gradient_diagnostics"]["actor_head_policy"] == [0.3, 1.3, 2.3, 3.3]
+    assert metrics["gradient_diagnostics"]["shared_trunk_policy"] == [0.4] * 4
+    assert metrics["gradient_diagnostics"]["shared_trunk_entropy"] == [0.8] * 4
 
 
 def test_post_update_kl_series_recomputes_kl_on_persisted_updates(tmp_path: Path) -> None:

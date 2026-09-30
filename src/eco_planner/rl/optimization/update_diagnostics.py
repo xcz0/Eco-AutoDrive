@@ -22,6 +22,16 @@ from eco_planner.planning.policy import (
 )
 
 _PARAMETER_GROUPS = ("actor_head", "value_head", "shared_trunk")
+# Per-group parameter-gradient norms persisted only when
+# ``ppo.gradient_diagnostics`` is enabled (measurement-only diagnostic).
+GRADIENT_GROUPS = (
+    "actor_head_policy",
+    "shared_trunk_policy",
+    "value_head_critic",
+    "shared_trunk_critic",
+    "actor_head_entropy",
+    "shared_trunk_entropy",
+)
 _KL_BATCH_KEYS = (
     *POLICY_CONTEXT_KEYS,
     "guidance_action",
@@ -147,6 +157,12 @@ def extract_arm_metrics(
     final = load_policy_state_dict(run_dir / "policy-final.pt")
     final_delta = parameter_delta_vs_reference(final, initial, groups)
     first, last = updates[0], updates[-1]
+    gradient_diagnostics: dict[str, list[float]] = {}
+    if updates[0].get("gradient_diagnostics") is not None:
+        gradient_diagnostics = {
+            group: [update["gradient_diagnostics"][group] for update in updates]
+            for group in GRADIENT_GROUPS
+        }
     return {
         "run_dir": str(run_dir),
         "update_count": len(updates),
@@ -174,6 +190,7 @@ def extract_arm_metrics(
         "parameter_delta_groups": list(_PARAMETER_GROUPS),
         "parameter_delta_vs_initial": deltas,
         "parameter_delta_vs_initial_final": final_delta,
+        "gradient_diagnostics": gradient_diagnostics,
         "beta_initial": _beta_summary(first),
         "beta_final": _beta_summary(last),
         "beta_series": [_beta_summary(update) for update in updates],
