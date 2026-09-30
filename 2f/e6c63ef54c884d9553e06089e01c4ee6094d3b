@@ -1,0 +1,53 @@
+src/eco_planner/analysis/reporting/scalar.py
+  s_f52ad32fa275e0::t_a1ee23b50594f9 7-28
+  s_f52ad32fa275e0::t_f7c4b50f8b8168 135-211
+tests/analysis/test_reports.py
+  s_f52ad32fa275e0::t_15cd5ea930d977 313-382
+src/eco_planner/analysis/evaluation.py
+  s_f52ad32fa275e0::t_199dcbdc5cb6f7 13-18
+  s_f52ad32fa275e0::t_9b302ad721ec34 328
+  s_f52ad32fa275e0::t_7191120327fe43 325
+  s_f52ad32fa275e0::t_cbdc837dcbca96 100,112-115,117-122,126-132,138,140-141
+  s_f52ad32fa275e0::t_7eec0f0fdc06dc 19-28,264-266
+  s_f52ad32fa275e0::t_03e168f4b6a0cc 54-55,59-62
+  s_f52ad32fa275e0::t_b6f4e1e19e4081 223-225,230-263
+  s_f52ad32fa275e0::t_ed485387f38a45 116
+  s_f52ad32fa275e0::t_3c565073675620 123-125,133-137,139
+configs/experiments/credit/e-055-dose-response-objective.yaml
+  s_f52ad32fa275e0::t_c307eb4363532f 1-42
+src/eco_planner/experiments/protocol/composition.py
+  s_f52ad32fa275e0::t_f00d6bec56dadb 21-24
+src/eco_planner/experiments/comparison/inputs.py
+  s_f52ad32fa275e0::t_682196b6e10a14 113-124
+  s_f52ad32fa275e0::t_d44acb0a2c16fd 23-26
+  s_f52ad32fa275e0::t_257263cb84c8fd 98-100
+tests/training/test_training_workflows.py
+  s_f52ad32fa275e0::t_8d79c837310778 302-343
+  s_f52ad32fa275e0::t_8cdd40a8f13658 344-345
+tests/training/test_effective_update.py
+  s_f52ad32fa275e0::t_90742a7350e777 286-288
+scripts/experiments.py
+  s_f52ad32fa275e0::t_23c947bbdfd067 173
+configs/experiments/comparison/calibrated-canonical-dose-response.yaml
+  s_f52ad32fa275e0::t_3bd2b4c261b4dc 1-86
+tests/analysis/test_scalar_effects.py
+  s_f52ad32fa275e0::t_681f9b5629bcb1 201-270
+src/eco_planner/rl/optimization/update_diagnostics.py
+  s_f52ad32fa275e0::t_be55f87d323828 179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "2fe6c63ef54c884d9553e06089e01c4ee6094d3b",
+  "prompts": {},
+  "sessions": {
+    "s_f52ad32fa275e0": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f14df74c5ffeYTKhwqrqtFI0gb",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
