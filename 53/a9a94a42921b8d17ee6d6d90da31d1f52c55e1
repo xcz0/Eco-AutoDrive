@@ -1,0 +1,34 @@
+src/eco_planner/rl/optimization/update_diagnostics.py
+  s_4a2e15f88efe13::t_92d05aa51d8650 250
+  s_4a2e15f88efe13::t_053cc874b297f1 132-209,221
+tests/training/test_effective_update.py
+  s_4a2e15f88efe13::t_a567b45a8bf82d 221-237,239,277-278,296-305
+  s_4a2e15f88efe13::t_e1356f51f8fd9b 337,339-343,357-378,380-425
+  s_4a2e15f88efe13::t_6324bbe9c546e8 379
+  s_4a2e15f88efe13::t_1a09ce1d04eb99 338
+  s_4a2e15f88efe13::t_12e3b9dbebd87b 33,426-427
+docs/agents/contracts/experiments.md
+  s_4a2e15f88efe13::t_8df4000d308873 97
+  s_4a2e15f88efe13::t_8099168c4fe794 27
+  s_4a2e15f88efe13::t_80c2be0a627013 23
+  s_4a2e15f88efe13::t_6159d3ccf26789 83
+docs/research/issue83-task-1-candidate-multiseed-confirmation-plan.md
+  s_4a2e15f88efe13::t_749fea48ba1cad 10-11
+  s_4a2e15f88efe13::t_3ff52a8acce19b 23-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "53a9a94a42921b8d17ee6d6d90da31d1f52c55e1",
+  "prompts": {},
+  "sessions": {
+    "s_4a2e15f88efe13": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f0e7c78d4ffe45sln8jTpVGLTg",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
