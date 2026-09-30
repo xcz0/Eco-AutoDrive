@@ -1,0 +1,23 @@
+docs/experiments/records/e-056-issue83-task-1-candidate-multiseed-confirmation.md
+  s_dc056ad1c0dca5::t_8ec400dccf401a 1-181
+docs/research/issue83-task-1-candidate-multiseed-confirmation-plan.md
+  s_dc056ad1c0dca5::t_0fe92350cb6cd2 3-6
+docs/experiments/README.md
+  s_dc056ad1c0dca5::t_75bda737deedd8 103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "63d07e902138d03786f60039c71ee3cea8ab4e29",
+  "prompts": {},
+  "sessions": {
+    "s_dc056ad1c0dca5": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f100c2c27ffeNeE4deOUPDCvS1",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
