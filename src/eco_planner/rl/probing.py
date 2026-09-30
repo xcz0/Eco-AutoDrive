@@ -6,6 +6,7 @@ import torch
 
 from eco_planner.planning.policy import (
     AffineBeta,
+    ExplicitGeneratorBetaSampler,
     ExplorationPolicyContext,
     policy_context_tensordict,
 )
@@ -55,7 +56,12 @@ def probe_policy(
         beta = output.distribution.parameters.beta
         expanded = AffineBeta(alpha.expand(sample_count, -1), beta.expand(sample_count, -1))
         generator = runtime.new_policy_generator(diagnostic_seed + index)
-        samples = expanded.sample(generator).base_action
+        # The probe measures boundary mass, so it reads the raw base action
+        # without the training rollout's strict interior validation; an
+        # exact-boundary draw is itself the boundary-collapse signal.
+        samples = ExplicitGeneratorBetaSampler.draw(
+            expanded.parameters, generator, validate_args=False
+        )
         boundary = (samples <= boundary_distance) | (samples >= 1.0 - boundary_distance)
         alpha_values.append(_tensor_pair(alpha[0]))
         beta_values.append(_tensor_pair(beta[0]))

@@ -247,6 +247,29 @@ def test_probe_preserves_formula_scenario_order_and_training_random_streams():
             assert actual.boundary_mass[index] == tuple(boundary.tolist())
 
 
+def test_probe_reports_boundary_collapse_without_raising_on_exact_boundary_draws():
+    """Issue #83 Task 1: the probe measures boundary saturation instead of aborting."""
+
+    distribution = AffineBeta(torch.full((1, 2), 1.0e-4), torch.full((1, 2), 2.0))
+
+    class _StubPolicy:
+        def forward_tensordict(self, tensordict):
+            return tensordict
+
+        def output_from_tensordict(self, outputs):
+            return SimpleNamespace(distribution=distribution)
+
+    runtime = SimpleNamespace(
+        policy=_StubPolicy(),
+        device=torch.device("cpu"),
+        new_policy_generator=lambda seed: torch.Generator().manual_seed(seed),
+    )
+    summary = probe_policy(runtime, (_context(),), 512, 0.05, 7)
+    assert summary.alpha[0] == pytest.approx((1.0e-4, 1.0e-4))
+    assert summary.boundary_mass[0][0] == pytest.approx(1.0)
+    assert summary.boundary_mass[0][1] == pytest.approx(1.0)
+
+
 def _sampling_context() -> ExplorationPolicyContext:
     return ExplorationPolicyContext(
         scene_tokens=torch.zeros((2, 2, 12)),
