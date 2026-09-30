@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal
 
 from omegaconf import DictConfig
 
@@ -19,7 +18,10 @@ from eco_planner.planning.diffusion import Ddim5SamplerConfig
 from eco_planner.rl.config import TrainingJobConfig, parse_training_config
 
 ArmName = str
-CheckpointLabel = Literal["initial", "final"]
+# Declared policy-checkpoint labels. ``initial`` and ``final`` are resolved from the
+# typed training summary; any other label (e.g. an intermediate ``update-NNN``) must
+# carry an explicit expected hash in the comparison manifest.
+CheckpointLabel = str
 
 
 def compose_a0_evaluation_config(

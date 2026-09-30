@@ -170,7 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
                     command.add_argument("--training-seed", type=int, required=True)
                     command.add_argument("--override", action="append", default=[])
                 else:
-                    command.add_argument("--checkpoint", choices=("initial", "final"))
+                    command.add_argument("--checkpoint")
                     command.add_argument("--checkpoint-path", type=Path)
     return parser
 

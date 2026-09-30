@@ -310,6 +310,76 @@ def test_scalar_explicit_grouping_and_checkpoint_validation(tmp_path, training_s
         load_comparison(source / "comparison.yaml")
 
 
+def test_scalar_comparison_pins_intermediate_checkpoint_hash(tmp_path, training_summary):
+    from eco_planner.experiments.comparison.inputs import load_comparison
+    from eco_planner.experiments.protocol.config import DEFAULT_PROTOCOL
+
+    source = tmp_path / "source"
+    source.mkdir()
+    protocol = OmegaConf.load(DEFAULT_PROTOCOL)
+    protocol.evaluation.maps = ["S"]
+    protocol.evaluation.map_seeds = [0]
+    protocol.evaluation.seed = 0
+    protocol.evaluation.horizon_steps = 10
+    protocol.training.maps = ["C"]
+    protocol.training.map_seeds = [1]
+    protocol.training.seeds = [0]
+    OmegaConf.save(protocol, source / "protocol.yaml")
+    (source / "a0").mkdir()
+    write_json(source / "a0/summary.json", job().model_dump(mode="json"))
+    write_json(source / "training.json", training_summary.model_dump(mode="json"))
+    OmegaConf.save(
+        OmegaConf.create(
+            {
+                "runtime": {"seed": 0},
+                "training": {"replay_id": 0},
+                "sampler": {"name": "ddim5"},
+                "reward": {"name": "plannerrft_energy_v1"},
+                "scenarios": [{"name": "curve", "map": "C", "seed": 1}],
+                "ppo": {"learning_rate": 2.5e-5, "epochs": 1},
+            }
+        ),
+        source / "resolved_config.yaml",
+    )
+    evaluation = source / "eval-update-025"
+    evaluation.mkdir()
+    write_json(
+        evaluation / "summary.json",
+        job(1.0)
+        .model_copy(
+            update={
+                "policy_checkpoint": PolicyCheckpointProvenance(
+                    label="update-025", path="policy-update-024.pt", policy_hash="c" * 64
+                )
+            }
+        )
+        .model_dump(mode="json"),
+    )
+    config = {
+        "protocol": "protocol.yaml",
+        "baseline_evaluation_dir": "a0",
+        "runs": [
+            {
+                "arm": "a2",
+                "training_summary": "training.json",
+                "checkpoint_label": "update-025",
+                "evaluation_dir": "eval-update-025",
+            }
+        ],
+    }
+    OmegaConf.save(OmegaConf.create(config), source / "comparison.yaml")
+    with pytest.raises(ValueError, match="requires an explicit checkpoint_hash"):
+        load_comparison(source / "comparison.yaml")
+    config["runs"][0]["checkpoint_hash"] = "d" * 64
+    OmegaConf.save(OmegaConf.create(config), source / "comparison.yaml")
+    with pytest.raises(ValueError, match="declared training state"):
+        load_comparison(source / "comparison.yaml")
+    config["runs"][0]["checkpoint_hash"] = "c" * 64
+    OmegaConf.save(OmegaConf.create(config), source / "comparison.yaml")
+    comparison = load_comparison(source / "comparison.yaml")
+    assert comparison.runs[0].checkpoint_label == "update-025"
+
+
 def test_sanity_keeps_failed_checks(tmp_path):
     source = tmp_path / "source"
     source.mkdir()

@@ -176,6 +176,7 @@ def extract_arm_metrics(
         "parameter_delta_vs_initial_final": final_delta,
         "beta_initial": _beta_summary(first),
         "beta_final": _beta_summary(last),
+        "beta_series": [_beta_summary(update) for update in updates],
         "min_beta_alpha": min(value for update in updates for value in update["beta_alpha_min"]),
         "min_beta_beta": min(value for update in updates for value in update["beta_beta_min"]),
         "action_mean_initial": first["action_mean"],

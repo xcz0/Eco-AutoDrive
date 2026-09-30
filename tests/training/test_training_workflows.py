@@ -299,6 +299,50 @@ def test_e053_gate_t2_reentry_manifest_pins_frozen_canonical_control() -> None:
     assert grid.arm_label(*study.grid.combinations()[0]) == "lr1.5000e-04-epochs1-mgn0.5"
 
 
+def test_canonical_dose_response_protocol_pins_frozen_control_and_lambda_arms() -> None:
+    """Issue #106 Task 3 sweeps only the energy-band weight under frozen control."""
+
+    protocol = load_protocol(
+        CONFIG_ROOT / "experiments" / "comparison" / "calibrated-canonical-dose-response.yaml"
+    )
+    assert protocol.training.seeds == [0]
+    assert protocol.frozen_arm is None
+    assert [(pair[0], pair[1]) for pair in protocol.contrasts] == [
+        ("r0", "lam1"),
+        ("r0", "lam2"),
+        ("r0", "lam4"),
+        ("r0", "lam8"),
+    ]
+    assert protocol.arms["r0"].reward_profile == "plannerrft_no_energy_calibrated_v1"
+    assert protocol.arms["lam1"].reward_profile == "plannerrft_energy_band_lam1_v1"
+    assert protocol.arms["lam2"].reward_profile == "plannerrft_energy_band_lam2_v1"
+    assert protocol.arms["lam4"].reward_profile == "plannerrft_energy_band_lam4_v1"
+    assert protocol.arms["lam8"].reward_profile == "plannerrft_energy_band_lam8_v1"
+
+    parsed = {
+        arm: compose_arm_training_config(protocol, arm, 0)[1]
+        for arm in ("r0", "lam1", "lam2", "lam4", "lam8")
+    }
+    assert parsed["r0"].reward.name == "plannerrft_no_energy_calibrated_v1"
+    assert parsed["lam8"].reward.name == "plannerrft_energy_band_lam8_v1"
+    for arm, config in parsed.items():
+        assert config.ppo == parsed["r0"].ppo, arm
+        assert config.scenarios == parsed["r0"].scenarios, arm
+    for config in parsed.values():
+        assert config.ppo.value_coefficient == pytest.approx(0.1)
+        assert config.ppo.gamma == pytest.approx(0.9509900499000001)
+        assert config.ppo.gae_lambda == pytest.approx(0.7737809375)
+        assert config.ppo.learning_rate == pytest.approx(1.5e-4)
+        assert config.ppo.epochs == 1
+        assert config.ppo.max_gradient_norm == 0.5
+        assert config.ppo.target_kl == pytest.approx(0.006)
+        assert config.ppo.batch_size == config.ppo.minibatch_size == 128
+        assert config.training.update_count == 50
+        assert config.cadence.simulator_step_s == 0.1
+        assert config.cadence.closed_loop_execution_steps == 5
+        assert config.cadence.decision_interval_s == 0.5
+
+
 def test_canonical_positive_control_protocol_pins_frozen_control_and_two_arms() -> None:
     """Issue #106 Task 2 runs calibrated R0/rstress under the E-052 frozen control."""
 

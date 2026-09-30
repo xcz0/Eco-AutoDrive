@@ -283,6 +283,9 @@ def test_extract_arm_metrics_reads_persisted_run(tmp_path: Path) -> None:
     assert metrics["pre_clip_gradient_norm_median"] == pytest.approx(4.8)
     assert metrics["probe_guidance_rms_shift"] == pytest.approx(math.sqrt(0.00065))
     assert metrics["min_beta_alpha"] == pytest.approx(1.9)
+    assert [entry["dim0"]["alpha"] for entry in metrics["beta_series"]] == [2.0] * 4
+    assert metrics["beta_series"][0] == metrics["beta_initial"]
+    assert metrics["beta_series"][-1] == metrics["beta_final"]
     assert len(metrics["parameter_delta_vs_initial"]) == 4
     assert metrics["parameter_delta_vs_initial"][3]["actor_head"] == pytest.approx(0.008)
     assert metrics["parameter_delta_vs_initial_final"]["actor_head"] == pytest.approx(0.0)

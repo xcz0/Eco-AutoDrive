@@ -10,7 +10,22 @@ from eco_planner.evaluation.artifacts import JobSummary, load_job_summary
 from eco_planner.rl.artifacts import TrainingRunSummary
 
 from .io import read_json
-from .statistics import ScenarioBootstrapConfig, scenario_effect, statistics
+from .statistics import (
+    DistributionStatistics,
+    ScenarioBootstrapConfig,
+    scenario_effect,
+    statistics,
+)
+
+_PAIRED_METRICS = (
+    "energy_ml",
+    "route_completion",
+    "mean_speed_mps",
+    "distance_m",
+    "stopped_fraction",
+    "energy_ml_per_km",
+    "energy_distance_m",
+)
 
 
 def episode_records(summary: JobSummary) -> list[dict[str, Any]]:
@@ -36,9 +51,15 @@ def episode_records(summary: JobSummary) -> list[dict[str, Any]]:
                 wrong_direction=episode.metrics.wrong_direction,
                 arrive_dest=episode.metrics.arrive_dest,
                 mean_speed_mps=episode.metrics.speed_mps.mean,
+                speed_min_mps=episode.metrics.speed_mps.minimum,
+                speed_max_mps=episode.metrics.speed_mps.maximum,
                 distance_m=episode.metrics.distance_m,
                 stopped_fraction=episode.metrics.stopped_fraction,
                 energy_ml_per_km=episode.metrics.energy.ml_per_km,
+                energy_distance_m=episode.metrics.energy.distance_m,
+                terminated=episode.terminated,
+                truncated=episode.truncated,
+                terminal_reason=episode.terminal_reason,
             )
         else:
             row.update(
@@ -76,14 +97,7 @@ def paired(reference: JobSummary, comparison: JobSummary) -> dict[str, Any]:
                     m + "_delta": r[m] - reference_row[m]
                     if complete and r[m] is not None and reference_row[m] is not None
                     else None
-                    for m in (
-                        "energy_ml",
-                        "route_completion",
-                        "mean_speed_mps",
-                        "distance_m",
-                        "stopped_fraction",
-                        "energy_ml_per_km",
-                    )
+                    for m in _PAIRED_METRICS
                 },
             }
         )
@@ -95,12 +109,36 @@ def paired(reference: JobSummary, comparison: JobSummary) -> dict[str, Any]:
         "available_pair_count": len(valid),
         "available_rate": len(valid) / len(rows) if rows else None,
         "unavailable_pair_count": len(rows) - len(valid),
-        "statistics": {
-            m: statistics(np.asarray([r[m + "_delta"] for r in valid]), [0.0, 0.25, 0.5, 0.75, 1.0])
-            if valid
-            else None
-            for m in ("energy_ml", "route_completion")
-        },
+        "statistics": {m: _delta_statistics(valid, m) for m in _PAIRED_METRICS},
+    }
+
+
+def _delta_statistics(valid: list[dict[str, Any]], metric: str) -> DistributionStatistics | None:
+    values = [row[metric + "_delta"] for row in valid if row[metric + "_delta"] is not None]
+    if not values:
+        return None
+    return statistics(np.asarray(values), [0.0, 0.25, 0.5, 0.75, 1.0])
+
+
+def paired_metric_effects(
+    pairs: dict[str, Any] | None, config: ScenarioBootstrapConfig
+) -> dict[str, Any] | None:
+    """Per-metric paired scenario effects from one ``paired`` result."""
+
+    if pairs is None:
+        return None
+    return {
+        metric: scenario_effect(
+            np.asarray(
+                [
+                    row[metric + "_delta"]
+                    for row in pairs["pairs"]
+                    if row["available"] and row[metric + "_delta"] is not None
+                ]
+            ),
+            config,
+        )
+        for metric in _PAIRED_METRICS
     }
 
 
@@ -182,7 +220,47 @@ def arm_outcomes(summary: JobSummary) -> dict:
                 for metric in ("collision", "out_of_road", "wrong_direction")
             },
         },
+        "behavior": _behavior_outcomes(valid),
+        "energy": _energy_outcomes(valid),
+        "termination": _termination_outcomes(valid),
         "failures": [row for row in rows if row["status"] != "completed"],
+    }
+
+
+def _behavior_outcomes(valid: list[dict[str, Any]]) -> dict[str, Any]:
+    def mean(values: list[float]) -> float | None:
+        return sum(values) / len(values) if values else None
+
+    return {
+        "mean_speed_mps": mean([row["mean_speed_mps"] for row in valid]),
+        "speed_min_mps": min((row["speed_min_mps"] for row in valid), default=None),
+        "speed_max_mps": max((row["speed_max_mps"] for row in valid), default=None),
+        "distance_m": mean([row["distance_m"] for row in valid]),
+        "stopped_fraction": mean([row["stopped_fraction"] for row in valid]),
+    }
+
+
+def _energy_outcomes(valid: list[dict[str, Any]]) -> dict[str, Any]:
+    intensities = [row["energy_ml_per_km"] for row in valid if row["energy_ml_per_km"] is not None]
+
+    def mean(values: list[float]) -> float | None:
+        return sum(values) / len(values) if values else None
+
+    return {
+        "total_ml": mean([row["energy_ml"] for row in valid]),
+        "distance_m": mean([row["energy_distance_m"] for row in valid]),
+        "ml_per_km": mean(intensities),
+    }
+
+
+def _termination_outcomes(valid: list[dict[str, Any]]) -> dict[str, Any]:
+    reasons: dict[str, int] = {}
+    for row in valid:
+        reasons[row["terminal_reason"]] = reasons.get(row["terminal_reason"], 0) + 1
+    return {
+        "terminated_count": sum(row["terminated"] for row in valid),
+        "truncated_count": sum(row["truncated"] for row in valid),
+        "terminal_reasons": reasons,
     }
 
 
@@ -244,9 +322,10 @@ def scalar_reward(comparison: PolicyComparison) -> dict[str, Any]:
                     if pairs is not None
                     else np.asarray([])
                 )
-                effect = scenario_effect(delta, comparison.bootstrap)
+                effect: dict[str, Any] = dict(scenario_effect(delta, comparison.bootstrap))
                 if pairs is None:
                     effect["unavailable_reason"] = "missing evaluation for this arm/seed/checkpoint"
+                effect["metrics"] = paired_metric_effects(pairs, comparison.bootstrap)
                 effects.append({"training_seed": seed, **effect, "comparison": pairs})
             entry: dict[str, Any] = {"effects": effects}
             if label == "final":

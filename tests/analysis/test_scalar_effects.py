@@ -198,6 +198,76 @@ def test_three_layer_report_and_seed_figures(comparison, tmp_path, missing):
     assert not (no_figures / "figures").exists()
 
 
+def test_arm_outcomes_and_paired_metrics_expose_behavior_energy_termination(comparison):
+    data = scalar_reward(comparison)
+    outcomes = data["runs"][2]["outcomes"]  # a1 seed 1: fully completed baseline job
+    assert outcomes["behavior"] == {
+        "mean_speed_mps": pytest.approx(7.5),
+        "speed_min_mps": 5.0,
+        "speed_max_mps": 7.0,
+        "distance_m": 100.0,
+        "stopped_fraction": 0.0,
+    }
+    assert outcomes["energy"]["total_ml"] == pytest.approx(25.0)
+    assert outcomes["energy"]["distance_m"] == pytest.approx(100.0)
+    assert outcomes["energy"]["ml_per_km"] == pytest.approx(250.0)
+    assert outcomes["termination"] == {
+        "terminated_count": 4,
+        "truncated_count": 0,
+        "terminal_reasons": {"arrive_dest": 4},
+    }
+    effect = data["contrasts"]["a2-a1"]["final"]["effects"][1]  # seed 1, both arms complete
+    metrics = effect["metrics"]
+    assert metrics["energy_ml"]["estimate"] == pytest.approx(2.5)
+    assert metrics["energy_ml_per_km"]["estimate"] == pytest.approx(25.0)
+    for metric in (
+        "mean_speed_mps",
+        "distance_m",
+        "stopped_fraction",
+        "energy_distance_m",
+        "route_completion",
+    ):
+        assert metrics[metric]["estimate"] == 0.0
+    statistics = effect["comparison"]["statistics"]
+    assert statistics["energy_ml"]["mean"] == pytest.approx(2.5)
+    assert statistics["mean_speed_mps"]["mean"] == 0.0
+
+
+def test_intermediate_checkpoint_outcomes_and_report_ordering(tmp_path):
+    comparison = PolicyComparison(
+        None,
+        (
+            run("r0", 0, scenario_job([10, 20])),
+            run("rstress", 0, scenario_job([8, 16])),
+            run("r0", 0, scenario_job([10, 20]), "update-025"),
+            run("rstress", 0, scenario_job([9, 18]), "update-025"),
+            run("r0", 0, scenario_job([10, 20]), "initial"),
+            run("rstress", 0, scenario_job([10, 20]), "initial"),
+        ),
+        BOOTSTRAP,
+        (0,),
+        (("r0", "rstress"),),
+        None,
+    )
+    data = scalar_reward(comparison)
+    update = data["contrasts"]["rstress-r0"]["update-025"]["effects"][0]
+    assert update["metrics"]["energy_ml"]["estimate"] == pytest.approx(-1.5)
+    files = experiment_figures("scalar-reward", data, tmp_path)
+    write_report("scalar-reward", tmp_path, tmp_path, data, files)
+    report = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert (
+        report.index("## 3. Paired energy effects")
+        < report.index("## 4. Behavior / task and energy by checkpoint")
+        < report.index("## 5. Paired per-metric effects by checkpoint")
+    )
+    assert (
+        report.index("Checkpoint `initial`")
+        < report.index("Checkpoint `update-025`")
+        < report.index("Checkpoint `final`")
+    )
+    assert "Energy intensity (mL/km)" in report
+
+
 def test_scipy_correlations_preserve_ties_and_undefined():
     x, y = np.array([1.0, 2.0, 2.0, 8.0]), np.array([4.0, 2.0, 3.0, 0.0])
     stats = advantage_comparison(x, y)
