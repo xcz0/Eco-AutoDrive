@@ -1,0 +1,21 @@
+docs/experiments/records/e-055-issue106-task-3-dose-response.md
+  s_f52ad32fa275e0::t_dd32c11cffdad8 1-212
+docs/experiments/README.md
+  s_f52ad32fa275e0::t_baf59317ce0175 102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "6b94164e9150d89ab84dae253300c2a6f1bb6d92",
+  "prompts": {},
+  "sessions": {
+    "s_f52ad32fa275e0": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f14df74c5ffeYTKhwqrqtFI0gb",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
