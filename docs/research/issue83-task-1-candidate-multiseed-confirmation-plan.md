@@ -1,8 +1,9 @@
 # Issue #83 Task 1 — Candidate multi-seed long-run confirmation 执行计划
 
-状态：**已预注册**（工作文档；正式运行待 clean commit 后执行）。执行结果与 provenance 将见
-`docs/experiments/records/e-056-issue83-task-1-candidate-multiseed-confirmation.md`；本文件只保留
-预登记方案，不在此维护结果。
+状态：**已执行**（2026-09-30，结果见
+`docs/experiments/records/e-056-issue83-task-1-candidate-multiseed-confirmation.md`：Gate M FAILED，
+两候选均未通过；实际执行与本计划的偏离——lam8-seed-1/2 未训练、held-out 评测未执行、diagnose 仅覆盖
+r0——及理由见该记录「与预注册计划的偏离」）。本文件保留预登记方案原文。
 
 任务边界、验收标准与冻结契约的权威来源是 [Issue #83](https://github.com/xcz0/Eco-AutoDrive/issues/83)
 （Parent #80；前置 #105 / #106 已完成关闭）。`#106` Candidate path 已 handoff 候选 **λ=4 与 λ=8**
