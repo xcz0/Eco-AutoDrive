@@ -38,6 +38,129 @@ from eco_planner.runtime.contracts import HostTrajectories
 
 
 @pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
+@pytest.mark.parametrize(
+    "key,value,message",
+    [
+        ("scene_tokens", float("nan"), "finite"),
+        ("navigation_tokens", float("inf"), "finite"),
+        ("reference_trajectory", float("nan"), "finite"),
+        ("guidance_action", float("nan"), "finite"),
+        ("old_joint_guidance_log_prob", float("inf"), "finite"),
+        ("state_value", float("nan"), "finite"),
+        (("next", "state_value"), float("inf"), "finite"),
+        (("next", "reward"), float("nan"), "finite"),
+        ("guidance_action", -1.0, "strictly inside"),
+        ("guidance_action", 1.0, "strictly inside"),
+        ("guidance_action", -2.0, "strictly inside"),
+        ("guidance_action", 2.0, "strictly inside"),
+        (("next", "done"), False, "final GAE boundary"),
+        (("next", "terminated"), False, "zero bootstrap"),
+    ],
+)
+def test_episode_rejects_invalid_training_independently_of_valid_audit(
+    device, key, value, message
+) -> None:
+    from tests.training.test_ppo import _episode
+
+    episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
+    training = episode.training.clone().to(device)
+    training[key].fill_(value)
+
+    with pytest.raises(ValueError, match=message):
+        replace(
+            episode, training=training, tail_bootstrap_value=episode.tail_bootstrap_value.to(device)
+        )
+
+
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
+@pytest.mark.parametrize("bootstrap", [float("nan"), float("inf"), 1.0])
+def test_episode_rejects_invalid_bootstrap_independently_of_next_value(device, bootstrap) -> None:
+    from tests.training.test_ppo import _episode
+
+    episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
+    with pytest.raises(ValueError, match="bootstrap"):
+        replace(
+            episode,
+            training=episode.training.to(device),
+            tail_bootstrap_value=torch.tensor([bootstrap], device=device),
+        )
+
+
+@pytest.mark.parametrize(
+    "bootstrap",
+    [torch.zeros(1, dtype=torch.float64), torch.zeros(2), torch.zeros(1, requires_grad=True)],
+)
+def test_episode_rejects_invalid_bootstrap_structure(bootstrap) -> None:
+    from tests.training.test_ppo import _episode
+
+    episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
+    with pytest.raises(ValueError, match="detached float32 with shape"):
+        replace(episode, tail_bootstrap_value=bootstrap)
+
+
+@pytest.mark.parametrize(
+    "key,value,message",
+    [
+        ("scene_tokens", float("nan"), "finite"),
+        ("reward_total", float("inf"), "finite"),
+        ("base_action", 0.0, "strictly inside"),
+        ("guidance_action", 1.0, "strictly inside"),
+        ("beta_alpha", 0.0, "strictly positive"),
+    ],
+)
+def test_episode_rejects_invalid_audit_independently_of_valid_training(key, value, message) -> None:
+    from tests.training.test_ppo import _episode
+
+    episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
+    audit = episode.audit.clone()
+    audit[key].fill_(value)
+    with pytest.raises(ValueError, match=message):
+        replace(episode, audit=audit)
+
+
+@pytest.mark.gpu
+def test_episode_validation_uses_one_cuda_predicate_transfer_without_scalar_reads(monkeypatch):
+    from tests.training.test_ppo import _episode
+
+    episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
+    training = episode.training.to("cuda")
+    bootstrap = episode.tail_bootstrap_value.to("cuda")
+    transfers = []
+    original_cpu = torch.Tensor.cpu
+    original_bool = torch.Tensor.__bool__
+    original_item = torch.Tensor.item
+    original_equal = torch.equal
+
+    def cpu(value, *args, **kwargs):
+        if value.device.type == "cuda":
+            transfers.append((value.shape, value.dtype))
+        return original_cpu(value, *args, **kwargs)
+
+    def boolean(value):
+        assert value.device.type != "cuda", "validation must not branch on a CUDA tensor"
+        return original_bool(value)
+
+    def item(value, *args, **kwargs):
+        assert value.device.type != "cuda", "validation must not read CUDA scalars"
+        return original_item(value, *args, **kwargs)
+
+    def equal(left, right):
+        assert left.device.type != "cuda" and right.device.type != "cuda"
+        return original_equal(left, right)
+
+    monkeypatch.setattr(torch.Tensor, "cpu", cpu)
+    monkeypatch.setattr(torch.Tensor, "__bool__", boolean)
+    monkeypatch.setattr(torch.Tensor, "item", item)
+    monkeypatch.setattr(torch, "equal", equal)
+    replace(episode, training=training, tail_bootstrap_value=bootstrap)
+
+    assert len(transfers) == 1
+    shape, dtype = transfers[0]
+    assert len(shape) == 1
+    assert dtype == torch.bool
+
+
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
 def test_training_transition_needs_only_scalar_reward_on_collection_device(device) -> None:
     decision, _, _, _ = _transition()
     decision = decision.to(device)
