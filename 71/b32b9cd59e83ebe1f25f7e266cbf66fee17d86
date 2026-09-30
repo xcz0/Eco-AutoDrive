@@ -1,0 +1,32 @@
+configs/experiments/comparison/calibrated-canonical-confirmation.yaml
+  s_dc056ad1c0dca5::t_bcf23f9e05dbb4 1-81
+tests/training/test_effective_update.py
+  s_dc056ad1c0dca5::t_21f224e878db82 220,225-236,317-318
+  s_dc056ad1c0dca5::t_78784da44f325e 305,310-316
+tests/training/test_training_workflows.py
+  s_dc056ad1c0dca5::t_ca4952d4f01ec2 374-403
+src/eco_planner/experiments/training/attribution.py
+  s_dc056ad1c0dca5::t_dae71cdae5970a 30
+docs/research/issue83-task-1-candidate-multiseed-confirmation-plan.md
+  s_dc056ad1c0dca5::t_bec35a87b96793 1-158
+src/eco_planner/rl/optimization/update_diagnostics.py
+  s_dc056ad1c0dca5::t_82c93562c3b3e3 160-165
+  s_dc056ad1c0dca5::t_0bba0d46c17b81 25-34
+  s_dc056ad1c0dca5::t_320b9dde9ef677 193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "71b32b9cd59e83ebe1f25f7e266cbf66fee17d86",
+  "prompts": {},
+  "sessions": {
+    "s_dc056ad1c0dca5": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f100c2c27ffeNeE4deOUPDCvS1",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
