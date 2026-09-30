@@ -20,7 +20,7 @@
 
 ## Comparison matched protocol
 
-`configs/experiments/comparison/default.yaml` 默认三臂 a0（frozen）、a1（R0）、a2（energy λ=1）；`calibrated.yaml` 声明 r0/rstress 两个现有 calibrated reward profiles；`calibrated-canonical.yaml` 在二者基础上把 E-052/#105 冻结的 canonical k=5 PPO control（`ppo.value_coefficient/gamma/gae_lambda`）写入 `training.overrides`，供 Issue #106 canonical transfer/positive-control 使用，不修改 `calibrated.yaml`。arm 标签、reward profile 和有方向的 contrasts 均来自配置。相同执行和比较路径支持这些设计。
+`configs/experiments/comparison/default.yaml` 默认三臂 a0（frozen）、a1（R0）、a2（energy λ=1）；`calibrated.yaml` 声明 r0/rstress 两个现有 calibrated reward profiles；`calibrated-canonical.yaml` 在二者基础上把 E-052/#105 冻结的 canonical k=5 PPO control（`ppo.value_coefficient/gamma/gae_lambda`）写入 `training.overrides`，供 Issue #106 canonical transfer/positive-control 使用，不修改 `calibrated.yaml`；`calibrated-canonical-dose-response.yaml`（Issue #106 Task 3）与 `calibrated-canonical-confirmation.yaml`（Issue #83 Task 1）分别在冻结 control 下扫 λ={0,1,2,4,8} 与确认 λ={4,8}×seeds{0,1,2}×100 updates。arm 标签、reward profile 和有方向的 contrasts 均来自配置。相同执行和比较路径支持这些设计。
 
 默认训练池为 S/SC map seeds 0–7，held-out 为 S/SC seeds 16–23；协议校验两池不相交。默认 held-out 为 no-traffic、300 步 horizon、DDIM5、runtime seed 760025，训练 seed namespace 和 PPO overrides 显式配置。每次 train 显式指定 seed，replay_id=0；组合后核验 reward、seed、sampler、scenario 池和 num_scenarios 覆盖。initial checkpoint 只作为诊断标签，没有独立 update0 协议字段。
 
@@ -80,7 +80,7 @@ Part B 在同一 held-out 状态分布上采集 matched context，然后用两�
 
 training grid 使用 learning rate × epochs × gradient norm 的显式笛卡尔积、update 预算和诊断阈值。复用现有 PPO 算法；先检查更新量、KL、ratio、probe/Beta 与行为条件，再对通过项进行 matched initial/final held-out 测量。所有通过项按最低 learning rate、再 epochs、再 gradient norm 选择；不按训练 reward 排名。没有通过项时 selected_config=null；训练异常保留 partial grid summary、失败异常和原始训练证据并传播，未完成网格不宣称成功。
 
-training diagnose 的输入配置列出 training_summaries、training_seeds、mc_draws、mc_seed。checkpoint/Torch 测量在执行层完成并保存，明确区分训练 loss 记录的 pre-update approximate KL 与同一批数据上的 post-update KL。参数 delta、policy ratio、probe 变化与显式 MC 随机 seed 均保留。
+training diagnose 的输入配置列出 training_summaries、training_seeds、mc_draws、mc_seed。checkpoint/Torch 测量在执行层完成并保存，明确区分训练 loss 记录的 pre-update approximate KL 与同一批数据上的 post-update KL。参数 delta、policy ratio、probe 变化与显式 MC 随机 seed 均保留。当训练启用 `ppo.gradient_diagnostics` 时，diagnose 额外报告六组 per-group gradient norm 序列（measurement-only；未启用时为空）。
 
 training eval 显式配置 protocol、records（arm、training_summary、checkpoint_label、checkpoint_path、可空 deterministic_evaluation_dir）及 policy_action_seeds。可复用 deterministic 结果须匹配 checkpoint hash/label、mean action mode、held-out pool、horizon、sampler、runtime seed；与 sample action 评测按完整场景和 noise 条件配对。不存在 positive-control 固定目录布局依赖。逐训练 seed、逐 action seed 保留结果和缺项，不选择最佳 seed；exact replay 的正确性由训练/随机流测试覆盖。
 
