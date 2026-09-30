@@ -129,6 +129,84 @@ def parameter_delta_vs_reference(
     return deltas
 
 
+def cosine_learning_rate(
+    step: int,
+    *,
+    base_learning_rate: float,
+    minimum_learning_rate: float,
+    total_optimizer_steps: int,
+) -> float:
+    """Closed-form ``CosineAnnealingLR`` learning rate after ``step`` steps."""
+
+    if step < 0 or step > total_optimizer_steps:
+        raise ValueError("cosine learning rate step is outside the scheduler horizon")
+    return minimum_learning_rate + (
+        (base_learning_rate - minimum_learning_rate)
+        * (1.0 + math.cos(math.pi * step / total_optimizer_steps))
+        / 2.0
+    )
+
+
+def learning_rate_history(run_dir: Path, updates: list[dict[str, Any]]) -> dict[str, Any]:
+    """Reconstruct the scheduler-matched per-update learning-rate history.
+
+    The frozen cosine schedule is fully determined by the resolved PPO config,
+    so the learning rate of every optimizer step is rebuilt in closed form from
+    the persisted per-update ``optimizer_step_count`` (zero for KL-early-stopped
+    updates). The reconstruction is cross-checked against each update's recorded
+    ``final_learning_rate``; a mismatch means the run was not trained under the
+    resolved scheduler horizon and is raised instead of silently reported.
+    ``learning_rate_series[i]`` is the rate in effect at update ``i``'s first
+    optimizer step; ``cumulative_learning_rate_exposure[i]`` is the running sum
+    of the per-step learning rates through the update's last optimizer step.
+    """
+
+    config = OmegaConf.load(run_dir / "resolved_config.yaml")
+    if not isinstance(config, DictConfig):
+        raise TypeError(f"resolved training config must be a mapping: {run_dir}")
+    ppo = config["ppo"]
+    base_learning_rate = float(ppo["learning_rate"])
+    minimum_learning_rate = float(ppo["scheduler_minimum_learning_rate"])
+    total_optimizer_steps = int(ppo["scheduler_total_optimizer_steps"])
+
+    def rate_at(step: int) -> float:
+        return cosine_learning_rate(
+            step,
+            base_learning_rate=base_learning_rate,
+            minimum_learning_rate=minimum_learning_rate,
+            total_optimizer_steps=total_optimizer_steps,
+        )
+
+    series: list[float] = []
+    exposure: list[float] = []
+    completed_steps: list[int] = []
+    completed = 0
+    cumulative_exposure = 0.0
+    for index, update in enumerate(updates):
+        steps = update["optimizer_step_count"]
+        if type(steps) is not int or steps < 0:
+            raise ValueError(f"optimizer step count is invalid (update {index})")
+        series.append(rate_at(completed))
+        for _ in range(steps):
+            cumulative_exposure += rate_at(completed)
+            completed += 1
+        expected_final = rate_at(completed)
+        recorded_final = float(update["final_learning_rate"])
+        if not math.isclose(expected_final, recorded_final, rel_tol=1.0e-6, abs_tol=1.0e-12):
+            raise ValueError(
+                f"recorded final learning rate {recorded_final} disagrees with the "
+                f"resolved cosine schedule {expected_final} (update {index})"
+            )
+        exposure.append(cumulative_exposure)
+        completed_steps.append(completed)
+    return {
+        "learning_rate_initial": base_learning_rate,
+        "learning_rate_series": series,
+        "cumulative_learning_rate_exposure": exposure,
+        "cumulative_optimizer_steps": completed_steps,
+    }
+
+
 def extract_arm_metrics(
     run_dir: Path, *, max_gradient_norm: float, update_count: int
 ) -> dict[str, Any]:
@@ -140,6 +218,7 @@ def extract_arm_metrics(
         raise ValueError(
             f"training run {run_dir} has {len(updates)} updates, expected {update_count}"
         )
+    lr_history = learning_rate_history(run_dir, updates)
     kl = [update["mean_approximate_kl"] for update in updates]
     clip_fraction = [update["mean_clip_fraction"] for update in updates]
     pre_clip_norm = [update["maximum_pre_clip_gradient_norm"] for update in updates]
@@ -168,6 +247,7 @@ def extract_arm_metrics(
         "update_count": len(updates),
         "initial_policy_hash": summary["initial_policy_hash"],
         "final_policy_hash": summary["final_policy_hash"],
+        **lr_history,
         # TorchRL's in-update kl_approx, measured at the loss forward (before
         # the optimizer step); structurally ~0 with one minibatch per epoch.
         "pre_update_kl": kl,

@@ -7,7 +7,8 @@ r0——及理由见该记录「与预注册计划的偏离」）。本文件保
 
 任务边界、验收标准与冻结契约的权威来源是 [Issue #83](https://github.com/xcz0/Eco-AutoDrive/issues/83)
 （Parent #80；前置 #105 / #106 已完成关闭）。`#106` Candidate path 已 handoff 候选 **λ=4 与 λ=8**
-（E-055）。
+（E-055）。§1 中 50-update checkpoint 与 E-055 coarse sweep 的"对齐"说法已按
+[Issue #114](https://github.com/xcz0/Eco-AutoDrive/issues/114) Task 1 勘正。
 
 ## 1. 任务定义（来自 Issue #83 Task 1）
 
@@ -19,8 +20,11 @@ updates = 100
 checkpoint = 0 / 50 / 100
 ```
 
-50-update checkpoint 与 #106 coarse sweep 对齐；100-update checkpoint 只用于长期稳定性确认，**不用于
-重新选择 PPO config 或 λ**。本 Issue 不重新搜索 PPO / reward representation / cadence / λ。
+50-update checkpoint（`T_max=100`，LR 仍约为初值 50%）与 #106/E-055 coarse sweep 的 50-update final
+（`T_max=50`，LR 已衰减到 ~0）**不构成 matched training-time checkpoint**（Issue #114 Task 1 勘正）；
+100-update checkpoint 只用于长期稳定性确认，**不用于重新选择 PPO config 或 λ**。E-055 仅保留为旧
+50-step schedule 下的历史 dose-response 证据，不与 `T_max=100` run 的 update-50 直接比较。本 Issue
+不重新搜索 PPO / reward representation / cadence / λ。
 
 必须报告：analytic Beta KL + MC/k3 cross-check、policy ratio / clip fraction、actor/shared/value
 gradient diagnostics、parameter delta、Beta mean/variance/concentration/boundary、guidance 分布、

@@ -30,6 +30,7 @@ from eco_planner.planning.policy import ExplorationPolicy
 from eco_planner.planning.policy.distribution import AffineBeta
 from eco_planner.rl.optimization.update_diagnostics import (
     extract_arm_metrics,
+    learning_rate_history,
     policy_ratio_change,
     post_update_kl_series,
 )
@@ -217,7 +218,25 @@ def test_gate_f_rejects_boundary_collapse_and_behavioral_collapse() -> None:
     assert behavioral["conditions"]["c6_no_behavioral_collapse"] is False
 
 
+def _cosine_final_learning_rates(step_counts: list[int]) -> list[float]:
+    """Final per-update learning rates from a real CosineAnnealingLR schedule."""
+
+    parameter = torch.nn.Parameter(torch.zeros(1))
+    optimizer = torch.optim.Adam([parameter], lr=1.5e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=sum(step_counts), eta_min=0.0
+    )
+    values = []
+    for steps in step_counts:
+        for _ in range(steps):
+            optimizer.step()
+            scheduler.step()
+        values.append(float(optimizer.param_groups[0]["lr"]))
+    return values
+
+
 def _write_run_dir(path: Path, update_count: int, *, gradient_diagnostics: bool = False) -> None:
+    final_learning_rates = _cosine_final_learning_rates([1] * update_count)
     updates = []
     for index in range(update_count):
         updates.append(
@@ -255,6 +274,8 @@ def _write_run_dir(path: Path, update_count: int, *, gradient_diagnostics: bool 
                 "out_of_road_count": 0,
                 "mean_episode_length": 8.0,
                 "kl_early_stopped": False,
+                "optimizer_step_count": 1,
+                "final_learning_rate": final_learning_rates[index],
             }
         )
     summary = {
@@ -272,6 +293,16 @@ def _write_run_dir(path: Path, update_count: int, *, gradient_diagnostics: bool 
     }
     path.mkdir(parents=True)
     (path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    OmegaConf.save(
+        {
+            "ppo": {
+                "learning_rate": 1.5e-4,
+                "scheduler_minimum_learning_rate": 0.0,
+                "scheduler_total_optimizer_steps": update_count,
+            }
+        },
+        path / "resolved_config.yaml",
+    )
     reference = _state_dict()
     _save_checkpoint(path / "policy-initial.pt", reference)
     for index in range(update_count):
@@ -303,6 +334,13 @@ def test_extract_arm_metrics_reads_persisted_run(tmp_path: Path) -> None:
     assert metrics["parameter_delta_vs_initial_final"]["actor_head"] == pytest.approx(0.0)
     assert metrics["behavior"]["collision_count"] == 0
     assert metrics["gradient_diagnostics"] == {}
+    assert metrics["learning_rate_initial"] == pytest.approx(1.5e-4)
+    expected_series = [1.5e-4 * (1.0 + math.cos(math.pi * step / 4)) / 2.0 for step in range(4)]
+    assert metrics["learning_rate_series"] == pytest.approx(expected_series)
+    assert metrics["cumulative_learning_rate_exposure"] == pytest.approx(
+        [sum(expected_series[: index + 1]) for index in range(4)]
+    )
+    assert metrics["cumulative_optimizer_steps"] == [1, 2, 3, 4]
     with pytest.raises(ValueError, match="expected 3"):
         extract_arm_metrics(run_dir, max_gradient_norm=0.5, update_count=3)
 
@@ -314,6 +352,77 @@ def test_extract_arm_metrics_reports_per_group_gradient_diagnostics(tmp_path: Pa
     assert metrics["gradient_diagnostics"]["actor_head_policy"] == [0.3, 1.3, 2.3, 3.3]
     assert metrics["gradient_diagnostics"]["shared_trunk_policy"] == [0.4] * 4
     assert metrics["gradient_diagnostics"]["shared_trunk_entropy"] == [0.8] * 4
+
+
+def test_learning_rate_history_handles_zero_step_update(tmp_path: Path) -> None:
+    run_dir = tmp_path / "early-stop-arm"
+    run_dir.mkdir()
+    step_counts = [1, 1, 0]
+    OmegaConf.save(
+        {
+            "ppo": {
+                "learning_rate": 1.5e-4,
+                "scheduler_minimum_learning_rate": 0.0,
+                "scheduler_total_optimizer_steps": sum(step_counts),
+            }
+        },
+        run_dir / "resolved_config.yaml",
+    )
+    finals = _cosine_final_learning_rates(step_counts)
+    updates = [
+        {"optimizer_step_count": steps, "final_learning_rate": final}
+        for steps, final in zip(step_counts, finals, strict=True)
+    ]
+    history = learning_rate_history(run_dir, updates)
+    assert history["learning_rate_initial"] == pytest.approx(1.5e-4)
+    assert history["cumulative_optimizer_steps"] == [1, 2, 2]
+    assert history["learning_rate_series"][2] == pytest.approx(finals[1])
+    assert history["cumulative_learning_rate_exposure"][2] == pytest.approx(
+        history["cumulative_learning_rate_exposure"][1]
+    )
+    assert history["cumulative_learning_rate_exposure"][1] == pytest.approx(
+        history["learning_rate_series"][0] + history["learning_rate_series"][1]
+    )
+
+
+def test_learning_rate_history_rejects_schedule_mismatch(tmp_path: Path) -> None:
+    run_dir = tmp_path / "mismatched-arm"
+    run_dir.mkdir()
+    finals = _cosine_final_learning_rates([1, 1])
+    updates = [
+        {"optimizer_step_count": steps, "final_learning_rate": final}
+        for steps, final in zip([1, 1], finals, strict=True)
+    ]
+
+    def _save_resolved_config(total_optimizer_steps: int, learning_rate: float) -> None:
+        OmegaConf.save(
+            {
+                "ppo": {
+                    "learning_rate": learning_rate,
+                    "scheduler_minimum_learning_rate": 0.0,
+                    "scheduler_total_optimizer_steps": total_optimizer_steps,
+                }
+            },
+            run_dir / "resolved_config.yaml",
+        )
+
+    _save_resolved_config(2, 1.5e-4)
+    tampered = [{**updates[0], "final_learning_rate": 1.0e-4}, updates[1]]
+    with pytest.raises(ValueError, match="disagrees with the resolved cosine schedule"):
+        learning_rate_history(run_dir, tampered)
+    _save_resolved_config(2, 2.5e-4)
+    with pytest.raises(ValueError, match="disagrees with the resolved cosine schedule"):
+        learning_rate_history(run_dir, updates)
+    _save_resolved_config(1, 1.5e-4)
+    with pytest.raises(ValueError, match="outside the scheduler horizon"):
+        learning_rate_history(
+            run_dir, [{"optimizer_step_count": 2, "final_learning_rate": finals[0]}]
+        )
+    _save_resolved_config(2, 1.5e-4)
+    with pytest.raises(ValueError, match="optimizer step count is invalid"):
+        learning_rate_history(
+            run_dir, [{"optimizer_step_count": 1.0, "final_learning_rate": finals[0]}]
+        )
 
 
 def test_post_update_kl_series_recomputes_kl_on_persisted_updates(tmp_path: Path) -> None:
