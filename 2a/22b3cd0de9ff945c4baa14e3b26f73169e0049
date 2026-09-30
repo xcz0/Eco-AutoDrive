@@ -1,0 +1,22 @@
+src/eco_planner/rl/probing.py
+  s_dc056ad1c0dca5::t_797715280a1063 9
+  s_dc056ad1c0dca5::t_970f3798233a7c 59-64
+tests/training/test_trainer.py
+  s_dc056ad1c0dca5::t_1cf158a6aaf3ae 250-272
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "2a22b3cd0de9ff945c4baa14e3b26f73169e0049",
+  "prompts": {},
+  "sessions": {
+    "s_dc056ad1c0dca5": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f100c2c27ffeNeE4deOUPDCvS1",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
