@@ -39,7 +39,7 @@ from eco_planner.rl.rollout import (
     build_training_transition,
 )
 from eco_planner.rl.rollout.fixed_batch import load_batch
-from tests.training.test_ppo import _context, _decision_audit, _episode
+from tests.training.helpers import _context, _decision_audit, _episode
 from tests.training.test_reward import (
     ISSUE83_LAMBDA_PROFILES,
     _metrics,
@@ -432,7 +432,7 @@ def test_reweight_reuses_scores_even_when_component_thresholds_differ():
 
 def test_summary_and_reader_preserve_transition_component_sums_above_one():
     from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
-    from tests.training.test_ppo import _update_report
+    from tests.training.helpers import _update_report
 
     episodes = tuple(
         _five_substep_parity_case(_no_energy_config(), count=count)[0] for count in (1, 5)

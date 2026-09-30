@@ -15,6 +15,7 @@ from eco_planner.runtime.profiling import (
     profile_call,
 )
 from tests.simulation.test_closed_loop import _environment_config
+from tests.training.helpers import _ppo_config
 
 
 @pytest.mark.simulator
@@ -41,25 +42,14 @@ def test_vector_environment_benchmark_smoke() -> None:
 
 
 def _base_ppo_config() -> PPOConfig:
-    return PPOConfig(
-        name="test",
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_epsilon=0.2,
-        target_kl=None,
-        value_coefficient=0.5,
-        entropy_coefficient=0.01,
-        gradient_diagnostics=False,
-        learning_rate=0.00025,
-        adam_epsilon=1e-5,
-        weight_decay=0.0,
-        max_gradient_norm=0.5,
-        epochs=4,
-        batch_size=32,
-        minibatch_size=16,
-        minibatch_seed=0,
-        scheduler_total_optimizer_steps=32,
-        scheduler_minimum_learning_rate=0.0,
+    return _ppo_config().model_copy(
+        update={
+            "epochs": 4,
+            "batch_size": 32,
+            "minibatch_size": 16,
+            "minibatch_seed": 0,
+            "scheduler_total_optimizer_steps": 32,
+        }
     )
 
 

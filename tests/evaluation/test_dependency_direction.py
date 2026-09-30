@@ -48,26 +48,17 @@ def _offenders(package: str, forbidden: tuple[str, ...]) -> list[tuple[Path, str
     return offenders
 
 
-@pytest.mark.parametrize("package,forbidden", [("evaluation", _EVALUATION_FORBIDDEN)])
-def test_evaluation_does_not_import_rl_runtime(package: str, forbidden: tuple[str, ...]) -> None:
+@pytest.mark.parametrize(
+    "package,forbidden",
+    [
+        pytest.param("evaluation", _EVALUATION_FORBIDDEN, id="evaluation-no-rl-runtime"),
+        pytest.param("planning", _PLANNING_FORBIDDEN, id="planning-no-downstream"),
+        pytest.param("reward", _REWARD_FORBIDDEN, id="reward-no-workflows"),
+    ],
+)
+def test_package_respects_dependency_direction(package: str, forbidden: tuple[str, ...]) -> None:
     offenders = _offenders(package, forbidden)
-    assert not offenders, f"{package} imports forbidden RL runtime modules: {offenders}"
-
-
-@pytest.mark.parametrize("package,forbidden", [("planning", _PLANNING_FORBIDDEN)])
-def test_planning_does_not_import_rl_or_evaluation(
-    package: str, forbidden: tuple[str, ...]
-) -> None:
-    offenders = _offenders(package, forbidden)
-    assert not offenders, f"{package} imports forbidden downstream modules: {offenders}"
-
-
-@pytest.mark.parametrize("package,forbidden", [("reward", _REWARD_FORBIDDEN)])
-def test_reward_does_not_import_rl_or_workflow_modules(
-    package: str, forbidden: tuple[str, ...]
-) -> None:
-    offenders = _offenders(package, forbidden)
-    assert not offenders, f"{package} imports forbidden RL/workflow modules: {offenders}"
+    assert not offenders, f"{package} imports forbidden modules: {offenders}"
 
 
 @pytest.mark.parametrize("package", ["rl", "planning", "reward", "runtime", "evaluation", "envs"])

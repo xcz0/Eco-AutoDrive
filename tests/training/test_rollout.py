@@ -15,7 +15,7 @@ from eco_planner.envs.domain import (
     TransitionMetricInput,
     TransitionMetrics,
 )
-from eco_planner.planning.policy import ExplorationPolicyContext, policy_context_tensordict
+from eco_planner.planning.policy import ExplorationPolicyContext
 from eco_planner.reward import (
     PlannerRFTRewardResult,
     RewardComponents,
@@ -36,6 +36,7 @@ from eco_planner.rl.rollout import (
 from eco_planner.rl.rollout.collector import _EpisodeLifecycle, _execution_transition_audit
 from eco_planner.rl.rollout.decision import RolloutDecision
 from eco_planner.runtime.contracts import HostTrajectories
+from tests.training.helpers import _decision_audit
 
 
 @pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
@@ -266,7 +267,7 @@ def test_collector_assigns_compact_storage_in_logical_order_across_worker_groups
 def test_episode_rejects_invalid_training_independently_of_valid_audit(
     device, key, value, message
 ) -> None:
-    from tests.training.test_ppo import _episode
+    from tests.training.helpers import _episode
 
     episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
     training = episode.training.clone().to(device)
@@ -281,7 +282,7 @@ def test_episode_rejects_invalid_training_independently_of_valid_audit(
 @pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
 @pytest.mark.parametrize("bootstrap", [float("nan"), float("inf"), 1.0])
 def test_episode_rejects_invalid_bootstrap_independently_of_next_value(device, bootstrap) -> None:
-    from tests.training.test_ppo import _episode
+    from tests.training.helpers import _episode
 
     episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
     with pytest.raises(ValueError, match="bootstrap"):
@@ -297,7 +298,7 @@ def test_episode_rejects_invalid_bootstrap_independently_of_next_value(device, b
     [torch.zeros(1, dtype=torch.float64), torch.zeros(2), torch.zeros(1, requires_grad=True)],
 )
 def test_episode_rejects_invalid_bootstrap_structure(bootstrap) -> None:
-    from tests.training.test_ppo import _episode
+    from tests.training.helpers import _episode
 
     episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
     with pytest.raises(ValueError, match="detached float32 with shape"):
@@ -315,7 +316,7 @@ def test_episode_rejects_invalid_bootstrap_structure(bootstrap) -> None:
     ],
 )
 def test_episode_rejects_invalid_audit_independently_of_valid_training(key, value, message) -> None:
-    from tests.training.test_ppo import _episode
+    from tests.training.helpers import _episode
 
     episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
     audit = episode.audit.clone()
@@ -326,7 +327,7 @@ def test_episode_rejects_invalid_audit_independently_of_valid_training(key, valu
 
 @pytest.mark.gpu
 def test_episode_validation_uses_one_cuda_predicate_transfer_without_scalar_reads(monkeypatch):
-    from tests.training.test_ppo import _episode
+    from tests.training.helpers import _episode
 
     episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
     training = episode.training.to("cuda")
@@ -441,20 +442,7 @@ def _transition():
         torch.tensor([0.5]),
         torch.tensor([1.0]),
     )
-    decision_audit = policy_context_tensordict(context).update(
-        dict(
-            prediction=torch.zeros((1, 11, 80, 4)),
-            initial_noise=torch.zeros((1, 11, 80, 4)),
-            base_action=torch.tensor([[0.25, 0.75]]),
-            guidance_action=torch.tensor([[-0.5, 0.5]]),
-            old_joint_guidance_log_prob=torch.tensor([[0.5]]),
-            state_value=torch.tensor([[1.0]]),
-            beta_alpha=torch.full((1, 2), 2.0),
-            beta_beta=torch.full((1, 2), 2.0),
-            diffusion_rng_state=torch.ones((1, 5), dtype=torch.uint8),
-            policy_rng_state=torch.ones((1, 5), dtype=torch.uint8),
-        )
-    )
+    decision_audit = _decision_audit(context)
     execution_audit = ExecutionTransitionAudit(
         reward_result=_reward_result(0.25),
         substep_results=(_reward_result(0.25),),
@@ -666,7 +654,7 @@ def test_batch_and_slot_audit_share_one_deferred_payload() -> None:
 
     from eco_planner.rl.rollout.decision import BatchRolloutDecision
     from eco_planner.runtime.contracts import HostTrajectories
-    from tests.training.test_ppo import _policy_config
+    from tests.training.helpers import _policy_config
 
     training, audit, _, _ = _transition()
     host = cat([audit, audit]).to_dict()

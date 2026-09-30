@@ -7,7 +7,7 @@ import pytest
 
 from benchmarks.execution import build_report, write_report
 from eco_planner.artifacts import read_json, write_json
-from tests.analysis.test_reports import job
+from tests.analysis.helpers import job
 
 
 @pytest.fixture

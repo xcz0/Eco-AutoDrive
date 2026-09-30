@@ -45,7 +45,7 @@ from eco_planner.rl.rollout import (
     build_training_transition,
 )
 from eco_planner.statistics import advantage_comparison, cosine
-from tests.training.test_ppo import (
+from tests.training.helpers import (
     _context,
     _decision_audit,
     _episode,
@@ -485,7 +485,7 @@ def test_discounted_return_batch_matches_recursive_returns():
 
 
 def test_discounted_return_respects_every_tail_and_ignores_critic_bootstrap():
-    from tests.training.test_ppo import _episode
+    from tests.training.helpers import _episode
 
     episodes = [
         _episode(

@@ -1,66 +1,12 @@
 """Base/fixed/manual decision semantics over the real sampler and guidance code."""
 
-from dataclasses import asdict, replace
-from types import SimpleNamespace
-
 import pytest
 import torch
-from lightning.fabric import Fabric
 
 from eco_planner.evaluation.inference import DiffusionEvaluationAgent
-from eco_planner.planning import DiffusionRuntime
-from eco_planner.planning.diffusion import (
-    Dpm10SamplerConfig,
-    NoGuidanceConfig,
-    OrthogonalReferenceGuidanceConfig,
-    sampler_report,
-)
-from tests.characterization.harness import build_observation, build_planner, sampler_config
+from tests.characterization.harness import build_diffusion_case
 
 CASES = ("base_dpm", "base_ddim", "base_stochastic", "fixed_zero", "fixed", "manual")
-
-
-def build_diffusion_case(case):
-    planner = build_planner()
-    sampler = (
-        Dpm10SamplerConfig()
-        if case == "base_dpm"
-        else replace(
-            sampler_config(),
-            initial_noise_scale=1.0,
-            parity_label="plannerrft_paper_text",
-            ddim_stochasticity=0.5 if case in ("base_stochastic", "fixed", "manual") else 0.0,
-        )
-    )
-    if case.startswith("base"):
-        guidance = NoGuidanceConfig()
-    elif case == "manual":
-        guidance = planner.guidance_config
-    else:
-        fields = asdict(planner.guidance_config)
-        fields["name"] = "orthogonal_reference"
-        guidance = OrthogonalReferenceGuidanceConfig(
-            **fields,
-            lateral_scale=0.0 if case == "fixed_zero" else 0.2,
-            longitudinal_scale=0.0 if case == "fixed_zero" else -0.3,
-        )
-    planner = type(planner)(planner.config, planner.model, sampler, guidance)
-    planner.config.route_num = 25
-    runtime = DiffusionRuntime(
-        Fabric(accelerator="cpu", devices=1, precision="32-true"),
-        planner,
-        planner.config,
-        None,
-        SimpleNamespace(seed=101),
-        sampler_report(sampler),
-        guidance,
-    )
-    observation = build_observation().expand(2).clone()
-    observation["route_lanes_speed_limit"] = torch.full((2, 25, 1), 13.0)
-    observation["route_lanes_has_speed_limit"] = torch.ones((2, 25, 1), dtype=torch.bool)
-    generators = tuple(torch.Generator().manual_seed(seed) for seed in (101, 303))
-    action = torch.tensor([[-1.0, 1.0], [1.0, -1.0]]) if case == "manual" else None
-    return runtime, observation, generators, action
 
 
 def run_diffusion_case(case, *, profile=False):

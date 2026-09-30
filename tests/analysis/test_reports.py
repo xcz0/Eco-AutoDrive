@@ -1,24 +1,17 @@
 """Artifact-to-report regression tests; synthetic fixtures are not research evidence."""
 
 import json
-import re
 import subprocess
 import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
 from omegaconf import OmegaConf
 
-from eco_planner.artifacts import read_json, write_json
+from eco_planner.artifacts import write_json
 from eco_planner.evaluation.artifacts.models import (
-    CheckpointSummary,
-    EvaluationWorkload,
-    InferenceRuntimeSummary,
-    JobSummary,
     PolicyActionSummary,
     PolicyCheckpointProvenance,
-    WorkloadScenario,
 )
 from eco_planner.statistics import (
     advantage_comparison,
@@ -26,25 +19,9 @@ from eco_planner.statistics import (
     paired_difference,
     statistics,
 )
+from tests.analysis.helpers import assert_report, job
 from tests.analysis.routing import analyze
-from tests.evaluation.test_artifacts import _episode, _training_summary
-
-
-def assert_report(output: Path, *, figures: bool) -> None:
-    report = (output / "report.md").read_text(encoding="utf-8")
-    assert (output / "analysis.json").is_file()
-    links = re.findall(r"\]\(<?([^)>]+)>?\)", report)
-    for link in links:
-        assert (output / link).exists(), link
-    files = read_json(output / "analysis.json")["figures"]
-    assert bool(files) == figures
-    for relative in files:
-        path = output / relative
-        assert path.stat().st_size > 100
-        if relative.endswith(".svg"):
-            assert "<svg" in path.read_text(encoding="utf-8")
-        else:
-            assert path.read_bytes().startswith(b"\x89PNG")
+from tests.evaluation.helpers import _training_summary
 
 
 def write_batch(path, batch):
@@ -75,34 +52,6 @@ def test_shared_statistics_preserve_rank_ddof_and_undefined_semantics():
     assert summary["per_scenario"]["0"]["mean"] == 1.5
     with pytest.raises(ValueError):
         statistics(np.array([1.0]), [0.0, 1.0], ddof=1)
-
-
-def job(energy=2.0):
-    episode = _episode(seed=0, distance_m=100.0, energy_ml=energy)
-    return JobSummary(
-        status="completed",
-        runtime=InferenceRuntimeSummary(
-            requested_accelerator="cpu",
-            resolved_accelerator="cpu",
-            requested_precision="32-true",
-            resolved_precision="32-true",
-            device="cpu",
-            seed=0,
-            world_size=1,
-        ),
-        checkpoint=CheckpointSummary(ema_tensor_count=1, parameter_count=1),
-        sampler=episode.sampler,
-        guidance=episode.guidance,
-        workload=EvaluationWorkload(
-            mode="traffic",
-            profile="fixture",
-            history_warmup_steps=0,
-            evaluated_horizon_steps=10,
-            scenarios=(WorkloadScenario(name="traffic", map="S", seed=0),),
-            video_enabled=False,
-        ),
-        episodes=(episode,),
-    )
 
 
 def test_energy_matched_comparison_and_protocol_mismatch(tmp_path):
@@ -170,9 +119,9 @@ def test_failed_episode_is_visible_and_never_zero_filled(tmp_path):
 
 @pytest.fixture
 def training_summary():
-    from tests.training.test_tracking import summary
+    from tests.training.helpers import build_training_update_summary
 
-    update = summary.__wrapped__()
+    update = build_training_update_summary()
     return _training_summary(0, 0).model_copy(update={"updates": (update,)})
 
 

@@ -6,7 +6,7 @@ import torch
 import eco_planner.evaluation.inference.agent as agent_module
 from eco_planner.evaluation.inference import DiffusionEvaluationAgent
 from eco_planner.runtime.host_transfer import HostTransfer
-from tests.characterization.test_diffusion_inference import build_diffusion_case
+from tests.characterization.harness import build_diffusion_case
 
 
 def test_execution_is_ready_before_deferred_audit_and_keeps_decision_identity(monkeypatch):

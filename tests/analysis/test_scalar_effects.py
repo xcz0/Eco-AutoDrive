@@ -20,8 +20,8 @@ from eco_planner.statistics import (
     advantage_comparison,
     scenario_effect,
 )
-from tests.analysis.test_reports import job
-from tests.evaluation.test_artifacts import _episode, _training_summary
+from tests.analysis.helpers import job
+from tests.evaluation.helpers import _episode, _training_summary
 
 BOOTSTRAP = ScenarioBootstrapConfig(confidence_level=0.95, n_resamples=10000, bootstrap_seed=0)
 

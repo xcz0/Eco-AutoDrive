@@ -30,7 +30,7 @@ from eco_planner.rl import (
     write_rollout_episode,
 )
 from eco_planner.rl.rollout.fixed_batch import write_batch
-from tests.training.test_ppo import _behavior_policy_episode, _policy_config, _ppo_config
+from tests.training.helpers import _behavior_policy_episode, _policy_config, _ppo_config
 from tests.training.test_reward import _no_energy_config
 
 _STUDY = CONFIG_ROOT / "experiments/training/critic-attribution.yaml"
@@ -217,8 +217,8 @@ def test_read_rollout_episode_roundtrip(tmp_path):
 @pytest.mark.parametrize("figures", [False, True])
 def test_runner_and_offline_recompute(synthetic_source, tmp_path, figures):
     from eco_planner.experiments.training.critic_attribution.runner import run
+    from tests.analysis.helpers import assert_report
     from tests.analysis.routing import analyze
-    from tests.analysis.test_reports import assert_report
 
     source, config_path = synthetic_source
     original = {

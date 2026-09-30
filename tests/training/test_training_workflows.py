@@ -9,11 +9,11 @@ from eco_planner.artifacts import write_json
 from eco_planner.evaluation.artifacts.models import PolicyActionSummary, PolicyCheckpointProvenance
 from eco_planner.experiments.protocol.config import DEFAULT_PROTOCOL
 from eco_planner.experiments.training import grid, runner
+from tests.analysis.helpers import job
 from tests.analysis.routing import analyze
-from tests.analysis.test_reports import job
-from tests.evaluation.test_artifacts import _training_summary
+from tests.evaluation.helpers import _training_summary
+from tests.training.helpers import build_training_update_summary
 from tests.training.test_effective_update import _metrics, _study
-from tests.training.test_tracking import summary as update_fixture
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def training_source(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     training = _training_summary(0, 0).model_copy(
-        update={"updates": (update_fixture.__wrapped__(),)}
+        update={"updates": (build_training_update_summary(),)}
     )
     write_json(source / "summary.json", training.model_dump(mode="json"))
     OmegaConf.save(

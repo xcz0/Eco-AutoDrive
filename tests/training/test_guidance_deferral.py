@@ -191,8 +191,8 @@ def test_early_termination_uses_matched_common_cycles():
 @pytest.mark.parametrize("figures", [False, True])
 def test_offline_recompute_matches_live_statistics(tmp_path, figures):
     from eco_planner.artifacts import write_json
+    from tests.analysis.helpers import assert_report
     from tests.analysis.routing import analyze
-    from tests.analysis.test_reports import assert_report
 
     source = tmp_path / "source"
     source.mkdir()

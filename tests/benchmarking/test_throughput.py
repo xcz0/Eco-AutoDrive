@@ -10,7 +10,7 @@ from benchmarks.config import ScalingBenchmarkConfig
 from benchmarks.throughput import benchmark_planner_batch_scaling
 from eco_planner.evaluation.inference import DiffusionEvaluationAgent
 from eco_planner.runtime.host_transfer import HostTransfer
-from tests.characterization.test_diffusion_inference import build_diffusion_case
+from tests.characterization.harness import build_diffusion_case
 
 
 @pytest.mark.parametrize("case", ["base_ddim", "fixed"])

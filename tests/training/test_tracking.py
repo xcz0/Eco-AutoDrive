@@ -10,10 +10,8 @@ from lightning.fabric import Fabric
 from mlflow import MlflowClient
 from omegaconf import OmegaConf
 
-from eco_planner.jobs import compose_job_config
 from eco_planner.planning.policy import ExplorationPolicy
 from eco_planner.rl.artifacts import PolicyProbeSummary, build_update_summary
-from eco_planner.rl.config import parse_training_config
 from eco_planner.rl.optimization import (
     PPOUpdater,
     load_training_checkpoint,
@@ -22,23 +20,7 @@ from eco_planner.rl.optimization import (
 from eco_planner.rl.optimization.ppo import PPOUpdateReport
 from eco_planner.rl.tracking import TrackingIdentity, TrainingTracking, update_metrics
 from eco_planner.rl.training_state import TrainingLoopState, resume_training_state
-from tests.training.test_ppo import _context, _episode, _policy_config, _ppo_config
-
-
-def _config(tmp_path, *, seed=0, enabled=True, resume=None):
-    raw = compose_job_config(
-        "jobs/training/ppo",
-        [
-            "components/resources=rtx3050_laptop",
-            f"runtime.seed={seed}",
-            "training.replay_id=0",
-        ],
-    )
-    raw.tracking.tracking_uri = f"sqlite:///{(tmp_path / 'mlflow.db').as_posix()}"
-    raw.tracking.artifact_location = (tmp_path / "artifacts").as_posix()
-    raw.tracking.enabled = enabled
-    raw.training.resume_checkpoint_path = resume
-    return parse_training_config(raw)
+from tests.training.helpers import _config, _context, _episode, _policy_config, _ppo_config
 
 
 def _output(tmp_path, config, name):
@@ -48,17 +30,6 @@ def _output(tmp_path, config, name):
     for artifact in ("policy-update-000.pt", "policy-update-001.pt", "training-state.ckpt"):
         (path / artifact).write_bytes(b"artifact transport fixture")
     return path
-
-
-@pytest.fixture(scope="module")
-def summary():
-    with torch.random.fork_rng():
-        torch.manual_seed(0)
-        policy = ExplorationPolicy(_policy_config())
-        episodes = tuple(
-            _episode(reward=r, terminated=True, truncated=False, bootstrap=0.0) for r in (0.25, 2.0)
-        )
-        return build_update_summary(0, episodes, PPOUpdater(policy, _ppo_config()).update(episodes))
 
 
 def test_adapter_preserves_units_denominators_and_optional_metrics(summary):

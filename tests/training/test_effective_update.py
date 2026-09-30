@@ -29,7 +29,7 @@ from eco_planner.experiments.training.statistics import (
 from eco_planner.planning.policy import ExplorationPolicy
 from eco_planner.planning.policy.distribution import AffineBeta
 from eco_planner.rl.optimization.update_diagnostics import post_update_kl_series
-from tests.training.test_ppo import _policy_config
+from tests.training.helpers import _policy_config
 
 
 def _gate(**overrides: object) -> GateConfig:

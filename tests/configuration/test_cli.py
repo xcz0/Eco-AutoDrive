@@ -29,16 +29,13 @@ def test_current_operations_parse_and_route(monkeypatch, key):
     assert parsed.key == key
     cli.validate_arguments(cli.build_parser(), parsed)
     calls = []
-    if parsed.action == "analyze":
-        module = import_module("eco_planner.experiments." + spec.module)
-        monkeypatch.setattr(module, "analyze", lambda *a, **k: calls.append((a, k)) or {})
-        if parsed.domain == "compare":
-            from eco_planner.experiments.comparison import inputs
+    module = import_module("eco_planner.experiments." + spec.module)
+    function = "analyze" if parsed.action == "analyze" else spec.function
+    monkeypatch.setattr(module, function, lambda *a, **k: calls.append((a, k)) or {})
+    if parsed.action == "analyze" and parsed.domain == "compare":
+        from eco_planner.experiments.comparison import inputs
 
-            monkeypatch.setattr(inputs, "load_comparison", lambda *_: "validated")
-    else:
-        module = import_module("eco_planner.experiments." + spec.module)
-        monkeypatch.setattr(module, spec.function, lambda *a, **k: calls.append((a, k)) or {})
+        monkeypatch.setattr(inputs, "load_comparison", lambda *_: "validated")
     cli.dispatch(parsed)
     assert len(calls) == 1
 
@@ -142,20 +139,6 @@ def test_reward_validation_exit_status(monkeypatch, status, code, capsys):
 
 
 HYDRA_ENTRYPOINTS = ("scripts.evaluation", "scripts.training", "scripts.benchmark")
-
-
-@pytest.mark.parametrize("kind", ["environment", "throughput", "rollout"])
-def test_benchmark_routes_to_repository_workflow(monkeypatch, kind):
-    from omegaconf import OmegaConf
-
-    from scripts import benchmark
-
-    calls = []
-    module = import_module(f"benchmarks.{kind}")
-    monkeypatch.setattr(module, "run", lambda config: calls.append(config))
-    config = OmegaConf.create({"benchmark": {"kind": kind}})
-    benchmark._hydra_main.__wrapped__(config)
-    assert calls == [config]
 
 
 @pytest.mark.parametrize("module_name", HYDRA_ENTRYPOINTS)

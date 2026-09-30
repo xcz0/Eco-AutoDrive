@@ -22,7 +22,7 @@ from eco_planner.rl.rollout.fixed_batch import (
     load_fixed_batch,
     write_batch,
 )
-from tests.training.test_ppo import _behavior_policy_episode, _policy_config, _ppo_config
+from tests.training.helpers import _behavior_policy_episode, _policy_config, _ppo_config
 from tests.training.test_reward import _no_energy_config
 
 
