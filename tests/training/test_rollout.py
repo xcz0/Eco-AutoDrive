@@ -15,7 +15,12 @@ from eco_planner.envs.domain import (
     TransitionMetrics,
 )
 from eco_planner.planning.policy import ExplorationPolicyContext, policy_context_tensordict
-from eco_planner.reward import PlannerRFTRewardResult, RewardComponents, RewardDiagnostics
+from eco_planner.reward import (
+    PlannerRFTRewardResult,
+    RewardComponents,
+    RewardDiagnostics,
+    RewardResult,
+)
 from eco_planner.rl.artifacts import (
     ENERGY_ROLLOUT_ARTIFACT_FIELDS,
     write_rollout_episode,
@@ -25,8 +30,68 @@ from eco_planner.rl.rollout import (
     RolloutEpisodeBuilder,
     RolloutProvenance,
     build_training_decision,
+    build_training_transition,
 )
-from eco_planner.rl.rollout.collector import _execution_transition_audit
+from eco_planner.rl.rollout.collector import _EpisodeLifecycle, _execution_transition_audit
+from eco_planner.rl.rollout.decision import RolloutDecision
+from eco_planner.runtime.contracts import HostTrajectories
+
+
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
+def test_training_transition_needs_only_scalar_reward_on_collection_device(device) -> None:
+    decision, _, _, _ = _transition()
+    decision = decision.to(device)
+    snapshot = decision.clone()
+    cpu_rng = torch.random.get_rng_state().clone()
+    cuda_rng = torch.cuda.get_rng_state().clone() if device == "cuda" else None
+
+    transition = build_training_transition(
+        decision, RewardResult(total=-0.125), terminated=False, truncated=True
+    )
+
+    assert (decision == snapshot).all()
+    assert "next" not in decision.keys()
+    for key, dtype, expected in (
+        ("reward", torch.float32, -0.125),
+        ("terminated", torch.bool, False),
+        ("truncated", torch.bool, True),
+    ):
+        value = transition["next", key]
+        assert value.device.type == device
+        assert value.dtype == dtype
+        assert value.shape == (1, 1)
+        assert not value.requires_grad
+        assert value.item() == expected
+    assert torch.equal(torch.random.get_rng_state(), cpu_rng)
+    if cuda_rng is not None:
+        assert torch.equal(torch.cuda.get_rng_state(), cuda_rng)
+
+
+def test_episode_finish_does_not_read_reward_or_flags_from_audit(monkeypatch) -> None:
+    from eco_planner.rl.rollout import contracts
+
+    decision, decision_audit, execution, provenance = _transition()
+    audit = contracts.build_rollout_audit(decision_audit, execution, provenance)
+    monkeypatch.setattr(contracts, "build_rollout_audit", lambda *args: audit)
+    builder = RolloutEpisodeBuilder()
+    builder.append(
+        build_training_transition(
+            decision, execution.reward_result, terminated=False, truncated=False
+        ),
+        decision_audit,
+        execution,
+        provenance,
+    )
+    # Deliberately perturb the audit projection to expose any reverse dependency.
+    audit["reward_total"].fill_(99.0)
+    audit["terminated"].fill_(True)
+    audit["truncated"].fill_(True)
+
+    episode = builder.finish("rollout_limit", torch.tensor([5.0]))
+
+    assert episode.training["next", "reward"].item() == execution.reward_result.total
+    assert not episode.training["next", "terminated"].item()
+    assert not episode.training["next", "truncated"].item()
 
 
 def _context() -> ExplorationPolicyContext:
@@ -86,6 +151,7 @@ def _transition():
     return training_decision, decision_audit, execution_audit, provenance
 
 
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
 @pytest.mark.parametrize("length", [1, 3])
 @pytest.mark.parametrize(
     "terminated,truncated,tail,bootstrap",
@@ -97,6 +163,7 @@ def _transition():
     ],
 )
 def test_rollout_constructs_next_values_and_tail_without_mutating_decisions(
+    device,
     length,
     terminated,
     truncated,
@@ -110,11 +177,20 @@ def test_rollout_constructs_next_values_and_tail_without_mutating_decisions(
         training, audit, execution, provenance = _transition()
         training["state_value"] = torch.tensor([[float(index + 1)]])
         audit["state_value"] = training["state_value"].clone()
+        training = training.to(device)
         if index == length - 1:
             execution = replace(execution, terminated=terminated, truncated=truncated)
         decisions.append((training, audit))
         snapshots.append((training.clone(), audit.clone()))
-        builder.append(training, audit, execution, replace(provenance, planning_cycle_index=index))
+        transition = build_training_transition(
+            training,
+            execution.reward_result,
+            terminated=execution.terminated,
+            truncated=execution.truncated,
+        )
+        builder.append(
+            transition, audit, execution, replace(provenance, planning_cycle_index=index)
+        )
 
     episode = builder.finish(tail, torch.tensor([bootstrap]))
 
@@ -125,6 +201,17 @@ def test_rollout_constructs_next_values_and_tail_without_mutating_decisions(
     assert episode.training["next", "done"].flatten().tolist() == [False] * (length - 1) + [True]
     assert episode.training["next", "terminated"][-1].item() == terminated
     assert episode.training["next", "truncated"][-1].item() == truncated
+    for training_key, audit_key in (
+        ("reward", "reward_total"),
+        ("terminated", "terminated"),
+        ("truncated", "truncated"),
+    ):
+        assert torch.equal(episode.training["next", training_key].cpu(), episode.audit[audit_key])
+    assert all(
+        value.device.type == device
+        for value in episode.training.values(include_nested=True, leaves_only=True)
+    )
+    assert episode.tail_bootstrap_value.device.type == device
     assert episode.training["old_joint_guidance_log_prob"].shape == torch.Size([length])
     assert episode.transition_count == length
     assert episode.reward_profile == "plannerrft_energy_v1"
@@ -161,7 +248,17 @@ def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path
             replace(result, profile_name=profile) for result in execution.substep_results
         ),
     )
-    builder.append(training, audit, execution, provenance)
+    builder.append(
+        build_training_transition(
+            training,
+            execution.reward_result,
+            terminated=execution.terminated,
+            truncated=execution.truncated,
+        ),
+        audit,
+        execution,
+        provenance,
+    )
     episode = builder.finish("rollout_limit", torch.tensor([5.0]))
     artifact = tmp_path / "episode.npz"
 
@@ -395,6 +492,50 @@ class _ScriptedEvaluator:
 
     def __call__(self, metrics: TransitionMetrics) -> PlannerRFTRewardResult:
         return self._results.pop(0)
+
+
+@pytest.mark.parametrize("substep_count", [1, 5])
+@pytest.mark.parametrize(
+    "terminated,truncated,tail,bootstrap",
+    [
+        (True, False, "terminated", 0.0),
+        (False, True, "truncated", 5.0),
+        (False, False, "rollout_limit", 5.0),
+        (True, True, "terminated", 0.0),
+    ],
+)
+def test_collector_projects_one_reward_evaluation_to_training_and_audit(
+    substep_count, terminated, truncated, tail, bootstrap
+) -> None:
+    training, audit, _, _ = _transition()
+    decision = RolloutDecision(HostTrajectories(np.zeros((1, 80, 4))), lambda: audit, training)
+    metrics = tuple(_substep_metrics(index) for index in range(substep_count))
+    results = tuple(_reward_result(0.1 * (index + 1)) for index in range(substep_count))
+    evaluator = _ScriptedEvaluator(results)
+    lifecycle = _EpisodeLifecycle(previous_route_completion=0.0)
+
+    kind = lifecycle.append(
+        decision,
+        _execution_result(metrics),
+        map_seed=0,
+        noise_seed=1,
+        policy_action_seed=2,
+        reward_evaluator=evaluator,
+        terminated=terminated,
+        truncated=truncated,
+        collection_limit=True,
+    )
+    assert kind == tail
+    episode = lifecycle.finish(kind, torch.tensor([bootstrap]))
+
+    # The finite scripted sequence fails if the collector evaluates any substep twice.
+    assert not evaluator._results
+    expected_reward = torch.tensor([[sum(result.total for result in results)]])
+    assert torch.equal(episode.training["next", "reward"], expected_reward)
+    assert torch.equal(episode.audit["reward_total"], expected_reward)
+    for key in ("terminated", "truncated"):
+        assert torch.equal(episode.training["next", key], episode.audit[key])
+    assert episode.audit["reward_substep_count"].item() == substep_count
 
 
 def test_transition_audit_aggregates_multiple_substeps() -> None:

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 import torch
-from tensordict import TensorDictBase, cat
+from tensordict import TensorDict, TensorDictBase, cat
 
 from eco_planner.contracts import (
     CLOSED_LOOP_EXECUTION_STEPS,
@@ -19,7 +19,7 @@ from eco_planner.planning.policy import (
     ExplorationPolicyContext,
     policy_context_tensordict,
 )
-from eco_planner.reward import PlannerRFTRewardResult, aggregate_transition_reward
+from eco_planner.reward import PlannerRFTRewardResult, RewardResult, aggregate_transition_reward
 from eco_planner.reward.result import RewardProfileName as RewardProfileName
 
 TailKind = Literal["terminated", "truncated", "rollout_limit"]
@@ -233,7 +233,7 @@ class RolloutEpisodeBuilder:
 
     def append(
         self,
-        training_decision: TensorDictBase,
+        training_transition: TensorDictBase,
         decision_audit: TensorDictBase,
         execution: ExecutionTransitionAudit,
         provenance: RolloutProvenance,
@@ -243,7 +243,7 @@ class RolloutEpisodeBuilder:
             self._reward_profile = profile
         elif profile != self._reward_profile:
             raise ValueError("one rollout episode cannot mix reward profiles")
-        self._training.append(training_decision)
+        self._training.append(training_transition)
         self._audit.append(build_rollout_audit(decision_audit, execution, provenance))
 
     def finish(self, tail_kind: TailKind, tail_bootstrap_value: torch.Tensor) -> RolloutEpisode:
@@ -253,8 +253,7 @@ class RolloutEpisodeBuilder:
         audit = cat(self._audit)
         device = training["state_value"].device
         bootstrap = tail_bootstrap_value.detach().to(device)
-        next_transition = audit.select("reward_total", "terminated", "truncated").clone().to(device)
-        next_transition.rename_key_("reward_total", "reward")
+        next_transition = _tensordict(training, "next")
         next_transition["state_value"] = torch.cat(
             (training["state_value"][1:], bootstrap.reshape(1, 1))
         )
@@ -287,6 +286,28 @@ def build_training_decision(
         .detach()
         .clone()
     )
+
+
+def build_training_transition(
+    decision: TensorDictBase,
+    reward_result: RewardResult,
+    *,
+    terminated: bool,
+    truncated: bool,
+) -> TensorDictBase:
+    """Project a scalar reward and environment flags directly onto the collection device."""
+
+    device = decision["state_value"].device
+    next_transition = TensorDict(
+        {
+            "reward": torch.tensor([[reward_result.total]], dtype=torch.float32, device=device),
+            "terminated": torch.tensor([[terminated]], dtype=torch.bool, device=device),
+            "truncated": torch.tensor([[truncated]], dtype=torch.bool, device=device),
+        },
+        batch_size=[1],
+        device=device,
+    )
+    return decision.clone(recurse=False).set("next", next_transition)
 
 
 def build_rollout_audit(

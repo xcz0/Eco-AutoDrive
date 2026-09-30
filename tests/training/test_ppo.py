@@ -30,6 +30,7 @@ from eco_planner.rl.rollout import (
     RolloutEpisodeBuilder,
     RolloutProvenance,
     build_training_decision,
+    build_training_transition,
 )
 
 
@@ -173,12 +174,15 @@ def _episode(
         torch.tensor([1.0]),
     )
     builder = RolloutEpisodeBuilder()
+    execution = _execution_audit(
+        reward, terminated=terminated, truncated=truncated, profile_name=profile_name
+    )
     builder.append(
-        decision,
-        _decision_audit(),
-        _execution_audit(
-            reward, terminated=terminated, truncated=truncated, profile_name=profile_name
+        build_training_transition(
+            decision, execution.reward_result, terminated=terminated, truncated=truncated
         ),
+        _decision_audit(),
+        execution,
         RolloutProvenance(0, 1, 2, 0),
     )
     tail_kind = "terminated" if terminated else "truncated" if truncated else "rollout_limit"
@@ -212,10 +216,13 @@ def _behavior_policy_episode(
         )
     )
     builder = RolloutEpisodeBuilder()
+    execution = _execution_audit(reward, terminated=True, truncated=False)
     builder.append(
-        decision,
+        build_training_transition(
+            decision, execution.reward_result, terminated=True, truncated=False
+        ),
         decision_audit,
-        _execution_audit(reward, terminated=True, truncated=False),
+        execution,
         RolloutProvenance(0, 1, 2, 0),
     )
     return builder.finish("terminated", torch.zeros(1))

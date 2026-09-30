@@ -36,6 +36,7 @@ from eco_planner.rl.rollout import (
     RolloutEpisodeBuilder,
     RolloutProvenance,
     build_training_decision,
+    build_training_transition,
 )
 from eco_planner.rl.rollout.fixed_batch import load_batch
 from tests.training.test_ppo import _context, _decision_audit, _episode
@@ -236,11 +237,16 @@ def _five_substep_parity_case(
     )
     builder = RolloutEpisodeBuilder()
     builder.append(
-        build_training_decision(
-            _context(),
-            torch.tensor([[-0.5, 0.5]]),
-            torch.tensor([0.5]),
-            torch.tensor([1.0]),
+        build_training_transition(
+            build_training_decision(
+                _context(),
+                torch.tensor([[-0.5, 0.5]]),
+                torch.tensor([0.5]),
+                torch.tensor([1.0]),
+            ),
+            execution.reward_result,
+            terminated=execution.terminated,
+            truncated=execution.truncated,
         ),
         _decision_audit(),
         execution,

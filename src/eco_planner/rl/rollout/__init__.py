@@ -14,6 +14,7 @@ from .contracts import (
     RolloutProvenance,
     TailKind,
     build_training_decision,
+    build_training_transition,
     rollout_audit_keys,
 )
 from .runtime import FabricRolloutRuntime, create_fabric_rollout_runtime
@@ -29,6 +30,7 @@ __all__ = [
     "VectorRolloutCollector",
     "VectorRolloutRoundTiming",
     "build_training_decision",
+    "build_training_transition",
     "collect_rollout_episode",
     "collect_vector_rollout_episodes",
     "create_fabric_rollout_runtime",

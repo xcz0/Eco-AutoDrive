@@ -37,6 +37,7 @@ from .contracts import (
     RolloutEpisodeBuilder,
     RolloutProvenance,
     TailKind,
+    build_training_transition,
 )
 from .decision import RolloutDecision
 from .profiling import RolloutPlannerTiming
@@ -83,16 +84,23 @@ class _EpisodeLifecycle:
         truncated: bool,
         collection_limit: bool,
     ) -> TailKind | None:
-        self.builder.append(
+        execution = _execution_transition_audit(
+            step,
+            self.previous_route_completion,
+            reward_evaluator=reward_evaluator,
+            terminated=terminated,
+            truncated=truncated,
+        )
+        training_transition = build_training_transition(
             decision.training_decision,
+            execution.reward_result,
+            terminated=terminated,
+            truncated=truncated,
+        )
+        self.builder.append(
+            training_transition,
             decision.audit_result(),
-            _execution_transition_audit(
-                step,
-                self.previous_route_completion,
-                reward_evaluator=reward_evaluator,
-                terminated=terminated,
-                truncated=truncated,
-            ),
+            execution,
             RolloutProvenance(
                 map_seed=map_seed,
                 noise_seed=noise_seed,
