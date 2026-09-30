@@ -218,14 +218,18 @@ class RolloutEpisode:
 class RolloutEpisodeBuilder:
     """Build matching PPO and audit trajectories for serial or vector collection."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self, *, training_storage: TensorDictBase | None = None, training_start: int = 0
+    ) -> None:
         self._training: list[TensorDictBase] = []
         self._audit: list[TensorDictBase] = []
         self._reward_profile: RewardProfileName | None = None
+        self._training_storage = training_storage
+        self._training_start = training_start
 
     @property
     def transition_count(self) -> int:
-        return len(self._training)
+        return len(self._audit)
 
     @property
     def empty(self) -> bool:
@@ -243,26 +247,80 @@ class RolloutEpisodeBuilder:
             self._reward_profile = profile
         elif profile != self._reward_profile:
             raise ValueError("one rollout episode cannot mix reward profiles")
-        self._training.append(training_transition)
+        if self._training_storage is None:
+            self._training.append(training_transition)
+        else:
+            storage = self._training_storage
+            if "state_value" not in storage.keys():
+                storage.update(training_transition.new_empty(storage.batch_size))
+                value_dtype = torch.promote_types(storage["state_value"].dtype, torch.float32)
+                storage["next", "state_value"] = torch.empty_like(
+                    storage["state_value"], dtype=value_dtype
+                )
+                storage["next", "done"] = torch.empty_like(storage["next", "terminated"])
+            index = self._training_start + self.transition_count
+            if index >= storage.batch_size[0]:
+                raise ValueError("rollout transition exceeds its update training storage")
+            # Indexed writes must not broadcast, cast, or move incompatible decisions.
+            source_keys = set(training_transition.keys(include_nested=True, leaves_only=True))
+            target_keys = set(storage.keys(include_nested=True, leaves_only=True)) - {
+                ("next", "state_value"),
+                ("next", "done"),
+            }
+            if source_keys != target_keys:
+                raise ValueError("rollout training transition fields differ from update storage")
+            for key, value in training_transition.items(include_nested=True, leaves_only=True):
+                target = _tensor(storage, key)
+                if (
+                    value.shape != (1, *target.shape[1:])
+                    or value.dtype != target.dtype
+                    or value.device != target.device
+                ):
+                    raise ValueError(f"rollout training field {key!r} differs from update storage")
+            storage.update_at_(training_transition, slice(index, index + 1))
         self._audit.append(build_rollout_audit(decision_audit, execution, provenance))
 
     def finish(self, tail_kind: TailKind, tail_bootstrap_value: torch.Tensor) -> RolloutEpisode:
         if self.empty:
             raise ValueError("rollout episode must contain at least one transition")
-        training = cat(self._training)
+        training = (
+            cat(self._training)
+            if self._training_storage is None
+            else cast(
+                TensorDictBase,
+                self._training_storage[
+                    self._training_start : self._training_start + self.transition_count
+                ],
+            )
+        )
         audit = cat(self._audit)
         device = training["state_value"].device
         bootstrap = tail_bootstrap_value.detach().to(device)
         next_transition = _tensordict(training, "next")
-        next_transition["state_value"] = torch.cat(
-            (training["state_value"][1:], bootstrap.reshape(1, 1))
-        )
+        if "state_value" not in next_transition.keys():
+            next_transition["state_value"] = torch.cat(
+                (training["state_value"][1:], bootstrap.reshape(1, 1))
+            )
+        else:
+            next_transition["state_value"][:-1].copy_(training["state_value"][1:])
+            next_transition["state_value"][-1].copy_(bootstrap)
         done = next_transition["terminated"] | next_transition["truncated"]
         done[-1] = True
-        next_transition["done"] = done
+        if "done" in next_transition.keys():
+            next_transition["done"].copy_(done)
+        else:
+            next_transition["done"] = done
         training["next"] = next_transition
         return RolloutEpisode(
             training, audit, tail_kind, bootstrap, cast(RewardProfileName, self._reward_profile)
+        )
+
+    def next_episode(self) -> RolloutEpisodeBuilder:
+        """Start the next episode after this episode's disjoint storage slice."""
+
+        return RolloutEpisodeBuilder(
+            training_storage=self._training_storage,
+            training_start=self._training_start + self.transition_count,
         )
 
 

@@ -119,7 +119,7 @@ class _EpisodeLifecycle:
 
     def finish(self, kind: TailKind, bootstrap_value: torch.Tensor) -> RolloutEpisode:
         episode = self.builder.finish(kind, bootstrap_value)
-        self.builder = RolloutEpisodeBuilder()
+        self.builder = self.builder.next_episode()
         return episode
 
     def reset(self, route_completion: float) -> None:
@@ -284,6 +284,7 @@ class VectorRolloutCollector:
         policy_action_seeds: tuple[int, ...],
         policy_sampling: Literal["sample", "mean"] = "sample",
         timings: list[VectorRolloutRoundTiming] | None = None,
+        training_storage: TensorDictBase | None = None,
     ) -> tuple[tuple[RolloutEpisode, ...], ...]:
         """Collect one PPO batch while retaining workers for a subsequent call."""
 
@@ -298,6 +299,13 @@ class VectorRolloutCollector:
         )
         if policy_sampling not in {"sample", "mean"}:
             raise ValueError("policy_sampling must be 'sample' or 'mean'")
+        if training_storage is not None:
+            if training_storage.batch_size != (len(self._specs) * transitions_per_slot,):
+                raise ValueError("training storage must match the complete logical rollout quota")
+            if list(training_storage.keys()):
+                raise ValueError(
+                    "each collection requires empty, independently owned training storage"
+                )
         collected: list[tuple[RolloutEpisode, ...]] = []
         for start in range(0, len(self._specs), self._physical_slot_count):
             stop = min(start + self._physical_slot_count, len(self._specs))
@@ -309,6 +317,12 @@ class VectorRolloutCollector:
                 noise_seeds[start:stop],
                 policy_action_seeds[start:stop],
             )
+            if training_storage is not None:
+                for slot, state in enumerate(states, start=start):
+                    state.lifecycle.builder = RolloutEpisodeBuilder(
+                        training_storage=training_storage,
+                        training_start=slot * transitions_per_slot,
+                    )
             collected.extend(
                 self._collect_group(
                     states,

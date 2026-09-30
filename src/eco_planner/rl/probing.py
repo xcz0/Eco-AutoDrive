@@ -5,6 +5,7 @@ from __future__ import annotations
 import torch
 
 from eco_planner.planning.policy import (
+    POLICY_CONTEXT_KEYS,
     AffineBeta,
     ExplorationPolicyContext,
     policy_context_tensordict,
@@ -20,7 +21,8 @@ def capture_probe_contexts(
     contexts = []
     for episodes in slot_episodes:
         if episodes:
-            item = episodes[0].training[0]
+            # A fixed probe owns only its context, not the complete update storage.
+            item = episodes[0].training[0].select(*POLICY_CONTEXT_KEYS).detach().clone()
             contexts.append(
                 ExplorationPolicyContext(
                     scene_tokens=item["scene_tokens"].unsqueeze(0),

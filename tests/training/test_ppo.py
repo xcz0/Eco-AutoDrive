@@ -9,6 +9,7 @@ import torch
 from tensordict import TensorDict, TensorDictBase, cat
 
 from eco_planner.planning.policy import (
+    POLICY_CONTEXT_KEYS,
     ExplorationPolicy,
     ExplorationPolicyConfig,
     ExplorationPolicyContext,
@@ -286,6 +287,14 @@ def test_combined_gae_respects_episode_boundaries_without_mutation(device) -> No
         expected_advantages.extend(episode_advantages)
     snapshots = [(e.training.clone(), e.audit.clone()) for e in episodes]
     batch = build_ppo_batch(episodes, _ppo_config(), device=torch.device(device))
+    compact = cat([episode.training for episode in episodes]).to(device)
+    compact_snapshot = compact.clone()
+    compact_batch = build_ppo_batch(compact, _ppo_config(), device=torch.device(device))
+    for key in batch.keys():
+        assert torch.equal(compact_batch[key], batch[key])
+    for key in POLICY_CONTEXT_KEYS + ("guidance_action", "old_joint_guidance_log_prob"):
+        assert compact_batch[key].data_ptr() == compact[key].data_ptr()
+    assert (compact == compact_snapshot).all()
     expected = torch.tensor(expected_advantages, device=device).unsqueeze(-1)
     torch.testing.assert_close(batch["advantage"], expected)
     torch.testing.assert_close(batch["value_target"], expected + 1.0)
@@ -293,6 +302,48 @@ def test_combined_gae_respects_episode_boundaries_without_mutation(device) -> No
     for episode, (training, audit) in zip(episodes, snapshots, strict=True):
         assert (episode.training == training).all()
         assert (episode.audit == audit).all()
+
+
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
+@pytest.mark.parametrize("early_stop", [False, True])
+def test_compact_update_matches_episode_update_and_preserves_raw_storage(
+    device, early_stop
+) -> None:
+    config = _ppo_config().model_copy(
+        update={
+            "batch_size": 4,
+            "epochs": 2,
+            "scheduler_total_optimizer_steps": 4,
+            "target_kl": 1e-9 if early_stop else None,
+        }
+    )
+    policy = ExplorationPolicy(_policy_config()).to(device)
+    replica = ExplorationPolicy(_policy_config()).to(device)
+    replica.load_state_dict(policy.state_dict())
+    updaters = (PPOUpdater(policy, config), PPOUpdater(replica, config))
+    episodes = tuple(
+        _episode(reward=float(i + 1), terminated=True, truncated=False, bootstrap=0.0)
+        for i in range(4)
+    )
+    compact = cat([episode.training for episode in episodes]).to(device)
+    snapshot = compact.clone()
+
+    expected = updaters[0].update(episodes)
+    actual = updaters[1].update(compact)
+
+    assert actual == expected
+    assert (compact == snapshot).all()
+    for name, parameter in policy.state_dict().items():
+        assert torch.equal(parameter, replica.state_dict()[name])
+    assert (
+        updaters[0].optimizer.state_dict()["param_groups"]
+        == updaters[1].optimizer.state_dict()["param_groups"]
+    )
+    assert updaters[0].scheduler.state_dict() == updaters[1].scheduler.state_dict()
+    assert torch.equal(
+        updaters[0].checkpoint_state()["minibatch_generator_state"],
+        updaters[1].checkpoint_state()["minibatch_generator_state"],
+    )
 
 
 @pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])

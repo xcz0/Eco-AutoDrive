@@ -3,9 +3,11 @@ from __future__ import annotations
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock
+from weakref import ref
 
 import pytest
 import torch
+from tensordict import cat
 
 from eco_planner.planning.policy import (
     ExplorationPolicy,
@@ -67,8 +69,15 @@ def test_training_order_fixed_probes_and_completed_resume(
         "build_update_summary",
         lambda i, *a: summary.model_copy(update={"update_index": i}),
     )
-    updater = Mock()
-    updater.update.side_effect = lambda *a: events.append("ppo")
+    storage_refs = []
+
+    def update(storage):
+        assert storage.batch_size == (2,)
+        assert storage["state_value"].shape == (2, 1)
+        storage_refs.append(ref(storage["scene_tokens"]))
+        events.append("ppo")
+
+    updater = SimpleNamespace(update=update)
     monkeypatch.setattr(trainer, "PPOUpdater", lambda *a: updater)
 
     class Collector:
@@ -82,14 +91,26 @@ def test_training_order_fixed_probes_and_completed_resume(
             events.append("close")
 
         def collect(self, **kwargs):
+            assert all(reference() is None for reference in storage_refs)
             events.append("collect")
-            return tuple(
-                (_episode(reward=1.0, terminated=True, truncated=False, bootstrap=0.0),)
+            episodes = [
+                _episode(reward=1.0, terminated=True, truncated=False, bootstrap=0.0)
                 for _ in range(2)
+            ]
+            storage = kwargs["training_storage"]
+            storage.update(cat([episode.training for episode in episodes]))
+            return tuple(
+                (replace(episode, training=storage[index : index + 1]),)
+                for index, episode in enumerate(episodes)
             )
 
     monkeypatch.setattr(trainer, "VectorRolloutCollector", Collector)
-    capture = Mock(wraps=capture_probe_contexts)
+    capture_calls = []
+
+    def capture(episodes, scenario_count):
+        capture_calls.append(True)
+        return capture_probe_contexts(episodes, scenario_count)
+
     monkeypatch.setattr(trainer, "capture_probe_contexts", capture)
     probe_call = Mock(return_value=probe)
     monkeypatch.setattr(trainer, "probe_policy", probe_call)
@@ -116,12 +137,13 @@ def test_training_order_fixed_probes_and_completed_resume(
         torch.use_deterministic_algorithms(original_deterministic)
     expected = ["collect", "ppo", "checkpoint", "tracking", "observer"] * (2 - start_update)
     assert events == expected + ["close"] + (["checkpoint"] if start_update == 2 else [])
-    assert capture.call_count == (1 if start_update == 0 else 0)
+    assert len(capture_calls) == (1 if start_update == 0 else 0)
     assert probe_call.call_count == (2 if start_update == 0 else 1)
     assert all(call.args[1] is state.probe_contexts for call in probe_call.call_args_list)
     if contexts is not None:
         assert state.probe_contexts is contexts
     assert state.completed_updates == 2
+    assert all(reference() is None for reference in storage_refs)
     assert result.total_transitions == 4
     assert len(result.updates) == 2
     assert payloads[-1]["completed_updates"] == 2
@@ -169,6 +191,12 @@ def test_capture_uses_first_transition_of_first_episode_in_scenario_order():
         assert torch.equal(
             context.reference_trajectory, episodes[index].training["reference_trajectory"]
         )
+        assert (
+            context.reference_trajectory.data_ptr()
+            != episodes[index].training["reference_trajectory"].data_ptr()
+        )
+        episodes[index].training["reference_trajectory"].fill_(-1.0)
+        assert torch.all(context.reference_trajectory == index)
     with pytest.raises(RuntimeError, match="one fixed probe context per scenario"):
         capture_probe_contexts(((episodes[0],), ()), 2)
 

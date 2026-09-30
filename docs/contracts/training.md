@@ -59,6 +59,9 @@ MUST 按确定性顺序复用物理 slots，保持每个逻辑 slot 的场景、
 Root training fields 保存 context、guidance、old log-prob 和 current value；`next` 保存 scalar reward、
 done、terminated、truncated 与 next value。Base action、RNG 等 replay 事实在 audit 中保留。
 内部 next value 来自后一 decision；尾部来自显式 bootstrap。原始 episode training/audit 不被 GAE 改写。
+共享 update training storage 的 episode MUST 占用按上述逻辑顺序排列的不重叠区间；完成的区间不被
+后续采集改写。GAE/PPO 可共享这些输入，但 advantage/value target 单独生成，不原位修改原始字段。
+每次 collect 使用独立 storage；持久 fixed probe 只拥有其 context 副本，不保留完整 update storage。
 训练采集内部错误直接终止，不把 partial trajectory 伪装成正式 batch；诊断部分证据另有契约。
 
 ## Episode 与 bootstrap

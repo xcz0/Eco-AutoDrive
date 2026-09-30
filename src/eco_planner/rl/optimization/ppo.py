@@ -226,7 +226,7 @@ class PPOUpdater:
         self._kl_early_stop_count = early_stops
         self._minibatch_generator.set_state(generator_state)
 
-    def update(self, episodes: Sequence[TrainingEpisode]) -> PPOUpdateReport:
+    def update(self, episodes: Sequence[TrainingEpisode] | TensorDictBase) -> PPOUpdateReport:
         """Perform all configured PPO epochs over one immutable rollout batch."""
 
         self.policy.eval()
@@ -405,15 +405,22 @@ def _build_torchrl_policy_adapters(
 
 
 def build_ppo_batch(
-    episodes: Sequence[TrainingEpisode],
+    episodes: Sequence[TrainingEpisode] | TensorDictBase,
     config: PPOConfig,
     *,
     device: torch.device | None = None,
 ) -> TensorDictBase:
-    episode_tuple = tuple(episodes)
-    if not episode_tuple:
-        raise ValueError("PPO update requires at least one rollout episode")
-    trajectory = cat([episode.training.select(*TRAINING_KEYS) for episode in episode_tuple])
+    if isinstance(episodes, TensorDictBase):
+        if len(episodes.batch_size) != 1:
+            raise TypeError("PPO training batch must be a one-dimensional TensorDict")
+        if episodes.batch_size[0] == 0:
+            raise ValueError("PPO update requires at least one rollout transition")
+        trajectory = episodes.select(*TRAINING_KEYS)
+    else:
+        episode_tuple = tuple(episodes)
+        if not episode_tuple:
+            raise ValueError("PPO update requires at least one rollout episode")
+        trajectory = cat([episode.training.select(*TRAINING_KEYS) for episode in episode_tuple])
     if device is not None:
         trajectory = trajectory.to(device)
     return _compute_gae(trajectory, config).select(*PPO_BATCH_KEYS)
