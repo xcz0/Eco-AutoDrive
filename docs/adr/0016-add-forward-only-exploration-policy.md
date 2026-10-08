@@ -1,5 +1,9 @@
 # Add a forward-only Exploration Policy
 
+> concentration 参数化条款（`softplus(raw) + minimum_concentration`）已由
+> [ADR 0040](0040-beta-interior-concentration-parameterization.md) 取代；其余架构、affine action 与
+> 初始化决定继续有效。
+
 Add a standalone Exploration Policy that consumes one frozen scene encoding, one frozen
 navigation encoding, their padding masks, and the ego-local physical reference trajectory. The
 reference trajectory is encoded by a configurable MLP-Mixer and used as the query for masked

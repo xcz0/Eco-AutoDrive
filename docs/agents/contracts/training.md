@@ -10,7 +10,7 @@ rollout runtime 在 eval-mode、所有参数 `requires_grad=False` 的官方模�
 
 PPO 训练必须显式配置 `training.planner_compile_mode`。`eager` 是当前 base profile 默认值；`dit_reduce_overhead` 只允许 CUDA，并以 `torch.compile(mode="reduce-overhead", fullgraph=True, dynamic=False)` 编译 `decoder.dit` 已绑定的 `forward`，不替换注册模块或改变 state-dict key。编译所需后端不可用、graph capture 失败或执行失败时直接报错，不回退 eager。该选项不得改变 sampler、guidance、随机流或冻结 planner hash；独立 rollout 回归入口显式使用 eager。
 
-reference 先经 MLP-Mixer 编码，再作为 query 对拼接后的 scene/navigation tokens 做 masked cross-attention；actor 与 value 共享融合 trunk。policy TensorDict boundary 以该输入 context keys 写入严格正的 `alpha,beta [B,2]` 与 `state_value [B,1]`；typed collection adapter 将 value 暴露为 `[B]`。rollout、PPO current-policy recomputation、bootstrap value 和训练 probe 共享这组 TensorDict output keys。reference 输入固定为 `[B,80,4]`；其余层数、维度、attention heads、dropout、初始 concentration 和最小 concentration 都是 Hydra 必需字段。concentration 使用 `softplus(raw)+minimum_concentration`；actor head 对称初始化为 `alpha=beta`，所以初始 guidance 均值为零，但 Beta 方差非零。
+reference 先经 MLP-Mixer 编码，再作为 query 对拼接后的 scene/navigation tokens 做 masked cross-attention；actor 与 value 共享融合 trunk。policy TensorDict boundary 以该输入 context keys 写入 `alpha,beta [B,2]` 与 `state_value [B,1]`，其中 `alpha, beta` 恒满足 `> 1 + interior_epsilon`（interior 参数化，Beta density 在 0/1 边界为零）；typed collection adapter 将 value 暴露为 `[B]`。rollout、PPO current-policy recomputation、bootstrap value 和训练 probe 共享这组 TensorDict output keys。reference 输入固定为 `[B,80,4]`；其余层数、维度、attention heads、dropout、初始 concentration 和 interior epsilon 都是 Hydra 必需字段。concentration 使用 `1 + interior_epsilon + softplus(raw)`；actor head 对称初始化为 `alpha=beta`，所以初始 guidance 均值为零，但 Beta 方差非零。
 
 每个 planning cycle 只定义单候选 `K=1`。base action `u` 严格位于 `(0,1)^2`，rollout 保存 `u`；audited guidance action 为 `g=2u-1`，严格位于 `(-1,1)^2`。training sampling 使用调用者提供的独立 policy `torch.Generator` 和 `rsample`；普通 `sample` 也只消费该 generator；deterministic evaluation 使用 mean，不公开 mode。边界 action、非有限参数或非法 shape/dtype/device 立即失败，不得 clamp。两个维度独立时：
 
@@ -20,7 +20,7 @@ joint_log_prob_g = joint_log_prob_u - 2 * log(2)
 joint_entropy_g = sum_i H(Beta_i) + 2 * log(2)
 ```
 
-policy action generator 不得改变 PyTorch 全局 RNG，且与 map/noise seed 分离。policy export checkpoint 只包含其 checkpoint `format_version` 与 Exploration Policy 自身的 trainable state dict；该字段只描述 checkpoint 文件结构。网络结构、Beta 参数化、仿射映射和初始化见 ADR 0016，均为本项目复现决定，不得描述为 PlannerRFT 作者公开实现。
+policy action generator 不得改变 PyTorch 全局 RNG，且与 map/noise seed 分离。policy export checkpoint 只包含其 checkpoint `format_version` 与 Exploration Policy 自身的 trainable state dict；该字段只描述 checkpoint 文件结构。网络结构、仿射映射与初始化见 ADR 0016，Beta interior concentration 参数化（含对称初始化的 bias 公式）见 ADR 0040，均为本项目复现决定，不得描述为 PlannerRFT 作者公开实现。
 
 ## Policy-guided rollout
 
