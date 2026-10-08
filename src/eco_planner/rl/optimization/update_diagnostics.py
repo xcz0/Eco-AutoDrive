@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
+from torch.distributions import Beta
 
 from eco_planner.analysis.training import beta_kl, beta_statistics
 from eco_planner.planning.policy import (
@@ -311,6 +312,29 @@ def extract_arm_metrics(
     }
 
 
+def mc_log_ratio_draws(
+    old_alpha: torch.Tensor,
+    old_beta: torch.Tensor,
+    new_alpha: torch.Tensor,
+    new_beta: torch.Tensor,
+    base_action: torch.Tensor,
+) -> torch.Tensor:
+    """Evaluate seeded-MC log ratios in base coordinates at float64 precision.
+
+    Evaluating in guidance coordinates round-trips ``2u - 1`` then ``(g + 1) /
+    2``; in float32 this collapses base draws below ``2**-25`` onto the exact
+    boundary, turning mathematically finite interior ratios into ``-inf -
+    (-inf)`` for near-floor concentrations.  The affine Jacobian cancels in the
+    ratio, so the base-coordinate evaluation is exact; genuinely
+    boundary-singular draws still evaluate non-finite.
+    """
+
+    old_distribution = Beta(old_alpha.double(), old_beta.double(), validate_args=False)
+    new_distribution = Beta(new_alpha.double(), new_beta.double(), validate_args=False)
+    draws = base_action.double()
+    return (new_distribution.log_prob(draws) - old_distribution.log_prob(draws)).sum(dim=-1)
+
+
 def post_update_kl_series(
     run_dir: Path, *, update_count: int, mc_draws: int, mc_seed: int
 ) -> dict[str, Any]:
@@ -366,15 +390,12 @@ def post_update_kl_series(
             base_action = ExplicitGeneratorBetaSampler.draw(
                 repeated, generator, validate_args=False
             )
-            guidance_action = 2.0 * base_action - 1.0
-            old_distribution = AffineBeta(repeated.alpha, repeated.beta, validate_args=False)
-            new_repeated = AffineBeta(
+            log_ratio_draws = mc_log_ratio_draws(
+                repeated.alpha,
+                repeated.beta,
                 new_alpha.repeat(mc_draws, 1),
                 new_beta.repeat(mc_draws, 1),
-                validate_args=False,
-            )
-            log_ratio_draws = new_repeated.log_prob(guidance_action) - old_distribution.log_prob(
-                guidance_action
+                base_action,
             )
             if not torch.isfinite(log_ratio_draws).all():
                 raise FloatingPointError(

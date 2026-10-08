@@ -31,6 +31,7 @@ from eco_planner.planning.policy.distribution import AffineBeta
 from eco_planner.rl.optimization.update_diagnostics import (
     extract_arm_metrics,
     learning_rate_history,
+    mc_log_ratio_draws,
     policy_ratio_change,
     post_update_kl_series,
 )
@@ -470,6 +471,27 @@ def test_post_update_kl_series_recomputes_kl_on_persisted_updates(tmp_path: Path
     assert series["post_update_kl_analytic_max"] == series["post_update_kl_analytic"][1]
     with pytest.raises(ValueError, match="no persisted rollout episodes"):
         post_update_kl_series(run_dir, update_count=3, mc_draws=4096, mc_seed=1000003)
+
+
+def test_mc_log_ratio_stays_finite_when_float32_rounds_interior_draw_to_boundary() -> None:
+    # E-057 lam4-seed-2 update 86: a legitimate interior base draw 1.45e-08
+    # under a near-floor Beta(1.12, 4.32) rounds to guidance -1.0 in float32,
+    # and the guidance-coordinate round-trip turned the finite true ratio into
+    # NaN.  The base-coordinate evaluation keeps the draw intact.
+    old_alpha = torch.tensor([[3.000150203704834, 1.1215640306472778]])
+    old_beta = torch.tensor([[1.4681456089019775, 4.3188958168029785]])
+    new_alpha = torch.tensor([[3.0026626586914062, 1.1203675270080566]])
+    new_beta = torch.tensor([[1.4670534133911133, 4.3306474685668945]])
+    base_action = torch.tensor([[0.6829089522361755, 1.4503590328729388e-08]])
+    assert (2.0 * base_action - 1.0)[0, 1].item() == -1.0
+    ratio = mc_log_ratio_draws(old_alpha, old_beta, new_alpha, new_beta, base_action)
+    assert torch.isfinite(ratio).all()
+    # Genuinely boundary-singular draws must stay non-finite so the
+    # FloatingPointError collapse guard keeps its semantics.
+    boundary_ratio = mc_log_ratio_draws(
+        old_alpha, old_beta, new_alpha, new_beta, torch.tensor([[0.68, 0.0]])
+    )
+    assert not torch.isfinite(boundary_ratio).all()
 
 
 def test_beta_kl_matches_closed_form_and_is_zero_for_identical_parameters() -> None:
