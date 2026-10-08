@@ -1,0 +1,19 @@
+docs/research/issue114-task3-interior-stress-plan.md
+  s_9c6c709ad6af80::t_e21c35a7139663 1-188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "07b28607d3e57f6a92ac961d85ca0774f876c358",
+  "prompts": {},
+  "sessions": {
+    "s_9c6c709ad6af80": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee68e979bffe5ZOR1NpUrlFH7X",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
