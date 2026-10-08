@@ -1,0 +1,41 @@
+tests/characterization/harness.py
+  s_0c72f61ad29343::t_9dda266cbc180f 168
+configs/components/policy.yaml
+  s_0c72f61ad29343::t_2fce0ec18303cc 12
+src/eco_planner/planning/policy/model.py
+  s_0c72f61ad29343::t_3cd6e213cf1b0e 219
+  s_0c72f61ad29343::t_fbb45a4d71cbf9 151
+src/eco_planner/planning/policy/config.py
+  s_0c72f61ad29343::t_d48f0f4ffabe7a 25,31-32
+tests/planning/test_policy_model.py
+  s_0c72f61ad29343::t_93969f7812b7c5 64-65
+  s_0c72f61ad29343::t_46e2f64ea0b655 1
+  s_0c72f61ad29343::t_ee39a4f615ffdf 69
+  s_0c72f61ad29343::t_4b9c5f26e624ce 8-12
+  s_0c72f61ad29343::t_f9d863a79c3192 2-7,13-63,66-68,70-98
+docs/adr/0040-beta-interior-concentration-parameterization.md
+  s_0c72f61ad29343::t_5f5f384061f53e 1-47
+docs/agents/contracts/training.md
+  s_0c72f61ad29343::t_a00a98941306bc 13
+  s_0c72f61ad29343::t_7332713ecd6c82 23
+docs/adr/0016-add-forward-only-exploration-policy.md
+  s_0c72f61ad29343::t_715ef7a00321f1 3-6
+tests/training/test_ppo.py
+  s_0c72f61ad29343::t_f50719ab4901ff 40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "03a6c99c49db57a4f89ef135b4f64cd6876912b1",
+  "prompts": {},
+  "sessions": {
+    "s_0c72f61ad29343": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee6d8d897fferheINl6XkRUyKV",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
