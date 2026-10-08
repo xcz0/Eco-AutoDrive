@@ -1,0 +1,23 @@
+docs/experiments/records/e-057-issue114-task3-interior-stress.md
+  s_9c6c709ad6af80::t_4ff54e24cb0f95 1-230
+docs/research/issue114-task3-interior-stress-plan.md
+  s_9c6c709ad6af80::t_164d85b413d2e4 3-8
+docs/experiments/README.md
+  s_9c6c709ad6af80::t_b50cd200d65148 104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "da6d5adc50f98f4890be4748c1b84769936d811f",
+  "prompts": {},
+  "sessions": {
+    "s_9c6c709ad6af80": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee68e979bffe5ZOR1NpUrlFH7X",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
