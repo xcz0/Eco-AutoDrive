@@ -1,0 +1,27 @@
+tests/training/test_effective_update.py
+  s_9c6c709ad6af80::t_7f9e162b43751c 479-480,486-487,492
+  s_9c6c709ad6af80::t_2cf25077e2e36f 34
+  s_9c6c709ad6af80::t_9f2d482c732822 476-478,481-485,488-491,493-496
+src/eco_planner/rl/optimization/update_diagnostics.py
+  s_9c6c709ad6af80::t_0a19c97c9d3349 13
+  s_9c6c709ad6af80::t_8da4c6a2d1c994 393-395
+  s_9c6c709ad6af80::t_07ce52d88444f3 398
+  s_9c6c709ad6af80::t_d2126bda645496 315-319,321,323,330-331,336-337
+  s_9c6c709ad6af80::t_5bcc1b306b818d 320,322,324-329,332-335
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "986b01594fb211449bb19f78a03636e871aa1085",
+  "prompts": {},
+  "sessions": {
+    "s_9c6c709ad6af80": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee68e979bffe5ZOR1NpUrlFH7X",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
