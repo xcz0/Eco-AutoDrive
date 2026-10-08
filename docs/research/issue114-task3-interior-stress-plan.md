@@ -1,7 +1,11 @@
 # Issue #114 Task 3 — Previously failing candidate stress test 执行计划
 
-状态：**预登记**（2026-10-08，运行前冻结；执行结果见
-`docs/experiments/records/e-057-issue114-task3-interior-stress.md`）。
+状态：**已执行**（2026-10-08，结果见
+`docs/experiments/records/e-057-issue114-task3-interior-stress.md`：Gate S2 PASSED
+（numerical collapse 结构性消除，9/9 runs 机械稳定），Gate S1 FAILED（λ=8 boundary
+mass 3/3 seeds 超 0.2 ceiling；λ=4/8 sustained negative longitudinal saturation）。
+实际执行与本计划的唯一偏离——诊断期间修复 MC KL 的 float32 精度伪影——及理由见该记录
+「与预注册计划的偏离」。本文件保留预登记方案原文。
 
 任务边界、验收标准与冻结契约的权威来源是
 [Issue #114](https://github.com/xcz0/Eco-AutoDrive/issues/114)（Parent #80；Task 1
