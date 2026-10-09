@@ -1,0 +1,25 @@
+docs/research/issue114-task4-candidate-revalidation-plan.md
+  s_c084ceb1bf0398::t_b11c4f562a8aa1 1-205
+tests/training/test_training_workflows.py
+  s_c084ceb1bf0398::t_f3c6ef631ee463 380-382
+  s_c084ceb1bf0398::t_284ea96642b053 376-379,384-417
+  s_c084ceb1bf0398::t_821a00ada45355 383
+configs/experiments/comparison/calibrated-canonical-candidate-revalidation.yaml
+  s_c084ceb1bf0398::t_32a1fe8095e478 1-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "73b9db4070f30dde1a3b8a435290cdc0fda6ff19",
+  "prompts": {},
+  "sessions": {
+    "s_c084ceb1bf0398": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee1afecaeffetU6xU61Nw6X1Q1",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
