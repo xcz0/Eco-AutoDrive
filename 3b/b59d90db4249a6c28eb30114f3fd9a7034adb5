@@ -1,0 +1,23 @@
+configs/experiments/comparison/calibrated-canonical-final-comparison.yaml
+  s_5639068ed463c8::t_8ffdc6e13c88fc 1-92
+tests/training/test_training_workflows.py
+  s_5639068ed463c8::t_29ceda72a05da3 12-15,449-457
+  s_5639068ed463c8::t_cb6c963bbd262b 465
+  s_5639068ed463c8::t_fbec392bdd55ea 458-464,466-487
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "3bb59d90db4249a6c28eb30114f3fd9a7034adb5",
+  "prompts": {},
+  "sessions": {
+    "s_5639068ed463c8": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee00e43acffeMyfrE3BIcdjfAC",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
