@@ -104,6 +104,59 @@ def job(energy=2.0):
     )
 
 
+def test_paired_robustness_splits_families_and_counts_leave_one_out_sign_changes():
+    from eco_planner.analysis.evaluation import _PAIRED_METRICS, paired_robustness
+
+    def row(name, family, intensity, *, available=True):
+        deltas = {metric + "_delta": None for metric in _PAIRED_METRICS}
+        deltas["energy_ml_per_km_delta"] = intensity
+        return {
+            "key": [name, family, 0, 760025, "no_traffic", 0.0],
+            "available": available,
+            **deltas,
+        }
+
+    assert paired_robustness(None) is None
+
+    pairs = {
+        "pairs": [
+            row("s0", "S", -1.0),
+            row("s1", "S", -3.0),
+            row("sc0", "SC", -0.5),
+            row("sc1", "SC", 2.0, available=False),
+        ]
+    }
+    robustness = paired_robustness(pairs)
+    families = robustness["families"]["energy_ml_per_km"]
+    assert families["S"] == {"mean": -2.0, "count": 2}
+    assert families["SC"] == {"mean": -0.5, "count": 1}
+    assert robustness["families"]["mean_speed_mps"]["S"] is None
+    leave_one_out = robustness["leave_one_out"]["energy_ml_per_km"]
+    assert leave_one_out["sample_count"] == 3
+    assert leave_one_out["full_mean"] == pytest.approx(-1.5)
+    assert leave_one_out["loo_mean_min"] == pytest.approx(-2.0)
+    assert leave_one_out["loo_mean_max"] == pytest.approx(-0.75)
+    assert leave_one_out["sign_change_count"] == 0
+    assert robustness["leave_one_out"]["mean_speed_mps"] is None
+
+    outlier = {
+        "pairs": [
+            row("s0", "S", 1.0),
+            row("s1", "S", 1.0),
+            row("sc0", "SC", 1.0),
+            row("sc1", "SC", -9.0),
+        ]
+    }
+    outlier_robustness = paired_robustness(outlier)
+    assert outlier_robustness["families"]["energy_ml_per_km"]["S"] == {"mean": 1.0, "count": 2}
+    assert outlier_robustness["families"]["energy_ml_per_km"]["SC"] == {"mean": -4.0, "count": 2}
+    outlier_loo = outlier_robustness["leave_one_out"]["energy_ml_per_km"]
+    assert outlier_loo["full_mean"] == pytest.approx(-1.5)
+    assert outlier_loo["loo_mean_min"] == pytest.approx(-7 / 3)
+    assert outlier_loo["loo_mean_max"] == pytest.approx(1.0)
+    assert outlier_loo["sign_change_count"] == 1
+
+
 def test_energy_matched_comparison_and_protocol_mismatch(tmp_path):
     from eco_planner.analysis.evaluation import paired
 

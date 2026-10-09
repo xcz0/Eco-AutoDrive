@@ -142,6 +142,49 @@ def paired_metric_effects(
     }
 
 
+def paired_robustness(pairs: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Scenario-family split and leave-one-scenario-out sign stability of paired deltas.
+
+    Plain statistics without resampling: per map family (pair key index 1) and,
+    for each metric, the mean with each single scenario excluded, so that
+    single-family or single-scenario dominance stays visible.
+    """
+
+    if pairs is None:
+        return None
+    rows = [row for row in pairs["pairs"] if row["available"]]
+    families = sorted({row["key"][1] for row in rows})
+    result: dict[str, Any] = {"families": {}, "leave_one_out": {}}
+    for metric in _PAIRED_METRICS:
+        field = metric + "_delta"
+        family_effects: dict[str, Any] = {}
+        for family in families:
+            values = [
+                row[field] for row in rows if row["key"][1] == family and row[field] is not None
+            ]
+            family_effects[family] = (
+                {"mean": float(np.mean(values)), "count": len(values)} if values else None
+            )
+        result["families"][metric] = family_effects
+        deltas = [row[field] for row in rows if row[field] is not None]
+        if len(deltas) < 2:
+            result["leave_one_out"][metric] = None
+            continue
+        total = float(np.sum(deltas))
+        full_mean = total / len(deltas)
+        loo_means = [(total - value) / (len(deltas) - 1) for value in deltas]
+        result["leave_one_out"][metric] = {
+            "sample_count": len(deltas),
+            "full_mean": full_mean,
+            "loo_mean_min": float(np.min(loo_means)),
+            "loo_mean_max": float(np.max(loo_means)),
+            "sign_change_count": int(
+                sum(np.sign(mean) != np.sign(full_mean) for mean in loo_means)
+            ),
+        }
+    return result
+
+
 def energy_sweep(source: Path) -> dict[str, Any]:
     matrix = read_json(source / "matrix_summary.json")
     groups: dict[str, dict[str, tuple[dict, JobSummary | None]]] = {}
@@ -326,6 +369,7 @@ def scalar_reward(comparison: PolicyComparison) -> dict[str, Any]:
                 if pairs is None:
                     effect["unavailable_reason"] = "missing evaluation for this arm/seed/checkpoint"
                 effect["metrics"] = paired_metric_effects(pairs, comparison.bootstrap)
+                effect["robustness"] = paired_robustness(pairs)
                 effects.append({"training_seed": seed, **effect, "comparison": pairs})
             entry: dict[str, Any] = {"effects": effects}
             if label == "final":
