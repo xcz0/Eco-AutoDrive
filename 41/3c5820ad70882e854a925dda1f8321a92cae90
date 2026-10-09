@@ -1,0 +1,23 @@
+docs/experiments/README.md
+  s_c084ceb1bf0398::t_cef74c4a702024 105
+docs/experiments/records/e-058-issue114-task4-candidate-revalidation.md
+  s_c084ceb1bf0398::t_19b2c8790d9404 1-240
+docs/research/issue114-task4-candidate-revalidation-plan.md
+  s_c084ceb1bf0398::t_fc752f960d2fca 3-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "413c5820ad70882e854a925dda1f8321a92cae90",
+  "prompts": {},
+  "sessions": {
+    "s_c084ceb1bf0398": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee1afecaeffetU6xU61Nw6X1Q1",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
