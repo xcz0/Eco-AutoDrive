@@ -1,0 +1,36 @@
+docs/agents/contracts/experiments.md
+  s_be5180c63e4391::t_c73c2a3c2d4fbe 138
+  s_be5180c63e4391::t_7638eba8ebb47f 23
+configs/experiments/comparison/calibrated-canonical-lam1-confirmation.yaml
+  s_be5180c63e4391::t_85ffbf12e2b60b 1-83
+docs/research/issue83-task-1-reentry-lam1-confirmation-plan.md
+  s_be5180c63e4391::t_bbf13dd17d6f02 3
+  s_be5180c63e4391::t_4a8851c8f5ac87 1-2,4-151
+tests/analysis/test_reports.py
+  s_be5180c63e4391::t_049413c6fed64f 143-148
+  s_be5180c63e4391::t_73b9d13ad3e43e 155
+  s_be5180c63e4391::t_def87d81358e50 107-142,149-154,156-159
+tests/training/test_training_workflows.py
+  s_be5180c63e4391::t_3036d139c4705d 409-445
+src/eco_planner/analysis/evaluation.py
+  s_be5180c63e4391::t_23215f8b5bbb6d 162,164
+  s_be5180c63e4391::t_8a8264f3001a40 163
+  s_be5180c63e4391::t_919cec972e9b3f 145-161,165-187
+  s_be5180c63e4391::t_eef1ef8579e36f 372
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "7548706e2b5706f441028dedc5512bf75f4635c2",
+  "prompts": {},
+  "sessions": {
+    "s_be5180c63e4391": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee0b34c42ffeYUu00ByqZn1yoj",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
