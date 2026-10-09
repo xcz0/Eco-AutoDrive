@@ -1,7 +1,8 @@
 # Issue #83 Task 1 Re-entry — λ=1 candidate multi-seed confirmation 执行计划
 
-状态：**预注册**（2026-10-09，E-059 analyze 运行前锁定；执行后本行指向
-`docs/experiments/records/e-059-issue83-task-1-reentry-lam1-multiseed-confirmation.md`）。本文件为
+状态：**已执行**（2026-10-09；执行记录与 Gate M 裁定见
+`docs/experiments/records/e-059-issue83-task-1-reentry-lam1-multiseed-confirmation.md`，
+**Gate M PASSED**）。本文件为
 re-entry 预注册方案原文；原 Task 1 计划
 （`issue83-task-1-candidate-multiseed-confirmation-plan.md`）以 E-056 执行后 Gate M FAILED
 （λ=4/8 Beta boundary collapse），按 Issue 预设以 "candidate long-run instability /
