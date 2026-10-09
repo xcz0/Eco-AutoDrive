@@ -1,0 +1,23 @@
+docs/experiments/README.md
+  s_5639068ed463c8::t_74fa25af02e579 107
+docs/experiments/records/e-060-issue83-task-3-final-a0-a1-a2-matched-comparison.md
+  s_5639068ed463c8::t_40502fe0fcc5e1 1-307
+docs/research/issue83-task-2-final-evaluation-margins-plan.md
+  s_5639068ed463c8::t_eca313e8489d0a 3-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "98f2a1d05ae8c8b3b5995b6ee75d1bbe5c4b8cdb",
+  "prompts": {},
+  "sessions": {
+    "s_5639068ed463c8": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee00e43acffeMyfrE3BIcdjfAC",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
