@@ -1,0 +1,23 @@
+docs/experiments/records/e-059-issue83-task-1-reentry-lam1-multiseed-confirmation.md
+  s_be5180c63e4391::t_d9b024d2648e5f 1-215
+docs/research/issue83-task-1-reentry-lam1-confirmation-plan.md
+  s_be5180c63e4391::t_b01d79bee758c0 3-5
+docs/experiments/README.md
+  s_be5180c63e4391::t_1faf4a2ae1b835 106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "82cbf48d51148b633a4e4e3936f9144b85d5487f",
+  "prompts": {},
+  "sessions": {
+    "s_be5180c63e4391": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee0b34c42ffeYUu00ByqZn1yoj",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
