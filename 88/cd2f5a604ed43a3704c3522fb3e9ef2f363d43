@@ -1,0 +1,19 @@
+docs/experiments/records/e-060-issue83-task-3-final-a0-a1-a2-matched-comparison.md
+  s_5639068ed463c8::t_5fd6a6b01a8b7c 282
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "88cd2f5a604ed43a3704c3522fb3e9ef2f363d43",
+  "prompts": {},
+  "sessions": {
+    "s_5639068ed463c8": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee00e43acffeMyfrE3BIcdjfAC",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
