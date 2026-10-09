@@ -1,6 +1,8 @@
 # Issue #83 Task 2 — final A0/A1/A2 matched evaluation margins 预注册
 
-状态：**预注册（已冻结）**。本文件判据在 Task 3（final A0/A1/A2 matched evaluation）的任何
+状态：**已执行**（2026-10-09，执行记录与 Gate F 裁定见
+`docs/experiments/records/e-060-issue83-task-3-final-a0-a1-a2-matched-comparison.md`，
+**Gate F PASSED**）。本文件判据在 Task 3（final A0/A1/A2 matched evaluation）的任何
 正式评测或分析运行前锁定，此后保留原文不改；执行偏离只写入对应 E-xxx 实验记录的
 「与预注册计划的偏离」。Gate F 在 Task 3 实验记录内逐条裁定（沿 E-055 Gate D / E-056
 Gate M / E-058 D7 先例，不新增 gate runner）。
