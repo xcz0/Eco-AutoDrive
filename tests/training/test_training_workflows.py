@@ -9,7 +9,10 @@ from eco_planner._repository import CONFIG_ROOT
 from eco_planner.analysis.runner import analyze
 from eco_planner.artifacts import write_json
 from eco_planner.evaluation.artifacts.models import PolicyCheckpointProvenance
-from eco_planner.experiments.protocol.composition import compose_arm_training_config
+from eco_planner.experiments.protocol.composition import (
+    compose_a0_evaluation_config,
+    compose_arm_training_config,
+)
 from eco_planner.experiments.protocol.config import DEFAULT_PROTOCOL, load_protocol
 from eco_planner.experiments.training import grid, runner
 from eco_planner.experiments.training.config import load_training_grid
@@ -441,6 +444,45 @@ def test_lam1_confirmation_protocol_pins_frozen_control_and_candidate() -> None:
         assert config.reward.name == protocol.arms[arm].reward_profile
         assert config.ppo == parsed["r0"].ppo, arm
         assert config.scenarios == parsed["r0"].scenarios, arm
+        assert config.ppo.value_coefficient == pytest.approx(0.1)
+        assert config.ppo.gamma == pytest.approx(0.9509900499000001)
+        assert config.ppo.gae_lambda == pytest.approx(0.7737809375)
+        assert config.ppo.gradient_diagnostics is True
+        assert config.training.update_count == 100
+        assert config.ppo.scheduler_total_optimizer_steps == 100
+        assert config.cadence.simulator_step_s == 0.1
+        assert config.cadence.closed_loop_execution_steps == 5
+        assert config.cadence.decision_interval_s == 0.5
+
+
+def test_final_comparison_protocol_pins_frozen_baseline_and_matched_arms() -> None:
+    """Issue #83 Task 3 final A0/A1/A2 matched evaluation pins the E-059 blocks (E-060)."""
+
+    protocol = load_protocol(
+        CONFIG_ROOT / "experiments" / "comparison" / "calibrated-canonical-final-comparison.yaml"
+    )
+    confirmation = load_protocol(
+        CONFIG_ROOT / "experiments" / "comparison" / "calibrated-canonical-lam1-confirmation.yaml"
+    )
+    assert protocol.training == confirmation.training
+    assert protocol.evaluation == confirmation.evaluation
+    assert protocol.bootstrap == confirmation.bootstrap
+    assert protocol.training.seeds == [0, 1, 2]
+    assert protocol.frozen_arm == "a0"
+    assert protocol.arms["a0"].reward_profile is None
+    assert protocol.arms["a1"].reward_profile == "plannerrft_no_energy_calibrated_v1"
+    assert protocol.arms["a2"].reward_profile == "plannerrft_energy_band_lam1_v1"
+    assert [(pair[0], pair[1]) for pair in protocol.contrasts] == [("a0", "a1"), ("a1", "a2")]
+
+    _, a0 = compose_a0_evaluation_config(protocol)
+    assert a0.runtime.seed == 760_025
+    assert a0.policy_checkpoint is None
+
+    parsed = {arm: compose_arm_training_config(protocol, arm, 0)[1] for arm in ("a1", "a2")}
+    for arm, config in parsed.items():
+        assert config.reward.name == protocol.arms[arm].reward_profile
+        assert config.ppo == parsed["a1"].ppo, arm
+        assert config.scenarios == parsed["a1"].scenarios, arm
         assert config.ppo.value_coefficient == pytest.approx(0.1)
         assert config.ppo.gamma == pytest.approx(0.9509900499000001)
         assert config.ppo.gae_lambda == pytest.approx(0.7737809375)
