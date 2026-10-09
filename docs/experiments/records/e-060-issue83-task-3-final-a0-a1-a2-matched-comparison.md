@@ -279,7 +279,7 @@ stopped/safety trade-off 均在 margin 内。
 
 | 项 | 值 |
 | --- | --- |
-| Git commit / branch / clean | A0 rerun 与 analyze pin `3bb59d9`（`3bb59d90db4249a6c28eb30114f3fd9a7034adb5`），branch `issue83-engery-select`，`git_status_short=[]`（runtime_metadata 双产物核验）；E-060 记录 commit 见产物表 |
+| Git commit / branch / clean | A0 rerun 与 analyze pin `3bb59d9`（`3bb59d90db4249a6c28eb30114f3fd9a7034adb5`），branch `issue83-engery-select`，`git_status_short=[]`（runtime_metadata 双产物核验）；本记录的提交 hash 于实验索引与 Issue #83 Task 3 完成评论登记（记录不自引用） |
 | 环境 / 设备 / 依赖 | Windows-10 (10.0.26200)；Python 3.10.20；torch 2.12.1+cu126；lightning 2.6.6；metadrive 0.4.3（third_party editable）；pydantic 2.13.5；cuda:0 RTX A4000、bf16-mixed、serial、12 torch threads |
 | resolved config / overrides | A0：`heldout/a0-frozen-planner/resolved_config.yaml`（`jobs/evaluation/no_traffic_heldout`，guidance=none，无 policy checkpoint）；A1/A2 训练：E-057/E-058 各 run `resolved_config.yaml`（protocol training overrides：`components/resources=rtx_a4000`、target_kl=0.006、batch=128、transitions=8、update_count=100、lr=1.5e-4、epochs=1、mgn=0.5、scheduler steps=100、value_coefficient=0.1、gamma=0.9509900499000001、gae_lambda=0.7737809375、gradient_diagnostics=true）；评测：E-057/E-058 held-out `resolved_config.yaml`（`no_traffic_heldout_policy`，action_mode=mean，policy_action_seed=null） |
 | planner/policy checkpoint identity | frozen planner `checkpoints/DP-Origin/model.pth`（hash `6a014ec56d24…`，训练前后不变）；initial policy per seed `56bb97ab0551` / `f91a826f38a2` / `0febc900778c`（跨臂一致）；final policy：A1 `94c6dfd93a79` / `c239cc354925` / `4b5486d86ee1`，A2 `55eb67f1d6a1` / `24d37e198cc0` / `b5750d4d95f3`；中间 checkpoint（update-024/049）hash 见 manifest（与 E-058/E-059 逐字一致） |
