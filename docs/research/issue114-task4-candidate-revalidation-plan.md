@@ -1,7 +1,11 @@
 # Issue #114 Task 4 — candidate provenance revalidation 执行计划
 
-状态：**预注册**（2026-10-09 运行前冻结；判定标准不依结果调整；执行后状态与偏离见
-`docs/experiments/records/e-058-issue114-task4-candidate-revalidation.md`）。
+状态：**已执行**（2026-10-09，结果见
+`docs/experiments/records/e-058-issue114-task4-candidate-revalidation.md`：λ=1 唯一提名
+（否决 gates + 提名要求全过），λ=2 因任务结构不一致落选，λ=4/λ=8 继承 E-057 否决；
+Gate S3 PASSED，#83 解除 block。实际执行与本计划的唯一偏离——manifest 初版两处转写
+笔误（diagnose.yaml r0 路径前缀、comparison.yaml 一处 pin hash 字符），均在硬校验
+loud-fail 后修正——见该记录「与预注册计划的偏离」。本文件保留预登记方案原文。）
 
 任务边界、验收标准与冻结契约的权威来源是
 [Issue #114](https://github.com/xcz0/Eco-AutoDrive/issues/114) Task 4（Parent #80）。
