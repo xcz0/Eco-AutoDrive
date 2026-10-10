@@ -3,30 +3,21 @@
 **Status:** Accepted and implemented
 **Date:** 2026-09-03
 
-The current kinematic MetaDrive execution needs a cheap per-transition energy signal for reward and
-artifact continuity, while FASTSim is a stateful backward-looking vehicle model whose result depends
-on the complete time/speed cycle. Resetting FASTSim for every 0.1 s transition would repeatedly reset
-the powertrain state and would not represent one continuous drive.
+运动学执行需要便宜的在线能耗信号，而 FASTSim 是依赖完整速度／时间序列和连续动力系统
+状态的后向车辆模型。若逐 0.1 s 重置它，会把一个连续行程变成反复初始化的片段。
 
-Environment-domain energy providers therefore share an objective-neutral
-`EnergyTrace -> EnergyMetrics` boundary in `envs.domain.metrics` while retaining distinct metric
-names and native units. The provider protocol is defined with those value contracts; the online
-proxy lives in `envs.domain.energy` and the offline adapter in `envs.domain.fastsim`. The online
-environment uses
-`metadrive_fuel_proxy`, evaluated from actual executed distance and endpoint speed. Existing reward,
-trace, rollout, and evaluation fields continue to record this metric in mL, with unchanged numerical
-semantics.
+因此选择保留实际执行 distance/speed 驱动的在线 fuel proxy，并把 FASTSim 放在完整 trace
+的离线比较边界。两者共享 objective-neutral 输入／结果抽象，但保留不同 metric 名称与单位，
+不假设 proxy mL 与 fuel energy J/Wh 是同一个研究量。
 
-`fastsim_fuel_energy` is an offline full-trace provider. Its first supported vehicle is FASTSim's
-bundled conventional `2012_Ford_Fusion.yaml`; grade, ambient temperature, and initial elevation are
-explicit provider configuration. The adapter uses the locked FASTSim 3.0.6 `Cycle`, `Vehicle`, and
-`SimDrive.walk()` interfaces and reports cumulative fuel energy in J/Wh. It does not invent a fuel
-volume conversion and does not enter online reward or the default evaluation artifact schema.
+首个 FASTSim adapter 选择 bundled conventional Ford Fusion，环境条件显式配置；
+具体库 API 和版本由代码／lock 拥有，不在 ADR 维护调用镜像。
+完整 trace 还能解释静止时的 idle/auxiliary energy，而零距离强度仍不可定义。
 
-Zero distance leaves per-distance intensity undefined for either provider. FASTSim may still report
-positive idle or auxiliary energy for a stationary trace. Provider failures, unsupported vehicle
-types, trace misses, and distance disagreement are surfaced directly; no provider fallback is used.
+选择让缺失轨迹、距离不一致和 provider 失败可见，而不 fallback，是为保护比较含义。
+将 FASTSim 接入在线 reward 或默认 evaluation artifact 需要新的研究决定；
+本篇没有作出这一扩展。
 
-The two metrics may be evaluated on the same executed trace for comparison, but their totals must not
-be combined or presented as the same physical quantity. A future decision is required before FASTSim
-can become an online training signal or a persisted evaluation metric.
+规范归属：[Semantics](../research/semantics.md)、[Planning/evaluation protocol](../research/protocols/planning-and-evaluation.md)、[Execution contract](../contracts/execution.md)、[Artifacts contract](../contracts/artifacts.md)。
+
+> 本篇保存设计理由与历史决定；现行要求由上述 Protocol/Contract 拥有，读取路由见 [AGENTS](../../AGENTS.md)。

@@ -16,19 +16,11 @@ boundary-seeking regime，精确/近边界 draw 使 `old_joint_guidance_log_prob
 
 ## 决定
 
-concentration 参数化为：
-
-```text
-concentrations = 1.0 + interior_epsilon + softplus(raw)
-```
-
-- `interior_epsilon` 是 Hydra 必需字段（`configs/components/policy.yaml`），冻结为 `1e-4`；该值在实现前
-  冻结，不根据训练结果事后调整。
-- α, β 恒大于 `1 + interior_epsilon`（softplus 严格为正）；Beta density 在 0/1 边界为零，可达分布族
-  不再包含 boundary-seeking singular mode。
-- 对称初始化保持 α=β=initial_concentration、初始 guidance 均值为零：actor head bias 初始化为
-  `inverse_softplus(initial_concentration - 1.0 - interior_epsilon)`。
-- 配置契约：`initial_concentration > 1.0 + interior_epsilon`（严格大于）。
+选择 interior concentration 参数化，将可达 Beta 分布族限制为无 singular boundary mode 的范围，
+同时保留对称初始化和中性初始 guidance mean。`interior_epsilon` 在实现前冻结，不根据训练结果
+事后调整。公式与初始化方法由 [Training protocol](../research/protocols/training.md#优化对象与动作方法)
+拥有；必需配置和概率记账保证由 [Training contract](../contracts/training.md) 拥有，数值由
+[policy config](../../configs/components/policy.yaml) 拥有。
 
 拒绝的替代方案，不得作为主修复：rollout 直接 `validate_args=False`、把 guidance action 粗暴 clamp 到
 `[-0.999, 0.999]` 后继续训练、捕获非有限 log-prob 并跳过 transition、仅降低 λ。probe 允许读取 boundary
@@ -45,3 +37,8 @@ sample 以测量失败；training probability semantics 保持严格——边界
 - ε 只消除 singular boundary mode，不约束 boundary mass 或 mean saturation；行为饱和由 Gate S1/S2 的
   boundary mass ceiling 与诊断区分（Issue #114 Task 3）。mean + concentration 参数化（Task 2 第二阶段）
   仅在第一阶段消除数值坍缩后仍出现长期 mean saturation 时另行评估，不与本决定同时引入。
+
+规范归属：[Training protocol](../research/protocols/training.md)、[Training contract](../contracts/training.md)。
+后续候选证据见 [Findings](../research/findings.md#interior-policy-能否同时解决数值崩溃与行为饱和)。
+
+> 本篇保存设计理由与历史决定；现行要求由上述 Protocol/Contract 拥有，读取路由见 [AGENTS](../../AGENTS.md)。

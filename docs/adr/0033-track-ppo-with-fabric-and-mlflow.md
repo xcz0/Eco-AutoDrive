@@ -2,29 +2,25 @@
 
 ## Context
 
-The custom PPO loop already exposes typed update summaries and persists research artifacts.
-Experiment comparison needs a searchable run index and live curves without coupling reward,
-rollout, or TorchRL optimization to a tracking backend.
+PPO 已有 typed update summaries 与研究 artifacts；需要可检索的 run 索引和曲线，
+又不希望 reward、rollout 或 TorchRL 数学依赖 tracking backend。
 
 ## Decision
 
-Use Lightning Fabric `log_dict` with Lightning's `MLFlowLogger`. A training-level adapter owns
-metric names, parameters, run lifecycle and artifact uploads. Keep `update_observer` for existing
-study monitors. Use TorchMetrics for detached, update-scoped generic reductions; TorchRL and
-domain computations retain their existing ownership.
+选择 Fabric 与 Lightning 的 MLFlowLogger，由训练层 adapter 管理 run 和发布已有统计；
+通用 detached reduction 复用 TorchMetrics，领域统计不移交给 tracking。
+采用本地 SQLite 作为当时默认，避免另建 logger framework、Trainer、autologging 或 registry。
 
-Enable local SQLite tracking by default. MLflow is an index and visualization layer; resolved
-configs, strict summaries, rollout NPZ and checkpoints remain the research artifacts. Do not use
-Lightning Trainer, MLflow autologging, model registry, or a custom logger backend framework.
-
-A new training job creates a run. Resume continues the checkpoint's run and absolute update
-indices, with fixed scientific parameters. Invocation artifacts preserve changes to execution
-controls. Old checkpoints without tracking identity start a run and backfill their stored update
-summaries; historical parameters must come from the original resolved configuration.
+MLflow 只作索引与可视化，configs、summaries、rollout 和 checkpoints 仍是独立研究证据。
+恢复时延续 run 与绝对 update index，目的是把同一训练历史连续呈现；
+允许记录 invocation 差异不等于承诺跨配置精确续训。
 
 ## Consequences
 
-Training checkpoints gain optional tracking identity in loop state, while policy export and
-summary schemas remain unchanged. Explicitly disabled tracking preserves an inherited identity.
-Logging errors propagate; they do not silently turn tracking off. The current metric denominators,
-recovery rules and configuration live in the system contract rather than this ADR.
+Tracking identity 与 policy export 分离，缺失历史参数不能用恢复时配置补造，
+logging failure 也不应静默关闭追踪。这些取舍保护了历史身份与失败可见性。
+详细 run 续写／回填规则由 artifacts contract 拥有，精确恢复范围由 training contract 拥有。
+
+规范归属：[Artifacts contract](../contracts/artifacts.md)、[Training contract](../contracts/training.md)。
+
+> 本篇保存设计理由与历史决定；现行要求由上述 Protocol/Contract 拥有，读取路由见 [AGENTS](../../AGENTS.md)。

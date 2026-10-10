@@ -1,40 +1,25 @@
 # Group research domains and expose explicit CLI operations
 
-> 关于机制归属、旧 CLI、强制参考链和历史工作流保留的决定已由 [ADR 0038](0038-consolidate-scientific-workflows.md) 取代；其他数值、配对与证据约束继续有效。
-
-
 **Status:** Accepted and implemented
 **Date:** 2026-09-10
 
-Experiment packages mixed research protocols with reward correctness checks and execution
-benchmark reports. Flat CLI names also exposed historical stage names as actions. Group research
-code and configuration by reward, guidance and training, while retaining separate diagnostic
-configurations, computations and orchestration.
+> [ADR 0038](0038-consolidate-scientific-workflows.md) 已取代通用机制留在 experiments、
+> 旧 CLI、强制参考链和历史工作流保留的部分；数值、配对与证据边界保留。
 
-Reward owns the existing shared fixed-batch infrastructure because its current consumers are
-reward studies. Reward correctness belongs to RL reward validation, with artifact publication
-in a repository application module. Execution comparisons belong to benchmarking. Do not add a
-diagnostic engine, plugin framework or cross-layer study registry.
+实验包曾混合研究 protocol、reward 正确性检查与 benchmark，flat CLI 还暴露历史 stage 名称。
+因此当时按 reward/guidance/training 研究域分组，以显式 operation 避免一次调用隐式跑完整 study，
+同时让只读 analysis 不依赖执行。
 
-Use `just experiment <domain> <study> <action>`. Scalar and stability execution require an explicit
-`--operation`; they do not automatically run a full study. The CLI owns a static command table,
-argument validation, bootstrap and lazy dispatch. Analysis consumes resolved inputs and saved
-evidence without importing experiment modules. Scalar protocol validation remains in its study;
-guidance decisions are saved by its study and only read during offline presentation. Stability
-analysis regenerates search summaries from read-only study state into a separate output directory.
+这取代了 [ADR 0035](0035-separate-fixed-batch-collection-and-experiment-workflows.md)
+的模块位置与 flat CLI，但保留独立诊断、共享数值机制、配对与延迟导入的理由。
+[ADR 0037](0037-simplify-experiments-and-report-seed-effects.md) 随后取代强制小模块布局
+及 reward-validation ownership；ADR 0038 又收口机制与旧工作流。
 
-This supersedes ADR 0035's module locations and flat CLI choices. Its independent diagnostics,
-shared numerical primitives, explicit references and lazy imports remain in force, as do ADR
-0034's execution, analysis and presentation boundaries. Existing algorithms, budgets, seeds,
-promotion rules and numerical tolerances are preserved.
+当时保留算法、预算、seed 和 promotion 规则，是该次组织变更的范围限定，
+不是要求复活随后删除的 stage/promotion/stability 框架。依赖版本与当前命令归配置和入口，
+历史记录不因内部命名变化而改写。
 
-There are no old import or command aliases and no artifact migration. Internal stage keys,
-artifact identifiers and filenames remain unchanged except for the explicit guidance decision
-artifact. Historical experiment records retain their original commands and paths. SciPy is now
-a direct dependency at the existing locked resolution.
+规范归属：[Execution contract](../contracts/execution.md)、[Artifacts contract](../contracts/artifacts.md)、[Diagnostic protocol](../research/protocols/diagnostic-studies.md)。
 
-Current commands are maintained in the README; artifact and numerical contracts are maintained
-in [experiment analysis contract](../agents/contracts/experiments.md#实验离线分析与报告). Verification covers command
-routing and bootstrap, numerical and artifact regression, dependency boundaries and the
-simulator intervention-to-report path; it is not new research evidence.
+> 本篇保存设计理由与历史决定；现行要求由上述 Protocol/Contract 拥有，读取路由见 [AGENTS](../../AGENTS.md)。
 

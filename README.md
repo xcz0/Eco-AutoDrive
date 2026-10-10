@@ -27,6 +27,19 @@ just check
 
 测试以回归、集成和功能验证为主，目录职责与运行入口见 [tests/README.md](tests/README.md)。
 
+## 开发与验证
+
+已准备好的智能体环境直接使用 `.venv` 和 `justfile`，不把 `just setup` 或环境探测作为常规步骤。
+按改动风险选择必要验证，入口包括 `just test-target <path-or-node>`、`just test`、`just test-sim`、`just test-gpu`、`just lint`、`just format` 和 `just typecheck`；
+命令定义以 `justfile` 为准，测试需按沙箱要求申请沙箱外执行。文档修改不运行代码测试。
+
+公共接口提供类型标注，仅为非显然逻辑写简短 docstring；遵循 Ruff 100 字符行宽及 `E/F/I/UP`。
+路径使用 `pathlib.Path`，不硬编码平台绝对路径。依赖变更同时更新 `pyproject.toml` 与 `uv.lock`。
+提交主题简短、使用祈使式，一次提交只完成一个逻辑变更。
+
+GitHub 操作优先使用环境提供的集成。仅在无可用集成而回退到 Windows `gh` CLI 时，认证相关请求按沙箱要求在沙箱外执行；沙箱内 HTTP 401 可能是 credential manager 不可见。
+仅在沙箱外 `gh auth status --hostname github.com` 也失败时才要求重新认证，不输出 token，不使用 `--show-token`。GitHub 写入授权与 Issue 更新边界见 [AGENTS](AGENTS.md)。
+
 ## 常用工作流
 
 快速闭环评测：
@@ -74,7 +87,7 @@ just mlflow ui --backend-store-uri sqlite:///outputs/mlflow/mlflow.db --host 127
 
 打开 `http://127.0.0.1:5000`，选择 `eco-autodrive-ppo` experiment，通过 `config.runtime.seed`、`reward_profile` 及 comparison 入口写入的 `arm` / `protocol` 筛选 Run，并在 Compare 中对比 `ppo/*`、`reward/*`、`behavior/*` 和 `energy/*` 曲线。其他实验可使用 `+tracking.tags.study=...` 添加标识；`tracking.run_name=...` 指定显示名，`tracking.checkpoint_interval=5` 将 update checkpoint 上传间隔改为 5。
 
-`tracking.enabled=false` 显式关闭跟踪。连接远程服务时同时设置 `tracking.tracking_uri=https://... tracking.artifact_location=null`，让服务拥有 artifact 存储。从 `training.resume_checkpoint_path=...` 恢复会继续原 Run，目标 `training.update_count` 仍是累计 update 数；同一 Run 的实验参数必须保持一致。详细恢复及指标口径见[训练跟踪契约](docs/agents/contracts/training.md#训练实验跟踪)。
+`tracking.enabled=false` 显式关闭跟踪。连接远程服务时同时设置 `tracking.tracking_uri=https://... tracking.artifact_location=null`，让服务拥有 artifact 存储。从 `training.resume_checkpoint_path=...` 恢复会继续原 Run，目标 `training.update_count` 仍是累计 update 数；同一 Run 的实验参数必须保持一致。续写规则见 [tracking 身份与持久化](docs/contracts/artifacts.md#tracking-身份与续写)，精确恢复保证见 [training contract](docs/contracts/training.md#精确续训范围)，指标口径见 [training protocol](docs/research/protocols/training.md)。
 
 可复用性能诊断与固定能耗矩阵：
 
@@ -103,7 +116,7 @@ just validation reward run --output-dir outputs/reward_sanity/manual-run
 | guidance authority / sweep | run、analyze |
 | training | grid、diagnose、eval、analyze |
 
-完整工作流、输入契约和结果解释见[实验工具与离线分析契约](docs/agents/contracts/experiments.md)。常用入口示例：
+研究设计见 [planning/evaluation](docs/research/protocols/planning-and-evaluation.md)、[training](docs/research/protocols/training.md) 与 [diagnostic studies](docs/research/protocols/diagnostic-studies.md)；输入与产物保证见 [artifacts contract](docs/contracts/artifacts.md)。常用入口示例：
 
 ```powershell
 just exp reward collect --output-dir outputs/fixed-batch
@@ -125,7 +138,7 @@ just exp training grid --output-dir outputs/optimizer-grid
 
 机器资源通过版本化 profile 选择，例如 `components/resources=rtx_a4000`；它只改变 worker、slot 和线程预算。CLI 与 study bootstrap 会按需读取仓库根目录的可选 `.env`，并以 `MACHINE_NAME` 自动选择同名的 `configs/components/resources/<机器名>.yaml`。进程中已有的 `MACHINE_NAME` 优先于 `.env`，显式 Hydra `components/resources=...` override 又优先于两者；可用值见该目录，`.env.example` 给出格式。
 
-未配置机器 profile 时，semantic job 仍可 compose 和 validate；真正需要资源预算的训练、评测或 benchmark 执行会明确失败，不会静默采用默认 worker 数。sampler、precision、随机性、时间尺度、并行和 artifact 的精确语义以 [system-contract.md](docs/agents/system-contract.md) 和实际 resolved config 为准。
+未配置机器 profile 时，semantic job 仍可 compose 和 validate；真正需要资源预算的训练、评测或 benchmark 执行会明确失败，不会静默采用默认 worker 数。配置、资源和执行边界见 [execution contract](docs/contracts/execution.md)；采样与时间尺度见 [planning/evaluation protocol](docs/research/protocols/planning-and-evaluation.md)。实际运行参数从该次 resolved config 查询。
 
 ## 结果与实验记录
 
@@ -140,20 +153,22 @@ just exp training analyze --source-dir outputs/optimizer-grid --output-dir outpu
 just exp compare analyze --source-dir outputs/my-protocol --config outputs/my-protocol/comparison.yaml --output-dir outputs/protocol-report
 ```
 
-源目录与离线输出目录必须独立，不能相同或互相嵌套。实验类型、输入文件和比较配置见[离线分析与报告契约](docs/agents/contracts/experiments.md#实验离线分析与报告)。
+源目录与离线输出目录必须独立，不能相同或互相嵌套。输入与只读分析边界见 [artifacts contract](docs/contracts/artifacts.md)；比较设计见 [planning/evaluation protocol](docs/research/protocols/planning-and-evaluation.md#matched-comparison-与随机条件)。
 
 ## 文档导航
 
 | 文件 | 职责 |
 | --- | --- |
-| [AGENTS.md](AGENTS.md) | 编码智能体的事实路由、执行边界、科研实现原则、验证和 Issue 工作流 |
-| [docs/agents/domain.md](docs/agents/domain.md) | 容易导致实现或实验解释错误的领域语义 gotchas |
-| [CONTEXT.md](CONTEXT.md) | 稳定领域术语的规范定义 |
-| [docs/agents/system-contract.md](docs/agents/system-contract.md) | 当前已实现系统的数据与执行契约 |
-| [docs/adr/](docs/adr/) | 已接受的重要设计选择及理由 |
+| [AGENTS.md](AGENTS.md) | 按知识类型读取、冲突处理、执行边界、长期原则与写回规则 |
+| [Semantics](docs/research/semantics.md) | 概念与解释边界 |
+| [Planning/evaluation](docs/research/protocols/planning-and-evaluation.md)、[Training](docs/research/protocols/training.md)、[Diagnostic studies](docs/research/protocols/diagnostic-studies.md) | 研究方法与比较设计 |
+| [Data/model](docs/contracts/data-and-model.md)、[Execution](docs/contracts/execution.md)、[Training](docs/contracts/training.md)、[Artifacts](docs/contracts/artifacts.md) | 实现研究方法必须保证的软件语义 |
+| [docs/adr/](docs/adr/) | 长期设计理由与历史决定，现行要求引用 Protocol/Contract |
 | [GitHub Issues](https://github.com/xcz0/Eco-AutoDrive/issues) | 已接受、可执行且需跨会话跟踪的工作及其验收标准；不是当前实现事实 |
-| [docs/research/README.md](docs/research/README.md) | 尚未接受或尚未确定的假设、候选方法和开放问题 |
-| [docs/experiments/README.md](docs/experiments/README.md) | 已运行实验的 provenance、结果和结论边界 |
+| [docs/research/README.md](docs/research/README.md) | 研究问题与文档导航，包括 Hypothesis 和非规范性参考资料 |
+| [Findings](docs/research/findings.md) | 当前结论、适用条件与 supporting evidence |
+| [docs/experiments/README.md](docs/experiments/README.md) | 真实运行的登记、provenance、检索与 record 模板 |
+| [.agents/skills/](.agents/skills/) | 智能体重复工作流程 |
 
 ## 主要参考
 
