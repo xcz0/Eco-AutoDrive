@@ -11,7 +11,7 @@ from tensordict import TensorDictBase
 from eco_planner.configuration import ScenarioConfig
 from eco_planner.contracts import evaluation_plan_cycles
 from eco_planner.envs import TrajectoryExecutionRecord
-from eco_planner.runtime.envs import (
+from eco_planner.envs.parallel import (
     VectorEnvScenario,
     VectorMetaDriveEnv,
     WorkerResetResult,

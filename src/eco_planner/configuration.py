@@ -6,7 +6,7 @@ import os
 import re
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, TypeGuard
+from typing import Any, TypeGuard, cast
 
 from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
@@ -77,7 +77,13 @@ def load_resolved_yaml_mapping(path: Path) -> dict[str, Any]:
 def resolve_config_mapping(config: DictConfig) -> dict[str, Any]:
     """Resolve one Hydra mapping while preserving its dynamic boundary values."""
 
-    raw = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+    # Hydra invocation metadata is not part of the scientific job configuration.
+    job = (
+        OmegaConf.masked_copy(config, cast(list[str], [key for key in config if key != "hydra"]))
+        if "hydra" in config
+        else config
+    )
+    raw = OmegaConf.to_container(job, resolve=True, throw_on_missing=True)
     if not _is_string_mapping(raw):
         raise TypeError("configuration must resolve to a string-keyed mapping")
     return raw

@@ -29,17 +29,13 @@ def test_current_operations_parse_and_route(monkeypatch, key):
     assert parsed.key == key
     cli.validate_arguments(cli.build_parser(), parsed)
     calls = []
-    if parsed.action == "analyze":
-        from eco_planner.analysis import runner
+    module = import_module("eco_planner.experiments." + spec.module)
+    function = "analyze" if parsed.action == "analyze" else spec.function
+    monkeypatch.setattr(module, function, lambda *a, **k: calls.append((a, k)) or {})
+    if parsed.action == "analyze" and parsed.domain == "compare":
+        from eco_planner.experiments.comparison import inputs
 
-        monkeypatch.setattr(runner, "analyze", lambda *a, **k: calls.append((a, k)) or {})
-        if parsed.domain == "compare":
-            from eco_planner.experiments.comparison import inputs
-
-            monkeypatch.setattr(inputs, "load_comparison", lambda *_: "validated")
-    else:
-        module = import_module("eco_planner.experiments." + spec.module)
-        monkeypatch.setattr(module, spec.function, lambda *a, **k: calls.append((a, k)) or {})
+        monkeypatch.setattr(inputs, "load_comparison", lambda *_: "validated")
     cli.dispatch(parsed)
     assert len(calls) == 1
 
@@ -75,13 +71,13 @@ def test_collection_bootstrap_sets_cuda_before_environment(monkeypatch):
     [
         (
             "scripts.validation",
-            "eco_planner.reward_validation",
+            "eco_planner.experiments.reward.validation",
             "run_sanity",
             "reward run --output-dir out --no-figures",
         ),
         (
             "scripts.benchmark_execution",
-            "eco_planner.benchmarking.execution",
+            "benchmarks.execution",
             "write_report",
             "report --serial-dir serial --job-level-dir job --vector-dir vector "
             "--serial-wall-s 1 --job-level-wall-s 2 --vector-wall-s 3 "
@@ -107,7 +103,9 @@ def test_non_research_execution_routes(monkeypatch, adapter, module, function, c
     ],
 )
 def test_non_research_analysis_routes(monkeypatch, adapter, command, evidence):
-    from eco_planner.analysis import runner
+    from tests.analysis.routing import MODULES
+
+    runner = import_module(MODULES[evidence])
 
     calls = []
     monkeypatch.setattr(runner, "analyze", lambda *a, **kw: calls.append((a, kw)) or {})
@@ -124,7 +122,7 @@ def test_non_research_analysis_routes(monkeypatch, adapter, command, evidence):
             ]
         )
     )
-    assert calls[0][0][0] == evidence
+    assert str(calls[0][0][0]) == "in"
     assert calls[0][1]["figures"] is False
 
 

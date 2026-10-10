@@ -10,7 +10,6 @@ from typing import Any, cast
 
 from omegaconf import OmegaConf
 
-from eco_planner.analysis.training import heldout_metric_values
 from eco_planner.artifacts import write_json
 from eco_planner.experiments.protocol.composition import (
     CheckpointLabel,
@@ -20,11 +19,10 @@ from eco_planner.experiments.protocol.composition import (
 from eco_planner.experiments.protocol.config import load_protocol
 from eco_planner.experiments.training.config import TrainingGridConfig, load_training_grid
 from eco_planner.experiments.training.decisions import evaluate_heldout_change, evaluate_update_gate
+from eco_planner.experiments.training.measurements import extract_arm_metrics
+from eco_planner.experiments.training.statistics import heldout_metric_values
 from eco_planner.jobs import run_evaluation_job, run_training_job
-from eco_planner.rl.optimization.update_diagnostics import (
-    extract_arm_metrics,
-    post_update_kl_series,
-)
+from eco_planner.rl.optimization.update_diagnostics import post_update_kl_series
 
 
 def arm_label(learning_rate: float, epochs: int, max_gradient_norm: float) -> str:
@@ -187,9 +185,9 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
         "arms": arms,
     }
     write_json(output_dir / "summary.json", summary)
-    from eco_planner.analysis import publish
+    from eco_planner.experiments.training.analysis import publish
 
-    publish("training", output_dir, output_dir, figures=figures)
+    publish(output_dir, output_dir, figures=figures)
     return {
         "status": "completed",
         "update_gate_passed": summary["update_gate_passed"],

@@ -17,20 +17,21 @@ from typing import Any, cast
 import torch
 from omegaconf import OmegaConf
 
-from eco_planner.analysis.training import heldout_metric_values
 from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.experiments.protocol.composition import (
     CheckpointLabel,
     compose_policy_evaluation_config,
 )
+from eco_planner.experiments.training.statistics import heldout_metric_values
 from eco_planner.jobs import run_evaluation_job
 from eco_planner.rl import parse_training_config, read_rollout_episode
 from eco_planner.rl.optimization.ppo import build_ppo_batch
 from eco_planner.rl.optimization.update_diagnostics import (
     GRADIENT_GROUPS,
-    extract_arm_metrics,
     post_update_kl_series,
 )
+
+from .measurements import extract_arm_metrics
 
 REWARD_COMPONENTS = ("ttc", "progress", "comfort", "speed", "energy")
 

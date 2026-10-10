@@ -9,6 +9,7 @@ from typing import cast
 import torch
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
+from tensordict import TensorDict
 
 from eco_planner.artifacts import write_json
 from eco_planner.planning.policy import (
@@ -121,6 +122,7 @@ def _train(
         execution_steps=config.training.diagnostic_execution_steps,
     ) as rollout_collector:
         for update_index in range(start_update, config.training.update_count):
+            training_storage = TensorDict({}, batch_size=[config.ppo.batch_size])
             update_episodes: list[RolloutEpisode] = []
             slot_episodes = rollout_collector.collect(
                 transitions_per_slot=config.training.transitions_per_environment,
@@ -128,6 +130,7 @@ def _train(
                 policy_generators=policy_generators,
                 noise_seeds=noise_seeds,
                 policy_action_seeds=policy_seeds,
+                training_storage=training_storage,
             )
             for slot, episodes in enumerate(slot_episodes):
                 for episode_index, episode in enumerate(episodes):
@@ -150,8 +153,10 @@ def _train(
                     config.training.diagnostic_seed,
                 )
                 tracking.probe("before", state.probe_before, update_index)
-            report = updater.update(tuple(update_episodes))
+            report = updater.update(training_storage)
             update_summary = build_update_summary(update_index, tuple(update_episodes), report)
+            # Release all update views before allocating the next collection.
+            del training_storage, update_episodes, slot_episodes, episodes, episode
             state.update_summaries.append(update_summary)
             state.completed_updates = update_index + 1
             state.capture_rollout_rng(diffusion_generators, policy_generators)

@@ -6,12 +6,14 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 
-from eco_planner.analysis.horizon import (
+from eco_planner.contracts import PLANNER_HORIZON
+from eco_planner.experiments.guidance.horizon.analysis import (
     PLANNER_RESPONSE_CHECKPOINTS_S,
     HorizonDesign,
 )
-from eco_planner.analysis.horizon import analyze_horizon_episodes as describe_episodes
-from eco_planner.contracts import PLANNER_HORIZON
+from eco_planner.experiments.guidance.horizon.analysis import (
+    analyze_horizon_episodes as describe_episodes,
+)
 
 _REQUIRED_HORIZONS = (1, 2, 5, 10)
 

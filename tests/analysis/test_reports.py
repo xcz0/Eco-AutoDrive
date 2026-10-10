@@ -1,49 +1,27 @@
 """Artifact-to-report regression tests; synthetic fixtures are not research evidence."""
 
 import json
-import re
 import subprocess
 import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
 from omegaconf import OmegaConf
 
-from eco_planner.analysis.io import read_json, write_json
-from eco_planner.analysis.runner import analyze
-from eco_planner.analysis.statistics import (
+from eco_planner.artifacts import write_json
+from eco_planner.evaluation.artifacts.models import (
+    PolicyActionSummary,
+    PolicyCheckpointProvenance,
+)
+from eco_planner.statistics import (
     advantage_comparison,
     cosine,
     paired_difference,
     statistics,
 )
-from eco_planner.evaluation.artifacts.models import (
-    CheckpointSummary,
-    EvaluationWorkload,
-    InferenceRuntimeSummary,
-    JobSummary,
-    PolicyCheckpointProvenance,
-    WorkloadScenario,
-)
-from tests.evaluation.test_artifacts import _episode, _training_summary
-
-
-def assert_report(output: Path, *, figures: bool) -> None:
-    report = (output / "report.md").read_text(encoding="utf-8")
-    assert (output / "analysis.json").is_file()
-    links = re.findall(r"\]\(<?([^)>]+)>?\)", report)
-    for link in links:
-        assert (output / link).exists(), link
-    files = read_json(output / "analysis.json")["figures"]
-    assert bool(files) == figures
-    for relative in files:
-        path = output / relative
-        assert path.stat().st_size > 100
-        if relative.endswith(".svg"):
-            assert "<svg" in path.read_text(encoding="utf-8")
-        else:
-            assert path.read_bytes().startswith(b"\x89PNG")
+from tests.analysis.helpers import assert_report, job
+from tests.analysis.routing import analyze
+from tests.evaluation.helpers import _training_summary
 
 
 def write_batch(path, batch):
@@ -76,36 +54,8 @@ def test_shared_statistics_preserve_rank_ddof_and_undefined_semantics():
         statistics(np.array([1.0]), [0.0, 1.0], ddof=1)
 
 
-def job(energy=2.0):
-    episode = _episode(seed=0, distance_m=100.0, energy_ml=energy)
-    return JobSummary(
-        status="completed",
-        runtime=InferenceRuntimeSummary(
-            requested_accelerator="cpu",
-            resolved_accelerator="cpu",
-            requested_precision="32-true",
-            resolved_precision="32-true",
-            device="cpu",
-            seed=0,
-            world_size=1,
-        ),
-        checkpoint=CheckpointSummary(ema_tensor_count=1, parameter_count=1),
-        sampler=episode.sampler,
-        guidance=episode.guidance,
-        workload=EvaluationWorkload(
-            mode="traffic",
-            profile="fixture",
-            history_warmup_steps=0,
-            evaluated_horizon_steps=10,
-            scenarios=(WorkloadScenario(name="traffic", map="S", seed=0),),
-            video_enabled=False,
-        ),
-        episodes=(episode,),
-    )
-
-
 def test_paired_robustness_splits_families_and_counts_leave_one_out_sign_changes():
-    from eco_planner.analysis.evaluation import _PAIRED_METRICS, paired_robustness
+    from eco_planner.experiments.comparison.analysis import _PAIRED_METRICS, paired_robustness
 
     def row(name, family, intensity, *, available=True):
         deltas = {metric + "_delta": None for metric in _PAIRED_METRICS}
@@ -158,7 +108,7 @@ def test_paired_robustness_splits_families_and_counts_leave_one_out_sign_changes
 
 
 def test_energy_matched_comparison_and_protocol_mismatch(tmp_path):
-    from eco_planner.analysis.evaluation import paired
+    from eco_planner.experiments.comparison.analysis import paired
 
     source = tmp_path / "source"
     records = []
@@ -189,9 +139,9 @@ def test_energy_matched_comparison_and_protocol_mismatch(tmp_path):
 
 
 def test_failed_episode_is_visible_and_never_zero_filled(tmp_path):
-    from eco_planner.analysis.evaluation import paired
-    from eco_planner.analysis.reporting.experiments import experiment_figures
     from eco_planner.evaluation.artifacts.models import FailedEpisodeSummary
+    from eco_planner.experiments.comparison.analysis import paired
+    from eco_planner.experiments.guidance.sweep_report import plot
 
     original = job()
     episode = original.episodes[0].model_dump(mode="json")
@@ -217,14 +167,14 @@ def test_failed_episode_is_visible_and_never_zero_filled(tmp_path):
     assert result["statistics"]["energy_ml"] is None
     assert result["pairs"][0]["energy_ml_delta"] is None
     assert result["pairs"][0]["comparison"]["failure"]["message"] == "fixture failure"
-    assert experiment_figures("energy-sweep", {"comparisons": {"failed": result}}, tmp_path)
+    assert plot({"comparisons": {"failed": result}}, tmp_path)
 
 
 @pytest.fixture
 def training_summary():
-    from tests.training.test_tracking import summary
+    from tests.training.helpers import build_training_update_summary
 
-    update = summary.__wrapped__()
+    update = build_training_update_summary()
     return _training_summary(0, 0).model_copy(update={"updates": (update,)})
 
 
@@ -248,9 +198,10 @@ def test_scalar_explicit_grouping_and_checkpoint_validation(tmp_path, training_s
     write_json(source / "a0/summary.json", job().model_dump(mode="json"))
     policy = job(1.0).model_copy(
         update={
+            "policy_action": PolicyActionSummary(action_mode="mean", policy_action_seeds=()),
             "policy_checkpoint": PolicyCheckpointProvenance(
                 label="final", path="policy.pt", policy_hash=training_summary.final_policy_hash
-            )
+            ),
         }
     )
     write_json(source / "a2/summary.json", policy.model_dump(mode="json"))
@@ -401,9 +352,10 @@ def test_scalar_comparison_pins_intermediate_checkpoint_hash(tmp_path, training_
         job(1.0)
         .model_copy(
             update={
+                "policy_action": PolicyActionSummary(action_mode="mean", policy_action_seeds=()),
                 "policy_checkpoint": PolicyCheckpointProvenance(
                     label="update-025", path="policy-update-024.pt", policy_hash="c" * 64
-                )
+                ),
             }
         )
         .model_dump(mode="json"),
@@ -451,7 +403,7 @@ def test_sanity_keeps_failed_checks(tmp_path):
 
 @pytest.mark.parametrize("training", [False, True])
 def test_scalar_run_uses_common_report_writer(tmp_path, training_summary, training):
-    from eco_planner.analysis.runner import publish_scalar_run
+    from eco_planner.experiments.comparison.analysis import publish_scalar_run
 
     summary = training_summary if training else job()
     write_json(tmp_path / "summary.json", summary.model_dump(mode="json"))
@@ -478,7 +430,8 @@ class BlockImports:
         if any(fullname == root or fullname.startswith(root + '.') for root in blocked):
             raise AssertionError('unexpected import: ' + fullname)
 sys.meta_path.insert(0, BlockImports())
-from eco_planner.analysis.runner import analyze, publish_scalar_run
+from tests.analysis.routing import analyze
+from eco_planner.experiments.comparison.analysis import publish_scalar_run
 source = Path(sys.argv[1])
 analyze('reward-sanity', source, source.parent / 'report', figures=figures)
 publish_scalar_run(source, training=False, figures=figures)
@@ -497,10 +450,11 @@ def test_offline_imports_do_not_load_execution_modules():
     script = """
 import sys
 import scripts.experiments
-import eco_planner.analysis.evaluation
-import eco_planner.analysis.simple
-import eco_planner.analysis.workflows
-import eco_planner.analysis.reporting.guidance
+import eco_planner.experiments.comparison.analysis
+import benchmarks.execution_analysis
+import eco_planner.experiments.fixed_batch
+import eco_planner.experiments.comparison.inputs
+import eco_planner.experiments.guidance.authority.report
 from eco_planner.rl.artifacts import TrainingRunSummary
 roots = (
     'torch',
@@ -515,7 +469,7 @@ for root in roots:
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
-@pytest.mark.parametrize("module", ["eco_planner.analysis", "eco_planner.rl.artifacts"])
+@pytest.mark.parametrize("module", ["eco_planner.reporting", "eco_planner.rl.artifacts"])
 def test_offline_package_initialization_never_imports_torch(module):
     script = f"""
 import importlib
@@ -530,3 +484,49 @@ from eco_planner.rl.artifacts import TrainingRunSummary
 assert TrainingRunSummary.__name__ == 'TrainingRunSummary'
 """
     subprocess.run([sys.executable, "-c", script], check=True)
+
+
+@pytest.mark.parametrize(
+    "topic", ["cadence-attribution", "counterfactual-attribution", "control-refreeze"]
+)
+@pytest.mark.parametrize("figures", [False, True])
+def test_new_training_analyze_cli_stays_offline(tmp_path, topic, figures):
+    source, output = tmp_path / "source", tmp_path / "report"
+    source.mkdir()
+    write_json(
+        source / "summary.json",
+        {
+            "kind": "training-" + topic,
+            "arms": [{"label": "fixture", "metrics": {"post_update_kl": [1e-3, 2e-3]}}],
+        },
+    )
+    script = """
+import sys
+class BlockImports:
+    def find_spec(self, fullname, path=None, target=None):
+        roots = ('torch', 'metadrive', 'panda3d', 'eco_planner.jobs',
+                 'eco_planner.rl.trainer', 'eco_planner.rl.optimization.update_diagnostics')
+        runner = fullname.startswith('eco_planner.experiments.') and fullname.endswith('.runner')
+        if runner or any(fullname == root or fullname.startswith(root + '.') for root in roots):
+            raise AssertionError('unexpected execution import: ' + fullname)
+sys.meta_path.insert(0, BlockImports())
+from scripts.experiments import build_parser, dispatch
+args = build_parser().parse_args(sys.argv[1:])
+assert dispatch(args)['status'] == 'completed'
+"""
+    args = [
+        sys.executable,
+        "-c",
+        script,
+        "training",
+        topic,
+        "analyze",
+        "--source-dir",
+        str(source),
+        "--output-dir",
+        str(output),
+    ]
+    if not figures:
+        args.append("--no-figures")
+    subprocess.run(args, check=True)
+    assert_report(output, figures=figures)

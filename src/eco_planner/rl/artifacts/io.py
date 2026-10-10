@@ -11,16 +11,18 @@ import torch
 from hydra.utils import to_absolute_path
 from tensordict import TensorDict, TensorDictBase
 
-from eco_planner.artifacts import collect_repository_metadata, write_json, write_npz
+from eco_planner.artifacts import write_json, write_npz
 from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS
 from eco_planner.planning.policy import POLICY_CONTEXT_KEYS
 from eco_planner.reward.result import RewardProfileName
+from eco_planner.rl.artifacts.metadata import TrainingRuntimeMetadata
 from eco_planner.rl.artifacts.schema import rollout_artifact_fields
 from eco_planner.rl.rollout.contracts import (
     RolloutEpisode,
     TailKind,
     rollout_audit_keys,
 )
+from eco_planner.runtime.metadata import collect_repository_metadata
 from eco_planner.runtime.resources import ResourceProfileConfig
 
 if TYPE_CHECKING:
@@ -99,13 +101,13 @@ def write_training_runtime_metadata(
         "execution_steps": CLOSED_LOOP_EXECUTION_STEPS
         if execution_steps is None
         else execution_steps,
-        "runtime": asdict(runtime.report),
+        "inference_runtime": asdict(runtime.report),
         "checkpoint": asdict(runtime.checkpoint_report),
         "sampler": asdict(runtime.sampler_report),
         "guidance": asdict(runtime.guidance_config),
         "resources": resources.model_dump(mode="json"),
     }
-    write_json(path, metadata)
+    write_json(path, TrainingRuntimeMetadata.model_validate(metadata))
 
 
 def _trajectory_arrays(episode: RolloutEpisode) -> dict[str, np.ndarray]:

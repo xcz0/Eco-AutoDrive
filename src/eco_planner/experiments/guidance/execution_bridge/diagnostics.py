@@ -6,10 +6,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 
-from eco_planner.analysis.execution_bridge import (
+from eco_planner.experiments.guidance.execution_bridge.analysis import (
     analyze_bridge_episodes as describe_episodes,
 )
-from eco_planner.analysis.execution_bridge import analyze_same_state
+from eco_planner.experiments.guidance.execution_bridge.analysis import analyze_same_state
 
 ArmLabel = Literal["r0", "rstress"]
 _ARM_REWARD_PROFILES: dict[str, str] = {

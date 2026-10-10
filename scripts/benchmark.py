@@ -12,9 +12,9 @@ from eco_planner._repository import LOCAL_ENVIRONMENT_PATH
 from eco_planner.configuration import load_local_environment, with_machine_resource_override
 
 _BENCHMARK_MODULES = {
-    "environment": "eco_planner.benchmarking.environment",
-    "throughput": "eco_planner.benchmarking.throughput",
-    "rollout": "eco_planner.benchmarking.rollout",
+    "environment": "benchmarks.environment",
+    "throughput": "benchmarks.throughput",
+    "rollout": "benchmarks.rollout",
 }
 
 

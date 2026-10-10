@@ -314,6 +314,21 @@ class PolicyCheckpointProvenance(ArtifactModel):
     policy_hash: str = Field(min_length=64, max_length=64)
 
 
+class PolicyActionSummary(ArtifactModel):
+    action_mode: Literal["mean", "sample"]
+    policy_action_seeds: tuple[StrictInt, ...]
+
+    @model_validator(mode="after")
+    def validate_seeds(self) -> PolicyActionSummary:
+        if (self.action_mode == "sample") != bool(self.policy_action_seeds):
+            raise ValueError(
+                "sample action requires seeds; mean action must not consume action RNG"
+            )
+        if any(seed < 0 for seed in self.policy_action_seeds):
+            raise ValueError("policy action seeds must be non-negative")
+        return self
+
+
 class JobSummary(ArtifactModel):
     status: Literal["completed", "failed"]
     runtime: InferenceRuntimeSummary
@@ -321,11 +336,20 @@ class JobSummary(ArtifactModel):
     sampler: SamplerSummary
     guidance: GuidanceSummary
     policy_checkpoint: PolicyCheckpointProvenance | None = None
+    policy_action: PolicyActionSummary | None = None
     workload: EvaluationWorkload
     episodes: tuple[EpisodeSummary, ...]
 
     @model_validator(mode="after")
     def validate_status(self) -> JobSummary:
+        if (self.policy_checkpoint is None) != (self.policy_action is None):
+            raise ValueError("policy checkpoint and action provenance must be recorded together")
+        if (
+            self.policy_action is not None
+            and self.policy_action.action_mode == "sample"
+            and len(self.policy_action.policy_action_seeds) != len(self.workload.scenarios)
+        ):
+            raise ValueError("policy action seeds must align with workload scenarios")
         expected = (
             "failed" if any(item.status == "failed" for item in self.episodes) else "completed"
         )
@@ -347,6 +371,12 @@ class JobSummary(ArtifactModel):
         return self
 
 
+class CadenceSummary(ArtifactModel):
+    simulator_step_s: StrictFloat = Field(gt=0.0)
+    closed_loop_execution_steps: StrictInt = Field(gt=0)
+    decision_interval_s: StrictFloat = Field(gt=0.0)
+
+
 class RuntimeMetadata(ArtifactModel):
     git_head: str = Field(min_length=1)
     git_branch: str = Field(min_length=1)
@@ -361,5 +391,6 @@ class RuntimeMetadata(ArtifactModel):
     sampler: SamplerSummary
     guidance: GuidanceSummary
     execution: ExecutionSummary
+    cadence: CadenceSummary
     elapsed_seconds: StrictFloat = Field(ge=0.0)
     cuda_memory: CudaMemorySummary | None

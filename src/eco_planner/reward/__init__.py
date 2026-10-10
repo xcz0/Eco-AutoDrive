@@ -7,10 +7,11 @@ it does not import rollout episodes, PPO batches, collectors, or training state.
 from __future__ import annotations
 
 from .aggregation import (
-    SubstepReward,
+    aggregate_scalar_rewards,
     aggregate_substep_rewards,
     aggregate_transition_reward,
-    substep_reward,
+    energy_only_prefix,
+    recompose_reward_prefix,
 )
 from .calibration import (
     MOTION_LIMITS,
@@ -37,7 +38,14 @@ from .objectives import (
     evaluate_plannerrft_energy_step,
     evaluate_plannerrft_no_energy_step,
 )
-from .result import RewardComponents, RewardDiagnostics, RewardProfileName, RewardResult
+from .result import (
+    PlannerRFTObjectiveResult,
+    PlannerRFTRewardResult,
+    RewardComponents,
+    RewardDiagnostics,
+    RewardProfileName,
+    RewardResult,
+)
 
 __all__ = [
     "MOTION_LIMITS",
@@ -46,13 +54,15 @@ __all__ = [
     "FrozenEnergyBand",
     "PlannerRFTEnergyRewardConfig",
     "PlannerRFTNoEnergyRewardConfig",
+    "PlannerRFTObjectiveResult",
+    "PlannerRFTRewardResult",
     "RewardComponents",
     "RewardDiagnostics",
     "RewardEvaluator",
     "RewardProfileConfig",
     "RewardProfileName",
     "RewardResult",
-    "SubstepReward",
+    "aggregate_scalar_rewards",
     "aggregate_substep_rewards",
     "aggregate_transition_reward",
     "apply_safety_gate",
@@ -62,10 +72,11 @@ __all__ = [
     "component_score",
     "create_reward_evaluator",
     "energy_band_thresholds",
+    "energy_only_prefix",
     "energy_score_from_fuel",
     "evaluate_plannerrft_energy_step",
     "evaluate_plannerrft_no_energy_step",
     "score_delta",
     "scored_arrays",
-    "substep_reward",
+    "recompose_reward_prefix",
 ]

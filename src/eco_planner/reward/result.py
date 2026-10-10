@@ -1,4 +1,4 @@
-"""Typed results emitted by RL reward evaluators."""
+"""Scalar optimization results and PlannerRFT-specific explanation data."""
 
 from __future__ import annotations
 
@@ -55,14 +55,33 @@ class RewardDiagnostics:
 
 @dataclass(frozen=True, slots=True)
 class RewardResult:
-    """Final reward, objective components, and diagnostics from one evaluation."""
+    """Optimization signal; no profile, component set, or gate is required."""
 
-    profile_name: RewardProfileName
     total: float
+
+
+@dataclass(frozen=True, slots=True)
+class PlannerRFTObjectiveResult(RewardResult):
+    """Gated scalarization and its scores, independent of profile identity."""
+
     base_total: float
     safety_gate: float
     components: RewardComponents
+
+
+@dataclass(frozen=True, slots=True)
+class PlannerRFTRewardResult(PlannerRFTObjectiveResult):
+    """One declared PlannerRFT profile's evaluated reward and measurements."""
+
+    profile_name: RewardProfileName
     diagnostics: RewardDiagnostics
 
 
-__all__ = ["RewardComponents", "RewardDiagnostics", "RewardProfileName", "RewardResult"]
+__all__ = [
+    "PlannerRFTObjectiveResult",
+    "PlannerRFTRewardResult",
+    "RewardComponents",
+    "RewardDiagnostics",
+    "RewardProfileName",
+    "RewardResult",
+]

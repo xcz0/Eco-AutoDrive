@@ -9,14 +9,14 @@ import pytest
 from hydra.errors import MissingConfigException
 from omegaconf import DictConfig, OmegaConf
 
-from eco_planner import jobs
-from eco_planner.benchmarking.config import (
+from benchmarks.config import (
     EnvironmentBenchmarkJobConfig,
     RolloutBenchmarkConfig,
     ScalingBenchmarkConfig,
     parse_environment_job,
     split_benchmark_config,
 )
+from eco_planner import jobs
 from eco_planner.configuration import (
     load_local_environment,
     with_machine_resource_override,
@@ -30,7 +30,7 @@ from eco_planner.contracts import (
 )
 from eco_planner.evaluation import EvaluationJobConfig, parse_evaluation_config
 from eco_planner.experiments.guidance.sweep import load_energy_study
-from eco_planner.reward_validation import evaluate_sanity, load_sanity_config
+from eco_planner.experiments.reward.validation import evaluate_sanity, load_sanity_config
 from eco_planner.rl.config import (
     RolloutJobConfig,
     TrainingJobConfig,
@@ -90,6 +90,24 @@ def test_compose_job_config_preserves_an_explicit_resource_override(monkeypatch)
     )
 
     assert config.resources.name == "rtx_a4000"
+
+
+def test_programmatic_job_persists_actual_overrides_separately(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MACHINE_NAME", "rtx3050_laptop")
+    declared = ["runtime.seed=17", "training.replay_id=3"]
+    raw = jobs.compose_job_config("jobs/training/ppo", declared)
+    jobs.write_job_configuration(raw, tmp_path)
+    saved = OmegaConf.load(tmp_path / "resolved_config.yaml")
+    assert saved.runtime.seed == 17
+    assert saved.ppo.minibatch_seed == 17
+    assert "hydra" not in saved
+    assert list(OmegaConf.load(tmp_path / "overrides.yaml")) == with_machine_resource_override(
+        declared
+    )
+    with pytest.raises(ValueError, match="explicit invocation overrides"):
+        jobs.write_job_configuration(saved, tmp_path / "unknown")
+    jobs.write_job_configuration(saved, tmp_path / "explicit", overrides=[])
+    assert list(OmegaConf.load(tmp_path / "explicit/overrides.yaml")) == []
 
 
 def test_compose_job_config_without_a_machine_profile(monkeypatch) -> None:

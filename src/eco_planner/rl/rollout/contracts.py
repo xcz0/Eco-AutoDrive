@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 import torch
-from tensordict import TensorDictBase, cat
+from tensordict import TensorDict, TensorDictBase, cat
 
 from eco_planner.contracts import (
     CLOSED_LOOP_EXECUTION_STEPS,
@@ -19,7 +19,7 @@ from eco_planner.planning.policy import (
     ExplorationPolicyContext,
     policy_context_tensordict,
 )
-from eco_planner.reward import RewardResult, aggregate_transition_reward
+from eco_planner.reward import PlannerRFTRewardResult, RewardResult, aggregate_transition_reward
 from eco_planner.reward.result import RewardProfileName as RewardProfileName
 
 TailKind = Literal["terminated", "truncated", "rollout_limit"]
@@ -162,8 +162,8 @@ _AUDIT_KEYS = (
 class ExecutionTransitionAudit:
     """Typed environment result for one closed-loop decision and its execution prefix."""
 
-    reward_result: RewardResult
-    substep_results: tuple[RewardResult, ...]
+    reward_result: PlannerRFTRewardResult
+    substep_results: tuple[PlannerRFTRewardResult, ...]
     route_completion_delta: float
     distance_m: float
     speed_mps: float
@@ -208,7 +208,7 @@ class RolloutEpisode:
         _validate_audit_trajectory(self.audit, self.reward_profile)
         if self.training.batch_size != self.audit.batch_size:
             raise ValueError("PPO training and audit trajectories must have matching batch sizes")
-        _validate_tail(self.training, self.tail_kind, self.tail_bootstrap_value)
+        _validate_training_values_and_tail(self.training, self.tail_kind, self.tail_bootstrap_value)
 
     @property
     def transition_count(self) -> int:
@@ -218,14 +218,18 @@ class RolloutEpisode:
 class RolloutEpisodeBuilder:
     """Build matching PPO and audit trajectories for serial or vector collection."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self, *, training_storage: TensorDictBase | None = None, training_start: int = 0
+    ) -> None:
         self._training: list[TensorDictBase] = []
         self._audit: list[TensorDictBase] = []
         self._reward_profile: RewardProfileName | None = None
+        self._training_storage = training_storage
+        self._training_start = training_start
 
     @property
     def transition_count(self) -> int:
-        return len(self._training)
+        return len(self._audit)
 
     @property
     def empty(self) -> bool:
@@ -233,7 +237,7 @@ class RolloutEpisodeBuilder:
 
     def append(
         self,
-        training_decision: TensorDictBase,
+        training_transition: TensorDictBase,
         decision_audit: TensorDictBase,
         execution: ExecutionTransitionAudit,
         provenance: RolloutProvenance,
@@ -243,27 +247,80 @@ class RolloutEpisodeBuilder:
             self._reward_profile = profile
         elif profile != self._reward_profile:
             raise ValueError("one rollout episode cannot mix reward profiles")
-        self._training.append(training_decision)
+        if self._training_storage is None:
+            self._training.append(training_transition)
+        else:
+            storage = self._training_storage
+            if "state_value" not in storage.keys():
+                storage.update(training_transition.new_empty(storage.batch_size))
+                value_dtype = torch.promote_types(storage["state_value"].dtype, torch.float32)
+                storage["next", "state_value"] = torch.empty_like(
+                    storage["state_value"], dtype=value_dtype
+                )
+                storage["next", "done"] = torch.empty_like(storage["next", "terminated"])
+            index = self._training_start + self.transition_count
+            if index >= storage.batch_size[0]:
+                raise ValueError("rollout transition exceeds its update training storage")
+            # Indexed writes must not broadcast, cast, or move incompatible decisions.
+            source_keys = set(training_transition.keys(include_nested=True, leaves_only=True))
+            target_keys = set(storage.keys(include_nested=True, leaves_only=True)) - {
+                ("next", "state_value"),
+                ("next", "done"),
+            }
+            if source_keys != target_keys:
+                raise ValueError("rollout training transition fields differ from update storage")
+            for key, value in training_transition.items(include_nested=True, leaves_only=True):
+                target = _tensor(storage, key)
+                if (
+                    value.shape != (1, *target.shape[1:])
+                    or value.dtype != target.dtype
+                    or value.device != target.device
+                ):
+                    raise ValueError(f"rollout training field {key!r} differs from update storage")
+            storage.update_at_(training_transition, slice(index, index + 1))
         self._audit.append(build_rollout_audit(decision_audit, execution, provenance))
 
     def finish(self, tail_kind: TailKind, tail_bootstrap_value: torch.Tensor) -> RolloutEpisode:
         if self.empty:
             raise ValueError("rollout episode must contain at least one transition")
-        training = cat(self._training)
+        training = (
+            cat(self._training)
+            if self._training_storage is None
+            else cast(
+                TensorDictBase,
+                self._training_storage[
+                    self._training_start : self._training_start + self.transition_count
+                ],
+            )
+        )
         audit = cat(self._audit)
         device = training["state_value"].device
         bootstrap = tail_bootstrap_value.detach().to(device)
-        next_transition = audit.select("reward_total", "terminated", "truncated").clone().to(device)
-        next_transition.rename_key_("reward_total", "reward")
-        next_transition["state_value"] = torch.cat(
-            (training["state_value"][1:], bootstrap.reshape(1, 1))
-        )
+        next_transition = _tensordict(training, "next")
+        if "state_value" not in next_transition.keys():
+            next_transition["state_value"] = torch.cat(
+                (training["state_value"][1:], bootstrap.reshape(1, 1))
+            )
+        else:
+            next_transition["state_value"][:-1].copy_(training["state_value"][1:])
+            next_transition["state_value"][-1].copy_(bootstrap)
         done = next_transition["terminated"] | next_transition["truncated"]
         done[-1] = True
-        next_transition["done"] = done
+        if "done" in next_transition.keys():
+            next_transition["done"].copy_(done)
+        else:
+            next_transition["done"] = done
         training["next"] = next_transition
         return RolloutEpisode(
             training, audit, tail_kind, bootstrap, cast(RewardProfileName, self._reward_profile)
+        )
+
+    def next_episode(self) -> RolloutEpisodeBuilder:
+        """Start the next episode after this episode's disjoint storage slice."""
+
+        return RolloutEpisodeBuilder(
+            training_storage=self._training_storage,
+            training_start=self._training_start + self.transition_count,
         )
 
 
@@ -287,6 +344,28 @@ def build_training_decision(
         .detach()
         .clone()
     )
+
+
+def build_training_transition(
+    decision: TensorDictBase,
+    reward_result: RewardResult,
+    *,
+    terminated: bool,
+    truncated: bool,
+) -> TensorDictBase:
+    """Project a scalar reward and environment flags directly onto the collection device."""
+
+    device = decision["state_value"].device
+    next_transition = TensorDict(
+        {
+            "reward": torch.tensor([[reward_result.total]], dtype=torch.float32, device=device),
+            "terminated": torch.tensor([[terminated]], dtype=torch.bool, device=device),
+            "truncated": torch.tensor([[truncated]], dtype=torch.bool, device=device),
+        },
+        batch_size=[1],
+        device=device,
+    )
+    return decision.clone(recurse=False).set("next", next_transition)
 
 
 def build_rollout_audit(
@@ -368,12 +447,9 @@ def _substep_audit_fields(execution: ExecutionTransitionAudit) -> dict[str, torc
 
 def _validate_training_trajectory(trajectory: TensorDictBase) -> None:
     _validate_trajectory(trajectory, _TRAINING_KEYS, "PPO training")
-    _validate_policy_context(trajectory, "PPO training")
     guidance_action = _tensor(trajectory, "guidance_action")
     if tuple(guidance_action.shape[1:]) != (2,):
         raise ValueError("PPO training guidance_action must have shape [T, 2]")
-    if torch.any((guidance_action <= -1.0) | (guidance_action >= 1.0)):
-        raise ValueError("PPO training guidance_action must be strictly inside (-1, 1)")
     old_log_prob = _tensor(trajectory, "old_joint_guidance_log_prob")
     if old_log_prob.ndim != 1:
         raise ValueError("PPO training old_joint_guidance_log_prob must have shape [T]")
@@ -415,13 +491,15 @@ def _validate_audit_trajectory(
 ) -> None:
     actual_keys = set(trajectory.keys(include_nested=False))
     expected_keys = rollout_audit_keys(reward_profile)
-    _validate_trajectory(trajectory, frozenset(expected_keys), "rollout audit")
+    device = _validate_trajectory(trajectory, frozenset(expected_keys), "rollout audit")
     unexpected = actual_keys - set(expected_keys)
     if unexpected:
         raise ValueError(f"rollout audit trajectory has unexpected fields: {sorted(unexpected)}")
-    if _tensordict_device(trajectory).type != "cpu":
+    if device.type != "cpu":
         raise TypeError("rollout audit fields must be CPU tensors")
-    _validate_policy_context(trajectory, "rollout audit")
+    for key, value in trajectory.items(include_nested=True, leaves_only=True):
+        if value.dtype.is_floating_point and not torch.isfinite(value).all():
+            raise ValueError(f"rollout audit field {key!r} must be finite")
     for key in ("base_action", "guidance_action", "beta_alpha", "beta_beta"):
         if tuple(trajectory[key].shape[1:]) != (2,):
             raise ValueError(f"rollout audit {key} must have shape [T, 2]")
@@ -499,7 +577,7 @@ def _validate_substep_audit(trajectory: TensorDictBase) -> None:
 
 def _validate_trajectory(
     trajectory: TensorDictBase, required_keys: frozenset[str], contract: str
-) -> None:
+) -> torch.device:
     if not isinstance(trajectory, TensorDictBase) or len(trajectory.batch_size) != 1:
         raise TypeError(f"{contract} trajectory must be a one-dimensional TensorDict")
     if trajectory.batch_size[0] <= 0:
@@ -515,47 +593,48 @@ def _validate_trajectory(
             device = value.device
         elif value.device != device:
             raise TypeError(f"{contract} fields must use one device")
-        if value.dtype.is_floating_point and not torch.isfinite(value).all():
-            raise ValueError(f"{contract} field {key!r} must be finite")
+    return cast(torch.device, device)
 
 
-def _validate_policy_context(trajectory: TensorDictBase, contract: str) -> None:
-    context = ExplorationPolicyContext(**{key: _tensor(trajectory, key) for key in _CONTEXT_KEYS})
-    if context.scene_tokens.shape[0] != trajectory.batch_size[0]:
-        raise ValueError(f"{contract} policy context batch size must match trajectory")
+def _validate_training_values_and_tail(
+    trajectory: TensorDictBase, tail_kind: TailKind, value: torch.Tensor
+) -> None:
+    """Check independent training invariants with one device-to-host predicate transfer."""
 
-
-def _validate_tail(trajectory: TensorDictBase, tail_kind: TailKind, value: torch.Tensor) -> None:
     if tail_kind not in {"terminated", "truncated", "rollout_limit"}:
         raise ValueError("rollout episode has an invalid tail kind")
-    if (
-        value.dtype != torch.float32
-        or tuple(value.shape) != (1,)
-        or value.requires_grad
-        or not torch.isfinite(value).all()
-    ):
+    if value.dtype != torch.float32 or tuple(value.shape) != (1,) or value.requires_grad:
         raise ValueError("tail bootstrap value must be detached float32 with shape [1]")
+    checks: list[torch.Tensor] = []
+    errors: list[str] = []
+    for key, field in trajectory.items(include_nested=True, leaves_only=True):
+        if field.dtype.is_floating_point:
+            checks.append(torch.isfinite(field).all())
+            errors.append(f"PPO training field {key!r} must be finite")
+    action = _tensor(trajectory, "guidance_action")
+    checks.append(((action > -1.0) & (action < 1.0)).all())
+    errors.append("PPO training guidance_action must be strictly inside (-1, 1)")
+    device = action.device
+    checks.append(torch.isfinite(value).all().to(device))
+    errors.append("tail bootstrap value must be detached float32 with shape [1]")
     next_transition = _tensordict(trajectory, "next")
     done = _tensor(next_transition, "done")
-    if not bool(done[-1].item()) or torch.any(done[:-1]):
-        raise ValueError("PPO training next done must mark only the final GAE boundary")
-    terminated = bool(_tensor(next_transition, "terminated")[-1].item())
-    truncated = bool(_tensor(next_transition, "truncated")[-1].item())
+    checks.append(done[-1].all() & ~done[:-1].any())
+    errors.append("PPO training next done must mark only the final GAE boundary")
+    terminated = _tensor(next_transition, "terminated")[-1].all()
+    truncated = _tensor(next_transition, "truncated")[-1].all()
     if tail_kind == "terminated":
-        if not terminated or not torch.equal(value, torch.zeros_like(value)):
-            raise ValueError("terminated tail must have a zero bootstrap value")
+        checks.append(terminated & (value == 0.0).all().to(device))
+        errors.append("terminated tail must have a zero bootstrap value")
     elif tail_kind == "truncated":
-        if terminated or not truncated:
-            raise ValueError("truncated tail must end in a non-terminal truncation")
-    elif terminated or truncated:
-        raise ValueError("rollout_limit tail must end before an episode boundary")
-
-
-def _tensordict_device(trajectory: TensorDictBase) -> torch.device:
-    for value in trajectory.values(include_nested=True, leaves_only=True):
-        if isinstance(value, torch.Tensor):
-            return value.device
-    raise ValueError("TensorDict must contain at least one tensor")
+        checks.append(~terminated & truncated)
+        errors.append("truncated tail must end in a non-terminal truncation")
+    else:
+        checks.append(~terminated & ~truncated)
+        errors.append("rollout_limit tail must end before an episode boundary")
+    for valid, error in zip(torch.stack(checks).cpu().tolist(), errors, strict=True):
+        if not valid:
+            raise ValueError(error)
 
 
 def _tensor(trajectory: TensorDictBase, key: str | tuple[str, ...]) -> torch.Tensor:

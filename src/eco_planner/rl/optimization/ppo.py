@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Protocol, cast
 
 import torch
 from tensordict import TensorDictBase, cat
@@ -32,7 +33,6 @@ from eco_planner.rl.rollout.contracts import (
 )
 from eco_planner.rl.rollout.contracts import (
     TRAINING_KEYS,
-    RolloutEpisode,
 )
 
 _PPO_UPDATE_METRIC_NAMES = (
@@ -92,7 +92,14 @@ class PPOUpdateReport:
     gradient_diagnostics: PPOGradientDiagnostics | None
 
 
-def compute_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> TensorDictBase:
+class TrainingEpisode(Protocol):
+    """The optimizer requires only the scalar-reward training trajectory."""
+
+    @property
+    def training(self) -> TensorDictBase: ...
+
+
+def compute_episode_gae(episode: TrainingEpisode, config: PPOConfig) -> TensorDictBase:
     """Run TorchRL GAE and append its detached outputs to the PPO trajectory."""
 
     return _compute_gae(episode.training.select(*TRAINING_KEYS).clone(), config)
@@ -103,6 +110,7 @@ def _compute_gae(trajectory: TensorDictBase, config: PPOConfig) -> TensorDictBas
     if divisor != 1.0:
         # Diagnostic counterfactual only: scale the training reward before GAE without
         # touching the canonical persisted reward audit.
+        trajectory["next"] = cast(TensorDictBase, trajectory["next"]).clone(recurse=False)
         trajectory["next", "reward"] = trajectory["next", "reward"] / divisor
     estimator = GAE(
         gamma=config.gamma,
@@ -224,7 +232,7 @@ class PPOUpdater:
         self._kl_early_stop_count = early_stops
         self._minibatch_generator.set_state(generator_state)
 
-    def update(self, episodes: Sequence[RolloutEpisode]) -> PPOUpdateReport:
+    def update(self, episodes: Sequence[TrainingEpisode] | TensorDictBase) -> PPOUpdateReport:
         """Perform all configured PPO epochs over one immutable rollout batch."""
 
         self.policy.eval()
@@ -403,15 +411,22 @@ def _build_torchrl_policy_adapters(
 
 
 def build_ppo_batch(
-    episodes: Sequence[RolloutEpisode],
+    episodes: Sequence[TrainingEpisode] | TensorDictBase,
     config: PPOConfig,
     *,
     device: torch.device | None = None,
 ) -> TensorDictBase:
-    episode_tuple = tuple(episodes)
-    if not episode_tuple:
-        raise ValueError("PPO update requires at least one rollout episode")
-    trajectory = cat([episode.training.select(*TRAINING_KEYS) for episode in episode_tuple])
+    if isinstance(episodes, TensorDictBase):
+        if len(episodes.batch_size) != 1:
+            raise TypeError("PPO training batch must be a one-dimensional TensorDict")
+        if episodes.batch_size[0] == 0:
+            raise ValueError("PPO update requires at least one rollout transition")
+        trajectory = episodes.select(*TRAINING_KEYS)
+    else:
+        episode_tuple = tuple(episodes)
+        if not episode_tuple:
+            raise ValueError("PPO update requires at least one rollout episode")
+        trajectory = cat([episode.training.select(*TRAINING_KEYS) for episode in episode_tuple])
     if device is not None:
         trajectory = trajectory.to(device)
     return _compute_gae(trajectory, config).select(*PPO_BATCH_KEYS)

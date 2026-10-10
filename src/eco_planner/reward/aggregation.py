@@ -11,41 +11,29 @@ rollout or training state.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence
 
-from .result import RewardComponents, RewardDiagnostics, RewardProfileName, RewardResult
-
-
-@dataclass(frozen=True, slots=True)
-class SubstepReward:
-    """One substep's objective scalars needed to rebuild a transition reward.
-
-    This is the minimal reduction input shared by online collection and offline
-    reweighting/rescoring. It deliberately omits diagnostics: the transition
-    audit already carries those, and offline paths only rewrite the objective.
-    """
-
-    profile_name: RewardProfileName
-    total: float
-    base_total: float
-    safety_gate: float
-    components: RewardComponents
+from .objectives.plannerrft import compose_plannerrft_objective
+from .result import (
+    PlannerRFTObjectiveResult,
+    PlannerRFTRewardResult,
+    RewardComponents,
+    RewardDiagnostics,
+    RewardResult,
+)
 
 
-def substep_reward(result: RewardResult) -> SubstepReward:
-    """Project one full evaluation result onto the reduction input."""
+def aggregate_scalar_rewards(substeps: Sequence[RewardResult]) -> RewardResult:
+    """Sum executed scalar rewards without requiring objective explanation data."""
 
-    return SubstepReward(
-        profile_name=result.profile_name,
-        total=result.total,
-        base_total=result.base_total,
-        safety_gate=result.safety_gate,
-        components=result.components,
-    )
+    if not substeps:
+        raise ValueError("aggregate_scalar_rewards requires at least one result")
+    return RewardResult(total=sum(substep.total for substep in substeps))
 
 
-def aggregate_substep_rewards(substeps: Sequence[SubstepReward]) -> SubstepReward:
+def aggregate_substep_rewards(
+    substeps: Sequence[PlannerRFTObjectiveResult],
+) -> PlannerRFTObjectiveResult:
     """Reduce consecutive substep rewards into one transition reward.
 
     The rule is fixed per objective field:
@@ -53,20 +41,15 @@ def aggregate_substep_rewards(substeps: Sequence[SubstepReward]) -> SubstepRewar
     * sum: `total`, `base_total`, and every `RewardComponents` entry.
     * min: `safety_gate`.
 
-    All substeps must share one `profile_name`; mixing profiles is an error.
     `total` is the authoritative PPO scalar. With more than one substep it is
     not equal to `base_total * safety_gate`, because the base total is summed
     over substeps while the gate is their minimum.
     """
 
     if not substeps:
-        raise ValueError("aggregate_substep_rewards requires at least one SubstepReward")
-    profile_name = substeps[0].profile_name
-    if any(substep.profile_name != profile_name for substep in substeps):
-        raise ValueError("cannot aggregate SubstepRewards from different reward profiles")
-    return SubstepReward(
-        profile_name=profile_name,
-        total=sum(substep.total for substep in substeps),
+        raise ValueError("aggregate_substep_rewards requires at least one objective result")
+    return PlannerRFTObjectiveResult(
+        total=aggregate_scalar_rewards(substeps).total,
         base_total=sum(substep.base_total for substep in substeps),
         safety_gate=min(substep.safety_gate for substep in substeps),
         components=RewardComponents(
@@ -79,7 +62,30 @@ def aggregate_substep_rewards(substeps: Sequence[SubstepReward]) -> SubstepRewar
     )
 
 
-def aggregate_transition_reward(results: Sequence[RewardResult]) -> RewardResult:
+def recompose_reward_prefix(
+    weights: Mapping[str, float],
+    components: Sequence[RewardComponents],
+    gates: Sequence[float],
+    count: int,
+) -> PlannerRFTObjectiveResult:
+    """Recompose only the executed prefix of padded, stored component scores.
+
+    This is score reuse, not component recalculation. No measurements or missing
+    scores are inferred from profile identity or transition-level aggregates.
+    Scalar math uses Python floats (double), matching online evaluation and the
+    offline adapter's float32-storage -> double-math -> float32-storage boundary.
+    """
+
+    if len(components) != len(gates) or not 1 <= count <= len(components):
+        raise ValueError("reward prefix requires aligned scores/gates and a valid substep count")
+    return aggregate_substep_rewards(
+        [compose_plannerrft_objective(weights, components[j], gates[j]) for j in range(count)]
+    )
+
+
+def aggregate_transition_reward(
+    results: Sequence[PlannerRFTRewardResult],
+) -> PlannerRFTRewardResult:
     """Reduce consecutive substep results into one transition reward.
 
     Objective scalars come from `aggregate_substep_rewards` (sum/sum/min/sum).
@@ -104,7 +110,10 @@ def aggregate_transition_reward(results: Sequence[RewardResult]) -> RewardResult
 
     if not results:
         raise ValueError("aggregate_transition_reward requires at least one RewardResult")
-    scalar = aggregate_substep_rewards([substep_reward(result) for result in results])
+    profile_name = results[0].profile_name
+    if any(result.profile_name != profile_name for result in results):
+        raise ValueError("cannot aggregate results from different reward profiles")
+    scalar = aggregate_substep_rewards(results)
     diagnostics = RewardDiagnostics(
         collision_score=min(result.diagnostics.collision_score for result in results),
         drivable_score=min(result.diagnostics.drivable_score for result in results),
@@ -132,8 +141,8 @@ def aggregate_transition_reward(results: Sequence[RewardResult]) -> RewardResult
         executed_fuel_proxy_ml_per_km=_distance_weighted_intensity(results),
         energy_distance_valid=all(result.diagnostics.energy_distance_valid for result in results),
     )
-    return RewardResult(
-        profile_name=scalar.profile_name,
+    return PlannerRFTRewardResult(
+        profile_name=profile_name,
         total=scalar.total,
         base_total=scalar.base_total,
         safety_gate=scalar.safety_gate,
@@ -142,7 +151,15 @@ def aggregate_transition_reward(results: Sequence[RewardResult]) -> RewardResult
     )
 
 
-def _distance_weighted_intensity(results: Sequence[RewardResult]) -> float:
+def energy_only_prefix(
+    components: Sequence[RewardComponents], gates: Sequence[float], count: int
+) -> PlannerRFTObjectiveResult:
+    """Existing diagnostic endpoint: sum of gate times energy score per substep."""
+
+    return recompose_reward_prefix({"energy": 1.0}, components, gates, count)
+
+
+def _distance_weighted_intensity(results: Sequence[PlannerRFTRewardResult]) -> float:
     distance_m = sum(result.diagnostics.step_distance_m for result in results)
     if distance_m <= 0.0:
         return 0.0
@@ -159,8 +176,9 @@ def _mean(values: Iterable[float]) -> float:
 
 
 __all__ = [
-    "SubstepReward",
+    "aggregate_scalar_rewards",
     "aggregate_substep_rewards",
     "aggregate_transition_reward",
-    "substep_reward",
+    "energy_only_prefix",
+    "recompose_reward_prefix",
 ]

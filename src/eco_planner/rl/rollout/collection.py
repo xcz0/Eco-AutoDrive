@@ -8,9 +8,10 @@ from typing import Any
 
 import torch
 from hydra.utils import to_absolute_path
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from eco_planner.artifacts import write_json
+from eco_planner.jobs import write_job_configuration
 from eco_planner.planning.policy import (
     policy_state_hash,
     save_exploration_policy_checkpoint,
@@ -32,7 +33,7 @@ def collect(resolved: DictConfig, config: TrainingJobConfig, output_dir: Path) -
     if config.training.resume_checkpoint_path is not None:
         raise ValueError("update-0 diagnostic cannot resume a trained policy")
     output_dir.mkdir(parents=True, exist_ok=False)
-    OmegaConf.save(resolved, output_dir / "resolved_config.yaml")
+    write_job_configuration(resolved, output_dir)
     if config.training.deterministic:
         torch.use_deterministic_algorithms(True)
     torch.set_float32_matmul_precision("high")

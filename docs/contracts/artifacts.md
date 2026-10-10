@@ -20,6 +20,9 @@ MUST／MUST NOT 表示强制的软件保证。
 Sampler 的 backend/profile、步数、初始尺度、stochasticity、时间序列和 parity 标签必须可追溯；
 地图 seed 与 diffusion/action seed 分别记录。Checkpoint label/path/state hash 必须对应所用策略。
 Resolved config 只作 provenance，不是第二个 metric/result source。
+程序化 job 与 CLI 均保存实际 composition overrides，独立于 resolved config；缺失来源不能伪装成空 overrides。
+Evaluation 保存正式 cadence 与实际 policy action mode／seeds；mean mode 不记录被消费的 action RNG。
+Evaluation 的 reward 来源仅由显式训练证据及 comparison 输入追溯，不成为 evaluation reward 或 metric。
 
 正式结果的 clean-commit 要求由登记规则拥有。
 Writer 保留 Git/runtime metadata，不复制 Python source 或 tracked diff，不因此添加新的 preflight／manifest／格式握手。
@@ -67,7 +70,7 @@ job 最终失败、CLI 非零。配置、checkpoint、runtime 初始化、artifa
 ## Training、replay 与 checkpoint
 
 Training 与 evaluation 保持独立 schema：evaluation 不保存或聚合训练 reward。
-Training episode audit MUST 保存 reward_total、base_total、safety_gate、五个 component 与独立 diagnostic 字段，不能用旧 dense_reward/terminal_override 混指不同 objective。
+现行 PlannerRFT profiles 的 training episode audit MUST 保存 reward_total、base_total、safety_gate、五个 component 与独立 diagnostic 字段，不能用旧 dense_reward/terminal_override 混指不同 objective。
 同时保存 policy context、Beta 参数、base/guidance action、old log-prob/value、initial noise、diffusion/action RNG states、episode status、collision flags、native/proxy energy、distance、强度、denominator validity、seeds，以及 [training contract](training.md#reward-与-audit-对齐) 的子步数据。
 不保存完整 DDIM denoise chain。
 
@@ -124,7 +127,8 @@ Control re-freeze 允许候选训练失败或非有限测量后继续筛选，�
 这是预声明候选筛选流程的专用失败规则，不扩展为普通训练的坏样本跳过或静默重试。
 
 Help、offline analyze、summary/trace/report reader MUST 不加载 Torch、MetaDrive/Panda3D 或渲染器。
-仅生成图片时加载绘图库并使用 headless backend。Analysis 不反向依赖 experiments，不将库调用链写成规范；
+仅生成图片时加载绘图库并使用 headless backend。分析与报告归各实验主题，离线入口不依赖 run 初始化；
+公共 JSON/NPZ I/O 不加载执行环境，运行环境采集归 runtime，底层不依赖实验主题。不将库调用链写成规范；
 具体字段集合仍由 machine-readable schema 拥有。
 
 ## Tracking 身份与续写
@@ -161,5 +165,5 @@ Invocation artifacts 包括 config、metadata、initial/final policy、按显式
 | Evaluation schema / failure | [artifacts](../../src/eco_planner/evaluation/artifacts/) | [artifacts](../../tests/evaluation/test_artifacts.py) |
 | Training audit / persistence | [RL artifacts](../../src/eco_planner/rl/artifacts/)、[training state](../../src/eco_planner/rl/training_state.py) | [rollout](../../tests/training/test_rollout.py)、[PPO](../../tests/training/test_ppo.py) |
 | Fixed batch | [fixed batch](../../src/eco_planner/rl/rollout/fixed_batch.py) | [fixed batch](../../tests/training/test_fixed_batch.py)、[credit](../../tests/training/test_credit_assignment.py) |
-| Pairing / read-only analysis | [comparison inputs](../../src/eco_planner/experiments/comparison/inputs.py)、[analysis](../../src/eco_planner/analysis/) | [scalar effects](../../tests/analysis/test_scalar_effects.py)、[reports](../../tests/analysis/test_reports.py) |
+| Pairing / read-only analysis | [comparison inputs](../../src/eco_planner/experiments/comparison/inputs.py)、[experiments](../../src/eco_planner/experiments/) | [scalar effects](../../tests/analysis/test_scalar_effects.py)、[reports](../../tests/analysis/test_reports.py) |
 | Tracking | [tracking](../../src/eco_planner/rl/tracking.py) | [tracking](../../tests/training/test_tracking.py)、[simulation tracking](../../tests/simulation/test_training_tracking.py) |

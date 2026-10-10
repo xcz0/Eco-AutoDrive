@@ -12,12 +12,10 @@ from omegaconf import OmegaConf
 from tensordict import TensorDict
 
 from eco_planner._repository import CONFIG_ROOT
-from eco_planner.analysis.guidance import aggregate
-from eco_planner.evaluation.inference.runtime import (
-    FabricInferenceRuntime,
-    validate_manual_guidance,
-)
+from eco_planner.envs.parallel import VectorEnvScenario
+from eco_planner.evaluation.inference import DiffusionEvaluationAgent
 from eco_planner.evaluation.intervention import InterventionExecution
+from eco_planner.experiments.guidance.authority.analysis import aggregate
 from eco_planner.experiments.guidance.authority.diagnostics import (
     InterventionConfig,
     analyze_episodes,
@@ -26,8 +24,11 @@ from eco_planner.experiments.guidance.authority.diagnostics import (
 from eco_planner.experiments.guidance.authority.runner import collect_group, save_decisions
 from eco_planner.planning.diffusion import PlannerInferenceResult, parse_guidance_config
 from eco_planner.planning.diffusion.guidance import zero_guidance_diagnostics
+from eco_planner.planning.diffusion_inference import (
+    DiffusionRuntime,
+    validate_manual_guidance,
+)
 from eco_planner.reward.components import EnergyRewardConfig
-from eco_planner.runtime.envs import VectorEnvScenario
 
 
 def study():
@@ -150,11 +151,11 @@ def test_temporal_reversal_and_incomplete_matrix():
 
 @pytest.mark.parametrize("figures", [False, True])
 def test_offline_recompute_matches_live_statistics(tmp_path, figures):
-    from eco_planner.analysis.guidance import recompute
-    from eco_planner.analysis.reporting import guidance as presentation
-    from eco_planner.analysis.runner import analyze
     from eco_planner.artifacts import write_json
-    from tests.analysis.test_reports import assert_report
+    from eco_planner.experiments.guidance.authority import report as presentation
+    from eco_planner.experiments.guidance.authority.analysis import recompute
+    from tests.analysis.helpers import assert_report
+    from tests.analysis.routing import analyze
 
     source = tmp_path / "source"
     source.mkdir()
@@ -274,7 +275,7 @@ class AnalyticPlanner(torch.nn.Module):
 
 
 def analytic_runtime():
-    return FabricInferenceRuntime(
+    return DiffusionRuntime(
         Fabric(accelerator="cpu", devices=1, precision="32-true"),
         AnalyticPlanner(),
         SimpleNamespace(predicted_neighbor_num=0, future_len=80, route_num=25),
@@ -298,7 +299,7 @@ def test_runtime_forwards_endpoints_without_global_rng_consumption():
     actions = torch.tensor([[0.0, -1.0], [0.0, 1.0]])
     generators = tuple(torch.Generator().manual_seed(0) for _ in range(2))
     state = torch.get_rng_state().clone()
-    decision = runtime.infer_batch(
+    decision = DiffusionEvaluationAgent(runtime).infer_batch(
         observation, runtime.sample_noise(generators), generators, guidance_action=actions
     )
     assert torch.equal(torch.get_rng_state(), state)
@@ -309,7 +310,7 @@ def test_runtime_forwards_endpoints_without_global_rng_consumption():
 @pytest.mark.simulator
 @pytest.mark.parametrize("horizon", [21, 3])
 def test_real_rollout_intervention_window_and_noise_pairing(tmp_path, horizon):
-    from eco_planner.runtime.envs import VectorMetaDriveEnv
+    from eco_planner.envs.parallel import VectorMetaDriveEnv
 
     env_config = OmegaConf.to_container(OmegaConf.load(CONFIG_ROOT / "components/env.yaml"))
     env_config.update(map="S", horizon=horizon, num_scenarios=1)
@@ -360,8 +361,8 @@ def test_real_rollout_intervention_window_and_noise_pairing(tmp_path, horizon):
     saved = json.loads((tmp_path / "raw/group-000-arm-4/episodes.json").read_text())
     assert saved["episodes"][0]["status"] == "window_complete"
 
-    from eco_planner.analysis.runner import analyze
     from eco_planner.artifacts import write_json
+    from tests.analysis.routing import analyze
 
     source = tmp_path / "source"
     source.mkdir()

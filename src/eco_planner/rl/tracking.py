@@ -12,18 +12,13 @@ from uuid import uuid4
 from lightning.fabric import Fabric
 from lightning.pytorch.loggers import MLFlowLogger
 from omegaconf import DictConfig, OmegaConf
-from pydantic import BaseModel, ConfigDict, Field
 
 from eco_planner._repository import REPOSITORY_ROOT
 
 from .artifacts import PolicyProbeSummary, TrainingUpdateSummary
+from .artifacts.metadata import TrackingIdentity as TrackingIdentity
+from .artifacts.metadata import TrainingRuntimeMetadata
 from .config import TrainingJobConfig, parse_training_config
-
-
-class TrackingIdentity(BaseModel):
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
-    run_id: str = Field(min_length=1)
-    tracking_uri: str = Field(min_length=1)
 
 
 def update_metrics(summary: TrainingUpdateSummary) -> dict[str, float]:
@@ -331,10 +326,13 @@ class TrainingTracking:
         from eco_planner.artifacts import write_json
 
         metadata["tracking"] = self.identity.model_dump()
-        write_json(self.output_dir / "runtime_metadata.json", metadata)
+        validated = TrainingRuntimeMetadata.model_validate_json(json.dumps(metadata))
+        write_json(self.output_dir / "runtime_metadata.json", validated)
         if self.logger is None:
             return
         self.artifact("runtime_metadata.json")
+        if (self.output_dir / "overrides.yaml").is_file():
+            self.artifact("overrides.yaml")
         for key, value in {
             "git.commit": metadata["git_head"],
             "git.branch": metadata["git_branch"],

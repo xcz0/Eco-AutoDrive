@@ -10,12 +10,6 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from eco_planner.analysis.training import (
-    beta_kl,
-    beta_probe_statistics,
-    heldout_metric_values,
-    paired_beta_deltas,
-)
 from eco_planner.experiments.training.config import (
     GateConfig,
     GridConfig,
@@ -26,16 +20,20 @@ from eco_planner.experiments.training.grid import (
     arm_label,
     compose_arm_overrides,
 )
+from eco_planner.experiments.training.measurements import extract_arm_metrics, policy_ratio_change
+from eco_planner.experiments.training.statistics import (
+    beta_probe_statistics,
+    heldout_metric_values,
+    paired_beta_deltas,
+)
 from eco_planner.planning.policy import ExplorationPolicy
-from eco_planner.planning.policy.distribution import AffineBeta
+from eco_planner.planning.policy.distribution import AffineBeta, beta_kl
 from eco_planner.rl.optimization.update_diagnostics import (
-    extract_arm_metrics,
     learning_rate_history,
     mc_log_ratio_draws,
-    policy_ratio_change,
     post_update_kl_series,
 )
-from tests.training.test_ppo import _policy_config
+from tests.training.helpers import _policy_config
 
 
 def _gate(**overrides: object) -> GateConfig:

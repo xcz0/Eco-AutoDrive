@@ -6,7 +6,7 @@ from pathlib import Path
 import torch
 
 from eco_planner._repository import REPOSITORY_ROOT
-from eco_planner.artifacts import collect_repository_metadata, write_json
+from eco_planner.artifacts import write_json
 from eco_planner.planning.policy import (
     ExplorationPolicy,
     load_exploration_policy_checkpoint,
@@ -14,6 +14,7 @@ from eco_planner.planning.policy import (
 )
 from eco_planner.rl.optimization import PPOUpdater
 from eco_planner.rl.rollout.fixed_batch import FixedBatch
+from eco_planner.runtime.metadata import collect_repository_metadata
 
 
 @dataclass(frozen=True)

@@ -11,23 +11,24 @@ import torch
 from omegaconf import OmegaConf
 
 from eco_planner._repository import REPOSITORY_ROOT
-from eco_planner.analysis import publish
-from eco_planner.artifacts import collect_repository_metadata, write_json
+from eco_planner.artifacts import write_json
 from eco_planner.configuration import load_resolved_yaml_mapping
-from eco_planner.evaluation.inference.runtime import (
-    create_fabric_inference_runtime,
+from eco_planner.envs.parallel import (
+    VectorEnvScenario,
+    VectorMetaDriveEnv,
 )
 from eco_planner.evaluation.intervention import InterventionExecution, collect_group
+from eco_planner.experiments.guidance.authority.analysis import publish
 from eco_planner.experiments.guidance.authority.diagnostics import (
     InterventionConfig,
     analyze_episodes,
 )
 from eco_planner.experiments.protocol.composition import compose_arm_training_config
 from eco_planner.experiments.protocol.config import load_protocol
-from eco_planner.runtime.envs import (
-    VectorEnvScenario,
-    VectorMetaDriveEnv,
+from eco_planner.planning import (
+    create_diffusion_runtime,
 )
+from eco_planner.runtime.metadata import collect_repository_metadata
 
 
 def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[str, Any]:
@@ -54,7 +55,7 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
     torch.use_deterministic_algorithms(True)
     torch.set_num_threads(job.resources.torch_threads_per_worker)
     started = time.perf_counter()
-    runtime = create_fabric_inference_runtime(
+    runtime = create_diffusion_runtime(
         job.runtime,
         job.sampler,
         job.guidance,
@@ -129,7 +130,7 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
         },
     )
     save_decisions(episodes, study, [s.name for s in scenarios], output_dir)
-    return publish("guidance-control-authority", output_dir, output_dir, figures=figures)
+    return publish(output_dir, output_dir, figures=figures)
 
 
 def save_decisions(

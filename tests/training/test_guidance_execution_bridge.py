@@ -8,17 +8,17 @@ import pytest
 from omegaconf import OmegaConf
 
 from eco_planner._repository import CONFIG_ROOT
-from eco_planner.analysis.execution_bridge import (
+from eco_planner.evaluation.policy_intervention import _prediction_response
+from eco_planner.experiments.guidance.execution_bridge.analysis import (
     analyze_bridge_episodes,
     analyze_same_state,
     zero_crossing_step,
 )
-from eco_planner.analysis.horizon import PLANNER_RESPONSE_CHECKPOINTS_S
-from eco_planner.evaluation.policy_intervention import _prediction_response
 from eco_planner.experiments.guidance.execution_bridge.diagnostics import (
     ExecutionBridgeConfig,
     analyze_episodes,
 )
+from eco_planner.experiments.guidance.horizon.analysis import PLANNER_RESPONSE_CHECKPOINTS_S
 
 CHECKPOINT_STEPS = [round(value * 10) for value in PLANNER_RESPONSE_CHECKPOINTS_S]
 
@@ -256,7 +256,7 @@ def test_prediction_response_is_along_heading():
 
 
 def _write_source(tmp_path, rows, same_state_rows):
-    from eco_planner.analysis.io import write_json
+    from eco_planner.artifacts import write_json
 
     source = tmp_path / "source"
     source.mkdir()
@@ -279,8 +279,8 @@ def _write_source(tmp_path, rows, same_state_rows):
 
 
 def test_offline_recompute_matches_live(tmp_path):
-    from eco_planner.analysis.runner import analyze
-    from eco_planner.analysis.statistics import statistics  # noqa: F401  (import surface smoke)
+    from eco_planner.statistics import statistics  # noqa: F401  (import surface smoke)
+    from tests.analysis.routing import analyze
 
     def speed_fn(seed, arm, horizon):
         base = 10.0 + seed

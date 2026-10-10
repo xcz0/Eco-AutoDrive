@@ -3,8 +3,9 @@ from __future__ import annotations
 import pytest
 import torch
 
-from eco_planner.benchmarking.config import RolloutBenchmarkConfig
-from eco_planner.benchmarking.rollout import _effective_ppo_config, _rollout_result
+from benchmarks.config import RolloutBenchmarkConfig, ScalingBenchmarkConfig
+from benchmarks.rollout import _effective_ppo_config, _rollout_result
+from benchmarks.throughput import benchmark_vector_environment_scaling
 from eco_planner.rl.optimization import PPOConfig
 from eco_planner.rl.rollout.collector import VectorRolloutRoundTiming
 from eco_planner.rl.rollout.profiling import RolloutPlannerTiming
@@ -13,28 +14,42 @@ from eco_planner.runtime.profiling import (
     finish_profile,
     profile_call,
 )
+from tests.simulation.test_closed_loop import _environment_config
+from tests.training.helpers import _ppo_config
+
+
+@pytest.mark.simulator
+def test_vector_environment_benchmark_smoke() -> None:
+    results = benchmark_vector_environment_scaling(
+        _environment_config("S"),
+        mode="no_traffic",
+        map_query_radius_m=100.0,
+        history_warmup_steps=0,
+        benchmark=ScalingBenchmarkConfig(
+            kind="throughput",
+            batch_sizes=(1,),
+            worker_counts=(1,),
+            warmup_cycles=1,
+            measured_cycles=1,
+            repeats=1,
+        ),
+    )
+    assert len(results) == 1
+    assert results[0]["worker_count"] == 1
+    for metric in ("env_steps_per_s", "batch_step_wall_s", "worker_environment_s_per_step"):
+        assert len(results[0][metric]["samples"]) == 1  # type: ignore[index]
+        assert results[0][metric]["median"] > 0.0  # type: ignore[index]
 
 
 def _base_ppo_config() -> PPOConfig:
-    return PPOConfig(
-        name="test",
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_epsilon=0.2,
-        target_kl=None,
-        value_coefficient=0.5,
-        entropy_coefficient=0.01,
-        gradient_diagnostics=False,
-        learning_rate=0.00025,
-        adam_epsilon=1e-5,
-        weight_decay=0.0,
-        max_gradient_norm=0.5,
-        epochs=4,
-        batch_size=32,
-        minibatch_size=16,
-        minibatch_seed=0,
-        scheduler_total_optimizer_steps=32,
-        scheduler_minimum_learning_rate=0.0,
+    return _ppo_config().model_copy(
+        update={
+            "epochs": 4,
+            "batch_size": 32,
+            "minibatch_size": 16,
+            "minibatch_seed": 0,
+            "scheduler_total_optimizer_steps": 32,
+        }
     )
 
 

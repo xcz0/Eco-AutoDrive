@@ -8,7 +8,6 @@ import pytest
 import torch
 from pydantic import ValidationError
 
-from eco_planner.analysis.statistics import advantage_comparison, cosine
 from eco_planner.experiments.credit.decisions import (
     CREDIT_FORMS,
     AttributionThresholds,
@@ -43,8 +42,10 @@ from eco_planner.rl.rollout import (
     RolloutEpisodeBuilder,
     RolloutProvenance,
     build_training_decision,
+    build_training_transition,
 )
-from tests.training.test_ppo import (
+from eco_planner.statistics import advantage_comparison, cosine
+from tests.training.helpers import (
     _context,
     _decision_audit,
     _episode,
@@ -395,10 +396,13 @@ def _multi_step_episode(rewards: list[float], next_values: list[float], bootstra
             torch.tensor([0.5]),
             torch.tensor([1.0]),
         )
+        execution = _execution_audit(reward, terminated=False, truncated=False)
         builder.append(
-            decision,
+            build_training_transition(
+                decision, execution.reward_result, terminated=False, truncated=False
+            ),
             _decision_audit(),
-            _execution_audit(reward, terminated=False, truncated=False),
+            execution,
             RolloutProvenance(0, 1, 2, 0),
         )
     episode = builder.finish("rollout_limit", torch.tensor([bootstrap]))
@@ -481,7 +485,7 @@ def test_discounted_return_batch_matches_recursive_returns():
 
 
 def test_discounted_return_respects_every_tail_and_ignores_critic_bootstrap():
-    from tests.training.test_ppo import _episode
+    from tests.training.helpers import _episode
 
     episodes = [
         _episode(

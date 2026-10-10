@@ -82,6 +82,7 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pyright]
 include = [
     "src/eco_planner/",
+    "benchmarks/",
 ]
 exclude = ["third_party", "ref"]
 extraPaths = ["third_party/metadrive"]

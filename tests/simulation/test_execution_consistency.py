@@ -9,8 +9,11 @@ scenario, initial state and trajectory.
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pytest
+import torch
 
 from eco_planner.contracts import (
     CLOSED_LOOP_EXECUTION_STEPS,
@@ -19,14 +22,14 @@ from eco_planner.contracts import (
     evaluation_plan_cycles,
 )
 from eco_planner.envs import MetaDriveEnvSlot
-from eco_planner.evaluation.artifacts.trace import allocate_trace_arrays
-from eco_planner.runtime.envs import (
+from eco_planner.envs.parallel import (
     VectorEnvScenario,
     VectorMetaDriveEnv,
     WorkerResetResult,
     WorkerStepResult,
     operation_results,
 )
+from eco_planner.evaluation.artifacts.trace import allocate_trace_arrays
 from tests.simulation.test_closed_loop import (
     _environment_config,
     _off_route_trajectory,
@@ -88,28 +91,43 @@ def _assert_execution_parity(serial_step, vector_step) -> None:
 
 
 @pytest.mark.simulator
-def test_serial_and_vector_execution_share_canonical_prefix_and_facts() -> None:
-    config = _environment_config("S")
+@pytest.mark.parametrize(
+    "mode,horizon,warmup_steps",
+    [("no_traffic", 100, 0), ("no_traffic", 3, 0), ("traffic", 100, 20)],
+    ids=["canonical", "time-limit", "traffic-history"],
+)
+def test_serial_and_vector_execution_share_canonical_prefix_and_facts(
+    mode, horizon, warmup_steps
+) -> None:
+    config = _environment_config("S", traffic_density=0.1 if mode == "traffic" else 0.0)
+    config["horizon"] = horizon
+    config["truncate_as_terminate"] = False
     scenario = VectorEnvScenario(name="slot-0", map="S", seed=0)
     trajectory = _straight_trajectory()
 
     with MetaDriveEnvSlot(
         dict(config),
-        mode="no_traffic",
+        mode=mode,
         map_query_radius_m=100.0,
-        history_warmup_steps=0,
+        history_warmup_steps=warmup_steps,
     ) as serial_slot:
         serial_reset = serial_slot.reset(map_name=scenario.map, seed=scenario.seed)
-        serial_step = serial_slot.step(trajectory).execution
+        serial_output = serial_slot.step(trajectory)
+        serial_step = serial_output.execution
 
     with VectorMetaDriveEnv(
         [dict(config)],
-        mode="no_traffic",
+        mode=mode,
         map_query_radius_m=100.0,
-        history_warmup_steps=0,
+        history_warmup_steps=warmup_steps,
         scenarios=(scenario,),
     ) as envs:
         resets = envs.reset((scenario,))
+        workers = envs._env._workers
+        assert len(workers) == 1
+        assert workers[0].pid != os.getpid()
+        assert workers[0].is_alive()
+        assert envs.uses_shared_buffers
         steps = envs.step((trajectory,))
         reset_result = operation_results(resets, WorkerResetResult)[0]
         vector_step = operation_results(steps, WorkerStepResult)[0].step
@@ -117,11 +135,29 @@ def test_serial_and_vector_execution_share_canonical_prefix_and_facts() -> None:
     np.testing.assert_allclose(
         serial_reset.state.vehicle_state[:2], reset_result.initial_state[:2], rtol=0, atol=1e-6
     )
-    assert serial_step.execution.substep_states.shape[0] == CLOSED_LOOP_EXECUTION_STEPS
-    assert vector_step.execution.substep_states.shape[0] == CLOSED_LOOP_EXECUTION_STEPS
+    assert not workers[0].is_alive()
+    torch.testing.assert_close(resets["observation"][0], serial_reset.state.observation)
+    torch.testing.assert_close(steps["observation"][0], serial_output.state.observation)
+    assert steps["reward"].device.type == "cpu"
+    assert steps["reward"].item() == 0.0
+    assert steps["terminated"].item() == serial_step.terminated
+    assert steps["truncated"].item() == serial_step.truncated
+    assert len(reset_result.warmup_steps) == len(serial_reset.warmup_steps)
+    for serial_warmup, vector_warmup in zip(
+        serial_reset.warmup_steps, reset_result.warmup_steps, strict=True
+    ):
+        _assert_execution_parity(serial_warmup, vector_warmup)
+    if mode == "traffic":
+        assert torch.count_nonzero(resets["observation", "neighbor_agents_past"]) > 0
+    expected_steps = min(horizon, CLOSED_LOOP_EXECUTION_STEPS)
+    assert serial_step.execution.substep_states.shape[0] == expected_steps
+    assert vector_step.execution.substep_states.shape[0] == expected_steps
     assert vector_step.execution.substep_states.shape[0] * SIMULATOR_STEP_S == pytest.approx(
-        DECISION_INTERVAL_S
+        min(horizon * SIMULATOR_STEP_S, DECISION_INTERVAL_S)
     )
+    if horizon < CLOSED_LOOP_EXECUTION_STEPS:
+        assert serial_step.truncated is True
+        assert serial_step.terminated is False
     _assert_execution_parity(serial_step, vector_step)
 
 

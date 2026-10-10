@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +15,14 @@ from pydantic import TypeAdapter
 from eco_planner.envs import MetaDriveEnvSlot
 from eco_planner.envs.domain.geometry import rear_axle_position, world_points_to_local
 from eco_planner.envs.metadrive import MetaDriveBackend
+from eco_planner.envs.parallel import (
+    VectorEnvScenario,
+    VectorMetaDriveEnv,
+    VectorMetaDriveWorkerError,
+    WorkerResetResult,
+    WorkerStepResult,
+    operation_results,
+)
 from eco_planner.reward import (
     RewardProfileConfig,
     evaluate_plannerrft_energy_step,
@@ -21,13 +30,6 @@ from eco_planner.reward import (
 from eco_planner.rl.config import parse_rollout_config
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater
 from eco_planner.rl.rollout import collect_rollout_episode, create_fabric_rollout_runtime
-from eco_planner.runtime.envs import (
-    VectorEnvScenario,
-    VectorMetaDriveEnv,
-    WorkerResetResult,
-    WorkerStepResult,
-    operation_results,
-)
 
 
 @pytest.fixture(scope="module")
@@ -361,18 +363,49 @@ def test_vector_partial_step_preserves_unselected_slot_and_requested_order() -> 
         VectorEnvScenario(name="slot-0", map="S", seed=0),
         VectorEnvScenario(name="slot-1", map="S", seed=1),
     )
+    replacement = VectorEnvScenario(name="replacement", map="C", seed=0)
     with VectorMetaDriveEnv(
         [_environment_config("S") for _ in scenarios],
         mode="no_traffic",
         map_query_radius_m=100.0,
         history_warmup_steps=0,
-        scenarios=scenarios,
+        scenarios=(*scenarios, replacement),
     ) as envs:
         resets = envs.reset(scenarios)
         reset_results = operation_results(resets, WorkerResetResult)
+        initial_rng = envs._env._slot.backend.engine.np_random.get_state()
         slot_one = envs.step((_straight_trajectory(),), slots=(1,))
+        after_step_rng = envs._env._slot.backend.engine.np_random.get_state()
+        assert pickle.dumps(initial_rng[0]) == pickle.dumps(after_step_rng[0])
         preserved = slot_one.clone()
+        partial_reset = envs.reset((replacement,), slots=(1,))
+        after_reset_rng = envs._env._slot.backend.engine.np_random.get_state()
+        assert pickle.dumps(initial_rng[0]) == pickle.dumps(after_reset_rng[0])
+        assert operation_results(partial_reset, WorkerResetResult)[0].scenario == replacement
+        assert envs._env.operation_result()[0].scenario == scenarios[0]
         slot_zero = envs.step((_straight_trajectory(),), slots=(0,))
+        reordered = envs.reset((replacement, scenarios[0]), slots=(1, 0))
+        assert tuple(r.scenario for r in operation_results(reordered, WorkerResetResult)) == (
+            replacement,
+            scenarios[0],
+        )
+        ordered_steps = envs.step((_straight_trajectory(), _straight_trajectory()), slots=(1, 0))
+        for reset, step in zip(
+            operation_results(reordered, WorkerResetResult),
+            operation_results(ordered_steps, WorkerStepResult),
+            strict=True,
+        ):
+            np.testing.assert_allclose(step.step.execution.start_center, reset.initial_state[:2])
+        workers = tuple(envs._env._workers)
+        invalid = _straight_trajectory()
+        invalid[0, 0] = np.nan
+        with pytest.raises(VectorMetaDriveWorkerError, match="slot 1 failed during step") as error:
+            envs.step((invalid,), slots=(1,))
+        assert "AssertionError: !pos.is_nan()" in str(error.value)
+        assert "Traceback" in str(error.value)
+        assert not any(worker.is_alive() for worker in workers)
+        with pytest.raises(RuntimeError, match="closed"):
+            envs.step((_straight_trajectory(),), slots=(0,))
 
     slot_one_result = operation_results(slot_one, WorkerStepResult)[0]
     slot_zero_result = operation_results(slot_zero, WorkerStepResult)[0]

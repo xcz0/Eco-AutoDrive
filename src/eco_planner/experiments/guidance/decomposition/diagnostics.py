@@ -7,11 +7,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 
-from eco_planner.analysis.decomposition import (
+from eco_planner.experiments.guidance.decomposition.analysis import (
     ARM_NAMES,
     DecompositionDesign,
 )
-from eco_planner.analysis.decomposition import (
+from eco_planner.experiments.guidance.decomposition.analysis import (
     analyze_decomposition_episodes as describe_episodes,
 )
 

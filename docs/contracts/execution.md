@@ -64,9 +64,16 @@ Hydra/OmegaConf 只在 composition 边界存在，领域执行接收严格 typed
 Resources 只提供 worker／slot／thread 容量，不能决定科学参数或 execution topology；换机器不得静默改变 PPO、reward、sampler、guidance 或场景定义。Semantic job 可以无机器 profile 地 compose/validate，执行边界需要预算时缺少 profile 则失败，不合成默认预算。
 显式 resources override 优先；进程环境不被 `.env` 覆盖；自动机器选择仅在无显式 override 时使用。
 
-稳定 application logic 属于 `src/eco_planner`，scripts 仅做参数、bootstrap、展示与退出码。
-通用机制归最低稳定层，共享配置不由 evaluation 私有拥有；底层及 analysis 不依赖具体 experiments。
-Reward 数学归 reward 层，collector 消费 domain facts，环境／worker 不执行 reward profile。
+正式 application logic 属于 `src/eco_planner`，scripts 仅做参数、bootstrap、展示与退出码。
+性能工作流归仓库级 `benchmarks/`，单向消费 planning、envs、RL 的正式能力及领域 artifact
+校验／映射；核心包不得依赖 benchmarks。Warmup、repeats、规模扫描和性能报告由 benchmark
+拥有，不复制生产执行；安全、能耗与成功率的方法评价仍归 evaluation／experiments。
+通用机制归最低稳定层，共享配置不由 evaluation 私有拥有；planning、reward、RL、runtime 与 evaluation 不依赖具体 experiments。
+实验主题拥有编排、分析和报告；共享统计与报告格式机制不反向分派主题。RL 拥有梯度、参数变化和 KL 测量，实验层拥有跨运行汇总与研究判据。
+MetaDrive vector environment、worker、TorchRL adapter 与 partial reset/step sidecar 归 `envs.parallel`，
+复用 envs 的正式 trajectory execution 与 domain facts；runtime 保留共享设备、precision、传输与资源支持。
+Reward 数学归 reward 层，collector 消费 domain facts，环境／worker 不执行 reward profile，
+也不拥有 policy feature 或 evaluation metric 定义。
 业务实现不得从只读 `ref/` 导入。CLI 或 offline reader 的轻量依赖保证见 artifacts contract。
 
 配置、文件及第三方返回值首次进入 typed domain 时校验／转换一次。内部受控数据流依赖类型与 producer tests，不重复做同层防御检查；有限性、冻结参数、RNG 等科学语义检查仍必须保留。
@@ -120,6 +127,6 @@ Wh 与每公里量从同一结果派生。在线 proxy 从相邻实际 center �
 | --- | --- | --- |
 | Cadence / execution | [ABI](../../src/eco_planner/contracts.py)、[execution](../../src/eco_planner/envs/metadrive/execution.py)、[domain](../../src/eco_planner/envs/domain/) | [execution consistency](../../tests/simulation/test_execution_consistency.py) |
 | Config / resources | [jobs](../../src/eco_planner/jobs.py)、[runtime](../../src/eco_planner/runtime/)、[resources](../../configs/components/resources/) | [jobs](../../tests/configuration/test_jobs.py) |
-| Slot / worker 生命周期 | [runtime envs](../../src/eco_planner/runtime/envs/)、[MetaDrive](../../src/eco_planner/envs/metadrive/) | [simulation tests](../../tests/simulation/) |
+| Slot / worker 生命周期 | [envs.parallel](../../src/eco_planner/envs/parallel/)、[MetaDrive](../../src/eco_planner/envs/metadrive/) | [simulation tests](../../tests/simulation/) |
 | RNG / sampler | [runtime random](../../src/eco_planner/runtime/random.py)、[sampling](../../src/eco_planner/planning/diffusion/sampling.py) | [sampling](../../tests/planning/test_sampling.py)、[rollout](../../tests/training/test_rollout.py) |
 | Profiling / transfer | [host transfer](../../src/eco_planner/runtime/host_transfer.py)、[rollout profiling](../../src/eco_planner/rl/rollout/profiling.py) | [benchmark](../../tests/benchmarking/test_rollout.py) |

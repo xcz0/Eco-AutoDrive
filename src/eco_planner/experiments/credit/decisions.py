@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat
 
-from eco_planner.analysis.statistics import rmse as rmse
+from eco_planner.statistics import rmse as rmse
 
 
 class GateThresholds(BaseModel):

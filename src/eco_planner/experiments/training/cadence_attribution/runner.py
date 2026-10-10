@@ -15,11 +15,11 @@ from typing import Any
 
 from omegaconf import OmegaConf
 
-from eco_planner.analysis import publish
 from eco_planner.artifacts import write_json
 from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS
 from eco_planner.experiments.protocol.composition import compose_arm_training_config
 from eco_planner.experiments.protocol.config import load_protocol
+from eco_planner.experiments.training.analysis import publish
 from eco_planner.jobs import run_training_job
 
 from ..attribution import (
@@ -103,7 +103,7 @@ def run(config_path: Path, output_dir: Path, *, figures: bool = True) -> dict[st
         "attribution": _attribution(study, arm_metrics, heldout),
     }
     write_json(output_dir / "summary.json", summary)
-    publish("training", output_dir, output_dir, figures=figures)
+    publish(output_dir, output_dir, figures=figures)
     return {
         "status": "completed",
         "output_dir": str(output_dir),

@@ -7,9 +7,13 @@ from typing import Any
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 
-from eco_planner.analysis.guidance import InterventionDesign
-from eco_planner.analysis.guidance import analyze_episodes as describe_episodes
-from eco_planner.analysis.guidance import matched_statistics as describe_matched
+from eco_planner.experiments.guidance.authority.analysis import InterventionDesign
+from eco_planner.experiments.guidance.authority.analysis import (
+    analyze_episodes as describe_episodes,
+)
+from eco_planner.experiments.guidance.authority.analysis import (
+    matched_statistics as describe_matched,
+)
 
 
 class InterventionConfig(BaseModel):

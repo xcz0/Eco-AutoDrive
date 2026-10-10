@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from tensordict import TensorDictBase
 
-from eco_planner.planning import PolicyGuidanceRuntime
+from eco_planner.planning import DiffusionRuntime, PolicyGuidanceRuntime
 from eco_planner.planning.diffusion import (
     CheckpointLoadReport,
     GuidanceConfig,
@@ -20,9 +20,13 @@ from eco_planner.planning.diffusion import (
 from eco_planner.runtime.fabric import InferenceRuntimeReport
 from eco_planner.runtime.host_transfer import HostTransfer
 
-from ..artifacts.models import PolicyCheckpointProvenance
-from .decision import InferenceDecision, prepare_learned_inference_decision
-from .runtime import FabricInferenceRuntime
+from ..artifacts.models import PolicyActionSummary, PolicyCheckpointProvenance
+from .decision import (
+    InferenceDecision,
+    prepare_diffusion_inference_decision,
+    prepare_learned_inference_decision,
+    validate_artifact_observation_fields,
+)
 
 
 class EvaluationDecision(Protocol):
@@ -56,6 +60,9 @@ class EvaluationAgent(Protocol):
     def policy_checkpoint(self) -> PolicyCheckpointProvenance | None: ...
 
     @property
+    def policy_action(self) -> PolicyActionSummary | None: ...
+
+    @property
     def guided(self) -> bool: ...
 
     def new_noise_generator(self, scenario_index: int) -> torch.Generator: ...
@@ -77,7 +84,11 @@ class EvaluationAgent(Protocol):
 class DiffusionEvaluationAgent:
     """Expose base and fixed-guidance diffusion planners to the common engine."""
 
-    runtime: FabricInferenceRuntime
+    runtime: DiffusionRuntime
+    _host_transfer: HostTransfer = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_host_transfer", HostTransfer(self.runtime.device))
 
     @property
     def planner_config(self) -> OfficialDiffusionPlannerConfig:
@@ -104,6 +115,10 @@ class DiffusionEvaluationAgent:
         return None
 
     @property
+    def policy_action(self) -> PolicyActionSummary | None:
+        return None
+
+    @property
     def guided(self) -> bool:
         return self.runtime.guidance_config.name != "none"
 
@@ -125,10 +140,29 @@ class DiffusionEvaluationAgent:
     ) -> InferenceDecision:
         if policy_generators is not None:
             raise ValueError("diffusion evaluation does not accept policy generators")
-        if len(generators) == 1:
-            return self.runtime.infer(observation, generators[0])
         noise = self.runtime.sample_noise(generators)
-        return self.runtime.infer_batch(observation, noise, generators)
+        return self.infer_batch(observation, noise, generators)
+
+    def infer_batch(
+        self,
+        observation: TensorDictBase,
+        standard_normal_noise: torch.Tensor,
+        transition_generators: Sequence[torch.Generator | None],
+        *,
+        profile: bool = False,
+        guidance_action: torch.Tensor | None = None,
+    ) -> InferenceDecision:
+        """Adapt explicit-noise diagnostic and benchmark calls to evaluation host fields."""
+
+        validate_artifact_observation_fields(observation, self.planner_config)
+        result = self.runtime.decide_batch(
+            observation,
+            standard_normal_noise,
+            transition_generators,
+            profile=profile,
+            guidance_action=guidance_action,
+        )
+        return prepare_diffusion_inference_decision(result, self._host_transfer)
 
 
 @dataclass(frozen=True)
@@ -141,6 +175,12 @@ class PolicyCheckpointEvaluationAgent:
     action_mode: Literal["mean", "sample"]
     policy_action_seeds: tuple[int, ...]
     _host_transfer: HostTransfer = field(init=False, repr=False, compare=False)
+
+    @property
+    def policy_action(self) -> PolicyActionSummary:
+        return PolicyActionSummary(
+            action_mode=self.action_mode, policy_action_seeds=self.policy_action_seeds
+        )
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "_host_transfer", HostTransfer(self.runtime.device))

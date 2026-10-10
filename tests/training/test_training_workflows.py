@@ -6,9 +6,8 @@ import pytest
 from omegaconf import OmegaConf
 
 from eco_planner._repository import CONFIG_ROOT
-from eco_planner.analysis.runner import analyze
 from eco_planner.artifacts import write_json
-from eco_planner.evaluation.artifacts.models import PolicyCheckpointProvenance
+from eco_planner.evaluation.artifacts.models import PolicyActionSummary, PolicyCheckpointProvenance
 from eco_planner.experiments.protocol.composition import (
     compose_a0_evaluation_config,
     compose_arm_training_config,
@@ -16,10 +15,11 @@ from eco_planner.experiments.protocol.composition import (
 from eco_planner.experiments.protocol.config import DEFAULT_PROTOCOL, load_protocol
 from eco_planner.experiments.training import grid, runner
 from eco_planner.experiments.training.config import load_training_grid
-from tests.analysis.test_reports import job
-from tests.evaluation.test_artifacts import _training_summary
+from tests.analysis.helpers import job
+from tests.analysis.routing import analyze
+from tests.evaluation.helpers import _training_summary
+from tests.training.helpers import build_training_update_summary
 from tests.training.test_effective_update import _metrics, _study
-from tests.training.test_tracking import summary as update_fixture
 
 
 @pytest.fixture
@@ -27,7 +27,7 @@ def training_source(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     training = _training_summary(0, 0).model_copy(
-        update={"updates": (update_fixture.__wrapped__(),)}
+        update={"updates": (build_training_update_summary(),)}
     )
     write_json(source / "summary.json", training.model_dump(mode="json"))
     OmegaConf.save(
@@ -90,9 +90,13 @@ def test_policy_evaluation_reuses_only_matched_deterministic_evidence(
     def evaluation(directory, seed):
         value = job().model_copy(
             update={
+                "policy_action": PolicyActionSummary(
+                    action_mode="mean" if seed is None else "sample",
+                    policy_action_seeds=() if seed is None else (seed,),
+                ),
                 "policy_checkpoint": PolicyCheckpointProvenance(
                     label="final", path="policy.pt", policy_hash=training.final_policy_hash
-                )
+                ),
             }
         )
         if seed is None and mismatch == "hash":

@@ -15,7 +15,7 @@ the same per-substep objective and reduce it with the shared
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import replace
 from typing import cast
 
@@ -28,11 +28,13 @@ from eco_planner.reward import (
     EnergyBandConfig,
     PlannerRFTEnergyRewardConfig,
     PlannerRFTNoEnergyRewardConfig,
+    PlannerRFTObjectiveResult,
+    RewardComponents,
     RewardProfileConfig,
-    apply_safety_gate,
-    combine_component_scores,
     energy_band_thresholds,
+    energy_only_prefix,
     energy_score_from_fuel,
+    recompose_reward_prefix,
     scored_arrays,
 )
 from eco_planner.reward.components import EnergyRewardConfig
@@ -51,35 +53,49 @@ def reward_profile(base: PlannerRFTNoEnergyRewardConfig, weight: float) -> Rewar
 
 
 def reweight(episode: RolloutEpisode, profile: RewardProfileConfig) -> RolloutEpisode:
-    # Recompose fixed per-substep audited scores; no environment/component calibration is rerun.
+    """Reuse stored scores with new weights; component settings are not reevaluated."""
     audit = episode.audit.clone()
-    mask = _substep_mask(audit)
-    weights = profile.weights.model_dump()
-    components = {
-        name: _substep_field(audit, f"reward_substep_component_{name}").double() for name in weights
-    }
-    base = cast(torch.Tensor, combine_component_scores(weights, components)) * mask
-    gate = _substep_field(audit, "reward_substep_safety_gate").double()
-    total = (apply_safety_gate(base, gate) * mask).sum(dim=1)
+    results = [
+        recompose_reward_prefix(profile.weights.model_dump(), components, gates, count)
+        for components, gates, count in _substep_scores(audit)
+    ]
     for name in COMPONENTS:
-        field = _substep_field(audit, f"reward_substep_component_{name}").double()
-        audit[f"reward_component_{name}"] = (field * mask).sum(dim=1).unsqueeze(1).float()
-    audit["reward_base_total"] = base.sum(dim=1).unsqueeze(1).float()
-    audit["reward_total"] = total.unsqueeze(1).float()
-    training = episode.training.clone()
-    training["next", "reward"] = audit["reward_total"].to(training["next", "reward"])
-    return replace(episode, training=training, audit=audit, reward_profile=profile.name)
+        audit[f"reward_component_{name}"] = torch.tensor(
+            [[getattr(result.components, name)] for result in results], dtype=torch.float32
+        )
+    return replace(_write_objectives(episode, audit, results), reward_profile=profile.name)
 
 
 def energy_only_reward(episode: RolloutEpisode) -> RolloutEpisode:
     """Objective endpoint: per-substep safety gate times the audited energy score."""
     audit = episode.audit.clone()
-    mask = _substep_mask(audit)
-    base = _substep_field(audit, "reward_substep_component_energy").double() * mask
-    gate = _substep_field(audit, "reward_substep_safety_gate").double()
-    total = (apply_safety_gate(base, gate) * mask).sum(dim=1)
-    audit["reward_base_total"] = base.sum(dim=1).unsqueeze(1).float()
-    audit["reward_total"] = total.unsqueeze(1).float()
+    results = [energy_only_prefix(*inputs) for inputs in _substep_scores(audit)]
+    return _write_objectives(episode, audit, results)
+
+
+def _substep_scores(
+    audit: TensorDictBase,
+) -> Iterator[tuple[list[RewardComponents], list[float], int]]:
+    """Convert stored float32 scores to Python doubles; reward owns prefix reduction."""
+
+    components = [_substep_field(audit, f"reward_substep_component_{name}") for name in COMPONENTS]
+    gates = _substep_field(audit, "reward_substep_safety_gate").tolist()
+    counts = _substep_field(audit, "reward_substep_count").reshape(-1).tolist()
+    for row, (gate_row, count) in enumerate(zip(gates, counts, strict=True)):
+        scores = [
+            RewardComponents(*values)
+            for values in zip(*(field[row].tolist() for field in components), strict=True)
+        ]
+        yield scores, gate_row, count
+
+
+def _write_objectives(
+    episode: RolloutEpisode, audit: TensorDictBase, results: Sequence[PlannerRFTObjectiveResult]
+) -> RolloutEpisode:
+    for name in ("base_total", "total"):
+        audit[f"reward_{name}"] = torch.tensor(
+            [[getattr(result, name)] for result in results], dtype=torch.float32
+        )
     training = episode.training.clone()
     training["next", "reward"] = audit["reward_total"].to(training["next", "reward"])
     return replace(episode, training=training, audit=audit)
