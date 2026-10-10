@@ -6,11 +6,13 @@
 
 ## 历史条件与当前规范
 
-下文 PPO 与 fixed-batch 历史证据来自旧 training `k=1 / 0.1 s` 条件；普通 evaluation 为
+E-048 之前的 PPO 与 fixed-batch 历史证据来自旧 training `k=1 / 0.1 s` 条件；普通 evaluation 为
 `k=5 / 0.5 s`，人工干预的 prefix 另行注明。[ADR 0039](../adr/0039-unify-closed-loop-cadence.md)
 后来接受统一 cadence，同时改变 transition reward 归约和 `gamma` 对应的物理时间视界。
 旧结果不能改称“当前统一 cadence 下已重新验证”；即使历史评测也是 k=5，也不能据此推断
-改为 k=5 训练后的学习方向。#83 的新增状态见[本页末节](#canonical-cadence-transfer-的证据边界)。
+改为 k=5 训练后的学习方向。后续 canonical transfer、policy family 变更和 final comparison
+分别见[本页后续结论](#canonical-cadence-transfer-的证据边界)。各自的 cadence、family、scheduler
+history 与复用 provenance 不得混同；下文“未验证”均受所引用的历史条件限制。
 
 ## 能耗读数能否代表实际执行
 
@@ -159,18 +161,86 @@ Critic 拟合、value target、GAE λ 与 normalization 的剩余影响需独立
 
 ## Canonical cadence transfer 的证据边界
 
-**已接受决定与待验收工作。** [ADR 0039](../adr/0039-unify-closed-loop-cadence.md) 的 cadence 决定
-不能替代实验验收。[Issue #83](https://github.com/xcz0/Eco-AutoDrive/issues/83) 拥有 T1 可辨识性、
-T2 有效更新、T3 positive-control bridge 以及后续 λ sweep 的任务与验收。
+**结论。** 冻结 reward representation 的可辨识性迁移到 k=5；原 PPO control 未通过有效更新
+门限。Matched 归因把主要路径缩小到 critic/shared-trunk/global-clipping coupling，随后独立
+control re-freeze 和复跑通过 T2。Canonical 训练与评测下的 positive control 方向与旧 k=1
+训练结果相反。文档迁移只提炼本分支已有记录，不重跑实验或重裁历史 gate。
 
-**2026-09-24 文档核对发现的状态差异。** #102 的固定 revision 盘点只读到 Task 0/Gate I；
-此后 [#83 Task 1A 评论](https://github.com/xcz0/Eco-AutoDrive/issues/83#issuecomment-5806167952)
-已报告 **Gate T1 PASSED**，运行 commit `eaafe5b`、记录提交 `70768a0`，并说明下一步为 Task 1B，
-未启动正式训练或 sweep。不能继续把 T1 描述为“从未执行”。
+**条件与证据。** 以下使用 ADR 0040 之前的 policy family，no-traffic S/SC、冻结 planner/DDIM5：
 
-但本次工作区 `21704d3` 未包含评论所指
-`docs/experiments/records/e-048-issue83-task-1a-objective-identifiability-transfer.md`；
-本地 Git 无 `70768a0` 对象，GitHub 按该 revision 读取也返回 `No commit found`。
-因此本页仅登记 **Issue 已报告通过、原 record 尚未核到** 的来源差异，不复制评论数值成为
-已核验 Finding，不补造 E-048 record，也不把缺记录推断成从未运行。
-待原记录可读取后再提炼其条件与结论；T2/T3 的通过不由这条评论或旧 E-039/E-040/E-047 推出。
+- [E-048：objective identifiability transfer](../experiments/records/e-048-issue83-task-1a-objective-identifiability-transfer.md)
+  在新的 k=5 initial-policy fixed batch 上复用 E-034/E-038 冻结表示，Gate T1 PASSED；
+  仅 actor backward，无 optimizer/scheduler step，不建立 learned behavior。
+- [E-049：effective-update transfer](../experiments/records/e-049-issue83-task-1b-effective-update-transfer.md)
+  以 calibrated R0、seed 0、50 updates 测原 control，Gate T2 FAILED：median post-update
+  seeded-MC KL 低于门限，c7 held-out 未执行；失败记录保持原裁定。
+- [E-050：matched cadence attribution](../experiments/records/e-050-issue105-phase-a-cadence-attribution.md)
+  只改 k=1/k=5，actor-head policy gradient 几乎不变，critic/total norm 增大、global clipping
+  加强；支持 coupling 为 primary，reward/value scale 与 physical-time credit 为 upstream。
+  [E-051：单机制 counterfactuals](../experiments/records/e-051-issue105-phase-b-counterfactuals.md)
+  继续分离这条路径；没有单一 override-only 诊断臂恢复 k=1 effective-update region。
+- [E-052：独立 control re-freeze](../experiments/records/e-052-issue105-phase-c-canonical-ppo-refreeze.md)
+  按结果前冻结顺序选择 `time_consistent_value_scaled`，保留三个崩溃候选。
+  [E-053：T2 re-entry](../experiments/records/e-053-issue106-task-1-gate-t2-reentry.md)
+  在该 control 下独立复跑，Gate T2 PASSED（7/7），final hash 与 E-052 selected 一致。
+  这是单 seed、50 updates 的机械有效性，KL floor 余量薄，不证明普遍最优或节能。
+- [E-054：canonical positive-control bridge](../experiments/records/e-054-issue106-task-2-canonical-positive-control.md)
+  比较 R0/λ64、seeds 0/1、50 updates，Gate T3 PASSED（6/6）。λ64 更慢且 proxy 强度更低，
+  frozen-policy bridge 支持 canonical temporal mapping；不改写 E-040/E-047 的旧条件结果。
+- [E-055：dose-response](../experiments/records/e-055-issue106-task-3-dose-response.md)
+  以 seed 0、50-step schedule 比较 λ={0,1,2,4,8}，Gate D PASSED（6/6），提名 λ4/λ8。
+  该单 seed、短程 nomination 不能外推到 100-update stability 或新 policy family。
+
+**限制。** T1、T2、T3 分别回答可辨识性、有效更新、objective→behavior 方向，不能互相替代。
+这些证据不证明真实车辆能耗、traffic 泛化或非降速节能；canonical control 是独立接受的选择，
+不表示自动重定义所有 job。Main 整理时“E-048 原 record 未核到”的来源缺口已由本分支原记录补足。
+
+## Interior policy 能否同时解决数值崩溃与行为饱和
+
+**结论。** 旧 family 的 λ4/λ8 短程候选在多 seed 长程确认中失败。Interior 参数化消除了该
+stress 矩阵中的数值崩溃，但 λ4/λ8 仍出现持续纵向饱和；数值稳定不等于可用候选。
+新 family 下重新筛选后，仅 λ1 获得提名并通过后续确认。
+
+**条件与证据。**
+
+- [E-056：首次 multi-seed confirmation](../experiments/records/e-056-issue83-task-1-candidate-multiseed-confirmation.md)
+  使用旧 family、100-update schedule、seeds 0/1/2，Gate M FAILED；λ4 无稳定 seed，
+  λ8 seed 0 崩溃后其余 seeds 未运行。候选 final held-out 未测量，不能借 E-055 数字补齐。
+- [ADR 0040](../adr/0040-beta-interior-concentration-parameterization.md) 改变 probability family
+  和 initial hash；[E-057：interior stress](../experiments/records/e-057-issue114-task3-interior-stress.md)
+  在 r0/λ4/λ8 × 三 seeds × 100 updates 下 9/9 机械稳定，Gate S2 PASSED；Gate S1 FAILED，
+  λ8 boundary mass 超 ceiling，λ4/λ8 均持续负纵向饱和。它不证明所有配置均不会崩溃。
+- [E-058：candidate revalidation](../experiments/records/e-058-issue114-task4-candidate-revalidation.md)
+  在新 family 与同一 100-step schedule 下比较 λ={0,1,2,4,8}，复用 E-057 matched runs。
+  λ1 唯一获提名，Gate S3 PASSED；λ2 因任务结构不一致落选，λ4/λ8 保留饱和否决。
+- [E-059：λ1 confirmation re-entry](../experiments/records/e-059-issue83-task-1-reentry-lam1-multiseed-confirmation.md)
+  复用 E-057 R0 与 E-058 λ1 的训练/评测证据，Gate M PASSED（7/7）；三个 seeds、S/SC
+  family 和 leave-one-scenario-out 方向一致，50→100 updates 同号加深。没有新增训练，
+  不应把 E-058/E-059 算作两次独立复现。
+
+**限制。** 跨 family、50/100-step schedule 的 checkpoint 不可作 matched 数值比较。
+Boundary mass 仅在 initial/final 测量；中间分布形态不能伪称直接 probe 证据。
+λ1 的 proxy 改善仍伴随降速，distribution gates 不建立独立的节能机理。
+
+## Final A0/A1/A2 比较支持什么
+
+**结论。** [E-060：final matched comparison](../experiments/records/e-060-issue83-task-3-final-a0-a1-a2-matched-comparison.md)
+的 A2−A1 Gate F PASSED（7/7）：λ1 相对 calibrated R0，在预注册任务/速度/安全 margins 内
+降低 execution-trace fuel proxy 强度。该改善由降速载带，不是独立于降速机制的节能结论。
+A1−A0 有稳定 learned behavioral effect，但 R0 相对 frozen planner 更快且 proxy 强度更高。
+
+**条件与证据。** Canonical k=5、ADR 0040 interior family、E-052 control、同一 100-update
+scheduler history、training seeds 0/1/2、no-traffic S/SC train seeds 0–7、held-out 16–23，
+300 子步、DDIM5、runtime seed 760025、deterministic Beta mean。A1/A2 复用 E-057/E-058 的
+matched artifacts；A0 在 `3bb59d9` 重跑，不使用 E-029 的历史 artifact 作当前基线。
+
+A2−A1 的三个 seed final 强度下降 1.22%/1.30%/1.45%，scenario-bootstrap CI 不含零；
+速度约下降 3.3%–3.7%，route completion 约下降 0.27%–0.43%。Arrival 保持 13/16，
+collision/out-of-road/wrong-direction 均为零；48/48 评测产物可用，逐项 16/16 配对。
+S/SC 与 leave-one-scenario-out 方向保持，但 S 效应幅度约为 SC 的 2.2–2.3 倍。
+
+**限制。** CI 条件于固定 policy 和可用场景，不是跨 training seed 的总体区间。
+Proxy 不是真实动力系统能耗，energy_distance 与 distance 是同一估计器，不能当独立证据。
+A1 的 learned 分量须区分 initial guidance 偏移与 initial→final 变化。
+结论仅适用本 λ1、reward family、cadence 与无交通矩阵，不外推其他 λ、traffic 或真实车辆。
+是否存在不依赖降速的收益仍属 [reward/objective 研究问题](hypotheses/reward-objective.md)。

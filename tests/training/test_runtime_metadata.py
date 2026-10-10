@@ -16,7 +16,10 @@ from eco_planner.rl.config import parse_training_config
 from eco_planner.runtime.fabric import InferenceRuntimeReport
 
 
-def test_training_metadata_uses_actual_reports_and_strict_roundtrip(tmp_path, monkeypatch):
+@pytest.mark.parametrize("execution_steps", [None, 1])
+def test_training_metadata_uses_actual_reports_and_strict_roundtrip(
+    tmp_path, monkeypatch, execution_steps
+):
     config = parse_training_config(
         compose_job_config(
             "jobs/training/ppo",
@@ -45,7 +48,12 @@ def test_training_metadata_uses_actual_reports_and_strict_roundtrip(tmp_path, mo
     repository["git_status_short"] = (" M synthetic.py",)
     monkeypatch.setattr(io, "collect_repository_metadata", lambda *_: repository)
     path = tmp_path / "runtime_metadata.json"
-    io.write_training_runtime_metadata(path, runtime, config.resources)
+    io.write_training_runtime_metadata(
+        path, runtime, config.resources, execution_steps=execution_steps
+    )
+    assert json.loads(path.read_text(encoding="utf-8"))["execution_steps"] == (
+        config.training.effective_execution_steps() if execution_steps is None else execution_steps
+    )
     metadata = TrainingRuntimeMetadata.model_validate_json(path.read_text(encoding="utf-8"))
     assert metadata.inference_runtime.seed == 37
     assert metadata.inference_runtime.requested_accelerator == "auto"

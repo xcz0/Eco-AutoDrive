@@ -90,10 +90,10 @@ class _PolicyFeatureDenoiser(torch.nn.Module):
         self.anchor = torch.nn.Parameter(torch.tensor(1.25))
 
     def encode(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
-        return torch.zeros((inputs["ego_current_state"].shape[0], 1, 1))
+        return inputs["ego_current_state"].new_zeros((inputs["ego_current_state"].shape[0], 1, 1))
 
     def encode_route(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
-        return torch.zeros((inputs["ego_current_state"].shape[0], 1))
+        return inputs["ego_current_state"].new_zeros((inputs["ego_current_state"].shape[0], 1))
 
     def encode_representations(self, inputs: dict[str, torch.Tensor]) -> DiffusionRepresentations:
         batch = inputs["ego_current_state"].shape[0]
@@ -170,7 +170,7 @@ def policy_config() -> ExplorationPolicyConfig:
         fusion_mlp_depth=1,
         fusion_hidden_dim=8,
         initial_concentration=2.0,
-        minimum_concentration=1e-4,
+        interior_epsilon=1e-4,
     )
 
 

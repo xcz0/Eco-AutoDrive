@@ -96,13 +96,41 @@ def test_explicit_noise_zero_stochasticity_needs_no_generator():
     assert torch.equal(before, torch.get_rng_state())
 
 
-def test_disabled_profiling_does_not_sync_or_create_events(monkeypatch):
+@pytest.mark.parametrize("cuda_initialized", [False, True])
+def test_disabled_profiling_does_not_sync_or_create_events(monkeypatch, cuda_initialized):
     from eco_planner.planning.diffusion_inference import synchronize_if_cuda
 
     def unexpected(*args, **kwargs):
         pytest.fail("disabled profiling must not synchronize or create CUDA events")
 
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: cuda_initialized)
     monkeypatch.setattr(torch.cuda, "synchronize", unexpected)
     monkeypatch.setattr(torch.cuda, "Event", unexpected)
     synchronize_if_cuda(torch.device("cuda"), False)
     run_diffusion_case("base_stochastic")
+
+
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
+def test_cpu_observation_matches_observation_already_on_runtime_device(device):
+    from lightning.fabric import Fabric
+
+    runtime, observation, _, _ = build_diffusion_case("base_stochastic")
+    runtime._fabric = Fabric(accelerator=device, devices=1, precision="32-true")
+    runtime._planner.to(runtime.device)
+    generators = tuple(
+        torch.Generator(device=runtime.device).manual_seed(seed) for seed in (101, 303)
+    )
+    noise = runtime.sample_noise(generators)
+    before = [generator.get_state().clone() for generator in generators]
+    transferred = runtime.decide_batch(observation, noise, generators)
+    after = [generator.get_state().clone() for generator in generators]
+    for generator, state in zip(generators, before, strict=True):
+        generator.set_state(state)
+
+    resident = runtime.decide_batch(observation.to(runtime.device), noise, generators)
+
+    torch.testing.assert_close(transferred.planner.prediction, resident.planner.prediction)
+    assert transferred.planner.prediction.device == runtime.device
+    for generator, expected in zip(generators, after, strict=True):
+        assert torch.equal(generator.get_state(), expected)

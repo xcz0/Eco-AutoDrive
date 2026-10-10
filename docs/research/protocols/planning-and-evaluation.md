@@ -61,7 +61,8 @@ MUST 原样执行并保存 planner 轨迹，再从最后实际状态重新规划
 [诊断协议](diagnostic-studies.md) MAY 显式干预 execution prefix；必须标注干预及 matched conditions，
 不得将其提升为正式 baseline。旧 k=1 training / k=5 evaluation evidence 保持原条件；统一 cadence
 不代表旧 E-039/E-040/E-047 已在新训练条件下重验。
-[Issue #83](https://github.com/xcz0/Eco-AutoDrive/issues/83) 的 transfer validation 不由本次迁移宣称完成。
+后续 canonical training 的 transfer 证据见
+[Findings](../findings.md#canonical-cadence-transfer-的证据边界)，文档迁移本身不构成实验验证。
 
 ## 场景、窗口与结束
 
@@ -107,6 +108,9 @@ FASTSim `fastsim_fuel_energy` MUST 在完整实际执行轨迹结束后离线求
 checkpoint label MUST 显式声明；有 frozen arm 时提供 baseline，无 frozen arm 时 baseline 为 null。
 同 training seed 的各臂除声明的 reward 差异与 tracking 元数据外，训练条件必须相同，包含
 initial policy、planner、probe 和随机流。完整场景池与 scenario 数必须匹配。
+`training.update_count` 与 `ppo.scheduler_total_optimizer_steps` 属于 matched training-time 条件；
+checkpoint 间训练时间比较 MUST 保持同一 scheduler history。50-step schedule 的 final 不能与
+100-step schedule 的 update-50 混作 matched checkpoint，policy family 变更也必须重新匹配。
 
 评测 MUST 固定 workload、场景／地图／map seed、traffic、horizon、sampler、runtime diffusion seed
 与 evaluation mode；eval seed 与 training seed 分别声明。不同 checkpoint/arm/candidate 使用相同
@@ -116,6 +120,16 @@ initial policy、planner、probe 和随机流。完整场景池与 scenario 数�
 默认 comparison 配置的 S/SC train seeds 0–7、held-out seeds 16–23、no-traffic、300 子步、DDIM5、
 runtime seed 760025 是一项具体设计，不是所有实验的普适常量。
 数值组合由 [comparison configs](../../../configs/experiments/comparison/) 拥有；新设计必须显式声明。
+
+已接受的 canonical control、dose-response、100-update confirmation/revalidation 与 final
+A0/A1/A2 设计由该目录的 `calibrated-canonical*.yaml` 分别声明。Final comparison 使用
+[final protocol](../../../configs/experiments/comparison/calibrated-canonical-final-comparison.yaml)：
+A0 为无 policy checkpoint 的 frozen planner，A1 为 calibrated R0，A2 为确认的 λ=1。
+A1−A0 单独报告 learned behavioral effect；A2−A1 是 energy term 的主比较，不能以 A1 是否
+优于 A0 选择 A2。Deterministic Beta mean 是主评测，sample-action 评测仅作辅助诊断。
+该实验预注册的 F1–F7 margins 及裁定见
+[E-060](../../experiments/records/e-060-issue83-task-3-final-a0-a1-a2-matched-comparison.md)，
+不将其阈值变成其他实验的默认值；复用 A1/A2 证据必须满足 artifacts contract 的身份校验。
 
 报告顺序 MUST 为 completion/availability → safety → paired energy：
 
@@ -128,6 +142,12 @@ runtime seed 760025 是一项具体设计，不是所有实验的普适常量。
 - 无 pair 时 estimate/CI 不可用；单 pair 保留 estimate，CI 不可用；常量双样本允许零宽 CI。
   跨 seed 方向计数只用 final，initial checkpoint 是诊断。CI 只描述固定策略及可用场景的不确定性，
   不是 training-seed 总体区间。不得增加失败能耗 penalty 或混合分数来代替这些结果。
+
+Scenario robustness 按 map family 报告 paired delta 均值与计数，并对各 metric 给出
+leave-one-scenario-out 均值范围及符号翻转计数；这是不重采样的统计，样本少于两个时为 null。
+Scalar-reward comparison 另报告同 training seed 双臂 fixed-context probe 的 Beta-stat 差：
+before 用作 matched-initial 守卫，after 表示训练后 guidance 分离。阈值与 gate 归对应实验，
+这两类诊断都不替代主 metric、安全、任务保持和有效样本报告。
 
 ## 规范变更与依据
 

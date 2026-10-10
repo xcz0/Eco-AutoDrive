@@ -85,7 +85,12 @@ Audit、NPZ、sample index 与 summary 的身份／长度必须一致；
 ## Matched inputs 与离线读取
 
 Comparison 输入 MUST 显式列 protocol、arm、training summary、checkpoint label、evaluation path 及可空 baseline；相对路径按输入 YAML 所在目录解析，不按目录名推断实验身份。
-Reader 核验完整训练池、同 seed 各臂控制条件、initial policy/planner/probe/RNG 身份，以及 evaluation checkpoint hash/label 与 training initial/final 状态一致。
+Reader 核验完整训练池、同 seed 各臂控制条件（含 update budget 与 scheduler horizon）、
+initial policy/planner/probe/RNG 身份。Initial/final checkpoint hash 必须对应 training summary；
+其他 checkpoint label MUST 在 comparison manifest 显式提供 `checkpoint_hash`，并与 evaluation
+重算的 hash 核对，不从标签猜测或事后补造 trainer 未记录的逐 update hash。
+Frozen baseline MUST 无 policy checkpoint，并使用声明的 baseline evaluation 条件；policy 臂
+必须使用声明的 policy evaluation 条件，不能把 sampled evaluation 混入 mean-action 主比较。
 Held-out 场景、seed、horizon、sampler 必须符合显式 protocol。
 Scenario/map/map seed/noise seed、evaluation mode、traffic density 的配对键不得重复或缺失。
 失败和不可用 pairs 保留；unknown 不能计安全，undefined 不能补零。
@@ -108,6 +113,18 @@ Critic attribution 的 offline reporting 可核对 advantage，不重算梯度�
 | Guidance sweep | matrix summary 与对应 evaluation summaries |
 | Training grid/diagnose/eval | 持久化测量 summary 与各 run 事实 |
 | Critic attribution | diagnostics NPZ、sample index、summary、diagnostic config、runtime metadata |
+| Cadence / counterfactual attribution | study manifest、逐臂 training runs、held-out、逐 update 测量与归因 summary、report/analysis |
+| Control re-freeze | 同上，另含各候选 Gate、estimator 一致性、failed_candidates、selected_config 与 matched ratios |
+
+Cadence/counterfactual 的离线 GAE 重建 MUST 与源记录的 raw advantage/value target 核对。
+Learning-rate history 从 resolved cosine schedule 与实际 optimizer steps 重建（包括零 step 的
+KL early-stop update），并与逐 update `final_learning_rate` 交叉核验；不一致必须报错。
+Learning-rate exposure 是实际 optimizer steps 使用的 learning rate 累计，不能以 update 数代替。
+启用 gradient diagnostics 时保留六组 per-group norm 序列；未启用则为空，不补造测量。
+
+Control re-freeze 允许候选训练失败或非有限测量后继续筛选，必须保留
+`failure{exception_type,message,traceback}`、failed candidates 和原始证据；reference 失败则中止。
+这是预声明候选筛选流程的专用失败规则，不扩展为普通训练的坏样本跳过或静默重试。
 
 Help、offline analyze、summary/trace/report reader MUST 不加载 Torch、MetaDrive/Panda3D 或渲染器。
 仅生成图片时加载绘图库并使用 headless backend。分析与报告归各实验主题，离线入口不依赖 run 初始化；

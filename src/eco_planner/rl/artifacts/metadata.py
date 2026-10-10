@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import Field, StrictFloat, StrictInt
 
+from eco_planner.contracts import PLANNER_HORIZON
 from eco_planner.runtime.resources import ResourceProfileConfig
 
 from .summaries import _ArtifactModel
@@ -64,6 +65,7 @@ class TrainingRuntimeMetadata(_ArtifactModel):
     lightning: str = Field(min_length=1)
     metadrive: str = Field(min_length=1)
     pydantic: str = Field(min_length=1)
+    execution_steps: StrictInt = Field(ge=1, lt=PLANNER_HORIZON)
     inference_runtime: InferenceRuntimeSummary
     checkpoint: CheckpointSummary
     sampler: SamplerSummary

@@ -27,18 +27,28 @@ def extract_arm_metrics(
     episode_lengths = [update["mean_episode_length"] for update in updates]
     early_stops = sum(1 for update in updates if update["kl_early_stopped"])
     from eco_planner.rl.optimization.update_diagnostics import (
+        GRADIENT_GROUPS,
+        learning_rate_history,
         parameter_delta_series,
         post_clip_gradient_norm,
         probe_guidance_rms_shift,
     )
 
     groups, deltas, final_delta = parameter_delta_series(run_dir, update_count=update_count)
+    lr_history = learning_rate_history(run_dir, updates)
+    gradient_diagnostics = {}
+    if updates[0].get("gradient_diagnostics") is not None:
+        gradient_diagnostics = {
+            group: [update["gradient_diagnostics"][group] for update in updates]
+            for group in GRADIENT_GROUPS
+        }
     first, last = updates[0], updates[-1]
     return {
         "run_dir": str(run_dir),
         "update_count": len(updates),
         "initial_policy_hash": summary["initial_policy_hash"],
         "final_policy_hash": summary["final_policy_hash"],
+        **lr_history,
         # TorchRL's in-update kl_approx, measured at the loss forward (before
         # the optimizer step); structurally ~0 with one minibatch per epoch.
         "pre_update_kl": kl,
@@ -61,8 +71,10 @@ def extract_arm_metrics(
         "parameter_delta_groups": groups,
         "parameter_delta_vs_initial": deltas,
         "parameter_delta_vs_initial_final": final_delta,
+        "gradient_diagnostics": gradient_diagnostics,
         "beta_initial": _beta_summary(first),
         "beta_final": _beta_summary(last),
+        "beta_series": [_beta_summary(update) for update in updates],
         "min_beta_alpha": min(value for update in updates for value in update["beta_alpha_min"]),
         "min_beta_beta": min(value for update in updates for value in update["beta_beta_min"]),
         "action_mean_initial": first["action_mean"],

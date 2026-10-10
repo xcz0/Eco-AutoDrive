@@ -113,7 +113,8 @@ class DiffusionRuntime:
             raise ValueError("transition_generators must contain one generator per batch item")
 
         h2d_started = perf_counter() if profile else 0.0
-        moved = self._fabric.to_device(observation)
+        # TensorDict.to(cpu) may synchronize unrelated CUDA work; move leaves with Fabric.
+        moved = observation.apply(self._fabric.to_device, device=self.device)
         synchronize_if_cuda(self.device, profile)
         host_to_device_s = perf_counter() - h2d_started if profile else 0.0
         if not isinstance(moved, TensorDictBase):

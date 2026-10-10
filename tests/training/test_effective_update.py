@@ -27,8 +27,12 @@ from eco_planner.experiments.training.statistics import (
     paired_beta_deltas,
 )
 from eco_planner.planning.policy import ExplorationPolicy
-from eco_planner.planning.policy.distribution import AffineBeta
-from eco_planner.rl.optimization.update_diagnostics import post_update_kl_series
+from eco_planner.planning.policy.distribution import AffineBeta, beta_kl
+from eco_planner.rl.optimization.update_diagnostics import (
+    learning_rate_history,
+    mc_log_ratio_draws,
+    post_update_kl_series,
+)
 from tests.training.helpers import _policy_config
 
 
@@ -213,11 +217,41 @@ def test_gate_f_rejects_boundary_collapse_and_behavioral_collapse() -> None:
     assert behavioral["conditions"]["c6_no_behavioral_collapse"] is False
 
 
-def _write_run_dir(path: Path, update_count: int) -> None:
+def _cosine_final_learning_rates(step_counts: list[int]) -> list[float]:
+    """Final per-update learning rates from a real CosineAnnealingLR schedule."""
+
+    parameter = torch.nn.Parameter(torch.zeros(1))
+    optimizer = torch.optim.Adam([parameter], lr=1.5e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=sum(step_counts), eta_min=0.0
+    )
+    values = []
+    for steps in step_counts:
+        for _ in range(steps):
+            optimizer.step()
+            scheduler.step()
+        values.append(float(optimizer.param_groups[0]["lr"]))
+    return values
+
+
+def _write_run_dir(path: Path, update_count: int, *, gradient_diagnostics: bool = False) -> None:
+    final_learning_rates = _cosine_final_learning_rates([1] * update_count)
     updates = []
     for index in range(update_count):
         updates.append(
             {
+                "gradient_diagnostics": (
+                    {
+                        "actor_head_policy": 0.3 + index,
+                        "shared_trunk_policy": 0.4,
+                        "value_head_critic": 0.5,
+                        "shared_trunk_critic": 0.6,
+                        "actor_head_entropy": 0.7,
+                        "shared_trunk_entropy": 0.8,
+                    }
+                    if gradient_diagnostics
+                    else None
+                ),
                 "mean_approximate_kl": 1.0e-05 + index * 1.0e-07,
                 "mean_clip_fraction": 0.01,
                 "maximum_pre_clip_gradient_norm": 4.8,
@@ -239,6 +273,8 @@ def _write_run_dir(path: Path, update_count: int) -> None:
                 "out_of_road_count": 0,
                 "mean_episode_length": 8.0,
                 "kl_early_stopped": False,
+                "optimizer_step_count": 1,
+                "final_learning_rate": final_learning_rates[index],
             }
         )
     summary = {
@@ -256,6 +292,16 @@ def _write_run_dir(path: Path, update_count: int) -> None:
     }
     path.mkdir(parents=True)
     (path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    OmegaConf.save(
+        {
+            "ppo": {
+                "learning_rate": 1.5e-4,
+                "scheduler_minimum_learning_rate": 0.0,
+                "scheduler_total_optimizer_steps": update_count,
+            }
+        },
+        path / "resolved_config.yaml",
+    )
     reference = _state_dict()
     _save_checkpoint(path / "policy-initial.pt", reference)
     for index in range(update_count):
@@ -279,12 +325,103 @@ def test_extract_arm_metrics_reads_persisted_run(tmp_path: Path) -> None:
     assert metrics["pre_clip_gradient_norm_median"] == pytest.approx(4.8)
     assert metrics["probe_guidance_rms_shift"] == pytest.approx(math.sqrt(0.00065))
     assert metrics["min_beta_alpha"] == pytest.approx(1.9)
+    assert [entry["dim0"]["alpha"] for entry in metrics["beta_series"]] == [2.0] * 4
+    assert metrics["beta_series"][0] == metrics["beta_initial"]
+    assert metrics["beta_series"][-1] == metrics["beta_final"]
     assert len(metrics["parameter_delta_vs_initial"]) == 4
     assert metrics["parameter_delta_vs_initial"][3]["actor_head"] == pytest.approx(0.008)
     assert metrics["parameter_delta_vs_initial_final"]["actor_head"] == pytest.approx(0.0)
     assert metrics["behavior"]["collision_count"] == 0
+    assert metrics["gradient_diagnostics"] == {}
+    assert metrics["learning_rate_initial"] == pytest.approx(1.5e-4)
+    expected_series = [1.5e-4 * (1.0 + math.cos(math.pi * step / 4)) / 2.0 for step in range(4)]
+    assert metrics["learning_rate_series"] == pytest.approx(expected_series)
+    assert metrics["cumulative_learning_rate_exposure"] == pytest.approx(
+        [sum(expected_series[: index + 1]) for index in range(4)]
+    )
+    assert metrics["cumulative_optimizer_steps"] == [1, 2, 3, 4]
     with pytest.raises(ValueError, match="expected 3"):
         extract_arm_metrics(run_dir, max_gradient_norm=0.5, update_count=3)
+
+
+def test_extract_arm_metrics_reports_per_group_gradient_diagnostics(tmp_path: Path) -> None:
+    run_dir = tmp_path / "arm-gradient"
+    _write_run_dir(run_dir, 4, gradient_diagnostics=True)
+    metrics = extract_arm_metrics(run_dir, max_gradient_norm=0.5, update_count=4)
+    assert metrics["gradient_diagnostics"]["actor_head_policy"] == [0.3, 1.3, 2.3, 3.3]
+    assert metrics["gradient_diagnostics"]["shared_trunk_policy"] == [0.4] * 4
+    assert metrics["gradient_diagnostics"]["shared_trunk_entropy"] == [0.8] * 4
+
+
+def test_learning_rate_history_handles_zero_step_update(tmp_path: Path) -> None:
+    run_dir = tmp_path / "early-stop-arm"
+    run_dir.mkdir()
+    step_counts = [1, 1, 0]
+    OmegaConf.save(
+        {
+            "ppo": {
+                "learning_rate": 1.5e-4,
+                "scheduler_minimum_learning_rate": 0.0,
+                "scheduler_total_optimizer_steps": sum(step_counts),
+            }
+        },
+        run_dir / "resolved_config.yaml",
+    )
+    finals = _cosine_final_learning_rates(step_counts)
+    updates = [
+        {"optimizer_step_count": steps, "final_learning_rate": final}
+        for steps, final in zip(step_counts, finals, strict=True)
+    ]
+    history = learning_rate_history(run_dir, updates)
+    assert history["learning_rate_initial"] == pytest.approx(1.5e-4)
+    assert history["cumulative_optimizer_steps"] == [1, 2, 2]
+    assert history["learning_rate_series"][2] == pytest.approx(finals[1])
+    assert history["cumulative_learning_rate_exposure"][2] == pytest.approx(
+        history["cumulative_learning_rate_exposure"][1]
+    )
+    assert history["cumulative_learning_rate_exposure"][1] == pytest.approx(
+        history["learning_rate_series"][0] + history["learning_rate_series"][1]
+    )
+
+
+def test_learning_rate_history_rejects_schedule_mismatch(tmp_path: Path) -> None:
+    run_dir = tmp_path / "mismatched-arm"
+    run_dir.mkdir()
+    finals = _cosine_final_learning_rates([1, 1])
+    updates = [
+        {"optimizer_step_count": steps, "final_learning_rate": final}
+        for steps, final in zip([1, 1], finals, strict=True)
+    ]
+
+    def _save_resolved_config(total_optimizer_steps: int, learning_rate: float) -> None:
+        OmegaConf.save(
+            {
+                "ppo": {
+                    "learning_rate": learning_rate,
+                    "scheduler_minimum_learning_rate": 0.0,
+                    "scheduler_total_optimizer_steps": total_optimizer_steps,
+                }
+            },
+            run_dir / "resolved_config.yaml",
+        )
+
+    _save_resolved_config(2, 1.5e-4)
+    tampered = [{**updates[0], "final_learning_rate": 1.0e-4}, updates[1]]
+    with pytest.raises(ValueError, match="disagrees with the resolved cosine schedule"):
+        learning_rate_history(run_dir, tampered)
+    _save_resolved_config(2, 2.5e-4)
+    with pytest.raises(ValueError, match="disagrees with the resolved cosine schedule"):
+        learning_rate_history(run_dir, updates)
+    _save_resolved_config(1, 1.5e-4)
+    with pytest.raises(ValueError, match="outside the scheduler horizon"):
+        learning_rate_history(
+            run_dir, [{"optimizer_step_count": 2, "final_learning_rate": finals[0]}]
+        )
+    _save_resolved_config(2, 1.5e-4)
+    with pytest.raises(ValueError, match="optimizer step count is invalid"):
+        learning_rate_history(
+            run_dir, [{"optimizer_step_count": 1.0, "final_learning_rate": finals[0]}]
+        )
 
 
 def test_post_update_kl_series_recomputes_kl_on_persisted_updates(tmp_path: Path) -> None:
@@ -323,8 +460,60 @@ def test_post_update_kl_series_recomputes_kl_on_persisted_updates(tmp_path: Path
     assert series["post_update_kl_median"] == pytest.approx(
         0.5 * (series["post_update_kl"][0] + series["post_update_kl"][1])
     )
+    assert series["post_update_kl_analytic"][0] == pytest.approx(0.0, abs=1.0e-12)
+    assert series["post_update_kl_analytic"][1] > series["post_update_kl"][1]
+    assert all(math.isfinite(value) for value in series["post_update_kl_analytic"])
+    assert series["post_update_kl_analytic_median"] == pytest.approx(
+        0.5 * (series["post_update_kl_analytic"][0] + series["post_update_kl_analytic"][1])
+    )
+    assert series["post_update_kl_analytic_max"] == series["post_update_kl_analytic"][1]
     with pytest.raises(ValueError, match="no persisted rollout episodes"):
         post_update_kl_series(run_dir, update_count=3, mc_draws=4096, mc_seed=1000003)
+
+
+def test_mc_log_ratio_stays_finite_when_float32_rounds_interior_draw_to_boundary() -> None:
+    # E-057 lam4-seed-2 update 86: a legitimate interior base draw 1.45e-08
+    # under a near-floor Beta(1.12, 4.32) rounds to guidance -1.0 in float32,
+    # and the guidance-coordinate round-trip turned the finite true ratio into
+    # NaN.  The base-coordinate evaluation keeps the draw intact.
+    old_alpha = torch.tensor([[3.000150203704834, 1.1215640306472778]])
+    old_beta = torch.tensor([[1.4681456089019775, 4.3188958168029785]])
+    new_alpha = torch.tensor([[3.0026626586914062, 1.1203675270080566]])
+    new_beta = torch.tensor([[1.4670534133911133, 4.3306474685668945]])
+    base_action = torch.tensor([[0.6829089522361755, 1.4503590328729388e-08]])
+    assert (2.0 * base_action - 1.0)[0, 1].item() == -1.0
+    ratio = mc_log_ratio_draws(old_alpha, old_beta, new_alpha, new_beta, base_action)
+    assert torch.isfinite(ratio).all()
+    # Genuinely boundary-singular draws must stay non-finite so the
+    # FloatingPointError collapse guard keeps its semantics.
+    boundary_ratio = mc_log_ratio_draws(
+        old_alpha, old_beta, new_alpha, new_beta, torch.tensor([[0.68, 0.0]])
+    )
+    assert not torch.isfinite(boundary_ratio).all()
+
+
+def test_beta_kl_matches_closed_form_and_is_zero_for_identical_parameters() -> None:
+    identical = beta_kl(
+        torch.tensor([[2.0, 3.0]]),
+        torch.tensor([[4.0, 1.5]]),
+        torch.tensor([[2.0, 3.0]]),
+        torch.tensor([[4.0, 1.5]]),
+    )
+    assert identical.item() == pytest.approx(0.0, abs=1.0e-12)
+
+    uniform_to_beta = beta_kl(
+        torch.tensor([[1.0, 1.0]]),
+        torch.tensor([[1.0, 1.0]]),
+        torch.tensor([[2.0, 3.0]]),
+        torch.tensor([[2.0, 5.0]]),
+    )
+    expected_first_dimension = 2.0 - math.log(6.0)
+    expected_second_dimension = 6.0 - math.log(105.0)
+    assert uniform_to_beta.item() == pytest.approx(
+        expected_first_dimension + expected_second_dimension, rel=1.0e-6
+    )
+    with pytest.raises(ValueError, match="equally shaped"):
+        beta_kl(torch.ones(1, 2), torch.ones(1, 2), torch.ones(2, 2), torch.ones(1, 2))
 
 
 def _write_kl_update(

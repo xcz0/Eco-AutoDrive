@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 import torch
 from tensordict import TensorDictBase, cat
@@ -106,6 +106,12 @@ def compute_episode_gae(episode: TrainingEpisode, config: PPOConfig) -> TensorDi
 
 
 def _compute_gae(trajectory: TensorDictBase, config: PPOConfig) -> TensorDictBase:
+    divisor = config.diagnostic_reward_divisor
+    if divisor != 1.0:
+        # Diagnostic counterfactual only: scale the training reward before GAE without
+        # touching the canonical persisted reward audit.
+        trajectory["next"] = cast(TensorDictBase, trajectory["next"]).clone(recurse=False)
+        trajectory["next", "reward"] = trajectory["next", "reward"] / divisor
     estimator = GAE(
         gamma=config.gamma,
         lmbda=config.gae_lambda,

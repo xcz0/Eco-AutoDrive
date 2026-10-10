@@ -182,3 +182,38 @@ def _validate_action_tensor(action: torch.Tensor, expected: torch.Tensor, name: 
 def _validate_probability_result(value: torch.Tensor, name: str) -> None:
     if value.ndim != 1 or not torch.isfinite(value).all():
         raise ValueError(f"{name} must be finite with shape [B]")
+
+
+def beta_kl(
+    old_alpha: torch.Tensor,
+    old_beta: torch.Tensor,
+    new_alpha: torch.Tensor,
+    new_beta: torch.Tensor,
+) -> torch.Tensor:
+    """Per-context closed-form ``KL(Beta(old) || Beta(new))`` over the guidance Beta.
+
+    The policy maps base action ``u in (0, 1)`` through ``y = 2u - 1``; the constant
+    Jacobian cancels in the KL, so the guidance-space KL equals the underlying
+    per-dimension Beta KL. Inputs share shape ``[B, 2]`` and are evaluated in
+    float64; the two independent dimensions are summed into a ``[B]`` result. The
+    operand order yields ``KL(old || new)`` so an unchanged policy reads exactly 0.
+    """
+
+    if not (old_alpha.shape == old_beta.shape == new_alpha.shape == new_beta.shape):
+        raise ValueError("beta KL requires four equally shaped alpha/beta tensors")
+    a1 = old_alpha.to(dtype=torch.float64)
+    b1 = old_beta.to(dtype=torch.float64)
+    a2 = new_alpha.to(dtype=torch.float64)
+    b2 = new_beta.to(dtype=torch.float64)
+    log_beta1 = torch.lgamma(a1) + torch.lgamma(b1) - torch.lgamma(a1 + b1)
+    log_beta2 = torch.lgamma(a2) + torch.lgamma(b2) - torch.lgamma(a2 + b2)
+    kl = (
+        log_beta2
+        - log_beta1
+        + (a1 - a2) * torch.digamma(a1)
+        + (b1 - b2) * torch.digamma(b1)
+        + (a2 - a1 + b2 - b1) * torch.digamma(a1 + b1)
+    ).sum(dim=-1)
+    if not torch.isfinite(kl).all():
+        raise FloatingPointError("analytic Beta KL must be finite")
+    return kl

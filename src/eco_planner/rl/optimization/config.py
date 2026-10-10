@@ -29,6 +29,10 @@ class PPOConfig(BaseModel):
     value_coefficient: StrictFloat = Field(ge=0.0)
     entropy_coefficient: StrictFloat = Field(ge=0.0)
     gradient_diagnostics: StrictBool
+    # Diagnostic-only: divide the transition reward fed to GAE. Default 1.0 is a
+    # no-op; only matched causal-counterfactual studies override it. The persisted
+    # reward audit and TrainingUpdateSummary.total_reward stay canonical.
+    diagnostic_reward_divisor: StrictFloat = Field(default=1.0, gt=0.0)
     learning_rate: StrictFloat = Field(gt=0.0)
     adam_epsilon: StrictFloat = Field(gt=0.0)
     weight_decay: StrictFloat = Field(ge=0.0)

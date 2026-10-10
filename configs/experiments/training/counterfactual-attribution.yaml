@@ -1,0 +1,61 @@
+version: 1
+study_name: canonical_cadence_ppo_counterfactuals
+protocol: experiments/comparison/calibrated.yaml
+arm: r0
+training_seed: 0
+update_count: 50
+base_overrides: []
+mc_draws: 4096
+mc_seed: 1000003
+historical_comparator: E-050 Phase A matched k=1/k=5 cadence attribution
+reference:
+  label: k5_baseline
+  mechanism: canonical_k5_reference
+  overrides: []
+  description: Canonical k=5 calibrated-R0 reference for the Phase B counterfactuals.
+arms:
+- label: k1_reference
+  mechanism: cadence_reference
+  overrides:
+  - training.diagnostic_execution_steps=1
+  description: E-050 matched k=1 causal reference (actor-recovery target); diagnostic only.
+- label: reward_scale_normalized
+  mechanism: reward_value_scale
+  overrides:
+  - ppo.diagnostic_reward_divisor=5.0
+  description: Divide the PPO training reward by k=5; canonical k=5 cadence and reward audit unchanged.
+- label: temporal_credit_time_consistent
+  mechanism: physical_time_credit
+  overrides:
+  - ppo.gamma=0.9509900499000001
+  - ppo.gae_lambda=0.7737809375
+  description: Preserve the 0.1 s physical decay time constant (gamma^5 / lambda^5).
+- label: value_loss_scaled
+  mechanism: critic_coupling
+  overrides:
+  - ppo.value_coefficient=0.1
+  description: Value-loss coefficient /5 to probe the critic-loss magnitude contribution.
+- label: global_clip_compensated
+  mechanism: critic_coupling
+  overrides:
+  - ppo.max_gradient_norm=2.5
+  description: Raise the global clip threshold to restore the k=1 effective clip coefficient.
+gate:
+  target_kl: 0.006
+  kl_floor: 1.0e-06
+  within_target_kl_fraction: 0.9
+  runaway_tail_updates: 10
+  runaway_tail_factor: 10.0
+  ratio_change_floor: 0.0001
+  guidance_rms_shift_floor: 0.01
+  beta_parameter_floor: 0.1
+  boundary_mass_ceiling: 0.2
+  episode_length_retention_floor: 0.5
+  collision_budget: 2
+  heldout_relative_change_floor: 0.001
+  heldout_metrics:
+  - mean_speed_mps
+  - distance_m
+  - route_completion
+  - energy_total_ml
+  - energy_ml_per_km

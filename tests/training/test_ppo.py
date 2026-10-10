@@ -48,6 +48,22 @@ def test_gae_uses_terminal_and_nonterminal_tail_bootstrap_semantics(truncated) -
     torch.testing.assert_close(bootstrapped["value_target"], torch.tensor([[2.23]]))
 
 
+def test_diagnostic_reward_divisor_scales_gae_without_touching_source() -> None:
+    base = _ppo_config()
+    scaled = base.model_copy(update={"diagnostic_reward_divisor": 5.0})
+    episode = _episode(reward=5.0, terminated=True, truncated=False, bootstrap=0.0)
+    snapshot = episode.training.clone()
+
+    base_trajectory = compute_episode_gae(episode, base)
+    scaled_trajectory = compute_episode_gae(episode, scaled)
+
+    assert (episode.training == snapshot).all()
+    torch.testing.assert_close(base_trajectory["value_target"], torch.tensor([[5.0]]))
+    torch.testing.assert_close(scaled_trajectory["value_target"], torch.tensor([[1.0]]))
+    torch.testing.assert_close(base_trajectory["advantage"], torch.tensor([[4.0]]))
+    torch.testing.assert_close(scaled_trajectory["advantage"], torch.tensor([[0.0]]))
+
+
 def test_gae_treats_simultaneous_termination_and_truncation_as_terminal() -> None:
     episode = _episode(reward=0.25, terminated=True, truncated=True, bootstrap=0.0)
 
@@ -582,3 +598,31 @@ def test_ppo_accepts_non_gated_scalar_results_without_plannerrft_audit() -> None
     report = PPOUpdater(policy, _ppo_config()).update([episode])
     assert report.optimizer_step_count == 1
     assert any(not torch.equal(before[name], value) for name, value in policy.state_dict().items())
+
+
+@pytest.mark.parametrize("compact_input", [False, True])
+def test_reward_divisor_preserves_shared_storage_and_audit(compact_input) -> None:
+    episodes = tuple(
+        _episode(reward=reward, terminated=True, truncated=False, bootstrap=0.0)
+        for reward in (5.0, 10.0)
+    )
+    compact = cat([episode.training for episode in episodes])
+    episodes = tuple(
+        replace(episode, training=compact[index : index + 1])
+        for index, episode in enumerate(episodes)
+    )
+    source = compact if compact_input else episodes
+    original = compact.clone()
+    audits = [episode.audit.clone() for episode in episodes]
+    config = _ppo_config().model_copy(update={"diagnostic_reward_divisor": 5.0})
+
+    first = build_ppo_batch(source, config)
+    second = build_ppo_batch(source, config)
+
+    torch.testing.assert_close(first["value_target"], torch.tensor([[1.0], [2.0]]))
+    torch.testing.assert_close(second["value_target"], first["value_target"])
+    assert (compact == original).all()
+    for episode, audit in zip(episodes, audits, strict=True):
+        assert (episode.audit == audit).all()
+    summary = build_update_summary(0, episodes, _update_report(episodes))
+    assert summary.total_reward == 15.0

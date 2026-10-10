@@ -1,0 +1,42 @@
+# Issue #106 Task 3 dose-response objective evidence (E-055).
+#
+# Replays the frozen E-048 canonical k=5 source batch under the frozen E-038
+# energy band to measure cross-λ objective separation for the dose-response
+# sweep (λ = 0, 1, 2, 4, 8 plus the energy-only anchor). No gate thresholds are
+# evaluated here: Gate D adjudication is recorded in the experiment record from
+# the measured separations, not decided in code.
+value_target_ddof: 0
+advantage_forms:
+- raw
+- center
+- z
+credit_forms:
+- standard_gae
+quantiles:
+- 0.0
+- 0.25
+- 0.5
+- 0.75
+- 0.9
+- 0.95
+- 1.0
+calibration: null
+energy_band: null
+frozen_energy_band:
+  full_score_ml_per_km: 46.37086372375488
+  zero_score_ml_per_km: 48.7514030456543
+objective_gate: null
+attribution_gate: null
+arms:
+- label: r0
+  weight: 0.0
+- label: lambda_1
+  weight: 1.0
+- label: lambda_2
+  weight: 2.0
+- label: lambda_4
+  weight: 4.0
+- label: lambda_8
+  weight: 8.0
+- label: energy_only
+  weight: energy_only

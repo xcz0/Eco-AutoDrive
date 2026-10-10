@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
+from torch.distributions import Beta
 
 from eco_planner.planning.policy import (
     POLICY_CONTEXT_KEYS,
@@ -18,8 +19,19 @@ from eco_planner.planning.policy import (
     ExplorationPolicy,
     parse_exploration_policy_config,
 )
+from eco_planner.planning.policy.distribution import beta_kl
 
 _PARAMETER_GROUPS = ("actor_head", "value_head", "shared_trunk")
+# Per-group parameter-gradient norms persisted only when
+# ``ppo.gradient_diagnostics`` is enabled (measurement-only diagnostic).
+GRADIENT_GROUPS = (
+    "actor_head_policy",
+    "shared_trunk_policy",
+    "value_head_critic",
+    "shared_trunk_critic",
+    "actor_head_entropy",
+    "shared_trunk_entropy",
+)
 _KL_BATCH_KEYS = (
     *POLICY_CONTEXT_KEYS,
     "guidance_action",
@@ -108,6 +120,107 @@ def parameter_delta_vs_reference(
     return deltas
 
 
+def cosine_learning_rate(
+    step: int,
+    *,
+    base_learning_rate: float,
+    minimum_learning_rate: float,
+    total_optimizer_steps: int,
+) -> float:
+    """Closed-form ``CosineAnnealingLR`` learning rate after ``step`` steps."""
+
+    if step < 0 or step > total_optimizer_steps:
+        raise ValueError("cosine learning rate step is outside the scheduler horizon")
+    return minimum_learning_rate + (
+        (base_learning_rate - minimum_learning_rate)
+        * (1.0 + math.cos(math.pi * step / total_optimizer_steps))
+        / 2.0
+    )
+
+
+def learning_rate_history(run_dir: Path, updates: list[dict[str, Any]]) -> dict[str, Any]:
+    """Reconstruct the scheduler-matched per-update learning-rate history.
+
+    The frozen cosine schedule is fully determined by the resolved PPO config,
+    so the learning rate of every optimizer step is rebuilt in closed form from
+    the persisted per-update ``optimizer_step_count`` (zero for KL-early-stopped
+    updates). The reconstruction is cross-checked against each update's recorded
+    ``final_learning_rate``; a mismatch means the run was not trained under the
+    resolved scheduler horizon and is raised instead of silently reported.
+    ``learning_rate_series[i]`` is the rate in effect at update ``i``'s first
+    optimizer step; ``cumulative_learning_rate_exposure[i]`` is the running sum
+    of the per-step learning rates through the update's last optimizer step.
+    """
+
+    config = OmegaConf.load(run_dir / "resolved_config.yaml")
+    if not isinstance(config, DictConfig):
+        raise TypeError(f"resolved training config must be a mapping: {run_dir}")
+    ppo = config["ppo"]
+    base_learning_rate = float(ppo["learning_rate"])
+    minimum_learning_rate = float(ppo["scheduler_minimum_learning_rate"])
+    total_optimizer_steps = int(ppo["scheduler_total_optimizer_steps"])
+
+    def rate_at(step: int) -> float:
+        return cosine_learning_rate(
+            step,
+            base_learning_rate=base_learning_rate,
+            minimum_learning_rate=minimum_learning_rate,
+            total_optimizer_steps=total_optimizer_steps,
+        )
+
+    series: list[float] = []
+    exposure: list[float] = []
+    completed_steps: list[int] = []
+    completed = 0
+    cumulative_exposure = 0.0
+    for index, update in enumerate(updates):
+        steps = update["optimizer_step_count"]
+        if type(steps) is not int or steps < 0:
+            raise ValueError(f"optimizer step count is invalid (update {index})")
+        series.append(rate_at(completed))
+        for _ in range(steps):
+            cumulative_exposure += rate_at(completed)
+            completed += 1
+        expected_final = rate_at(completed)
+        recorded_final = float(update["final_learning_rate"])
+        if not math.isclose(expected_final, recorded_final, rel_tol=1.0e-6, abs_tol=1.0e-12):
+            raise ValueError(
+                f"recorded final learning rate {recorded_final} disagrees with the "
+                f"resolved cosine schedule {expected_final} (update {index})"
+            )
+        exposure.append(cumulative_exposure)
+        completed_steps.append(completed)
+    return {
+        "learning_rate_initial": base_learning_rate,
+        "learning_rate_series": series,
+        "cumulative_learning_rate_exposure": exposure,
+        "cumulative_optimizer_steps": completed_steps,
+    }
+
+
+def mc_log_ratio_draws(
+    old_alpha: torch.Tensor,
+    old_beta: torch.Tensor,
+    new_alpha: torch.Tensor,
+    new_beta: torch.Tensor,
+    base_action: torch.Tensor,
+) -> torch.Tensor:
+    """Evaluate seeded-MC log ratios in base coordinates at float64 precision.
+
+    Evaluating in guidance coordinates round-trips ``2u - 1`` then ``(g + 1) /
+    2``; in float32 this collapses base draws below ``2**-25`` onto the exact
+    boundary, turning mathematically finite interior ratios into ``-inf -
+    (-inf)`` for near-floor concentrations.  The affine Jacobian cancels in the
+    ratio, so the base-coordinate evaluation is exact; genuinely
+    boundary-singular draws still evaluate non-finite.
+    """
+
+    old_distribution = Beta(old_alpha.double(), old_beta.double(), validate_args=False)
+    new_distribution = Beta(new_alpha.double(), new_beta.double(), validate_args=False)
+    draws = base_action.double()
+    return (new_distribution.log_prob(draws) - old_distribution.log_prob(draws)).sum(dim=-1)
+
+
 def post_update_kl_series(
     run_dir: Path, *, update_count: int, mc_draws: int, mc_seed: int
 ) -> dict[str, Any]:
@@ -125,6 +238,11 @@ def post_update_kl_series(
     floor (1e-6). The primary estimate therefore Monte-Carlo integrates the
     expectation over the persisted old Beta parameters with
     ``mc_draws`` seeded draws per context, which resolves ~1e-6 medians.
+
+    The persisted old Beta parameters and the recomputed new parameters also
+    give a deterministic, sampling-free analytic ``KL(old || new)`` (sum of the
+    two per-dimension Beta KLs, the affine Jacobian cancelling), reported as
+    ``post_update_kl_analytic`` alongside the seeded-MC and k1/k3 estimates.
     """
 
     config = OmegaConf.load(run_dir / "resolved_config.yaml")
@@ -133,6 +251,7 @@ def post_update_kl_series(
     policy = ExplorationPolicy(parse_exploration_policy_config(config["policy"]))
     policy.eval()
     kl_series: list[float] = []
+    analytic_series: list[float] = []
     k1_series: list[float] = []
     k3_series: list[float] = []
     for index in range(update_count):
@@ -147,6 +266,7 @@ def post_update_kl_series(
             new_beta = new_beta.to(dtype=torch.float32)
             old_alpha = batch["beta_alpha"].to(dtype=torch.float32)
             old_beta = batch["beta_beta"].to(dtype=torch.float32)
+            analytic_series.append(float(beta_kl(old_alpha, old_beta, new_alpha, new_beta).mean()))
             batch_size = old_alpha.shape[0]
             generator = torch.Generator()
             generator.manual_seed(mc_seed + index)
@@ -156,15 +276,12 @@ def post_update_kl_series(
             base_action = ExplicitGeneratorBetaSampler.draw(
                 repeated, generator, validate_args=False
             )
-            guidance_action = 2.0 * base_action - 1.0
-            old_distribution = AffineBeta(repeated.alpha, repeated.beta, validate_args=False)
-            new_repeated = AffineBeta(
+            log_ratio_draws = mc_log_ratio_draws(
+                repeated.alpha,
+                repeated.beta,
                 new_alpha.repeat(mc_draws, 1),
                 new_beta.repeat(mc_draws, 1),
-                validate_args=False,
-            )
-            log_ratio_draws = new_repeated.log_prob(guidance_action) - old_distribution.log_prob(
-                guidance_action
+                base_action,
             )
             if not torch.isfinite(log_ratio_draws).all():
                 raise FloatingPointError(
@@ -185,6 +302,9 @@ def post_update_kl_series(
         "post_update_kl_median": _median(kl_series),
         "post_update_kl_max": max(kl_series),
         "post_update_kl_mc_draws_per_context": mc_draws,
+        "post_update_kl_analytic": analytic_series,
+        "post_update_kl_analytic_median": _median(analytic_series),
+        "post_update_kl_analytic_max": max(analytic_series),
         "post_update_kl_single_draw_k1": k1_series,
         "post_update_kl_single_draw_k1_median": _median(k1_series),
         "post_update_kl_single_draw_k3_median": _median(k3_series),

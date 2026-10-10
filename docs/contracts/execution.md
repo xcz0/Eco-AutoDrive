@@ -19,6 +19,9 @@ MUST 验证 physics step `0.02 s × decision_repeat 5` 等于 Protocol 的 simul
 执行前缀默认采用 canonical cadence；只有明确的 matched diagnostic intervention 才能覆写长度。
 正式 training config 必须显式保存 simulator_step_s、closed_loop_execution_steps、decision_interval_s，
 并在 typed boundary 拒绝非 canonical 值。共享 ABI 不在各模块另定义一套常量。
+Training 的 `training.diagnostic_execution_steps` 默认 `null`，表示 canonical；显式值只覆盖
+matched diagnostic 的实际执行前缀，MUST 同时保存于 resolved config 与 runtime metadata，
+不能改写 pinned cadence。诊断设计归 [diagnostic studies](../research/protocols/diagnostic-studies.md#cadence-与-ppo-control-归因)。
 
 有限 float32 ego 局部轨迹转换到世界坐标后，每个实际子步写入 vehicle center、heading、相邻 center 有限差分的 velocity 与最短 heading 差的 angular velocity。
 下一观测／规划锚点 MUST 来自最后实际执行状态。Terminal/truncation 时立即停止 prefix，保留真实执行长度和两个原始 flags；不得以计划长度伪造未执行状态。

@@ -6,7 +6,14 @@ from eco_planner.artifacts import read_json
 def training(source: Path) -> dict:
     # All Torch/checkpoint measurements are persisted by diagnose/grid; reporting stays lightweight.
     summary = read_json(source / "summary.json")
-    if summary["kind"] not in ("training-grid", "training-diagnostics", "training-evaluation"):
+    if summary["kind"] not in (
+        "training-grid",
+        "training-diagnostics",
+        "training-evaluation",
+        "training-cadence-attribution",
+        "training-counterfactual-attribution",
+        "training-control-refreeze",
+    ):
         raise ValueError("source is not a current training workflow result")
     return summary
 

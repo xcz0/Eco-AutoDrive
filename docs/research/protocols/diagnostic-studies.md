@@ -139,6 +139,11 @@ Grid 显式声明 learning rate × epochs × gradient norm、update budget 与�
 
 Post-update 测量显式声明 training runs/seeds、MC draws/seed，区分训练 loss 中的 pre-update
 approximate KL 与同 batch 的 post-update seeded-MC KL，保留参数 delta、ratio 与 probe 变化。
+Post-update 同时报告 analytic Beta `KL(old || new)` 与 seeded-MC/k3，不能把单 minibatch
+训练前的 `kl_approx≈0` 当成没有更新。MC log ratio 在 base coordinates 以 float64 求值，
+利用 affine Jacobian 抵消，避免 guidance 往返转换把近边界 draw 舍入为端点；不 clip draws，
+真实非有限结果仍保留为失败。Measurement-only gradient norms 与 learning-rate exposure
+的持久化/核对保证见 [artifacts contract](../../contracts/artifacts.md#matched-inputs-与离线读取)。
 Mean/sample 评测固定 checkpoint hash/label、场景、horizon、sampler 和 diffusion seed，另声明
 policy action seeds；所有 seed 和缺项保留。可复用 mean 结果必须满足上述条件，不按目录猜测。
 
@@ -149,6 +154,34 @@ Training critic attribution 是无仿真／无 planner 的离线 backward-only �
 比较 credit/advantage forms 与预登记 actor/lateral/longitudinal cosine、sign-flip materiality 阈值。
 All-checkpoint 判据失败为 critic_material_candidate，通过为 critic_not_material_to_actor_direction；
 “candidate”不是主因结论。Within-arm 对照与 cross-arm unmatched 描述量分开，后者不作因果。
+
+## Cadence 与 PPO control 归因
+
+以下是 #105 已接受的三个独立设计，manifest 拥有预算、干预和阈值；其具体运行证据见
+[Findings](../findings.md#canonical-cadence-transfer-的证据边界)。全部保持同一 calibrated R0、
+initial policy、training seed/replay、scenario 池、batch 与 update budget；不按 training return 排名。
+
+| 设计 | 允许的差异与裁定 |
+| --- | --- |
+| Cadence attribution / Phase A | 只改显式 execution prefix；包含 canonical k=5 与恰好一个诊断值。按 actor/state/advantage geometry、reward/value scale、physical-time credit、critic/shared-trunk/global-clipping coupling 四类报告 Gate A 证据。 |
+| Counterfactual attribution / Phase B | Canonical reference 无 override；各命名臂显式声明单机制 override（prefix、gamma/GAE lambda、value coefficient、gradient norm 或 reward divisor），报告相对 reference 的 ratios 与 Gate B 证据。诊断臂不自动晋升为正式 control。 |
+| Control re-freeze / Phase C | 在结果前冻结独立、有序候选列表，按 `first_passing_in_declared_order` 选择首个通过 c1–c7 的候选；不按最佳 return 或最大效应选择。 |
+
+Phase A/B 的 matched held-out 对 initial 与各 final 始终执行，即使 mechanical KL floor 未过，
+只用于归因，不重裁 E-049 的历史 Gate T2。非 canonical prefix 不修改 pinned cadence。
+`diagnostic_reward_divisor` 仅对 GAE 输入做 reward-scale counterfactual，不能解释成新的 reward
+representation；默认关闭。软件边界分别归 execution/training contract。
+
+Phase C 的候选只允许显式 PPO control keys：learning_rate、epochs、minibatch_size、gamma、
+gae_lambda、value_coefficient、max_gradient_norm、clip_epsilon；不得覆盖 reward、λ、policy
+feature、cadence 或 batch。Reference 无 override，各臂 label 唯一，同臂无重复 key，不覆盖
+runtime.seed。通过候选须满足预声明 Gate、matched held-out 和 analytic/MC/k3 一致性要求
+（既有设计为同量级 ≤10× 且有限）。失败保留规则归 artifacts contract；无通过项保留空选择。
+这项独立筛选的接受结果由 E-052 登记，不能直接把 Phase B 的诊断臂当成已接受 control。
+
+配置入口：[cadence attribution](../../../configs/experiments/training/cadence-attribution.yaml)、
+[counterfactual attribution](../../../configs/experiments/training/counterfactual-attribution.yaml)、
+[control re-freeze](../../../configs/experiments/training/control-refreeze.yaml)。
 
 ## Benchmark 的测量语义
 
@@ -174,7 +207,10 @@ planner/environment overhead。Worker busy 为 environment+observation，
 
 本篇仅区分 frozen band 的设计，不据旧计划重做机制，也不把配置存在解释为实验通过。
 Transfer 验收归 [Issue #83](https://github.com/xcz0/Eco-AutoDrive/issues/83)；
-旧计划与新增评论的状态差异见 [Findings 的核验边界](../findings.md#canonical-cadence-transfer-的证据边界)。
+本分支已登记的 E-048～E-060 证据与各自条件见
+[Findings](../findings.md#canonical-cadence-transfer-的证据边界)。#105 设计的迁移来源为
+[本分支旧 experiments contract](https://github.com/xcz0/Eco-AutoDrive/blob/f3c3d23/docs/agents/contracts/experiments.md)，
+接受与运行依据为 E-050/E-051/E-052；本篇没有重新运行或重裁这些实验。
 
 | 任务 | 实现／配置定位 | 相关测试（未运行） |
 | --- | --- | --- |
@@ -183,4 +219,5 @@ Transfer 验收归 [Issue #83](https://github.com/xcz0/Eco-AutoDrive/issues/83)�
 | Deferral / decomposition | [guidance studies](../../../src/eco_planner/experiments/guidance/) | [deferral](../../../tests/training/test_guidance_deferral.py)、[decomposition](../../../tests/training/test_guidance_decomposition.py) |
 | Frozen-policy bridge | [policy intervention](../../../src/eco_planner/evaluation/policy_intervention.py) | [bridge](../../../tests/training/test_guidance_execution_bridge.py) |
 | Offline attribution / reporting | [credit math](../../../src/eco_planner/rl/optimization/credit.py)、[experiments](../../../src/eco_planner/experiments/) | [credit](../../../tests/training/test_credit_assignment.py)、[reports](../../../tests/analysis/test_reports.py) |
+| Cadence / counterfactual / re-freeze | [training experiments](../../../src/eco_planner/experiments/training/)、[update diagnostics](../../../src/eco_planner/rl/optimization/update_diagnostics.py) | [cadence](../../../tests/training/test_cadence_attribution.py)、[counterfactual](../../../tests/training/test_counterfactual_attribution.py)、[re-freeze](../../../tests/training/test_control_refreeze.py) |
 | Benchmark | [benchmarks](../../../benchmarks/)、[configs](../../../configs/components/benchmark/) | [rollout benchmark](../../../tests/benchmarking/test_rollout.py) |

@@ -16,7 +16,7 @@ trainability、critic、traffic 或训练 horizon 后，旧结论可迁移到什
 升级成所有任务的强制复验清单。具体预算与判据在接受任务时确定。
 
 已接受的 canonical-cadence transfer 由 [Issue #83](https://github.com/xcz0/Eco-AutoDrive/issues/83)
-跟踪，状态与缺少原始 E-048 记录的核验边界见
+跟踪，已登记的 transfer 与 final comparison 证据边界见
 [Findings](../findings.md#canonical-cadence-transfer-的证据边界)。该执行工作不重新包装为未接受假设。
 
 ## Guidance 的局部响应能否外推
@@ -24,7 +24,7 @@ trainability、critic、traffic 或训练 horizon 后，旧结论可迁移到什
 旧 G-P3 不能继续笼统写作“完全未知”：
 [prefix 与 learned-policy bridge 证据](../findings.md#guidance-与-execution-prefix-如何共同决定方向)
 已解释部分条件下的方向错位。剩余问题包括 state-dependent 异质性、常量干预的 SC off-route、
-更丰富场景下的 action sensitivity，以及新 cadence 训练后的 objective→behavior 方向。
+更丰富场景下的 action sensitivity，以及已观测 canonical objective→behavior 方向能否跨条件保持。
 这些问题不预设改变 guidance range/action definition；必要干预应在对应实验中显式声明。
 
 ## 何时需要扩大运行规模
@@ -38,10 +38,10 @@ trainability、critic、traffic 或训练 horizon 后，旧结论可迁移到什
 旧 Task 1A 方案包含“新增 frozen band / substep 审计 / replay_id 修复 / E-048 配置”的实施步骤。
 [#102 固定 revision 盘点](https://github.com/xcz0/Eco-AutoDrive/issues/102#issuecomment-5806230219)
 已定位这些机制在 `eaafe5b` 存在；本次只按文档整理，不重新审计源码或重复实施。
-旧“已规划、未执行”不能同时代表机制状态和实验状态。未完成工作的唯一执行入口为 #83；
+旧“已规划、未执行”不能同时代表机制状态和实验状态。执行状态由对应 Issue 跟踪；
 独有的旧方案细节仍可读取
 [固定 revision 的 Task 1A 计划](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/research/issue83-task-1a-identifiability-transfer-plan.md)，
-不保留第二份 active checklist。已报告运行的核验边界由 Findings 单独记录。
+不保留第二份 active checklist。本分支 E-048～E-060 已有原始记录，结论边界由 Findings 单独维护。
 
 已关闭的历史 design gates 不重建状态表：采样理由见 [ADR 0011](../../adr/0011-add-explicit-five-step-ddim-sampler.md)，
 reference/guidance 见 [ADR 0013](../../adr/0013-add-reference-centered-orthogonal-guidance.md)，
