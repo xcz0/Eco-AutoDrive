@@ -22,14 +22,14 @@ class ExplorationPolicyConfig(BaseModel):
     fusion_mlp_depth: StrictInt = Field(gt=0)
     fusion_hidden_dim: StrictInt = Field(gt=0)
     initial_concentration: StrictFloat = Field(gt=0.0)
-    minimum_concentration: StrictFloat = Field(gt=0.0)
+    interior_epsilon: StrictFloat = Field(gt=0.0)
 
     @model_validator(mode="after")
     def validate_policy_contract(self) -> ExplorationPolicyConfig:
         if self.hidden_dim % self.cross_attention_heads:
             raise ValueError("policy.hidden_dim must be divisible by cross_attention_heads")
-        if self.initial_concentration <= self.minimum_concentration:
-            raise ValueError("policy.initial_concentration must exceed minimum_concentration")
+        if self.initial_concentration <= 1.0 + self.interior_epsilon:
+            raise ValueError("policy.initial_concentration must exceed 1.0 + interior_epsilon")
         return self
 
 

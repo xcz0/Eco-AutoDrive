@@ -22,7 +22,11 @@ Reference 使用 data/model ABI 的时间、米和 heading 编码。Features 同
 显式 debug 时执行，受控热路径保留结构检查，不重复同层校验。
 
 Context MUST detach；planner eval/frozen、参数不被更新或获得 `.grad`。
-Policy 输出严格正的 `alpha,beta [B,2]` 和 `state_value [B,1]`；typed collection value 可为 `[B]`。
+Policy 输出 `alpha,beta [B,2]` 和 `state_value [B,1]`；typed collection value 可为 `[B]`。
+Concentration 使用 training protocol 的 interior 参数化。`interior_epsilon` MUST 是显式必需的
+正值，`initial_concentration > 1 + interior_epsilon`；冻结配置见
+[policy.yaml](../../configs/components/policy.yaml)。旧 `minimum_concentration` 配置明确拒绝，
+不提供兼容解析；概率族改变后的 policy hash 不得与旧 family 混作 matched initial policy。
 Rollout、current-policy recomputation、bootstrap 和 probe 使用一致的 key/shape 含义。
 Compile 是显式配置选择，不改变 sampler、guidance、随机流、planner hash 或 state-dict identity；
 所需 backend/graph capture/执行失败必须报错，不静默切回 eager。
@@ -32,6 +36,9 @@ Compile 是显式配置选择，不改变 sampler、guidance、随机流、plann
 Base action `u` MUST 严格位于 `(0,1)^2`，保存供 replay；guidance `g=2u−1` MUST 严格位于
 `(-1,1)^2`，顺序为 lateral、longitudinal。边界值、非有限参数和错误 shape/dtype/device 立即失败，
 不得 clamp。固定人工干预的闭区间接口仅见 [data/model](data-and-model.md#固定干预动作)。
+
+Probe 可读取 boundary draws 以测量 boundary mass；这不放宽 rollout/PPO 的动作与 log-prob
+校验，也不允许把无效训练样本 clamp 或跳过。数值稳定不代表 distribution/behavioral stability。
 
 两个独立 Beta 维度的记账为：
 
@@ -82,6 +89,10 @@ Per-transition gamma 与 GAE 公式见 training protocol，本篇不另定义时
 
 Collector 使用同一 execution facts 求每个实际子步 reward，再按 training protocol 归约。
 同一个 `reward_total` MUST 写入 PPO `next.reward` 与 audit，PPO 不消费 worker 零 reward 占位。
+显式诊断开关 `ppo.diagnostic_reward_divisor` 仅在构建 GAE 输入时缩放 reward，默认 `1.0`
+表示禁用；MUST 保留原始 audit、component sums 与 `TrainingUpdateSummary.total_reward`。
+该 counterfactual 的解释边界归 [diagnostic studies](../research/protocols/diagnostic-studies.md#cadence-与-ppo-control-归因)，
+不能把缩放值回写为正式 reward 定义。
 离线 reweight/rescore 逐子步复用同一 reward 数学与归约，不从 transition 的 min gate 和 component sum
 反推 scalar reward，也不维护第二套公式。
 
@@ -135,7 +146,8 @@ Policy-only export 只表示可加载策略参数，不能用它宣称精确续�
 
 来源：[旧 training contract](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/training.md)、[旧 experiments](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/experiments.md)；
 接受依据：[ADR 0016](../adr/0016-add-forward-only-exploration-policy.md)、
-[0018](../adr/0018-use-torchrl-for-gae-and-ppo-math.md)、[0039](../adr/0039-unify-closed-loop-cadence.md)。
+[0018](../adr/0018-use-torchrl-for-gae-and-ppo-math.md)、[0039](../adr/0039-unify-closed-loop-cadence.md)、
+[0040](../adr/0040-beta-interior-concentration-parameterization.md)。
 ADR 0018 已将原闭区间表述标明为与 ADR 0016 冲突的历史文字问题，并引用本篇动作定义。
 本篇保留 ADR 0016 的严格开区间及端点失败决定；这不是根据当前实现新增或放宽规范。
 

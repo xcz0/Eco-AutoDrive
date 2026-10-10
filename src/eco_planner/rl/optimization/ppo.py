@@ -99,6 +99,11 @@ def compute_episode_gae(episode: RolloutEpisode, config: PPOConfig) -> TensorDic
 
 
 def _compute_gae(trajectory: TensorDictBase, config: PPOConfig) -> TensorDictBase:
+    divisor = config.diagnostic_reward_divisor
+    if divisor != 1.0:
+        # Diagnostic counterfactual only: scale the training reward before GAE without
+        # touching the canonical persisted reward audit.
+        trajectory["next", "reward"] = trajectory["next", "reward"] / divisor
     estimator = GAE(
         gamma=config.gamma,
         lmbda=config.gae_lambda,

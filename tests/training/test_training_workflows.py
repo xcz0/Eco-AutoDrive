@@ -5,11 +5,17 @@ import json
 import pytest
 from omegaconf import OmegaConf
 
+from eco_planner._repository import CONFIG_ROOT
 from eco_planner.analysis.runner import analyze
 from eco_planner.artifacts import write_json
 from eco_planner.evaluation.artifacts.models import PolicyCheckpointProvenance
-from eco_planner.experiments.protocol.config import DEFAULT_PROTOCOL
+from eco_planner.experiments.protocol.composition import (
+    compose_a0_evaluation_config,
+    compose_arm_training_config,
+)
+from eco_planner.experiments.protocol.config import DEFAULT_PROTOCOL, load_protocol
 from eco_planner.experiments.training import grid, runner
+from eco_planner.experiments.training.config import load_training_grid
 from tests.analysis.test_reports import job
 from tests.evaluation.test_artifacts import _training_summary
 from tests.training.test_effective_update import _metrics, _study
@@ -224,3 +230,295 @@ def test_grid_preserves_failure_and_propagates_original_error(tmp_path, monkeypa
     assert data["arms"][0]["status"] == "failed"
     assert "original training failure" in data["arms"][0]["failure"]["traceback"]
     analyze("training", output, tmp_path / "report", figures=False)
+
+
+def test_e049_transfer_manifest_pins_calibrated_r0_e039_candidate() -> None:
+    """Task 1B reuses frozen Gate F on the single E-039 candidate arm."""
+
+    manifest = CONFIG_ROOT / "experiments" / "training" / "e-049-effective-update-transfer.yaml"
+    study = load_training_grid(manifest)
+    assert study.grid.combinations() == ((1.5e-4, 1, 0.5),)
+    assert study.arm == "r0"
+    assert study.training_seed == 0
+    assert study.update_count == 50
+    # Gate T2 reuses the frozen E-039 Gate F thresholds verbatim.
+    assert (
+        study.gate
+        == load_training_grid(CONFIG_ROOT / "experiments" / "training" / "grid.yaml").gate
+    )
+
+    protocol = load_protocol(study.protocol_path())
+    _, parsed = compose_arm_training_config(protocol, study.arm, study.training_seed)
+    assert parsed.reward.name == "plannerrft_no_energy_calibrated_v1"
+    assert parsed.ppo.learning_rate == pytest.approx(1.5e-4)
+    assert parsed.ppo.epochs == 1
+    assert parsed.ppo.max_gradient_norm == 0.5
+    assert parsed.ppo.target_kl == pytest.approx(0.006)
+    assert parsed.ppo.batch_size == parsed.ppo.minibatch_size == 128
+    assert parsed.ppo.optimizer_steps_per_update == 1
+    assert parsed.training.update_count == 50
+    assert parsed.cadence.simulator_step_s == 0.1
+    assert parsed.cadence.closed_loop_execution_steps == 5
+    assert parsed.cadence.decision_interval_s == 0.5
+    assert grid.arm_label(*study.grid.combinations()[0]) == "lr1.5000e-04-epochs1-mgn0.5"
+
+
+def test_e053_gate_t2_reentry_manifest_pins_frozen_canonical_control() -> None:
+    """Issue #106 Task 1 reuses frozen Gate F on the E-052 selected control."""
+
+    manifest = (
+        CONFIG_ROOT / "experiments" / "training" / "e-053-issue106-task-1-gate-t2-reentry.yaml"
+    )
+    study = load_training_grid(manifest)
+    assert study.grid.combinations() == ((1.5e-4, 1, 0.5),)
+    assert study.arm == "r0"
+    assert study.training_seed == 0
+    assert study.update_count == 50
+    # Gate T2 reuses the frozen E-039 Gate F thresholds verbatim.
+    assert (
+        study.gate
+        == load_training_grid(CONFIG_ROOT / "experiments" / "training" / "grid.yaml").gate
+    )
+
+    protocol = load_protocol(study.protocol_path())
+    _, parsed = compose_arm_training_config(
+        protocol, study.arm, study.training_seed, grid.compose_arm_overrides(study, 1.5e-4, 1, 0.5)
+    )
+    assert parsed.reward.name == "plannerrft_no_energy_calibrated_v1"
+    assert parsed.ppo.learning_rate == pytest.approx(1.5e-4)
+    assert parsed.ppo.epochs == 1
+    assert parsed.ppo.max_gradient_norm == 0.5
+    assert parsed.ppo.target_kl == pytest.approx(0.006)
+    assert parsed.ppo.batch_size == parsed.ppo.minibatch_size == 128
+    assert parsed.ppo.optimizer_steps_per_update == 1
+    # E-052 selected canonical control overrides.
+    assert parsed.ppo.value_coefficient == pytest.approx(0.1)
+    assert parsed.ppo.gamma == pytest.approx(0.9509900499000001)
+    assert parsed.ppo.gae_lambda == pytest.approx(0.7737809375)
+    assert parsed.training.update_count == 50
+    assert parsed.cadence.simulator_step_s == 0.1
+    assert parsed.cadence.closed_loop_execution_steps == 5
+    assert parsed.cadence.decision_interval_s == 0.5
+    assert grid.arm_label(*study.grid.combinations()[0]) == "lr1.5000e-04-epochs1-mgn0.5"
+
+
+def test_canonical_dose_response_protocol_pins_frozen_control_and_lambda_arms() -> None:
+    """Issue #106 Task 3 sweeps only the energy-band weight under frozen control."""
+
+    protocol = load_protocol(
+        CONFIG_ROOT / "experiments" / "comparison" / "calibrated-canonical-dose-response.yaml"
+    )
+    assert protocol.training.seeds == [0]
+    assert protocol.frozen_arm is None
+    assert [(pair[0], pair[1]) for pair in protocol.contrasts] == [
+        ("r0", "lam1"),
+        ("r0", "lam2"),
+        ("r0", "lam4"),
+        ("r0", "lam8"),
+    ]
+    assert protocol.arms["r0"].reward_profile == "plannerrft_no_energy_calibrated_v1"
+    assert protocol.arms["lam1"].reward_profile == "plannerrft_energy_band_lam1_v1"
+    assert protocol.arms["lam2"].reward_profile == "plannerrft_energy_band_lam2_v1"
+    assert protocol.arms["lam4"].reward_profile == "plannerrft_energy_band_lam4_v1"
+    assert protocol.arms["lam8"].reward_profile == "plannerrft_energy_band_lam8_v1"
+
+    parsed = {
+        arm: compose_arm_training_config(protocol, arm, 0)[1]
+        for arm in ("r0", "lam1", "lam2", "lam4", "lam8")
+    }
+    assert parsed["r0"].reward.name == "plannerrft_no_energy_calibrated_v1"
+    assert parsed["lam8"].reward.name == "plannerrft_energy_band_lam8_v1"
+    for arm, config in parsed.items():
+        assert config.ppo == parsed["r0"].ppo, arm
+        assert config.scenarios == parsed["r0"].scenarios, arm
+    for config in parsed.values():
+        assert config.ppo.value_coefficient == pytest.approx(0.1)
+        assert config.ppo.gamma == pytest.approx(0.9509900499000001)
+        assert config.ppo.gae_lambda == pytest.approx(0.7737809375)
+        assert config.ppo.learning_rate == pytest.approx(1.5e-4)
+        assert config.ppo.epochs == 1
+        assert config.ppo.max_gradient_norm == 0.5
+        assert config.ppo.target_kl == pytest.approx(0.006)
+        assert config.ppo.batch_size == config.ppo.minibatch_size == 128
+        assert config.training.update_count == 50
+        assert config.cadence.simulator_step_s == 0.1
+        assert config.cadence.closed_loop_execution_steps == 5
+        assert config.cadence.decision_interval_s == 0.5
+
+
+def test_canonical_positive_control_protocol_pins_frozen_control_and_two_arms() -> None:
+    """Issue #106 Task 2 runs calibrated R0/rstress under the E-052 frozen control."""
+
+    protocol = load_protocol(
+        CONFIG_ROOT / "experiments" / "comparison" / "calibrated-canonical.yaml"
+    )
+    assert protocol.training.seeds == [0, 1]
+    assert [(pair[0], pair[1]) for pair in protocol.contrasts] == [("r0", "rstress")]
+
+    _, r0 = compose_arm_training_config(protocol, "r0", 0)
+    _, rstress = compose_arm_training_config(protocol, "rstress", 0)
+    assert r0.reward.name == "plannerrft_no_energy_calibrated_v1"
+    assert rstress.reward.name == "plannerrft_energy_band_lam64_v1"
+    assert r0.ppo == rstress.ppo
+    assert r0.scenarios == rstress.scenarios
+    for parsed in (r0, rstress):
+        assert parsed.ppo.value_coefficient == pytest.approx(0.1)
+        assert parsed.ppo.gamma == pytest.approx(0.9509900499000001)
+        assert parsed.ppo.gae_lambda == pytest.approx(0.7737809375)
+        assert parsed.ppo.learning_rate == pytest.approx(1.5e-4)
+        assert parsed.ppo.epochs == 1
+        assert parsed.ppo.max_gradient_norm == 0.5
+        assert parsed.ppo.target_kl == pytest.approx(0.006)
+        assert parsed.ppo.batch_size == parsed.ppo.minibatch_size == 128
+        assert parsed.training.update_count == 50
+        assert parsed.cadence.simulator_step_s == 0.1
+        assert parsed.cadence.closed_loop_execution_steps == 5
+        assert parsed.cadence.decision_interval_s == 0.5
+
+
+def test_candidate_revalidation_protocol_pins_frozen_control_and_lambda_arms() -> None:
+    """Issue #114 Task 4 revalidates the lambda sweep under the interior family."""
+
+    protocol = load_protocol(
+        CONFIG_ROOT
+        / "experiments"
+        / "comparison"
+        / "calibrated-canonical-candidate-revalidation.yaml"
+    )
+    assert protocol.training.seeds == [0, 1, 2]
+    assert protocol.frozen_arm is None
+    assert [(pair[0], pair[1]) for pair in protocol.contrasts] == [
+        ("r0", "lam1"),
+        ("r0", "lam2"),
+        ("r0", "lam4"),
+        ("r0", "lam8"),
+    ]
+    assert protocol.arms["r0"].reward_profile == "plannerrft_no_energy_calibrated_v1"
+    assert protocol.arms["lam1"].reward_profile == "plannerrft_energy_band_lam1_v1"
+    assert protocol.arms["lam2"].reward_profile == "plannerrft_energy_band_lam2_v1"
+    assert protocol.arms["lam4"].reward_profile == "plannerrft_energy_band_lam4_v1"
+    assert protocol.arms["lam8"].reward_profile == "plannerrft_energy_band_lam8_v1"
+
+    parsed = {
+        arm: compose_arm_training_config(protocol, arm, 0)[1]
+        for arm in ("r0", "lam1", "lam2", "lam4", "lam8")
+    }
+    for arm, config in parsed.items():
+        assert config.reward.name == protocol.arms[arm].reward_profile
+        assert config.ppo == parsed["r0"].ppo, arm
+        assert config.scenarios == parsed["r0"].scenarios, arm
+        assert config.ppo.value_coefficient == pytest.approx(0.1)
+        assert config.ppo.gamma == pytest.approx(0.9509900499000001)
+        assert config.ppo.gae_lambda == pytest.approx(0.7737809375)
+        assert config.ppo.gradient_diagnostics is True
+        assert config.training.update_count == 100
+        assert config.ppo.scheduler_total_optimizer_steps == 100
+        assert config.cadence.simulator_step_s == 0.1
+        assert config.cadence.closed_loop_execution_steps == 5
+        assert config.cadence.decision_interval_s == 0.5
+
+
+def test_lam1_confirmation_protocol_pins_frozen_control_and_candidate() -> None:
+    """Issue #83 Task 1 re-entry confirms lambda=1 against calibrated R0 (E-059)."""
+
+    protocol = load_protocol(
+        CONFIG_ROOT / "experiments" / "comparison" / "calibrated-canonical-lam1-confirmation.yaml"
+    )
+    revalidation = load_protocol(
+        CONFIG_ROOT
+        / "experiments"
+        / "comparison"
+        / "calibrated-canonical-candidate-revalidation.yaml"
+    )
+    assert protocol.training == revalidation.training
+    assert protocol.evaluation == revalidation.evaluation
+    assert protocol.bootstrap == revalidation.bootstrap
+    assert protocol.training.seeds == [0, 1, 2]
+    assert protocol.frozen_arm is None
+    assert [(pair[0], pair[1]) for pair in protocol.contrasts] == [("r0", "lam1")]
+    assert protocol.arms["r0"].reward_profile == "plannerrft_no_energy_calibrated_v1"
+    assert protocol.arms["lam1"].reward_profile == "plannerrft_energy_band_lam1_v1"
+
+    parsed = {arm: compose_arm_training_config(protocol, arm, 0)[1] for arm in ("r0", "lam1")}
+    for arm, config in parsed.items():
+        assert config.reward.name == protocol.arms[arm].reward_profile
+        assert config.ppo == parsed["r0"].ppo, arm
+        assert config.scenarios == parsed["r0"].scenarios, arm
+        assert config.ppo.value_coefficient == pytest.approx(0.1)
+        assert config.ppo.gamma == pytest.approx(0.9509900499000001)
+        assert config.ppo.gae_lambda == pytest.approx(0.7737809375)
+        assert config.ppo.gradient_diagnostics is True
+        assert config.training.update_count == 100
+        assert config.ppo.scheduler_total_optimizer_steps == 100
+        assert config.cadence.simulator_step_s == 0.1
+        assert config.cadence.closed_loop_execution_steps == 5
+        assert config.cadence.decision_interval_s == 0.5
+
+
+def test_final_comparison_protocol_pins_frozen_baseline_and_matched_arms() -> None:
+    """Issue #83 Task 3 final A0/A1/A2 matched evaluation pins the E-059 blocks (E-060)."""
+
+    protocol = load_protocol(
+        CONFIG_ROOT / "experiments" / "comparison" / "calibrated-canonical-final-comparison.yaml"
+    )
+    confirmation = load_protocol(
+        CONFIG_ROOT / "experiments" / "comparison" / "calibrated-canonical-lam1-confirmation.yaml"
+    )
+    assert protocol.training == confirmation.training
+    assert protocol.evaluation == confirmation.evaluation
+    assert protocol.bootstrap == confirmation.bootstrap
+    assert protocol.training.seeds == [0, 1, 2]
+    assert protocol.frozen_arm == "a0"
+    assert protocol.arms["a0"].reward_profile is None
+    assert protocol.arms["a1"].reward_profile == "plannerrft_no_energy_calibrated_v1"
+    assert protocol.arms["a2"].reward_profile == "plannerrft_energy_band_lam1_v1"
+    assert [(pair[0], pair[1]) for pair in protocol.contrasts] == [("a0", "a1"), ("a1", "a2")]
+
+    _, a0 = compose_a0_evaluation_config(protocol)
+    assert a0.runtime.seed == 760_025
+    assert a0.policy_checkpoint is None
+
+    parsed = {arm: compose_arm_training_config(protocol, arm, 0)[1] for arm in ("a1", "a2")}
+    for arm, config in parsed.items():
+        assert config.reward.name == protocol.arms[arm].reward_profile
+        assert config.ppo == parsed["a1"].ppo, arm
+        assert config.scenarios == parsed["a1"].scenarios, arm
+        assert config.ppo.value_coefficient == pytest.approx(0.1)
+        assert config.ppo.gamma == pytest.approx(0.9509900499000001)
+        assert config.ppo.gae_lambda == pytest.approx(0.7737809375)
+        assert config.ppo.gradient_diagnostics is True
+        assert config.training.update_count == 100
+        assert config.ppo.scheduler_total_optimizer_steps == 100
+        assert config.cadence.simulator_step_s == 0.1
+        assert config.cadence.closed_loop_execution_steps == 5
+        assert config.cadence.decision_interval_s == 0.5
+
+
+def test_canonical_confirmation_protocol_pins_frozen_control_and_candidates() -> None:
+    """Issue #83 Task 1 confirms lambda=4/8 across three seeds for 100 updates."""
+
+    protocol = load_protocol(
+        CONFIG_ROOT / "experiments" / "comparison" / "calibrated-canonical-confirmation.yaml"
+    )
+    assert protocol.training.seeds == [0, 1, 2]
+    assert [(pair[0], pair[1]) for pair in protocol.contrasts] == [("r0", "lam4"), ("r0", "lam8")]
+    assert protocol.arms["r0"].reward_profile == "plannerrft_no_energy_calibrated_v1"
+    assert protocol.arms["lam4"].reward_profile == "plannerrft_energy_band_lam4_v1"
+    assert protocol.arms["lam8"].reward_profile == "plannerrft_energy_band_lam8_v1"
+
+    parsed = {
+        arm: compose_arm_training_config(protocol, arm, 0)[1] for arm in ("r0", "lam4", "lam8")
+    }
+    for arm, config in parsed.items():
+        assert config.reward.name == protocol.arms[arm].reward_profile
+        assert config.ppo == parsed["r0"].ppo, arm
+        assert config.scenarios == parsed["r0"].scenarios, arm
+        assert config.ppo.value_coefficient == pytest.approx(0.1)
+        assert config.ppo.gamma == pytest.approx(0.9509900499000001)
+        assert config.ppo.gae_lambda == pytest.approx(0.7737809375)
+        assert config.ppo.gradient_diagnostics is True
+        assert config.training.update_count == 100
+        assert config.ppo.scheduler_total_optimizer_steps == 100
+        assert config.cadence.simulator_step_s == 0.1
+        assert config.cadence.closed_loop_execution_steps == 5
+        assert config.cadence.decision_interval_s == 0.5

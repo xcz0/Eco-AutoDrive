@@ -15,7 +15,8 @@
 ## 证据入口与待回答问题
 
 [Findings](../findings.md) 分开整理 objective 可辨识性、有效更新、行为方向和执行时间语义。
-这里继续研究：这些条件满足后，scalar objective 能否带来跨 seed、场景可重复的节能收益？
+E-060 已在受限 matched 条件下观察到跨三个 training seeds 的 proxy 强度下降，但伴随降速；
+这里继续研究这种效应能否跨条件保持，以及能否获得不依赖降速机制的能耗收益。
 已接受的 canonical-cadence transfer 与 λ 实验由
 [Issue #83](https://github.com/xcz0/Eco-AutoDrive/issues/83) 拥有，不在本篇维护执行状态。
 

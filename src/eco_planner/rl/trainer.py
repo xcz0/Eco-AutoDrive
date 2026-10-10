@@ -91,7 +91,12 @@ def _train(
     start_update = state.completed_updates
     tracking.attach(runtime.fabric, state.update_summaries, state.tracking)
     state.tracking = tracking.identity
-    write_training_runtime_metadata(output_dir / "runtime_metadata.json", runtime, resources)
+    write_training_runtime_metadata(
+        output_dir / "runtime_metadata.json",
+        runtime,
+        resources,
+        execution_steps=config.training.effective_execution_steps(),
+    )
     tracking.runtime_metadata()
     diffusion_generators = tuple(runtime.new_noise_generator(seed) for seed in noise_seeds)
     policy_generators = tuple(runtime.new_policy_generator(seed) for seed in policy_seeds)
@@ -113,6 +118,7 @@ def _train(
         physical_slot_count=resources.rollout_worker_count,
         torch_threads_per_worker=resources.torch_threads_per_worker,
         reward_profile=config.reward,
+        execution_steps=config.training.diagnostic_execution_steps,
     ) as rollout_collector:
         for update_index in range(start_update, config.training.update_count):
             update_episodes: list[RolloutEpisode] = []

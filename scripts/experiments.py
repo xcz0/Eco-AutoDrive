@@ -85,6 +85,30 @@ COMMANDS = {
         source=True,
     ),
     ("training", "critic-attribution", "analyze"): Command("", "", None, source=True),
+    ("training", "cadence-attribution", "run"): Command(
+        "training.cadence_attribution.runner",
+        "run",
+        "training/cadence-attribution.yaml",
+        environment=True,
+        cuda=True,
+    ),
+    ("training", "cadence-attribution", "analyze"): Command("", "", None, source=True),
+    ("training", "counterfactual-attribution", "run"): Command(
+        "training.counterfactual_attribution.runner",
+        "run",
+        "training/counterfactual-attribution.yaml",
+        environment=True,
+        cuda=True,
+    ),
+    ("training", "counterfactual-attribution", "analyze"): Command("", "", None, source=True),
+    ("training", "control-refreeze", "run"): Command(
+        "training.control_refreeze.runner",
+        "run",
+        "training/control-refreeze.yaml",
+        environment=True,
+        cuda=True,
+    ),
+    ("training", "control-refreeze", "analyze"): Command("", "", None, source=True),
     ("training", "analyze"): Command("", "", None, source=True),
 }
 
@@ -110,7 +134,16 @@ def build_parser() -> argparse.ArgumentParser:
             nested = {
                 "critic-attribution": sub.add_parser("critic-attribution").add_subparsers(
                     required=True
-                )
+                ),
+                "cadence-attribution": sub.add_parser("cadence-attribution").add_subparsers(
+                    required=True
+                ),
+                "counterfactual-attribution": sub.add_parser(
+                    "counterfactual-attribution"
+                ).add_subparsers(required=True),
+                "control-refreeze": sub.add_parser("control-refreeze").add_subparsers(
+                    required=True
+                ),
             }
         else:
             nested = {}
@@ -137,7 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
                     command.add_argument("--training-seed", type=int, required=True)
                     command.add_argument("--override", action="append", default=[])
                 else:
-                    command.add_argument("--checkpoint", choices=("initial", "final"))
+                    command.add_argument("--checkpoint")
                     command.add_argument("--checkpoint-path", type=Path)
     return parser
 

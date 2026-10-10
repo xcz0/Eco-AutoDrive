@@ -21,7 +21,10 @@ MUST 只优化 Exploration Policy 的 actor head、value head 和共享 trunk；
 必须显式配置，不用隐式默认补足。
 
 每个 planning cycle 是单候选 `K=1`。横向和纵向分别使用独立 Beta 分布，concentration 为
-`softplus(raw) + minimum_concentration`。Actor head 零权重、对称 bias 初始化，使 `alpha=beta`，
+`1 + interior_epsilon + softplus(raw)`（[ADR 0040](../../adr/0040-beta-interior-concentration-parameterization.md)）。
+这限制可达分布族为 interior，排除旧参数化允许的 singular boundary mode；不保证行为不饱和。
+Actor head 零权重，bias 为 `inverse_softplus(initial_concentration - 1 - interior_epsilon)`，使
+`alpha=beta=initial_concentration`，
 初始 guidance mean 为零而方差非零。训练使用显式 policy RNG 的 reparameterized sample；
 deterministic evaluation 使用 Beta mean，随机策略评测使用 sample，不公开 mode。
 动作变换、有效域及 Jacobian 由 training contract 唯一定义，不采用 DDIM transition probability。
@@ -77,7 +80,8 @@ calibrated_band:       E = clip((band_zero_score_ml_per_km - e)
 band arms 的 objective 差异只在 energy 项、分母及 profile identity，不另改共享分量。
 E-034 校准和 E-038 band 的实际冻结数值由
 [reward configs](../../../configs/components/reward/) 拥有；诊断中从 batch 重新校准是另一种设计，
-见 [diagnostic studies](diagnostic-studies.md#固定批次与校准)。本篇不声称这些历史表示已通过新 cadence transfer。
+见 [diagnostic studies](diagnostic-studies.md#固定批次与校准)。Transfer 的证据与适用条件归
+[Findings](../findings.md#canonical-cadence-transfer-的证据边界)，不能从 profile 存在推断通过。
 
 ## 从子步到 transition
 
@@ -120,8 +124,12 @@ value_target_t = At + V(st)
 ```
 
 Masks、tail value 与原始 terminal/truncated flag 的精确关系由 training contract 拥有。
-`gamma` MUST 保持 per-transition，当前配置 0.99；在 canonical cadence 下有效物理折扣视界
-约 50 s，旧 0.1 s transition 下约 10 s。依据 ADR 0039，不作 rebase 补偿。
+`gamma` MUST 保持 per-transition。ADR 0039 切换 cadence 时保留 base profile 的 0.99，
+在 canonical cadence 下有效物理折扣视界约 50 s，旧 0.1 s transition 下约 10 s，未自动 rebase。
+后续 E-052 接受的 canonical PPO control 在 comparison 配置中显式冻结不同的
+`gamma`、`gae_lambda` 与 `value_coefficient`；数值由
+[calibrated-canonical](../../../configs/experiments/comparison/calibrated-canonical.yaml) 及其后续协议拥有。
+该 control 是独立实验选择，不改写 ADR 0039 的历史决定，也不替换通用 base profile。
 
 Advantage MUST 仅在完整 PPO batch 上按 sample standard deviation（`ddof=1`）标准化一次；
 样本少于两个、零方差或非有限统计立即失败，不以 epsilon/clamp 隐藏退化 batch。
@@ -152,7 +160,9 @@ pre-clip gradient max 只在实际 optimizer steps 上统计，无 step 时为�
 接受依据：[ADR 0016](../../adr/0016-add-forward-only-exploration-policy.md)、
 [0018](../../adr/0018-use-torchrl-for-gae-and-ppo-math.md)、
 [0024](../../adr/0024-add-plannerrft-energy-reward.md)、
-[0039](../../adr/0039-unify-closed-loop-cadence.md)；详细迁移来源是
+[0039](../../adr/0039-unify-closed-loop-cadence.md)、
+[0040](../../adr/0040-beta-interior-concentration-parameterization.md)；canonical control 的接受证据是
+[E-052](../../experiments/records/e-052-issue105-phase-c-canonical-ppo-refreeze.md)。详细迁移来源是
 [旧 training contract](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/training.md) 与 [旧 experiments](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/experiments.md)。
 
 ADR 0018 已显式记录原闭区间表述与 ADR 0016 的冲突；有效动作域只由 training contract

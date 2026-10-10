@@ -12,6 +12,7 @@ from hydra.utils import to_absolute_path
 from tensordict import TensorDict, TensorDictBase
 
 from eco_planner.artifacts import collect_repository_metadata, write_json, write_npz
+from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS
 from eco_planner.planning.policy import POLICY_CONTEXT_KEYS
 from eco_planner.reward.result import RewardProfileName
 from eco_planner.rl.artifacts.schema import rollout_artifact_fields
@@ -79,13 +80,25 @@ def read_rollout_episode(path: Path) -> RolloutEpisode:
 
 
 def write_training_runtime_metadata(
-    path: Path, runtime: FabricRolloutRuntime, resources: ResourceProfileConfig
+    path: Path,
+    runtime: FabricRolloutRuntime,
+    resources: ResourceProfileConfig,
+    *,
+    execution_steps: int | None = None,
 ) -> None:
-    """Record common reproducibility metadata plus the RL runtime selections."""
+    """Record common reproducibility metadata plus the RL runtime selections.
+
+    ``execution_steps`` is the execution-prefix length actually used (canonical
+    unless a diagnostic override is set); it is recorded explicitly so a
+    non-canonical diagnostic run is not misread as canonical.
+    """
 
     repository_root = Path(to_absolute_path("."))
     metadata = {
         **collect_repository_metadata(repository_root),
+        "execution_steps": CLOSED_LOOP_EXECUTION_STEPS
+        if execution_steps is None
+        else execution_steps,
         "runtime": asdict(runtime.report),
         "checkpoint": asdict(runtime.checkpoint_report),
         "sampler": asdict(runtime.sampler_report),

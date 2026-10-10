@@ -4,6 +4,28 @@ from pathlib import Path
 
 from .markdown import number
 
+_PAIRED_REPORT_METRICS = (
+    ("energy_ml", "Energy total (mL)"),
+    ("energy_distance_m", "Energy distance (m)"),
+    ("energy_ml_per_km", "Energy intensity (mL/km)"),
+    ("mean_speed_mps", "Mean speed (m/s)"),
+    ("distance_m", "Distance (m)"),
+    ("stopped_fraction", "Stopped fraction"),
+    ("route_completion", "Route completion"),
+)
+
+
+def _checkpoint_order(label: str) -> tuple[int, str]:
+    if label == "initial":
+        return (0, label)
+    if label == "final":
+        return (2, label)
+    return (1, label)
+
+
+def _checkpoints(data: dict) -> list[str]:
+    return sorted({r["checkpoint_label"] for r in data["runs"]}, key=_checkpoint_order)
+
 
 def _arms(data: dict, label: str) -> list[tuple[str, dict]]:
     return (
@@ -110,6 +132,83 @@ def render_scalar(data: dict) -> str:
                 f"{effect['ci_crosses_zero'] if ci else 'unavailable'} | "
                 f"{effect['unavailable_reason'] or ''} |"
             )
+    lines += [
+        "",
+        "## 4. Behavior / task and energy by checkpoint",
+        "",
+        "Per-arm aggregates over completed episodes at each declared checkpoint "
+        "(checkpoint 0 = `initial`, then any intermediate checkpoint, then `final`). "
+        "Speed range spans episode minima/maxima; energy distance is the executed fuel-proxy "
+        "trace distance.",
+    ]
+    for label in _checkpoints(data):
+        arms = _arms(data, label)
+        if not arms:
+            continue
+        lines += [
+            "",
+            f"### Checkpoint `{label}`",
+            "",
+            "| Arm | Mean speed (m/s) | Speed min-max (m/s) | Distance (m) | Stopped frac | "
+            "Route | Arrive / available | Collision / OOR / wrong-dir | Terminated / truncated |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+        for name, outcomes in arms:
+            b, c = outcomes["behavior"], outcomes["completion"]
+            s, t = outcomes["safety"], outcomes["termination"]
+            lines.append(
+                f"| {name} | {number(b['mean_speed_mps'])} | "
+                f"{number(b['speed_min_mps'])}-{number(b['speed_max_mps'])} | "
+                f"{number(b['distance_m'])} | {number(b['stopped_fraction'])} | "
+                f"{number(c['route_completion_mean'])} | "
+                f"{c['arrive_dest_count']} / {c['arrival_denominator']} | "
+                f"{s['collision']['count']} / {s['out_of_road']['count']} / "
+                f"{s['wrong_direction']['count']} | "
+                f"{t['terminated_count']} / {t['truncated_count']} |"
+            )
+        lines += [
+            "",
+            "| Arm | Energy total (mL) | Energy distance (m) | Energy intensity (mL/km) |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+        for name, outcomes in arms:
+            e = outcomes["energy"]
+            lines.append(
+                f"| {name} | {number(e['total_ml'])} | {number(e['distance_m'])} | "
+                f"{number(e['ml_per_km'])} |"
+            )
+    lines += [
+        "",
+        "## 5. Paired per-metric effects by checkpoint",
+        "",
+        "Deltas are comparison - reference on jointly-completed matched episodes. "
+        "CIs are scenario bootstrap over available pairs; they condition on each trained "
+        "policy and are not uncertainty across training seeds.",
+    ]
+    for contrast, checkpoints in data["contrasts"].items():
+        lines += ["", f"### {contrast.upper()}"]
+        for label in sorted(checkpoints, key=_checkpoint_order):
+            entry = checkpoints[label]
+            lines += [
+                "",
+                f"Checkpoint `{label}`:",
+                "",
+                "| Metric | Training seed | Mean delta | Scenario 95% CI | Pairs |",
+                "| --- | ---: | ---: | --- | ---: |",
+            ]
+            for effect in entry["effects"]:
+                metrics = effect.get("metrics")
+                if metrics is None:
+                    lines.append(f"| (unavailable) | {effect['training_seed']} | | | |")
+                    continue
+                for metric, title in _PAIRED_REPORT_METRICS:
+                    m = metrics[metric]
+                    ci = m["ci95"]
+                    interval = f"[{number(ci[0])}, {number(ci[1])}]" if ci else "unavailable"
+                    lines.append(
+                        f"| {title} | {effect['training_seed']} | "
+                        f"{number(m['estimate'])} | {interval} | {m['sample_count']} |"
+                    )
     if any("initial" in v for v in data["contrasts"].values()):
         lines += [
             "",

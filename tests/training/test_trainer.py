@@ -60,7 +60,7 @@ def test_training_order_fixed_probes_and_completed_resume(
     )
     monkeypatch.setattr(trainer, "create_fabric_rollout_runtime", lambda *a, **k: runtime)
     monkeypatch.setattr(trainer, "resume_training_state", lambda *a: state)
-    monkeypatch.setattr(trainer, "write_training_runtime_metadata", lambda *a: None)
+    monkeypatch.setattr(trainer, "write_training_runtime_metadata", lambda *a, **k: None)
     monkeypatch.setattr(trainer, "write_rollout_episode", lambda *a: None)
     monkeypatch.setattr(
         trainer,
@@ -131,6 +131,35 @@ def test_training_order_fixed_probes_and_completed_resume(
         f"policy-update-{i:03d}.pt" for i in range(start_update, 2)
     ] + ["policy-final.pt"]
     assert (tmp_path / "summary.json").is_file()
+
+
+def test_vector_collector_forwards_diagnostic_execution_steps(tmp_path, monkeypatch):
+    from eco_planner.rl.rollout import collector as collector_module
+    from eco_planner.rl.rollout.collector import VectorRolloutCollector
+
+    config = _config(tmp_path, enabled=False)
+    captured: dict[str, object] = {}
+
+    class FakeVectorEnv:
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(collector_module, "VectorMetaDriveEnv", FakeVectorEnv)
+    collector = VectorRolloutCollector(
+        config.scenarios,
+        SimpleNamespace(),
+        config.env,
+        mode=config.training.mode,
+        map_query_radius_m=config.map_query_radius_m,
+        history_warmup_steps=config.training.history_warmup_steps,
+        reward_profile=config.reward,
+        execution_steps=1,
+    )
+    collector.close()
+    assert captured["execution_steps"] == 1
 
 
 def trainer_policy():
@@ -216,6 +245,29 @@ def test_probe_preserves_formula_scenario_order_and_training_random_streams():
             assert actual.beta[index] == tuple(beta[0].tolist())
             assert actual.guidance_mean[index] == tuple(distribution.mean[0].tolist())
             assert actual.boundary_mass[index] == tuple(boundary.tolist())
+
+
+def test_probe_reports_boundary_collapse_without_raising_on_exact_boundary_draws():
+    """Issue #83 Task 1: the probe measures boundary saturation instead of aborting."""
+
+    distribution = AffineBeta(torch.full((1, 2), 1.0e-4), torch.full((1, 2), 2.0))
+
+    class _StubPolicy:
+        def forward_tensordict(self, tensordict):
+            return tensordict
+
+        def output_from_tensordict(self, outputs):
+            return SimpleNamespace(distribution=distribution)
+
+    runtime = SimpleNamespace(
+        policy=_StubPolicy(),
+        device=torch.device("cpu"),
+        new_policy_generator=lambda seed: torch.Generator().manual_seed(seed),
+    )
+    summary = probe_policy(runtime, (_context(),), 512, 0.05, 7)
+    assert summary.alpha[0] == pytest.approx((1.0e-4, 1.0e-4))
+    assert summary.boundary_mass[0][0] == pytest.approx(1.0)
+    assert summary.boundary_mass[0][1] == pytest.approx(1.0)
 
 
 def _sampling_context() -> ExplorationPolicyContext:

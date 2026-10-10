@@ -104,6 +104,59 @@ def job(energy=2.0):
     )
 
 
+def test_paired_robustness_splits_families_and_counts_leave_one_out_sign_changes():
+    from eco_planner.analysis.evaluation import _PAIRED_METRICS, paired_robustness
+
+    def row(name, family, intensity, *, available=True):
+        deltas = {metric + "_delta": None for metric in _PAIRED_METRICS}
+        deltas["energy_ml_per_km_delta"] = intensity
+        return {
+            "key": [name, family, 0, 760025, "no_traffic", 0.0],
+            "available": available,
+            **deltas,
+        }
+
+    assert paired_robustness(None) is None
+
+    pairs = {
+        "pairs": [
+            row("s0", "S", -1.0),
+            row("s1", "S", -3.0),
+            row("sc0", "SC", -0.5),
+            row("sc1", "SC", 2.0, available=False),
+        ]
+    }
+    robustness = paired_robustness(pairs)
+    families = robustness["families"]["energy_ml_per_km"]
+    assert families["S"] == {"mean": -2.0, "count": 2}
+    assert families["SC"] == {"mean": -0.5, "count": 1}
+    assert robustness["families"]["mean_speed_mps"]["S"] is None
+    leave_one_out = robustness["leave_one_out"]["energy_ml_per_km"]
+    assert leave_one_out["sample_count"] == 3
+    assert leave_one_out["full_mean"] == pytest.approx(-1.5)
+    assert leave_one_out["loo_mean_min"] == pytest.approx(-2.0)
+    assert leave_one_out["loo_mean_max"] == pytest.approx(-0.75)
+    assert leave_one_out["sign_change_count"] == 0
+    assert robustness["leave_one_out"]["mean_speed_mps"] is None
+
+    outlier = {
+        "pairs": [
+            row("s0", "S", 1.0),
+            row("s1", "S", 1.0),
+            row("sc0", "SC", 1.0),
+            row("sc1", "SC", -9.0),
+        ]
+    }
+    outlier_robustness = paired_robustness(outlier)
+    assert outlier_robustness["families"]["energy_ml_per_km"]["S"] == {"mean": 1.0, "count": 2}
+    assert outlier_robustness["families"]["energy_ml_per_km"]["SC"] == {"mean": -4.0, "count": 2}
+    outlier_loo = outlier_robustness["leave_one_out"]["energy_ml_per_km"]
+    assert outlier_loo["full_mean"] == pytest.approx(-1.5)
+    assert outlier_loo["loo_mean_min"] == pytest.approx(-7 / 3)
+    assert outlier_loo["loo_mean_max"] == pytest.approx(1.0)
+    assert outlier_loo["sign_change_count"] == 1
+
+
 def test_energy_matched_comparison_and_protocol_mismatch(tmp_path):
     from eco_planner.analysis.evaluation import paired
 
@@ -308,6 +361,76 @@ def test_scalar_explicit_grouping_and_checkpoint_validation(tmp_path, training_s
     OmegaConf.save(OmegaConf.create(config), source / "comparison.yaml")
     with pytest.raises(ValueError, match="matched resolved training conditions"):
         load_comparison(source / "comparison.yaml")
+
+
+def test_scalar_comparison_pins_intermediate_checkpoint_hash(tmp_path, training_summary):
+    from eco_planner.experiments.comparison.inputs import load_comparison
+    from eco_planner.experiments.protocol.config import DEFAULT_PROTOCOL
+
+    source = tmp_path / "source"
+    source.mkdir()
+    protocol = OmegaConf.load(DEFAULT_PROTOCOL)
+    protocol.evaluation.maps = ["S"]
+    protocol.evaluation.map_seeds = [0]
+    protocol.evaluation.seed = 0
+    protocol.evaluation.horizon_steps = 10
+    protocol.training.maps = ["C"]
+    protocol.training.map_seeds = [1]
+    protocol.training.seeds = [0]
+    OmegaConf.save(protocol, source / "protocol.yaml")
+    (source / "a0").mkdir()
+    write_json(source / "a0/summary.json", job().model_dump(mode="json"))
+    write_json(source / "training.json", training_summary.model_dump(mode="json"))
+    OmegaConf.save(
+        OmegaConf.create(
+            {
+                "runtime": {"seed": 0},
+                "training": {"replay_id": 0},
+                "sampler": {"name": "ddim5"},
+                "reward": {"name": "plannerrft_energy_v1"},
+                "scenarios": [{"name": "curve", "map": "C", "seed": 1}],
+                "ppo": {"learning_rate": 2.5e-5, "epochs": 1},
+            }
+        ),
+        source / "resolved_config.yaml",
+    )
+    evaluation = source / "eval-update-025"
+    evaluation.mkdir()
+    write_json(
+        evaluation / "summary.json",
+        job(1.0)
+        .model_copy(
+            update={
+                "policy_checkpoint": PolicyCheckpointProvenance(
+                    label="update-025", path="policy-update-024.pt", policy_hash="c" * 64
+                )
+            }
+        )
+        .model_dump(mode="json"),
+    )
+    config = {
+        "protocol": "protocol.yaml",
+        "baseline_evaluation_dir": "a0",
+        "runs": [
+            {
+                "arm": "a2",
+                "training_summary": "training.json",
+                "checkpoint_label": "update-025",
+                "evaluation_dir": "eval-update-025",
+            }
+        ],
+    }
+    OmegaConf.save(OmegaConf.create(config), source / "comparison.yaml")
+    with pytest.raises(ValueError, match="requires an explicit checkpoint_hash"):
+        load_comparison(source / "comparison.yaml")
+    config["runs"][0]["checkpoint_hash"] = "d" * 64
+    OmegaConf.save(OmegaConf.create(config), source / "comparison.yaml")
+    with pytest.raises(ValueError, match="declared training state"):
+        load_comparison(source / "comparison.yaml")
+    config["runs"][0]["checkpoint_hash"] = "c" * 64
+    OmegaConf.save(OmegaConf.create(config), source / "comparison.yaml")
+    comparison = load_comparison(source / "comparison.yaml")
+    assert comparison.runs[0].checkpoint_label == "update-025"
 
 
 def test_sanity_keeps_failed_checks(tmp_path):

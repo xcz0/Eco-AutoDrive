@@ -165,7 +165,7 @@ def policy_config() -> ExplorationPolicyConfig:
         fusion_mlp_depth=1,
         fusion_hidden_dim=8,
         initial_concentration=2.0,
-        minimum_concentration=1e-4,
+        interior_epsilon=1e-4,
     )
 
 

@@ -34,6 +34,9 @@ training:
   boundary_sample_count: 4096
   diagnostic_seed: 300000
   planner_compile_mode: eager
+  # Diagnostic-only execution-prefix override for matched causal interventions
+  # (ADR 0039); null keeps the canonical CLOSED_LOOP_EXECUTION_STEPS contract.
+  diagnostic_execution_steps: null
   resume_checkpoint_path: null
 
 env:

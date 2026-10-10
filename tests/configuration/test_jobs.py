@@ -24,6 +24,7 @@ from eco_planner.configuration import (
 from eco_planner.contracts import (
     CLOSED_LOOP_EXECUTION_STEPS,
     DECISION_INTERVAL_S,
+    PLANNER_HORIZON,
     SIMULATOR_STEP_S,
     TRAFFIC_HISTORY_WARMUP_STEPS,
 )
@@ -208,6 +209,32 @@ def test_training_job_resolves_and_pins_the_canonical_cadence(
                 "jobs/training/ppo", [*overrides, "cadence.closed_loop_execution_steps=1"]
             )
         )
+
+
+def test_training_diagnostic_execution_steps_is_explicit_and_keeps_canonical_cadence(
+    compose_config: ComposeConfig,
+) -> None:
+    overrides = [RESOURCE_OVERRIDE, "runtime.seed=0", "training.replay_id=0"]
+
+    default = parse_training_config(compose_config("jobs/training/ppo", overrides))
+    assert default.training.diagnostic_execution_steps is None
+    assert default.training.effective_execution_steps() == CLOSED_LOOP_EXECUTION_STEPS
+
+    diagnostic = parse_training_config(
+        compose_config("jobs/training/ppo", [*overrides, "training.diagnostic_execution_steps=1"])
+    )
+    assert diagnostic.training.effective_execution_steps() == 1
+    # The diagnostic override must not relax the pinned canonical cadence.
+    assert diagnostic.cadence.closed_loop_execution_steps == CLOSED_LOOP_EXECUTION_STEPS
+
+    for invalid in ("0", str(PLANNER_HORIZON)):
+        with pytest.raises(ValueError, match="diagnostic_execution_steps"):
+            parse_training_config(
+                compose_config(
+                    "jobs/training/ppo",
+                    [*overrides, f"training.diagnostic_execution_steps={invalid}"],
+                )
+            )
 
 
 def test_traffic_training_horizon_covers_history_warmup(

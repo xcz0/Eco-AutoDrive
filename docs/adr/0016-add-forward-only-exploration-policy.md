@@ -1,5 +1,8 @@
 # Add a forward-only Exploration Policy
 
+> 原 concentration 参数化条款已由 [ADR 0040](0040-beta-interior-concentration-parameterization.md)
+> 取代；其余架构、affine action 与对称初始化决定继续有效。
+
 选择独立的 Exploration Policy，消费冻结 scene/navigation context 与 physical reference，
 让 PPO 学习 guidance，而不直接改写预训练 planner。最初先实现 forward-only policy，
 待 rollout/reward 边界明确后再接入闭环；这一阶段边界不是永久禁止接入 evaluation。

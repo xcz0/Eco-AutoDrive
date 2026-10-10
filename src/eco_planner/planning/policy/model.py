@@ -148,7 +148,7 @@ class ExplorationPolicy(nn.Module):
         )[0]
         fused = self.fusion_trunk((reference + attended).mean(dim=1))
         raw_parameters = self.actor_head(fused).view(-1, 2, 2)
-        concentrations = F.softplus(raw_parameters) + self.config.minimum_concentration
+        concentrations = 1.0 + self.config.interior_epsilon + F.softplus(raw_parameters)
         parameters = AffineBetaParameters(alpha=concentrations[..., 0], beta=concentrations[..., 1])
         value = self.value_head(fused).squeeze(-1)
         return parameters.alpha, parameters.beta, value.unsqueeze(-1)
@@ -216,7 +216,7 @@ class ExplorationPolicy(nn.Module):
     def _initialize_symmetric_actor(self) -> None:
         nn.init.zeros_(self.actor_head.weight)
         raw_initial = _inverse_softplus(
-            self.config.initial_concentration - self.config.minimum_concentration
+            self.config.initial_concentration - 1.0 - self.config.interior_epsilon
         )
         nn.init.constant_(self.actor_head.bias, raw_initial)
 

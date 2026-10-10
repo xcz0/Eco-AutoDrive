@@ -20,6 +20,10 @@ class ComparisonRun(BaseModel):
     training_summary: Path
     checkpoint_label: str
     evaluation_dir: Path
+    # Required for any label other than ``initial``/``final``: the expected policy
+    # hash of the evaluated checkpoint, cross-checked against the evaluation job's
+    # recomputed hash (the trainer records no per-update hash for older runs).
+    checkpoint_hash: str | None = None
 
 
 class ComparisonConfig(BaseModel):
@@ -91,15 +95,9 @@ def load_comparison(config_path: Path) -> PolicyComparison:
         checkpoint = summary.policy_checkpoint
         if checkpoint is None or checkpoint.label != run.checkpoint_label:
             raise ValueError("evaluation checkpoint label differs from comparison config")
-        expected_hash = (
-            training.initial_policy_hash
-            if run.checkpoint_label == "initial"
-            else (training.final_policy_hash if run.checkpoint_label == "final" else None)
-        )
-        if expected_hash is None or checkpoint.policy_hash != expected_hash:
-            raise ValueError(
-                "evaluation checkpoint is not the declared training initial/final state"
-            )
+        expected_hash = _expected_checkpoint_hash(run, training)
+        if checkpoint.policy_hash != expected_hash:
+            raise ValueError("evaluation checkpoint does not match the declared training state")
         runs.append(PolicyComparisonRun(run.arm, run.checkpoint_label, training, summary))
     return PolicyComparison(
         baseline,
@@ -110,6 +108,18 @@ def load_comparison(config_path: Path) -> PolicyComparison:
         protocol.frozen_arm,
         tuple(sorted(source_directories)),
     )
+
+
+def _expected_checkpoint_hash(run: ComparisonRun, training: TrainingRunSummary) -> str:
+    if run.checkpoint_label == "initial":
+        return training.initial_policy_hash
+    if run.checkpoint_label == "final":
+        return training.final_policy_hash
+    if run.checkpoint_hash is None:
+        raise ValueError(
+            f"checkpoint label {run.checkpoint_label!r} requires an explicit checkpoint_hash"
+        )
+    return run.checkpoint_hash
 
 
 def _load_matched_training_conditions(
