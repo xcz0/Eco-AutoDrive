@@ -40,7 +40,7 @@ from eco_planner.rl.rollout import (
 )
 from eco_planner.rl.rollout.fixed_batch import load_batch
 from tests.training.helpers import _context, _decision_audit, _episode
-from tests.training.test_reward import _metrics, _no_energy_config
+from tests.training.reward_helpers import _metrics, _no_energy_config
 
 
 def _study():
@@ -389,12 +389,12 @@ def test_reweight_reuses_scores_even_when_component_thresholds_differ():
 
 def test_summary_and_reader_preserve_transition_component_sums_above_one():
     from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
-    from tests.training.helpers import _update_report
+    from tests.training.summary_helpers import build_ppo_update_report
 
     episodes = tuple(
         _five_substep_parity_case(_no_energy_config(), count=count)[0] for count in (1, 5)
     )
-    summary = build_update_summary(0, episodes, _update_report(episodes))
+    summary = build_update_summary(0, episodes, build_ppo_update_report(sample_count=2))
     restored = TrainingUpdateSummary.model_validate_json(summary.model_dump_json())
     assert restored.reward_component_means.ttc > 1.0
     assert restored.reward_component_means.ttc == pytest.approx(

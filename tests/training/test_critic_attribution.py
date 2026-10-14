@@ -31,7 +31,7 @@ from eco_planner.rl import (
 )
 from eco_planner.rl.rollout.fixed_batch import write_batch
 from tests.training.helpers import _behavior_policy_episode, _policy_config, _ppo_config
-from tests.training.test_reward import _no_energy_config
+from tests.training.reward_helpers import _no_energy_config
 
 _STUDY = CONFIG_ROOT / "experiments/training/critic-attribution.yaml"
 _RUN_YAML = """\

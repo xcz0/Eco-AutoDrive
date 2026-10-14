@@ -22,7 +22,7 @@ from eco_planner.rl.rollout.decision import RolloutDecision
 from eco_planner.rl.rollout.profiling import RolloutPlannerTiming
 from eco_planner.runtime.contracts import HostTrajectories
 from eco_planner.runtime.profiling import PhaseTiming
-from tests.training.test_rollout import (
+from tests.training.rollout_helpers import (
     _execution_result,
     _reward_result,
     _substep_metrics,

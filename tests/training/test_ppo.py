@@ -25,8 +25,8 @@ from tests.training.helpers import (
     _episode,
     _policy_config,
     _ppo_config,
-    _update_report,
 )
+from tests.training.summary_helpers import build_ppo_update_report
 
 
 @pytest.mark.parametrize("truncated", [False, True])
@@ -554,5 +554,5 @@ def test_reward_divisor_preserves_shared_storage_and_audit(compact_input) -> Non
     assert (compact == original).all()
     for episode, audit in zip(episodes, audits, strict=True):
         assert (episode.audit == audit).all()
-    summary = build_update_summary(0, episodes, _update_report(episodes))
+    summary = build_update_summary(0, episodes, build_ppo_update_report(sample_count=2))
     assert summary.total_reward == 15.0

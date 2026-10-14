@@ -52,7 +52,7 @@ from tests.training.helpers import (
     _execution_audit,
     _ppo_config,
 )
-from tests.training.test_reward import _metrics, _no_energy_config, _task_g_profile_payload
+from tests.training.reward_helpers import _metrics, _no_energy_config, _reward_profile_payload
 
 
 @pytest.mark.parametrize("weight", [0.0, 1.0, 16.0])
@@ -341,10 +341,10 @@ def test_frozen_band_arm_matches_the_named_band_profile_objective():
     # The offline credit arm (calibrated R0 + frozen band, lambda=64) must be the
     # formal plannerrft_energy_band_lam64_v1 objective value for value.
     r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
-        _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
+        _reward_profile_payload("plannerrft_no_energy_calibrated_v1")
     )
     named = PlannerRFTEnergyRewardConfig.model_validate(
-        _task_g_profile_payload("plannerrft_energy_band_lam64_v1")
+        _reward_profile_payload("plannerrft_energy_band_lam64_v1")
     )
     frozen = apply_frozen_energy_band(
         r0,

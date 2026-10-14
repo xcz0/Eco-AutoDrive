@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import fields, replace
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,10 +18,10 @@ from eco_planner.rl.optimization import (
     load_training_checkpoint,
     save_training_checkpoint,
 )
-from eco_planner.rl.optimization.ppo import PPOUpdateReport
 from eco_planner.rl.tracking import TrackingIdentity, TrainingTracking, update_metrics
 from eco_planner.rl.training_state import TrainingLoopState, resume_training_state
 from tests.training.helpers import _config, _context, _episode, _policy_config, _ppo_config
+from tests.training.summary_helpers import build_ppo_update_report
 
 
 def _output(tmp_path, config, name):
@@ -48,7 +48,7 @@ def test_adapter_preserves_units_denominators_and_optional_metrics(summary):
     assert "gradient/actor_head_policy" not in metrics
 
 
-def test_unequal_episode_summary_uses_transition_weights_and_ratio_of_totals(summary):
+def test_unequal_episode_summary_uses_transition_weights_and_ratio_of_totals():
     short = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
     training = torch.cat([short.training, short.training], dim=0)
     training["next", "terminated"][0] = False
@@ -61,10 +61,7 @@ def test_unequal_episode_summary_uses_transition_weights_and_ratio_of_totals(sum
     short.audit["speed_mps"][:] = 1.0
     short.audit["step_distance_m"][:] = 10.0
     short.audit["executed_fuel_proxy_step_energy_ml"][:] = 2.0
-    report = PPOUpdateReport(
-        **{field.name: getattr(summary, field.name) for field in fields(PPOUpdateReport)}
-    )
-    report = replace(report, sample_count=3)
+    report = build_ppo_update_report(sample_count=3)
     result = build_update_summary(0, (short, long), report)
     assert result.mean_episode_length == 1.5
     assert result.mean_speed_mps == 7.0
@@ -77,16 +74,13 @@ def test_unequal_episode_summary_uses_transition_weights_and_ratio_of_totals(sum
 def test_update_summary_persists_multi_substep_component_sums() -> None:
     """Canonical k=5 transitions aggregate up to k subtask scores per component."""
 
-    with torch.random.fork_rng():
-        torch.manual_seed(0)
-        policy = ExplorationPolicy(_policy_config())
-        episodes = tuple(
-            _episode(reward=r, terminated=True, truncated=False, bootstrap=0.0) for r in (0.25, 2.0)
-        )
+    episodes = tuple(
+        _episode(reward=r, terminated=True, truncated=False, bootstrap=0.0) for r in (0.25, 2.0)
+    )
     for episode in episodes:
         for component in ("ttc", "progress", "comfort", "speed", "energy"):
             episode.audit[f"reward_component_{component}"][:] = CLOSED_LOOP_EXECUTION_STEPS
-    report = PPOUpdater(policy, _ppo_config()).update(episodes)
+    report = build_ppo_update_report(sample_count=2)
     summary = build_update_summary(0, episodes, report)
     assert summary.reward_component_means.ttc == CLOSED_LOOP_EXECUTION_STEPS
     assert summary.reward_component_means.energy == CLOSED_LOOP_EXECUTION_STEPS

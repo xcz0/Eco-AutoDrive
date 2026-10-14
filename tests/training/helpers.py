@@ -1,4 +1,4 @@
-"""Synthetic training inputs with explicit configuration and isolated summary RNG."""
+"""Synthetic policy, episode, and training job inputs."""
 
 from __future__ import annotations
 
@@ -14,9 +14,8 @@ from eco_planner.planning.policy import (
 )
 from eco_planner.reward import PlannerRFTRewardResult, RewardComponents, RewardDiagnostics
 from eco_planner.reward.result import RewardProfileName
-from eco_planner.rl.artifacts import build_update_summary
 from eco_planner.rl.config import parse_training_config
-from eco_planner.rl.optimization import PPOConfig, PPOUpdater
+from eco_planner.rl.optimization import PPOConfig
 from eco_planner.rl.rollout import (
     ExecutionTransitionAudit,
     RolloutEpisodeBuilder,
@@ -221,13 +220,6 @@ def _behavior_policy_episode(
     return builder.finish("terminated", torch.zeros(1))
 
 
-def _update_report(episodes):
-    with torch.random.fork_rng():
-        torch.manual_seed(0)
-        policy = ExplorationPolicy(_policy_config())
-    return PPOUpdater(policy, _ppo_config()).update(episodes)
-
-
 def _config(tmp_path, *, seed=0, enabled=True, resume=None):
     raw = compose_job_config(
         "jobs/training/ppo",
@@ -242,13 +234,3 @@ def _config(tmp_path, *, seed=0, enabled=True, resume=None):
     raw.tracking.enabled = enabled
     raw.training.resume_checkpoint_path = resume
     return parse_training_config(raw)
-
-
-def build_training_update_summary():
-    with torch.random.fork_rng():
-        torch.manual_seed(0)
-        policy = ExplorationPolicy(_policy_config())
-        episodes = tuple(
-            _episode(reward=r, terminated=True, truncated=False, bootstrap=0.0) for r in (0.25, 2.0)
-        )
-        return build_update_summary(0, episodes, PPOUpdater(policy, _ppo_config()).update(episodes))
