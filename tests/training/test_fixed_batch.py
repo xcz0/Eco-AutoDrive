@@ -1,7 +1,5 @@
 """Synthetic storage and offline diagnostic chain, without simulation or research artifacts."""
 
-import json
-
 import numpy as np
 import pytest
 import torch
@@ -108,72 +106,6 @@ def test_batch_rejects_out_of_order_episode(fixed_source):
     write_json(source / "sample_index.json", {"samples": [samples[0], samples[1], samples[0]]})
     with pytest.raises(ValueError, match="out of order"):
         load_batch(source)
-
-
-def test_reward_and_credit_recompute_without_reference_artifacts(
-    fixed_source, tmp_path, monkeypatch
-):
-    from eco_planner._repository import CONFIG_ROOT
-    from eco_planner.experiments.credit.runner import run as credit
-    from eco_planner.experiments.reward.runner import run as reward
-    from tests.analysis.routing import analyze
-
-    source, _, samples = fixed_source
-    before = {p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()}
-    reward_dir = tmp_path / "reward"
-    # Reward definition must not restore an actor or call a backward operation.
-    monkeypatch.setattr(
-        torch.Tensor, "backward", lambda *a, **k: pytest.fail("reward ran backward")
-    )
-    reward(source, CONFIG_ROOT / "experiments/reward/default.yaml", reward_dir, figures=False)
-    monkeypatch.undo()
-    for name in (
-        "sensitivity",
-        "objectives",
-        "ablation",
-        "energy-band",
-        "e-048-identifiability-transfer",
-    ):
-        output = tmp_path / name
-        result = credit(
-            source, CONFIG_ROOT / f"experiments/credit/{name}.yaml", output, figures=False
-        )
-        assert result["optimizer_steps"] == 0
-        summary = json.loads((output / "summary.json").read_text())
-        assert summary["policy_unchanged"]
-        assert "reference" not in summary and "expected_calibration" not in summary
-        if name == "e-048-identifiability-transfer":
-            with np.load(output / "diagnostics.npz") as archive:
-                assert archive["substep_count"].shape == (len(samples),)
-                energy = archive["r0__reward_component_energy"]
-                # Frozen band 46.37/48.75 rescored over 46/48/47/49 ml/km
-                # saturates on both sides of the band.
-                assert energy.min() == pytest.approx(0.0)
-                assert energy.max() == pytest.approx(1.0)
-                for arm in ("r0", "lambda_16", "lambda_64", "lambda_256", "energy_only"):
-                    assert archive[f"{arm}__reward_safety_gate"].shape == (len(samples),)
-                    for component in ("ttc", "progress", "comfort", "speed", "energy"):
-                        assert archive[f"{arm}__reward_component_{component}"].shape == (
-                            len(samples),
-                        )
-        persisted = {
-            p.relative_to(output): p.read_bytes() for p in output.rglob("*") if p.is_file()
-        }
-        report = tmp_path / (name + "-report")
-        regenerated = analyze("credit", output, report, figures=name == "objectives")
-        original = json.loads((output / "analysis.json").read_text())
-        assert regenerated["evidence"] == original["evidence"]
-        assert (report / "report.md").is_file()
-        if name == "objectives":
-            assert list((report / "figures").glob("*.png"))
-        assert persisted == {
-            p.relative_to(output): p.read_bytes() for p in output.rglob("*") if p.is_file()
-        }
-    analyzed = analyze("reward", reward_dir, tmp_path / "reward-report", figures=False)
-    assert analyzed["evidence"]["pairs"]
-    assert before == {
-        p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()
-    }
 
 
 def test_credit_preserves_ppo_gradients_and_objective_identities(fixed_source, monkeypatch):

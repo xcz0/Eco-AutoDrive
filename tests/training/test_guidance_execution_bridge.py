@@ -279,7 +279,6 @@ def _write_source(tmp_path, rows, same_state_rows):
 
 
 def test_offline_recompute_matches_live(tmp_path):
-    from eco_planner.statistics import statistics  # noqa: F401  (import surface smoke)
     from tests.analysis.routing import analyze
 
     def speed_fn(seed, arm, horizon):

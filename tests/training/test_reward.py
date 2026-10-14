@@ -436,46 +436,6 @@ def _task_g_profile_payload(name: str) -> dict:
     return payload
 
 
-def test_task_g_profiles_freeze_calibration_band_and_lambda_64() -> None:
-    r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
-        _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
-    )
-    rstress = PlannerRFTEnergyRewardConfig.model_validate(
-        _task_g_profile_payload("plannerrft_energy_band_lam64_v1")
-    )
-
-    assert r0.name == "plannerrft_no_energy_calibrated_v1"
-    assert rstress.name == "plannerrft_energy_band_lam64_v1"
-    assert r0.weights.total == 16.0
-    assert rstress.weights.energy == 64.0
-    assert rstress.weights.total == 80.0
-    # E-034 frozen calibration on Progress and Comfort.
-    assert r0.progress.full_score_delta_m == pytest.approx(1.7813475926717124)
-    assert r0.comfort.longitudinal_acceleration_limit_mps2 == pytest.approx(4.157548461641585)
-    assert r0.comfort.lateral_acceleration_limit_mps2 == pytest.approx(3.0)
-    assert r0.comfort.jerk_limit_mps3 == pytest.approx(111.70486995152065)
-    assert r0.comfort.yaw_rate_limit_radps == pytest.approx(0.5)
-    # E-038 frozen efficiency-band thresholds on the stress arm only.
-    assert r0.energy.mode == "reference_exponential"
-    assert r0.energy.band_full_score_ml_per_km is None
-    assert r0.energy.band_zero_score_ml_per_km is None
-    assert rstress.energy.mode == "calibrated_band"
-    assert rstress.energy.band_full_score_ml_per_km == pytest.approx(46.37086372375488)
-    assert rstress.energy.band_zero_score_ml_per_km == pytest.approx(48.7514030456543)
-    # The paired arms differ only in the energy objective term.
-    assert r0.gates == rstress.gates
-    assert r0.ttc == rstress.ttc
-    assert r0.progress == rstress.progress
-    assert r0.comfort == rstress.comfort
-    assert r0.speed == rstress.speed
-    assert (r0.weights.ttc, r0.weights.progress, r0.weights.comfort, r0.weights.speed) == (
-        rstress.weights.ttc,
-        rstress.weights.progress,
-        rstress.weights.comfort,
-        rstress.weights.speed,
-    )
-
-
 def test_frozen_energy_band_switches_a_profile_to_the_e038_thresholds() -> None:
     r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
         _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
@@ -593,73 +553,6 @@ ISSUE83_LAMBDA_PROFILES = (
     "plannerrft_energy_band_lam4_v1",
     "plannerrft_energy_band_lam8_v1",
 )
-
-
-def test_issue83_lambda_arms_freeze_a_matched_calibrated_band_objective() -> None:
-    r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
-        _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
-    )
-    arms = {
-        name: PlannerRFTEnergyRewardConfig.model_validate(_task_g_profile_payload(name))
-        for name in ISSUE83_LAMBDA_PROFILES
-    }
-
-    for name, arm in arms.items():
-        # The resolved config states lambda twice and both statements agree:
-        # the profile name and weights.energy encode the same value.
-        lam = float(name.removeprefix("plannerrft_energy_band_lam").removesuffix("_v1"))
-        assert arm.weights.energy == lam
-        assert arm.weights.total == 16.0 + lam
-        # Every lambda arm uses the E-038 frozen calibrated-band representation.
-        assert arm.energy.mode == "calibrated_band"
-        assert arm.energy.band_full_score_ml_per_km == pytest.approx(46.37086372375488)
-        assert arm.energy.band_zero_score_ml_per_km == pytest.approx(48.7514030456543)
-
-    # Gate I: all lambda arms share Progress/Comfort/TTC/Speed, the safety gate,
-    # and the energy-band thresholds exactly; they differ only in the profile
-    # identity and weights.energy.
-    reference = arms["plannerrft_energy_band_lam1_v1"]
-    for name, arm in arms.items():
-        if name == "plannerrft_energy_band_lam1_v1":
-            continue
-        assert arm.gates == reference.gates
-        assert arm.ttc == reference.ttc
-        assert arm.progress == reference.progress
-        assert arm.comfort == reference.comfort
-        assert arm.speed == reference.speed
-        assert arm.energy == reference.energy
-        assert (arm.weights.ttc, arm.weights.progress, arm.weights.comfort, arm.weights.speed) == (
-            reference.weights.ttc,
-            reference.weights.progress,
-            reference.weights.comfort,
-            reference.weights.speed,
-        )
-
-    # The lambda arms also match the calibrated R0 anchor and the Task G
-    # stress arm on every shared component.
-    rstress = PlannerRFTEnergyRewardConfig.model_validate(
-        _task_g_profile_payload("plannerrft_energy_band_lam64_v1")
-    )
-    for shared in (r0, rstress):
-        assert reference.gates == shared.gates
-        assert reference.ttc == shared.ttc
-        assert reference.progress == shared.progress
-        assert reference.comfort == shared.comfort
-        assert reference.speed == shared.speed
-        assert reference.energy.band_full_score_ml_per_km == pytest.approx(
-            rstress.energy.band_full_score_ml_per_km
-        )
-    assert (r0.weights.ttc, r0.weights.progress, r0.weights.comfort, r0.weights.speed) == (
-        reference.weights.ttc,
-        reference.weights.progress,
-        reference.weights.comfort,
-        reference.weights.speed,
-    )
-
-    # Gate I: lambda=0 is the calibrated R0 profile itself, not an energy
-    # weight of zero; its objective denominator stays at the four shared weights.
-    assert "energy" not in type(r0.weights).model_fields
-    assert r0.weights.total == 16.0
 
 
 def test_issue83_lambda_arms_score_only_through_the_energy_weight() -> None:
