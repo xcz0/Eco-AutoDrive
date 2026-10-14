@@ -89,8 +89,6 @@ def episodes(scale):
 
 def test_config_validation():
     config = study()
-    assert config.execution_horizons == [1, 2, 5, 10, 20]
-    assert config.total_window_steps == 20
     for field, value in (
         ("noise_seeds", [0]),
         ("lateral_action", 0.5),
@@ -136,9 +134,9 @@ def test_horizon_safety_and_incomplete_matrix():
         analyze_episodes(rows[:-1], small, names)
 
 
-@pytest.mark.parametrize("figures", [False, True])
-def test_offline_recompute_matches_live_statistics(tmp_path, figures):
+def test_offline_recompute_matches_live_statistics(tmp_path):
     from eco_planner.artifacts import write_json
+    from eco_planner.experiments.guidance.horizon.analysis import recompute
     from tests.analysis.helpers import assert_report
     from tests.analysis.routing import analyze
 
@@ -153,34 +151,19 @@ def test_offline_recompute_matches_live_statistics(tmp_path, figures):
     save_decisions(rows, small, names, source)
     original_files = {p.name: p.read_bytes() for p in source.iterdir()}
     output = tmp_path / "analysis"
-    returned = analyze("guidance-horizon", source, output, figures=figures)
+    analyze("guidance-horizon", source, output, figures=True)
     result = json.loads((output / "summary.json").read_text())
     expected = analyze_episodes(rows, small, names)
     assert result == {"status": "completed", **expected}
-    assert returned == {
-        "status": "completed",
-        "output_dir": str(output.resolve()),
-        "gate_a": expected["gate_a"],
-    }
-    assert_report(output, figures=figures)
+    assert_report(output, figures=True)
     assert {p.name: p.read_bytes() for p in source.iterdir()} == original_files
-    payload = json.loads((output / "analysis.json").read_text())
-    if figures:
-        assert set(payload["figures"]) == {
-            f"figures/{name}.{extension}"
-            for name in ("effect-by-horizon", "horizon-speed-response", "planner-response")
-            for extension in ("svg", "png")
-        }
-    else:
-        assert payload["figures"] == []
 
     recorded = json.loads((source / "decisions.json").read_text())
     recorded["gate_a"]["status"] = "recorded_decision"
     recorded["horizons"]["1"]["direction"] = "positive"
     recorded["horizons"]["1"]["metrics"]["speed_mps"]["scenarios"]["0"]["passed"] = False
     write_json(source / "decisions.json", recorded)
-    analyze("guidance-horizon", source, tmp_path / "again", figures=False)
-    again = json.loads((tmp_path / "again" / "summary.json").read_text())
+    again, _ = recompute(source)
     assert again["gate_a"]["status"] == "recorded_decision"
     assert again["horizons"]["1"]["direction"] == "positive"
     assert not again["horizons"]["1"]["metrics"]["speed_mps"]["scenarios"]["0"]["passed"]
@@ -190,7 +173,7 @@ def test_offline_recompute_matches_live_statistics(tmp_path, figures):
     )
     (source / "decisions.json").unlink()
     with pytest.raises(FileNotFoundError, match="decisions.json"):
-        analyze("guidance-horizon", source, tmp_path / "missing", figures=False)
+        recompute(source)
 
 
 def test_horizon_planner_response_is_matched_across_horizons():

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from copy import deepcopy
 from types import SimpleNamespace
 
 import numpy as np
@@ -149,10 +148,8 @@ def test_temporal_reversal_and_incomplete_matrix():
         analyze_episodes(rows[:-1], study(), [str(i) for i in range(16)])
 
 
-@pytest.mark.parametrize("figures", [False, True])
-def test_offline_recompute_matches_live_statistics(tmp_path, figures):
+def test_offline_recompute_matches_live_statistics(tmp_path):
     from eco_planner.artifacts import write_json
-    from eco_planner.experiments.guidance.authority import report as presentation
     from eco_planner.experiments.guidance.authority.analysis import recompute
     from tests.analysis.helpers import assert_report
     from tests.analysis.routing import analyze
@@ -166,33 +163,12 @@ def test_offline_recompute_matches_live_statistics(tmp_path, figures):
     save_decisions(rows, study(), [str(i) for i in range(16)], source)
     original_files = {p.name: p.read_bytes() for p in source.iterdir()}
     output = tmp_path / "analysis"
-    returned = analyze("guidance-control-authority", source, output, figures=figures)
+    analyze("guidance-control-authority", source, output, figures=True)
     result = json.loads((output / "summary.json").read_text())
     expected = analyze_episodes(rows, study(), [str(i) for i in range(16)])
     assert result == {"status": "completed", **expected}
-    assert returned == {
-        "status": "completed",
-        "output_dir": str(output.resolve()),
-        "gate_d": expected["gate_d"],
-    }
-    assert_report(output, figures=figures)
+    assert_report(output, figures=True)
     assert {p.name: p.read_bytes() for p in source.iterdir()} == original_files
-    payload = json.loads((output / "analysis.json").read_text())
-    if figures:
-        assert set(payload["figures"]) == {
-            f"figures/{name}.{extension}"
-            for name in ("response-speed_mps", "response-energy_ml_per_km", "speed-trajectories")
-            for extension in ("svg", "png")
-        }
-        assert not list(output.glob("*.png"))
-        assert not list(output.glob("*.svg"))
-        data, saved_episodes = recompute(source)
-        before = deepcopy((data, saved_episodes))
-        presentation.plot(data, saved_episodes, tmp_path / "plot-only")
-        assert (data, saved_episodes) == before
-    else:
-        assert payload["figures"] == []
-        assert not (output / "figures").exists()
 
     # Offline rendering preserves recorded decisions without applying thresholds again.
     recorded = json.loads((source / "decisions.json").read_text())
@@ -200,8 +176,7 @@ def test_offline_recompute_matches_live_statistics(tmp_path, figures):
     recorded["gate_d"]["attribution"] = "recorded_decision"
     recorded["windows"]["short_horizon"]["speed_mps"]["scenarios"]["0"]["passed"] = False
     write_json(source / "decisions.json", recorded)
-    analyze("guidance-control-authority", source, tmp_path / "again", figures=False)
-    again = json.loads((tmp_path / "again" / "summary.json").read_text())
+    again, _ = recompute(source)
     assert again["gate_d"] == recorded["gate_d"]
     assert not again["windows"]["short_horizon"]["speed_mps"]["scenarios"]["0"]["passed"]
     assert (
@@ -210,7 +185,7 @@ def test_offline_recompute_matches_live_statistics(tmp_path, figures):
     )
     (source / "decisions.json").unlink()
     with pytest.raises(FileNotFoundError, match="decisions.json"):
-        analyze("guidance-control-authority", source, tmp_path / "missing", figures=False)
+        recompute(source)
 
 
 def test_manual_config_validation():

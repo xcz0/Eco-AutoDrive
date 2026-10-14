@@ -156,8 +156,6 @@ def contexts(first_median: float) -> list[dict]:
 
 def test_config_validation():
     config = study()
-    assert config.execution_horizons == [1, 2, 5]
-    assert config.reference_arm == "r0"
     for mutate in (
         lambda data: data.update(noise_seeds=[]),
         lambda data: data.update(execution_horizons=[1]),

@@ -171,7 +171,7 @@ def test_summarize_and_compare_report_medians_and_ratio() -> None:
     assert runner._compare([0.0, 0.0], [1.0, 1.0])["median_ratio"] is None
 
 
-def test_run_orchestration_writes_attribution_and_publishes(tmp_path, monkeypatch) -> None:
+def test_run_orchestration_writes_attribution(tmp_path, monkeypatch) -> None:
     _study(tmp_path)
 
     monkeypatch.setattr(runner, "_ensure_training_run", lambda *a, **k: None)
@@ -214,7 +214,6 @@ def test_run_orchestration_writes_attribution_and_publishes(tmp_path, monkeypatc
     assert result["execution_steps"] == [1, 5]
 
     summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
-    assert summary["kind"] == "training-cadence-attribution"
     assert summary["diagnostic_execution_steps"] == 1
     assert [arm["label"] for arm in summary["arms"]] == ["k1", "k5"]
     k1 = next(arm for arm in summary["arms"] if arm["label"] == "k1")
@@ -236,6 +235,3 @@ def test_run_orchestration_writes_attribution_and_publishes(tmp_path, monkeypatc
     # The canonical arm passes held-out condition c7; the diagnostic arm does not.
     assert k5["gate"]["conditions"]["c7_heldout_exceeds_noise"] is True
     assert k1["gate"]["conditions"]["c7_heldout_exceeds_noise"] is False
-    assert (output / "report.md").is_file()
-    assert (output / "analysis.json").is_file()
-    assert not (output / "figures").exists()

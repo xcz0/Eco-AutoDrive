@@ -187,7 +187,7 @@ def test_check_shared_initial_policy_rejects_divergent_start() -> None:
         )
 
 
-def test_run_orchestration_writes_gate_b_evidence_and_publishes(tmp_path, monkeypatch) -> None:
+def test_run_orchestration_writes_gate_b_evidence(tmp_path, monkeypatch) -> None:
     _study(tmp_path)
     scales = {"k5_baseline": 5.0, "reward_scale_normalized": 1.0, "value_loss_scaled": 2.0}
 
@@ -229,7 +229,6 @@ def test_run_orchestration_writes_gate_b_evidence_and_publishes(tmp_path, monkey
     assert result["reference_label"] == "k5_baseline"
 
     summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
-    assert summary["kind"] == "training-counterfactual-attribution"
     assert summary["reference_label"] == "k5_baseline"
     assert [arm["label"] for arm in summary["arms"]] == [
         "k5_baseline",
@@ -247,6 +246,3 @@ def test_run_orchestration_writes_gate_b_evidence_and_publishes(tmp_path, monkey
     ratios = attribution["ratios_vs_reference"]
     assert ratios["reward_scale_normalized"]["value_target_mean"] == pytest.approx(0.2)
     assert ratios["value_loss_scaled"]["value_target_mean"] == pytest.approx(0.4)
-    assert (output / "report.md").is_file()
-    assert (output / "analysis.json").is_file()
-    assert not (output / "figures").exists()

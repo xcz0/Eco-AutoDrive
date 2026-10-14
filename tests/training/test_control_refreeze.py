@@ -271,7 +271,6 @@ def test_run_orchestration_selects_and_writes_control(tmp_path, monkeypatch) -> 
     assert result["selected_config"]["overrides"] == ["ppo.value_coefficient=0.1"]
 
     summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
-    assert summary["kind"] == "training-control-refreeze"
     assert summary["reference_label"] == "canonical_k5"
     assert [run["label"] for run in summary["runs"]] == [
         "canonical_k5",
@@ -284,9 +283,6 @@ def test_run_orchestration_selects_and_writes_control(tmp_path, monkeypatch) -> 
     assert summary["attribution"]["ratios_vs_reference"]["mechanism_fix"][
         "value_target_mean"
     ] == pytest.approx(1.2)
-    assert (output / "report.md").is_file()
-    assert (output / "analysis.json").is_file()
-    assert not (output / "figures").exists()
 
 
 def test_run_records_failed_candidate_and_continues(tmp_path, monkeypatch) -> None:

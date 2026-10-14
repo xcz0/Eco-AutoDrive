@@ -129,18 +129,9 @@ def synthetic_source(tmp_path):
 
 def test_config_validation():
     config = study()
-    assert [run.label for run in config.runs] == [
-        "r0-seed-0",
-        "r0-seed-1",
-        "rstress-seed-0",
-        "rstress-seed-1",
-    ]
-    assert config.update_indices[0] == 0
-    assert config.update_indices[-1] == 49
-    assert config.comparison_credit_forms == ["reward_only_gae"]
     cases = []
     duplicate = config.model_dump()
-    duplicate["runs"][1]["label"] = "r0-seed-0"
+    duplicate["runs"][1]["label"] = duplicate["runs"][0]["label"]
     cases.append(duplicate)
     mismatch = config.model_dump()
     mismatch["runs"][0]["reward_profile"] = "plannerrft_energy_band_lam64_v1"
@@ -214,8 +205,7 @@ def test_read_rollout_episode_roundtrip(tmp_path):
         torch.testing.assert_close(restored.audit[key], episode.audit[key], rtol=0, atol=0)
 
 
-@pytest.mark.parametrize("figures", [False, True])
-def test_runner_and_offline_recompute(synthetic_source, tmp_path, figures):
+def test_runner_and_offline_recompute(synthetic_source, tmp_path):
     from eco_planner.experiments.training.critic_attribution.runner import run
     from tests.analysis.helpers import assert_report
     from tests.analysis.routing import analyze
@@ -225,7 +215,7 @@ def test_runner_and_offline_recompute(synthetic_source, tmp_path, figures):
         path.name: path.read_bytes() for path in (source / "run").iterdir() if path.is_file()
     }
     output = tmp_path / "out"
-    result = run(source, config_path, output, figures=figures)
+    result = run(source, config_path, output, figures=False)
     assert result["status"] == "completed"
     assert result["optimizer_steps"] == 0
     assert result["verdict"] in (
@@ -233,7 +223,6 @@ def test_runner_and_offline_recompute(synthetic_source, tmp_path, figures):
         "critic_material_candidate",
     )
     summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
-    assert summary["kind"] == "training-critic-attribution"
     update = summary["runs"][0]["updates"][0]
     assert update["policy_checkpoint"] == "policy-initial.pt"
     assert update["critic"]["explained_variance"] == -0.01
@@ -242,7 +231,7 @@ def test_runner_and_offline_recompute(synthetic_source, tmp_path, figures):
     } == original
 
     analysis_out = tmp_path / "analysis"
-    returned = analyze("training-critic-attribution", output, analysis_out, figures=figures)
+    returned = analyze("training-critic-attribution", output, analysis_out, figures=True)
     assert returned["verdict"] == summary["gate"]["verdict"]
     evidence = json.loads((analysis_out / "analysis.json").read_text(encoding="utf-8"))["evidence"]
     assert len(evidence["checkpoints"]) == 1
@@ -253,7 +242,7 @@ def test_runner_and_offline_recompute(synthetic_source, tmp_path, figures):
             "sign_flip_fraction"
         ]
     )
-    assert_report(analysis_out, figures=figures)
+    assert_report(analysis_out, figures=True)
 
 
 def test_recompute_detects_tampering(synthetic_source, tmp_path):

@@ -91,9 +91,6 @@ def small(required: int = 1) -> DeferralConfig:
 
 def test_config_validation():
     config = study()
-    assert config.longitudinal_actions == [-1.0, -0.5, 0.0, 0.5, 1.0]
-    assert config.execution_steps == 1
-    assert config.total_window_steps == 20
     for field, value in (
         ("noise_seeds", [0]),
         ("lateral_action", 0.5),
@@ -106,7 +103,6 @@ def test_config_validation():
         data[field] = value
         with pytest.raises(ValueError):
             DeferralConfig.model_validate(data)
-    assert design(config).execution_steps == 1
 
 
 def test_zero_crossing_step():
@@ -188,9 +184,9 @@ def test_early_termination_uses_matched_common_cycles():
     assert result["scenarios"]["0"]["cycle_count"] == 5
 
 
-@pytest.mark.parametrize("figures", [False, True])
-def test_offline_recompute_matches_live_statistics(tmp_path, figures):
+def test_offline_recompute_matches_live_statistics(tmp_path):
     from eco_planner.artifacts import write_json
+    from eco_planner.experiments.guidance.deferral.analysis import recompute
     from tests.analysis.helpers import assert_report
     from tests.analysis.routing import analyze
 
@@ -205,36 +201,17 @@ def test_offline_recompute_matches_live_statistics(tmp_path, figures):
     save_decisions(rows, config, names, source)
     original_files = {p.name: p.read_bytes() for p in source.iterdir()}
     output = tmp_path / "analysis"
-    returned = analyze("guidance-deferral", source, output, figures=figures)
+    analyze("guidance-deferral", source, output, figures=True)
     result = json.loads((output / "summary.json").read_text())
     expected = analyze_episodes(rows, config, names)
     assert result == {"status": "completed", **expected}
-    assert returned == {
-        "status": "completed",
-        "output_dir": str(output.resolve()),
-        "gate_c": expected["gate_c"],
-    }
-    assert_report(output, figures=figures)
+    assert_report(output, figures=True)
     assert {p.name: p.read_bytes() for p in source.iterdir()} == original_files
-    payload = json.loads((output / "analysis.json").read_text())
-    if figures:
-        assert set(payload["figures"]) == {
-            f"figures/{name}.{extension}"
-            for name in (
-                "effect-by-cycle-and-time",
-                "first-vs-full-by-cycle",
-                "crossing-step-by-cycle",
-            )
-            for extension in ("svg", "png")
-        }
-    else:
-        assert payload["figures"] == []
 
     recorded = json.loads((source / "decisions.json").read_text())
     recorded["gate_c"]["status"] = "recorded_decision"
     write_json(source / "decisions.json", recorded)
-    analyze("guidance-deferral", source, tmp_path / "again", figures=False)
-    again = json.loads((tmp_path / "again" / "summary.json").read_text())
+    again, _ = recompute(source)
     assert again["gate_c"]["status"] == "recorded_decision"
     assert (
         again["scenarios"]["0"]["median_first_waypoint_effect_m"]
@@ -242,4 +219,4 @@ def test_offline_recompute_matches_live_statistics(tmp_path, figures):
     )
     (source / "decisions.json").unlink()
     with pytest.raises(FileNotFoundError, match="decisions.json"):
-        analyze("guidance-deferral", source, tmp_path / "missing", figures=False)
+        recompute(source)

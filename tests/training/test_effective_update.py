@@ -15,7 +15,6 @@ from eco_planner.experiments.training.config import (
 )
 from eco_planner.experiments.training.decisions import evaluate_heldout_change, evaluate_update_gate
 from eco_planner.experiments.training.grid import (
-    arm_label,
     compose_arm_overrides,
 )
 from eco_planner.experiments.training.measurements import extract_arm_metrics, policy_ratio_change
@@ -80,11 +79,9 @@ def test_policy_ratio_change_is_median_of_joint_deviation() -> None:
         policy_ratio_change([1.0], [])
 
 
-def test_arm_label_and_overrides_carry_grid_values() -> None:
-    assert arm_label(1.6301e-05, 2, 0.5) == "lr1.6301e-05-epochs2-mgn0.5"
+def test_overrides_carry_grid_values() -> None:
     study = _study()
     overrides = compose_arm_overrides(study, 1.6301e-05, 2, 1.0)
-    assert overrides[:1] == ["components/resources=rtx_a4000"]
     assert "ppo.learning_rate=1.6301e-05" in overrides
     assert "ppo.epochs=2" in overrides
     assert "ppo.max_gradient_norm=1" in overrides

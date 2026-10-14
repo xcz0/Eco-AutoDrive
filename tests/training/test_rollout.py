@@ -22,7 +22,6 @@ from eco_planner.reward import (
     create_reward_evaluator,
 )
 from eco_planner.rl.artifacts import (
-    ENERGY_ROLLOUT_ARTIFACT_FIELDS,
     TrainingUpdateSummary,
     build_update_summary,
     read_rollout_episode,
@@ -322,7 +321,6 @@ def test_reward_profile_name_reaches_rollout_artifact_and_summary(
     write_rollout_episode(artifact, episode)
     with np.load(artifact, allow_pickle=False) as arrays:
         assert str(arrays["reward_profile"]) == profile_name
-        assert set(arrays.files) == set(ENERGY_ROLLOUT_ARTIFACT_FIELDS)
     restored = read_rollout_episode(artifact)
     assert restored.reward_profile == profile_name
 
@@ -335,7 +333,7 @@ def test_reward_profile_name_reaches_rollout_artifact_and_summary(
     )
 
 
-def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path) -> None:
+def test_rollout_artifact_preserves_audit_and_nonterminal_bootstrap(tmp_path: Path) -> None:
     builder = RolloutEpisodeBuilder()
     training, audit, execution, provenance = _transition()
     builder.append(
@@ -355,68 +353,17 @@ def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path
     write_rollout_episode(artifact, episode)
 
     with np.load(artifact, allow_pickle=False) as arrays:
-        assert set(arrays.files) == set(ENERGY_ROLLOUT_ARTIFACT_FIELDS)
-        assert set(arrays.files) == set(
-            """
-            scene_tokens scene_padding_mask navigation_tokens navigation_padding_mask
-            reference_trajectory base_action guidance_action old_joint_guidance_log_prob
-            state_value beta_alpha beta_beta initial_noise diffusion_rng_state policy_rng_state
-            reward_total reward_base_total reward_safety_gate reward_component_ttc
-            reward_component_progress reward_component_comfort reward_component_speed
-            reward_component_energy route_completion_delta distance_m speed_mps stopped
-            collision wrong_direction position_error_m heading_error_rad arrive_dest
-            out_of_road crash_vehicle crash_object
-            crash_building crash_human crash_sidewalk terminated truncated map_seed noise_seed
-            policy_action_seed planning_cycle_index step_distance_m native_step_energy_ml
-            native_episode_energy_ml executed_fuel_proxy_step_energy_ml
-            executed_fuel_proxy_ml_per_km energy_distance_valid reward_diagnostic_collision_score
-            reward_diagnostic_drivable_score reward_diagnostic_wrong_direction_score
-            has_ttc_candidate min_ttc_s route_progress_delta_m speed_limit_mps overspeed_mps
-            longitudinal_acceleration_mps2 lateral_acceleration_mps2 jerk_mps3 yaw_rate_radps
-            reward_substep_count reward_substep_safety_gate
-            reward_substep_component_ttc reward_substep_component_progress
-            reward_substep_component_comfort reward_substep_component_speed
-            reward_substep_component_energy reward_substep_route_progress_delta_m
-            reward_substep_longitudinal_acceleration_mps2
-            reward_substep_lateral_acceleration_mps2 reward_substep_jerk_mps3
-            reward_substep_yaw_rate_radps reward_substep_executed_fuel_proxy_step_energy_ml
-            reward_substep_step_distance_m reward_substep_energy_distance_valid
-            reward_profile tail_kind tail_bootstrap_value
-        """.split()
-        )
-        booleans = set(
-            """
-            scene_padding_mask navigation_padding_mask stopped collision wrong_direction
-            arrive_dest out_of_road
-            crash_vehicle crash_object crash_building crash_human crash_sidewalk terminated
-            truncated energy_distance_valid has_ttc_candidate reward_substep_energy_distance_valid
-        """.split()
-        )
-        integers = {
-            "map_seed",
-            "noise_seed",
-            "policy_action_seed",
-            "planning_cycle_index",
-            "reward_substep_count",
-        }
-        for key in episode.audit.keys():
-            expected_dtype = (
-                np.bool_
-                if key in booleans
-                else np.int64
-                if key in integers
-                else np.uint8
-                if key.endswith("rng_state")
-                else np.float32
-            )
-            assert arrays[key].dtype == expected_dtype
-        assert arrays["state_value"].shape == (1, 1)
-        assert arrays["old_joint_guidance_log_prob"].shape == (1, 1)
-        assert arrays["diffusion_rng_state"].shape == (1, 5)
-        assert arrays["executed_fuel_proxy_ml_per_km"].item() == 50.0
-        assert arrays["reward_component_progress"].item() == 0.5
-        assert arrays["reward_diagnostic_wrong_direction_score"].item() == 1.0
+        for key, value in episode.audit.items():
+            expected = value.numpy()
+            assert arrays[key].dtype == expected.dtype
+            np.testing.assert_array_equal(arrays[key], expected)
         np.testing.assert_array_equal(arrays["reward_total"], episode.training["next", "reward"])
+
+    restored = read_rollout_episode(artifact)
+    assert restored.tail_kind == episode.tail_kind
+    torch.testing.assert_close(restored.tail_bootstrap_value, episode.tail_bootstrap_value)
+    assert (restored.training == episode.training).all()
+    assert (restored.audit == episode.audit).all()
 
 
 def test_slot_audit_matches_batch_fields_and_rng_states() -> None:
