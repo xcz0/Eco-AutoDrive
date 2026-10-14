@@ -239,35 +239,3 @@ def test_run_orchestration_writes_attribution_and_publishes(tmp_path, monkeypatc
     assert (output / "report.md").is_file()
     assert (output / "analysis.json").is_file()
     assert not (output / "figures").exists()
-
-
-def test_cadence_attribution_cli_routes(monkeypatch) -> None:
-    from scripts import experiments as cli
-
-    calls = []
-    monkeypatch.setattr(runner, "run", lambda *a, **kw: calls.append((a, kw)))
-    args = cli.build_parser().parse_args(
-        [
-            "training",
-            "cadence-attribution",
-            "run",
-            "--output-dir",
-            "out",
-            "--no-figures",
-        ]
-    )
-    assert args.config.is_file()
-    cli.dispatch(args)
-    assert calls == [((args.config, args.output_dir), {"figures": False})]
-    analyze_args = cli.build_parser().parse_args(
-        [
-            "training",
-            "cadence-attribution",
-            "analyze",
-            "--source-dir",
-            "source",
-            "--output-dir",
-            "out",
-        ]
-    )
-    assert analyze_args.action == "analyze"

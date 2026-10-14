@@ -213,25 +213,7 @@ def test_offline_recompute_matches_live_statistics(tmp_path, figures):
         analyze("guidance-control-authority", source, tmp_path / "missing", figures=False)
 
 
-def test_manual_cli_and_config(monkeypatch):
-    from eco_planner.experiments.guidance.authority import runner
-    from scripts import experiments as cli
-
-    calls = []
-    monkeypatch.setattr(runner, "run", lambda *a, **kw: calls.append((a, kw)))
-    args = cli.build_parser().parse_args(
-        [
-            "guidance",
-            "authority",
-            "run",
-            "--output-dir",
-            "out",
-            "--no-figures",
-        ]
-    )
-    assert args.config.is_file()
-    cli.dispatch(args)
-    assert calls == [((args.config, args.output_dir), {"figures": False})]
+def test_manual_config_validation():
     for field, value in (
         ("noise_seeds", [0]),
         ("lateral_action", 0.5),

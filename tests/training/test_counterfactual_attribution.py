@@ -250,35 +250,3 @@ def test_run_orchestration_writes_gate_b_evidence_and_publishes(tmp_path, monkey
     assert (output / "report.md").is_file()
     assert (output / "analysis.json").is_file()
     assert not (output / "figures").exists()
-
-
-def test_counterfactual_attribution_cli_routes(monkeypatch) -> None:
-    from scripts import experiments as cli
-
-    calls = []
-    monkeypatch.setattr(runner, "run", lambda *a, **kw: calls.append((a, kw)))
-    args = cli.build_parser().parse_args(
-        [
-            "training",
-            "counterfactual-attribution",
-            "run",
-            "--output-dir",
-            "out",
-            "--no-figures",
-        ]
-    )
-    assert args.config.is_file()
-    cli.dispatch(args)
-    assert calls == [((args.config, args.output_dir), {"figures": False})]
-    analyze_args = cli.build_parser().parse_args(
-        [
-            "training",
-            "counterfactual-attribution",
-            "analyze",
-            "--source-dir",
-            "source",
-            "--output-dir",
-            "out",
-        ]
-    )
-    assert analyze_args.action == "analyze"

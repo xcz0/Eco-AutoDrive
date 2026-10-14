@@ -5,39 +5,83 @@ import os
 import subprocess
 import sys
 from importlib import import_module
+from pathlib import Path
 
 import pytest
 
 from eco_planner import configuration
-from eco_planner._repository import LOCAL_ENVIRONMENT_PATH, REPOSITORY_ROOT
+from eco_planner._repository import CONFIG_ROOT, LOCAL_ENVIRONMENT_PATH, REPOSITORY_ROOT
 from scripts import experiments as cli
 
 
-@pytest.mark.parametrize("key", list(cli.COMMANDS))
-def test_current_operations_parse_and_route(monkeypatch, key):
+@pytest.mark.parametrize(
+    "key,no_figures",
+    [(key, key[-1] != "collect") for key in cli.COMMANDS]
+    + [(("guidance", "authority", "run"), False), (("training", "analyze"), False)],
+)
+def test_current_operations_parse_and_route(monkeypatch, key, no_figures):
     spec = cli.COMMANDS[key]
     args = [*key, "--output-dir", "out"]
+    if no_figures:
+        args.append("--no-figures")
     if spec.source:
         args += ["--source-dir", "source"]
     if key in (("compare", "analyze"), ("training", "diagnose"), ("training", "eval")):
         args += ["--config", "comparison.yaml"]
     if key == ("compare", "train"):
-        args += ["--arm", "r0", "--training-seed", "0"]
+        args += [
+            "--arm",
+            "r0",
+            "--training-seed",
+            "7",
+            "--override",
+            "runtime.seed=9",
+            "--override",
+            "training.update_count=3",
+        ]
     if key == ("compare", "eval"):
-        args += ["--arm", "a0"]
+        args += ["--arm", "a0", "--checkpoint", "final", "--checkpoint-path", "policy.pt"]
     parsed = cli.build_parser().parse_args(args)
     assert parsed.key == key
     cli.validate_arguments(cli.build_parser(), parsed)
+    config = CONFIG_ROOT / "experiments" / spec.config if spec.config else Path("comparison.yaml")
+    if spec.config:
+        assert parsed.config == config
+        assert config.is_file()
     calls = []
     module = import_module("eco_planner.experiments." + spec.module)
-    function = "analyze" if parsed.action == "analyze" else spec.function
-    monkeypatch.setattr(module, function, lambda *a, **k: calls.append((a, k)) or {})
+    result = {"status": "passed"}
+    monkeypatch.setattr(module, spec.function, lambda *a, **k: calls.append((a, k)) or result)
     if parsed.action == "analyze" and parsed.domain == "compare":
         from eco_planner.experiments.comparison import inputs
 
         monkeypatch.setattr(inputs, "load_comparison", lambda *_: "validated")
-    cli.dispatch(parsed)
-    assert len(calls) == 1
+    expected_kwargs = {"figures": not no_figures}
+    if key[-1] == "analyze":
+        expected_args = (Path("source"), Path("out"))
+        if key[0] == "compare":
+            expected_kwargs["scalar_comparison"] = "validated"
+    elif key == ("compare", "train"):
+        expected_args = ("train", config, Path("out"))
+        expected_kwargs.update(
+            arm="r0",
+            training_seed=7,
+            overrides=["runtime.seed=9", "training.update_count=3"],
+        )
+    elif key == ("compare", "eval"):
+        expected_args = ("evaluate", config, Path("out"))
+        expected_kwargs.update(
+            arm="a0", checkpoint_label="final", checkpoint_path=Path("policy.pt")
+        )
+    elif key[-1] == "collect":
+        expected_args = (config, Path("out"))
+        expected_kwargs = {}
+    else:
+        expected_args = (
+            (Path("source"), config, Path("out")) if spec.source else (config, Path("out"))
+        )
+    assert cli.dispatch(parsed) is result
+    assert calls == [(expected_args, expected_kwargs)]
 
 
 def test_help_does_not_import_execution():

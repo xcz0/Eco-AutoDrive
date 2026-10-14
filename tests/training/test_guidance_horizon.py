@@ -193,20 +193,6 @@ def test_offline_recompute_matches_live_statistics(tmp_path, figures):
         analyze("guidance-horizon", source, tmp_path / "missing", figures=False)
 
 
-def test_horizon_cli_routes(monkeypatch):
-    from eco_planner.experiments.guidance.horizon import runner
-    from scripts import experiments as cli
-
-    calls = []
-    monkeypatch.setattr(runner, "run", lambda *a, **kw: calls.append((a, kw)))
-    args = cli.build_parser().parse_args(
-        ["guidance", "horizon", "run", "--output-dir", "out", "--no-figures"]
-    )
-    assert args.config.is_file()
-    cli.dispatch(args)
-    assert calls == [((args.config, args.output_dir), {"figures": False})]
-
-
 def test_horizon_planner_response_is_matched_across_horizons():
     names = [str(i) for i in range(2)]
     small = study().model_copy(update={"required_scenarios": 1})

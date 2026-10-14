@@ -252,17 +252,3 @@ def test_offline_recompute_matches_live_statistics(tmp_path, figures):
     (source / "decisions.json").unlink()
     with pytest.raises(FileNotFoundError, match="decisions.json"):
         analyze("guidance-decomposition", source, tmp_path / "missing", figures=False)
-
-
-def test_decomposition_cli_routes(monkeypatch):
-    from eco_planner.experiments.guidance.decomposition import runner
-    from scripts import experiments as cli
-
-    calls = []
-    monkeypatch.setattr(runner, "run", lambda *a, **kw: calls.append((a, kw)))
-    args = cli.build_parser().parse_args(
-        ["guidance", "decomposition", "run", "--output-dir", "out", "--no-figures"]
-    )
-    assert args.config.is_file()
-    cli.dispatch(args)
-    assert calls == [((args.config, args.output_dir), {"figures": False})]

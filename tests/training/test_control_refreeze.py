@@ -343,35 +343,3 @@ def test_run_records_failed_candidate_and_continues(tmp_path, monkeypatch) -> No
     assert fallback["status"] == "failed"
     assert fallback["metrics"] is None
     assert "strictly inside" in fallback["failure"]["message"]
-
-
-def test_control_refreeze_cli_routes(monkeypatch) -> None:
-    from scripts import experiments as cli
-
-    calls = []
-    monkeypatch.setattr(runner, "run", lambda *a, **kw: calls.append((a, kw)))
-    args = cli.build_parser().parse_args(
-        [
-            "training",
-            "control-refreeze",
-            "run",
-            "--output-dir",
-            "out",
-            "--no-figures",
-        ]
-    )
-    assert args.config.is_file()
-    cli.dispatch(args)
-    assert calls == [((args.config, args.output_dir), {"figures": False})]
-    analyze_args = cli.build_parser().parse_args(
-        [
-            "training",
-            "control-refreeze",
-            "analyze",
-            "--source-dir",
-            "source",
-            "--output-dir",
-            "out",
-        ]
-    )
-    assert analyze_args.action == "analyze"

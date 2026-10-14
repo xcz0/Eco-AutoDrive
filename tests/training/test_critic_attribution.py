@@ -270,38 +270,3 @@ def test_recompute_detects_tampering(synthetic_source, tmp_path):
     np.savez(output / "diagnostics.npz", **arrays)
     with pytest.raises(ValueError, match="recomputed advantage differs"):
         recompute(output)
-
-
-def test_critic_attribution_cli_routes(monkeypatch):
-    from eco_planner.experiments.training.critic_attribution import runner
-    from scripts import experiments as cli
-
-    calls = []
-    monkeypatch.setattr(runner, "run", lambda *a, **kw: calls.append((a, kw)))
-    args = cli.build_parser().parse_args(
-        [
-            "training",
-            "critic-attribution",
-            "run",
-            "--source-dir",
-            "source",
-            "--output-dir",
-            "out",
-            "--no-figures",
-        ]
-    )
-    assert args.config.is_file()
-    cli.dispatch(args)
-    assert calls == [((args.source_dir, args.config, args.output_dir), {"figures": False})]
-    analyze_args = cli.build_parser().parse_args(
-        [
-            "training",
-            "critic-attribution",
-            "analyze",
-            "--source-dir",
-            "source",
-            "--output-dir",
-            "out",
-        ]
-    )
-    assert analyze_args.action == "analyze"

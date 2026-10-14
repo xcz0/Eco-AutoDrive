@@ -296,41 +296,6 @@ def test_offline_recompute_matches_live(tmp_path):
     assert summary["metrics"]["0"]["1"]["speed_mps"]["effects"]["rstress"]["median"] == 0.0
 
 
-def test_cli_routes(monkeypatch):
-    from eco_planner.experiments.guidance.execution_bridge import runner
-    from scripts import experiments as cli
-
-    calls = []
-    monkeypatch.setattr(runner, "run", lambda *a, **kw: calls.append((a, kw)))
-    args = cli.build_parser().parse_args(
-        [
-            "guidance",
-            "execution-bridge",
-            "run",
-            "--output-dir",
-            "out",
-            "--source-dir",
-            "src",
-            "--no-figures",
-        ]
-    )
-    assert args.config.is_file()
-    cli.dispatch(args)
-    assert calls == [((args.source_dir, args.config, args.output_dir), {"figures": False})]
-    analyze_args = cli.build_parser().parse_args(
-        [
-            "guidance",
-            "execution-bridge",
-            "analyze",
-            "--output-dir",
-            "out",
-            "--source-dir",
-            "src",
-        ]
-    )
-    assert analyze_args.key == ("guidance", "execution-bridge", "analyze")
-
-
 def test_bridge_episodes_require_matched_matrix():
     def speed_fn(seed, arm, horizon):
         return 10.0
