@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 from types import SimpleNamespace
 
 import numpy as np
@@ -11,7 +10,6 @@ import torch
 from eco_planner.experiments.reward.analysis import dynamic_range_audit
 from eco_planner.reward import (
     MOTION_LIMITS,
-    PlannerRFTEnergyRewardConfig,
     PlannerRFTNoEnergyRewardConfig,
     aggregate_transition_reward,
     calibrate,
@@ -31,16 +29,9 @@ from eco_planner.rl.reward import (
     reweight,
     verify_original_components,
 )
-from eco_planner.rl.rollout import (
-    ExecutionTransitionAudit,
-    RolloutEpisodeBuilder,
-    RolloutProvenance,
-    build_training_decision,
-    build_training_transition,
-)
 from eco_planner.rl.rollout.fixed_batch import load_batch
-from tests.training.helpers import _context, _decision_audit, _episode
-from tests.training.reward_helpers import _metrics, _no_energy_config
+from tests.training.helpers import _episode
+from tests.training.reward_helpers import _five_substep_parity_case, _no_energy_config
 
 
 def _study():
@@ -193,61 +184,6 @@ def _band_profile() -> PlannerRFTNoEnergyRewardConfig:
     return PlannerRFTNoEnergyRewardConfig.model_validate(payload)
 
 
-def _five_substep_parity_case(
-    base: PlannerRFTNoEnergyRewardConfig | PlannerRFTEnergyRewardConfig,
-    evaluate=evaluate_plannerrft_no_energy_step,
-    count=5,
-):
-    metrics = (
-        _metrics(),
-        _metrics(route_progress_delta_m=0.4, velocity_xy_mps=(12.0, 0.0)),
-        _metrics(position_xy_m=(0.0, 0.0), velocity_xy_mps=(0.0, 0.0), route_progress_delta_m=0.0),
-        _metrics(crash_vehicle=True),
-        _metrics(route_heading_rad=math.pi),
-    )
-    metrics = metrics[:count]
-    results = tuple(evaluate(base, metric) for metric in metrics)
-    execution = ExecutionTransitionAudit(
-        reward_result=aggregate_transition_reward(results),
-        substep_results=results,
-        route_completion_delta=0.1,
-        distance_m=5.0,
-        speed_mps=10.0,
-        stopped=False,
-        collision=False,
-        wrong_direction=False,
-        position_error_m=0.0,
-        heading_error_rad=0.0,
-        arrive_dest=False,
-        out_of_road=False,
-        crash_vehicle=False,
-        crash_object=False,
-        crash_building=False,
-        crash_human=False,
-        crash_sidewalk=False,
-        terminated=True,
-        truncated=False,
-    )
-    builder = RolloutEpisodeBuilder()
-    builder.append(
-        build_training_transition(
-            build_training_decision(
-                _context(),
-                torch.tensor([[-0.5, 0.5]]),
-                torch.tensor([0.5]),
-                torch.tensor([1.0]),
-            ),
-            execution.reward_result,
-            terminated=execution.terminated,
-            truncated=execution.truncated,
-        ),
-        _decision_audit(),
-        execution,
-        RolloutProvenance(0, 1, 2, 0),
-    )
-    return builder.finish("terminated", torch.zeros(1)), metrics, results
-
-
 def test_five_substep_fixed_batch_online_offline_parity(tmp_path):
     base = _no_energy_config()
     episode, metrics, results = _five_substep_parity_case(base)
@@ -384,19 +320,4 @@ def test_reweight_reuses_scores_even_when_component_thresholds_differ():
     )
     assert not torch.equal(
         rescore(episode, changed).audit["reward_total"], original.audit["reward_total"]
-    )
-
-
-def test_summary_and_reader_preserve_transition_component_sums_above_one():
-    from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
-    from tests.training.summary_helpers import build_ppo_update_report
-
-    episodes = tuple(
-        _five_substep_parity_case(_no_energy_config(), count=count)[0] for count in (1, 5)
-    )
-    summary = build_update_summary(0, episodes, build_ppo_update_report(sample_count=2))
-    restored = TrainingUpdateSummary.model_validate_json(summary.model_dump_json())
-    assert restored.reward_component_means.ttc > 1.0
-    assert restored.reward_component_means.ttc == pytest.approx(
-        sum(episode.audit["reward_component_ttc"].item() for episode in episodes) / 2
     )

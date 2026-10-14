@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import math
+
+import torch
 from omegaconf import OmegaConf
 
 from eco_planner._repository import CONFIG_ROOT
@@ -13,7 +16,20 @@ from eco_planner.envs.domain import (
     TransitionMetricInput,
     derive_transition_metrics,
 )
-from eco_planner.reward import PlannerRFTEnergyRewardConfig, PlannerRFTNoEnergyRewardConfig
+from eco_planner.reward import (
+    PlannerRFTEnergyRewardConfig,
+    PlannerRFTNoEnergyRewardConfig,
+    aggregate_transition_reward,
+    evaluate_plannerrft_no_energy_step,
+)
+from eco_planner.rl.rollout import (
+    ExecutionTransitionAudit,
+    RolloutEpisodeBuilder,
+    RolloutProvenance,
+    build_training_decision,
+    build_training_transition,
+)
+from tests.training.helpers import _context, _decision_audit
 
 
 def _config() -> PlannerRFTEnergyRewardConfig:
@@ -119,3 +135,58 @@ def _reward_profile_payload(name: str) -> dict:
     payload = OmegaConf.to_container(OmegaConf.load(config_root / f"{name}.yaml"), resolve=True)
     assert isinstance(payload, dict)
     return payload
+
+
+def _five_substep_parity_case(
+    base: PlannerRFTNoEnergyRewardConfig | PlannerRFTEnergyRewardConfig,
+    evaluate=evaluate_plannerrft_no_energy_step,
+    count=5,
+):
+    metrics = (
+        _metrics(),
+        _metrics(route_progress_delta_m=0.4, velocity_xy_mps=(12.0, 0.0)),
+        _metrics(position_xy_m=(0.0, 0.0), velocity_xy_mps=(0.0, 0.0), route_progress_delta_m=0.0),
+        _metrics(crash_vehicle=True),
+        _metrics(route_heading_rad=math.pi),
+    )
+    metrics = metrics[:count]
+    results = tuple(evaluate(base, metric) for metric in metrics)
+    execution = ExecutionTransitionAudit(
+        reward_result=aggregate_transition_reward(results),
+        substep_results=results,
+        route_completion_delta=0.1,
+        distance_m=5.0,
+        speed_mps=10.0,
+        stopped=False,
+        collision=False,
+        wrong_direction=False,
+        position_error_m=0.0,
+        heading_error_rad=0.0,
+        arrive_dest=False,
+        out_of_road=False,
+        crash_vehicle=False,
+        crash_object=False,
+        crash_building=False,
+        crash_human=False,
+        crash_sidewalk=False,
+        terminated=True,
+        truncated=False,
+    )
+    builder = RolloutEpisodeBuilder()
+    builder.append(
+        build_training_transition(
+            build_training_decision(
+                _context(),
+                torch.tensor([[-0.5, 0.5]]),
+                torch.tensor([0.5]),
+                torch.tensor([1.0]),
+            ),
+            execution.reward_result,
+            terminated=execution.terminated,
+            truncated=execution.truncated,
+        ),
+        _decision_audit(),
+        execution,
+        RolloutProvenance(0, 1, 2, 0),
+    )
+    return builder.finish("terminated", torch.zeros(1)), metrics, results

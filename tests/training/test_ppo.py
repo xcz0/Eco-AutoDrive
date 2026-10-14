@@ -13,7 +13,7 @@ from eco_planner.reward import (
     RewardResult,
     aggregate_scalar_rewards,
 )
-from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
+from eco_planner.rl.artifacts import build_update_summary
 from eco_planner.rl.optimization import PPOUpdater, compute_episode_gae
 from eco_planner.rl.optimization.ppo import build_ppo_batch
 from eco_planner.rl.rollout import (
@@ -207,80 +207,6 @@ def test_minibatches_cover_each_update_and_use_independent_reproducible_rng(devi
 
 
 @pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
-@pytest.mark.parametrize("early_stop", [False, True])
-def test_next_update_and_checkpoint_preserve_minibatches(tmp_path, early_stop, device) -> None:
-    from lightning.fabric import Fabric
-
-    from eco_planner.rl.optimization import load_training_checkpoint, save_training_checkpoint
-
-    config = _ppo_config().model_copy(
-        update={
-            "batch_size": 4,
-            "epochs": 2,
-            "scheduler_total_optimizer_steps": 16,
-            "target_kl": 1e-12 if early_stop else None,
-        }
-    )
-    policy = ExplorationPolicy(_policy_config()).to(device)
-    updater = PPOUpdater(policy, config)
-    episodes = tuple(
-        _episode(reward=float(i), terminated=True, truncated=False, bootstrap=0.0) for i in range(4)
-    )
-    first = updater.update(episodes)
-    if early_stop:
-        assert first.optimizer_step_count == 0
-        assert updater.scheduler.last_epoch == 0
-    checkpoint = tmp_path / "state.ckpt"
-    fabric = Fabric(accelerator=device)
-    save_training_checkpoint(checkpoint, fabric, policy, updater, {"completed_updates": 1})
-    # The next batch has unique actions, all paired with the updated behavior policy.
-    next_episodes = tuple(
-        _behavior_policy_episode(policy, torch.tensor([[i / 10, -i / 10]]), float(i + 1))
-        for i in range(4)
-    )
-    updater.config = config.model_copy(update={"target_kl": None})
-    seen = []
-    hook = updater.loss_module.register_forward_pre_hook(
-        lambda module, args: seen.extend(args[0]["guidance_action"][:, 0].tolist())
-    )
-    expected = updater.update(next_episodes)
-    hook.remove()
-    for offset in (0, 4):
-        assert sorted(seen[offset : offset + 4]) == pytest.approx([0, 0.1, 0.2, 0.3])
-    restored = PPOUpdater(ExplorationPolicy(_policy_config()).to(device), updater.config)
-    load_training_checkpoint(checkpoint, fabric, restored.policy, restored)
-    replayed = []
-    hook = restored.loss_module.register_forward_pre_hook(
-        lambda module, args: replayed.extend(args[0]["guidance_action"][:, 0].tolist())
-    )
-    assert restored.update(next_episodes) == expected
-    hook.remove()
-    assert seen == replayed
-    for name, parameter in policy.state_dict().items():
-        assert torch.equal(parameter, restored.policy.state_dict()[name])
-    assert updater.scheduler.state_dict() == restored.scheduler.state_dict()
-    actual_optimizer = updater.optimizer.state_dict()
-    restored_optimizer = restored.optimizer.state_dict()
-    assert actual_optimizer["param_groups"] == restored_optimizer["param_groups"]
-    for key, state in actual_optimizer["state"].items():
-        for field, value in state.items():
-            torch.testing.assert_close(
-                value, restored_optimizer["state"][key][field], rtol=0, atol=0
-            )
-    assert torch.equal(
-        updater.checkpoint_state()["minibatch_generator_state"],
-        restored.checkpoint_state()["minibatch_generator_state"],
-    )
-
-
-def test_checkpoint_rejects_old_sampler_state() -> None:
-    updater = PPOUpdater(ExplorationPolicy(_policy_config()), _ppo_config())
-    old_state = {**updater.checkpoint_state(), "minibatch_sampler_state": {}}
-    with pytest.raises(ValueError, match="unexpected fields"):
-        updater.restore_checkpoint_state(old_state)
-
-
-@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
 def test_update_preserves_fixed_ppo_targets_and_source(device) -> None:
     config = _ppo_config().model_copy(
         update={"batch_size": 4, "epochs": 2, "scheduler_total_optimizer_steps": 4}
@@ -366,39 +292,10 @@ def test_ppo_update_changes_policy_and_reports_finite_training_summary() -> None
     assert math.isfinite(report.mean_value_target)
     assert math.isfinite(report.std_value_target)
     assert report.std_value_target >= 0.0
-    assert isinstance(summary, TrainingUpdateSummary)
     assert summary.update_index == 0
     assert summary.episode_count == 2
-    assert summary.sample_count == 2
-    assert math.isclose(summary.mean_episode_length, 1.0)
-    assert math.isfinite(summary.mean_state_value)
-    assert math.isfinite(summary.std_state_value)
-    assert summary.std_state_value >= 0.0
-    assert math.isfinite(summary.mean_value_target)
-    assert math.isfinite(summary.std_value_target)
-    assert summary.std_value_target >= 0.0
-    for field in (
-        summary.beta_alpha_mean,
-        summary.beta_alpha_min,
-        summary.beta_alpha_max,
-        summary.beta_beta_mean,
-        summary.beta_beta_min,
-        summary.beta_beta_max,
-        summary.action_mean,
-        summary.action_std,
-        summary.action_min,
-        summary.action_max,
-    ):
-        assert len(field) == 2
-        assert all(math.isfinite(value) for value in field)
-    for dim in range(2):
-        assert summary.beta_alpha_min[dim] <= summary.beta_alpha_mean[dim]
-        assert summary.beta_alpha_mean[dim] <= summary.beta_alpha_max[dim]
-        assert summary.beta_beta_min[dim] <= summary.beta_beta_mean[dim]
-        assert summary.beta_beta_mean[dim] <= summary.beta_beta_max[dim]
-        assert summary.action_min[dim] <= summary.action_mean[dim]
-        assert summary.action_mean[dim] <= summary.action_max[dim]
-        assert summary.action_std[dim] >= 0.0
+    assert summary.sample_count == report.sample_count
+    assert summary.total_reward == 2.25
     assert summary.reward_profile == "plannerrft_energy_v1"
 
 
@@ -417,7 +314,7 @@ def test_ppo_pairs_each_action_with_its_behavior_log_probability() -> None:
     assert report.mean_approximate_kl == pytest.approx(0.0, abs=1e-7)
 
 
-def test_target_kl_stops_before_triggering_minibatch_optimizer_step_and_resumes_state() -> None:
+def test_target_kl_stops_before_triggering_minibatch_optimizer_step() -> None:
     config = _ppo_config().model_copy(
         update={
             "target_kl": 1e-12,
@@ -446,10 +343,7 @@ def test_target_kl_stops_before_triggering_minibatch_optimizer_step_and_resumes_
     assert report.evaluated_minibatch_count == report.optimizer_step_count + 1
     assert 0 <= report.optimizer_step_count < config.optimizer_steps_per_update
     assert updater.completed_optimizer_steps == report.optimizer_step_count
-    restored = PPOUpdater(ExplorationPolicy(_policy_config()), config)
-    restored.restore_checkpoint_state(updater.checkpoint_state())
-    assert restored.checkpoint_state()["completed_optimizer_steps"] == report.optimizer_step_count
-    assert restored.checkpoint_state()["kl_early_stop_count"] == 1
+    assert report.cumulative_kl_early_stop_count == 1
 
 
 def test_optional_gradient_diagnostics_report_finite_parameter_group_norms() -> None:

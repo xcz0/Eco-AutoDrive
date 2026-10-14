@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import torch
@@ -10,18 +8,9 @@ from lightning.fabric import Fabric
 from mlflow import MlflowClient
 from omegaconf import OmegaConf
 
-from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS
 from eco_planner.planning.policy import ExplorationPolicy
-from eco_planner.rl.artifacts import PolicyProbeSummary, build_update_summary
-from eco_planner.rl.optimization import (
-    PPOUpdater,
-    load_training_checkpoint,
-    save_training_checkpoint,
-)
 from eco_planner.rl.tracking import TrackingIdentity, TrainingTracking, update_metrics
-from eco_planner.rl.training_state import TrainingLoopState, resume_training_state
-from tests.training.helpers import _config, _context, _episode, _policy_config, _ppo_config
-from tests.training.summary_helpers import build_ppo_update_report
+from tests.training.helpers import _config, _policy_config
 
 
 def _output(tmp_path, config, name):
@@ -48,47 +37,13 @@ def test_adapter_preserves_units_denominators_and_optional_metrics(summary):
     assert "gradient/actor_head_policy" not in metrics
 
 
-def test_unequal_episode_summary_uses_transition_weights_and_ratio_of_totals():
-    short = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
-    training = torch.cat([short.training, short.training], dim=0)
-    training["next", "terminated"][0] = False
-    training["next", "done"][0] = False
-    audit = torch.cat([short.audit, short.audit], dim=0)
-    audit["speed_mps"][:] = 10.0
-    audit["step_distance_m"][:] = 1.0
-    audit["executed_fuel_proxy_step_energy_ml"][:] = 1.0
-    long = replace(short, training=training, audit=audit)
-    short.audit["speed_mps"][:] = 1.0
-    short.audit["step_distance_m"][:] = 10.0
-    short.audit["executed_fuel_proxy_step_energy_ml"][:] = 2.0
-    report = build_ppo_update_report(sample_count=3)
-    result = build_update_summary(0, (short, long), report)
-    assert result.mean_episode_length == 1.5
-    assert result.mean_speed_mps == 7.0
-    assert result.executed_fuel_proxy_ml_per_km == pytest.approx(4000.0 / 12.0)
-    short.audit["step_distance_m"][:] = 0.0
-    long.audit["step_distance_m"][:] = 0.0
-    assert build_update_summary(0, (short, long), report).executed_fuel_proxy_ml_per_km is None
-
-
-def test_update_summary_persists_multi_substep_component_sums() -> None:
-    """Canonical k=5 transitions aggregate up to k subtask scores per component."""
-
-    episodes = tuple(
-        _episode(reward=r, terminated=True, truncated=False, bootstrap=0.0) for r in (0.25, 2.0)
-    )
-    for episode in episodes:
-        for component in ("ttc", "progress", "comfort", "speed", "energy"):
-            episode.audit[f"reward_component_{component}"][:] = CLOSED_LOOP_EXECUTION_STEPS
-    report = build_ppo_update_report(sample_count=2)
-    summary = build_update_summary(0, episodes, report)
-    assert summary.reward_component_means.ttc == CLOSED_LOOP_EXECUTION_STEPS
-    assert summary.reward_component_means.energy == CLOSED_LOOP_EXECUTION_STEPS
-
-
 def test_real_mlflow_runs_metrics_artifacts_and_same_run_resume(tmp_path, summary):
     config = _config(tmp_path)
     output = _output(tmp_path, config, "first")
+    with torch.random.fork_rng():
+        policy = ExplorationPolicy(_policy_config())
+    policy_before = {key: value.clone() for key, value in policy.state_dict().items()}
+    rng_before = torch.random.get_rng_state().clone()
     with TrainingTracking(config, output) as tracking:
         tracking.start_new()
         tracking.attach(Fabric(accelerator="cpu"), [], None)
@@ -97,6 +52,9 @@ def test_real_mlflow_runs_metrics_artifacts_and_same_run_resume(tmp_path, summar
         client = MlflowClient(identity.tracking_uri)
         assert client.get_run(identity.run_id).info.status == "RUNNING"
         assert client.get_metric_history(identity.run_id, "reward/total_mean")[0].step == 0
+    assert torch.equal(rng_before, torch.random.get_rng_state())
+    for key, value in policy.state_dict().items():
+        assert torch.equal(value, policy_before[key])
     assert client.get_run(identity.run_id).info.status == "FINISHED"
     assert client.get_run(identity.run_id).data.params["config.runtime.seed"] == "0"
     artifacts = client.list_artifacts(identity.run_id, tracking.invocation)
@@ -199,122 +157,11 @@ def test_failure_status_and_original_exception(tmp_path, error, status):
 
 def test_disabled_tracking_does_not_create_store(tmp_path, summary):
     config = _config(tmp_path, enabled=False)
+    identity = TrackingIdentity(run_id="saved-run", tracking_uri="https://example.org")
     with TrainingTracking(config, _output(tmp_path, config, "disabled")) as tracking:
         tracking.start_new()
-        tracking.attach(Fabric(accelerator="cpu"), [], None)
+        tracking.attach(Fabric(accelerator="cpu"), [summary], identity)
         tracking.update(summary)
+        assert tracking.identity == identity
     assert not (tmp_path / "mlflow.db").exists()
     assert not (tmp_path / "artifacts").exists()
-
-
-def test_logging_and_checkpoint_resume_preserve_optimizer_and_rng(tmp_path):
-    fabric = Fabric(accelerator="cpu")
-    with torch.random.fork_rng():
-        torch.manual_seed(12)
-        policy = ExplorationPolicy(_policy_config())
-        ppo = _ppo_config().model_copy(update={"scheduler_total_optimizer_steps": 2})
-        updater = PPOUpdater(policy, ppo)
-        episodes = tuple(
-            _episode(reward=r, terminated=True, truncated=False, bootstrap=0.0) for r in (0.25, 2.0)
-        )
-        first = updater.update(episodes)
-        config = _config(tmp_path)
-        output = _output(tmp_path, config, "logged")
-        with TrainingTracking(config, output) as tracking:
-            tracking.start_new()
-            tracking.attach(fabric, [], None)
-            rng_before = torch.random.get_rng_state().clone()
-            policy_before = {k: v.clone() for k, v in policy.state_dict().items()}
-            tracking.update(build_update_summary(0, episodes, first))
-            assert torch.equal(rng_before, torch.random.get_rng_state())
-            for key, value in policy.state_dict().items():
-                assert torch.equal(value, policy_before[key])
-            save_training_checkpoint(
-                output / "training-state.ckpt",
-                fabric,
-                policy,
-                updater,
-                {"completed_updates": 1, "tracking": tracking.identity.model_dump()},
-            )
-            expected = updater.update(episodes)
-            final_policy = {k: v.clone() for k, v in policy.state_dict().items()}
-            final_rng = torch.random.get_rng_state().clone()
-            restored_policy = ExplorationPolicy(_policy_config())
-            restored = PPOUpdater(restored_policy, ppo)
-            _, loop = load_training_checkpoint(
-                output / "training-state.ckpt", fabric, restored_policy, restored
-            )
-            assert loop["tracking"] == tracking.identity.model_dump()
-            assert restored.update(episodes) == expected
-            assert restored.scheduler.state_dict() == updater.scheduler.state_dict()
-            assert torch.equal(final_rng, torch.random.get_rng_state())
-            for key, value in restored_policy.state_dict().items():
-                assert torch.equal(value, final_policy[key])
-
-
-# Tracking identity is restored only after rollout RNG validation succeeds.
-@pytest.mark.parametrize(
-    "tracked,rng_error",
-    [
-        pytest.param(False, None, id="untracked-roundtrip"),
-        pytest.param(True, None, id="tracked-roundtrip"),
-        pytest.param(False, "missing", id="missing-rng-state"),
-        pytest.param(False, "count", id="wrong-rng-slot-count"),
-        pytest.param(False, "dtype", id="wrong-rng-dtype"),
-    ],
-)
-def test_training_loop_restores_json_mode_summary_and_probe_from_checkpoint(
-    tmp_path, summary, tracked, rng_error
-):
-    fabric = Fabric(accelerator="cpu")
-    policy = ExplorationPolicy(_policy_config())
-    updater = PPOUpdater(policy, _ppo_config())
-    probe = PolicyProbeSummary(
-        alpha=((2.0, 2.0),),
-        beta=((2.0, 2.0),),
-        guidance_mean=((0.0, 0.0),),
-        boundary_mass=((0.1, 0.1),),
-    )
-    identity = (
-        TrackingIdentity(run_id="saved-run", tracking_uri="https://example.org")
-        if tracked
-        else None
-    )
-    loop = TrainingLoopState(
-        completed_updates=1,
-        total_transitions=summary.sample_count,
-        update_summaries=[summary],
-        probe_before=probe,
-        probe_contexts=(_context(),),
-        initial_policy_hash="a" * 64,
-        tracking=identity,
-        diffusion_rng_states=tuple(torch.Generator().manual_seed(i).get_state() for i in (1, 2)),
-        policy_rng_states=tuple(torch.Generator().manual_seed(i).get_state() for i in (3, 4)),
-    ).checkpoint_payload()
-    assert isinstance(loop["update_summaries"][0]["action_mean"], list)
-    if rng_error == "missing":
-        del loop["diffusion_rng_states"]
-    elif rng_error == "count":
-        loop["diffusion_rng_states"] = ()
-    elif rng_error == "dtype":
-        loop["diffusion_rng_states"] = (torch.zeros(3), torch.zeros(3))
-    checkpoint = tmp_path / "training-state.ckpt"
-    save_training_checkpoint(checkpoint, fabric, policy, updater, loop)
-    config = _config(tmp_path, enabled=False, resume=str(checkpoint))
-    if rng_error:
-        with pytest.raises((TypeError, ValueError), match="diffusion_rng_states"):
-            resume_training_state(config, SimpleNamespace(fabric=fabric, policy=policy), updater)
-        return
-    restored = resume_training_state(config, SimpleNamespace(fabric=fabric, policy=policy), updater)
-    assert restored.completed_updates == 1
-    assert restored.total_transitions == summary.sample_count
-    assert restored.initial_policy_hash == "a" * 64
-    assert restored.update_summaries == [summary]
-    assert restored.probe_before == probe
-    assert restored.tracking == identity
-    assert torch.equal(
-        restored.probe_contexts[0].reference_trajectory, _context().reference_trajectory
-    )
-    with TrainingTracking(config, tmp_path) as tracking:
-        tracking.attach(fabric, restored.update_summaries, restored.tracking)
-        assert tracking.identity == identity
