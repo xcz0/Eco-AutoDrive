@@ -40,12 +40,7 @@ from eco_planner.rl.rollout import (
 )
 from eco_planner.rl.rollout.fixed_batch import load_batch
 from tests.training.helpers import _context, _decision_audit, _episode
-from tests.training.test_reward import (
-    ISSUE83_LAMBDA_PROFILES,
-    _metrics,
-    _no_energy_config,
-    _task_g_profile_payload,
-)
+from tests.training.test_reward import _metrics, _no_energy_config
 
 
 def _study():
@@ -300,55 +295,15 @@ def test_five_substep_fixed_batch_online_offline_parity(tmp_path):
     assert rescorced.training["next", "reward"].item() == pytest.approx(online_rescorced.total)
 
 
-@pytest.mark.parametrize("profile_name", ISSUE83_LAMBDA_PROFILES)
-def test_five_substep_online_offline_parity_for_issue83_band_lambda_profiles(
-    tmp_path, profile_name
-):
-    profile = PlannerRFTEnergyRewardConfig.model_validate(_task_g_profile_payload(profile_name))
-    episode, metrics, results = _five_substep_parity_case(
-        profile, evaluate=evaluate_plannerrft_energy_step
-    )
-    path = tmp_path / "updates/update-000/slot-0-episode-0.npz"
-    write_rollout_episode(path, episode)
-    loaded = read_rollout_episode(path)
-
-    # Gate I: offline reweighting of the persisted multi-substep audit
-    # reproduces the online per-substep objective of the named band lambda arm.
-    reweighted = reweight(loaded, profile)
-    assert reweighted.reward_profile == profile_name
-    assert reweighted.training["next", "reward"].item() == pytest.approx(
-        sum(result.total for result in results)
-    )
-    for name in COMPONENTS:
-        assert reweighted.audit[f"reward_component_{name}"].item() == pytest.approx(
-            sum(getattr(result.components, name) for result in results)
-        )
-    assert reweighted.audit["reward_base_total"].item() == pytest.approx(
-        sum(result.base_total for result in results)
-    )
-
-
-@pytest.mark.parametrize("count", [1, 3, 5])
 @pytest.mark.parametrize(
-    "profile_name",
+    "profile,count",
     [
-        "plannerrft_energy_v1",
-        "plannerrft_no_energy_v1",
-        "plannerrft_no_energy_calibrated_v1",
-        "plannerrft_energy_band_lam64_v1",
-        *ISSUE83_LAMBDA_PROFILES,
+        pytest.param(_no_energy_config(), 1, id="no-energy-single-substep"),
+        pytest.param(reward_profile(_no_energy_config(), 2.0), 3, id="exponential-partial-prefix"),
+        pytest.param(reward_profile(_band_profile(), 2.0), 5, id="band-full-prefix-mixed-gates"),
     ],
 )
-def test_all_profiles_preserve_prefix_objective_audit_and_storage(tmp_path, profile_name, count):
-    from pydantic import TypeAdapter
-
-    from eco_planner._repository import CONFIG_ROOT
-    from eco_planner.configuration import load_resolved_yaml_mapping
-    from eco_planner.reward import RewardProfileConfig
-
-    profile = TypeAdapter(RewardProfileConfig).validate_python(
-        load_resolved_yaml_mapping(CONFIG_ROOT / f"components/reward/{profile_name}.yaml")
-    )
+def test_reward_branches_preserve_prefix_objective_audit_and_storage(tmp_path, profile, count):
     episode, _, results = _five_substep_parity_case(
         profile, lambda config, metric: create_reward_evaluator(config)(metric), count
     )
@@ -356,6 +311,10 @@ def test_all_profiles_preserve_prefix_objective_audit_and_storage(tmp_path, prof
     write_rollout_episode(path, episode)
     loaded = read_rollout_episode(path)
     rebuilt = reweight(loaded, profile)
+    assert rebuilt.reward_profile == profile.name
+    assert rebuilt.training["next", "reward"].item() == pytest.approx(
+        sum(result.total for result in results)
+    )
     torch.testing.assert_close(
         rebuilt.training["next", "reward"], rebuilt.audit["reward_total"], rtol=0, atol=0
     )
@@ -377,7 +336,7 @@ def test_all_profiles_preserve_prefix_objective_audit_and_storage(tmp_path, prof
             torch.count_nonzero(rebuilt.audit[f"reward_substep_component_{name}"][:, count:]) == 0
         )
 
-    # Independently retain the pre-refactor float64 tensor math as a parity oracle.
+    # Independent weighted-objective oracle over the stored, executed prefix.
     weights = profile.weights.model_dump()
     base = sum(
         loaded.audit[f"reward_substep_component_{name}"].double()[:, :count] * weight

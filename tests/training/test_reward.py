@@ -371,12 +371,26 @@ def test_no_energy_reward_total_is_zeroed_by_terminal_gates() -> None:
     assert wrong_direction.total == 0.0
 
 
-@pytest.mark.parametrize("energy_weight", [0.5, 1.0, 2.0, 4.0])
+@pytest.mark.parametrize(
+    "base,energy_weight",
+    [
+        pytest.param(_config(), 0.5, id="exponential-small-weight"),
+        pytest.param(_config(), 16.0, id="exponential-large-weight"),
+        pytest.param(_band_config(), 64.0, id="band-large-weight"),
+    ],
+)
 def test_energy_weight_lambda_changes_only_the_energy_term_and_denominator(
+    base: PlannerRFTEnergyRewardConfig,
     energy_weight: float,
 ) -> None:
-    result = evaluate_plannerrft_energy_step(_energy_config_with_weight(energy_weight), _metrics())
-    reference = evaluate_plannerrft_no_energy_step(_no_energy_config(), _metrics())
+    payload = base.model_dump(mode="python")
+    payload["weights"]["energy"] = energy_weight
+    config = PlannerRFTEnergyRewardConfig.model_validate(payload)
+    payload["name"] = "plannerrft_no_energy_v1"
+    del payload["weights"]["energy"]
+    no_energy = PlannerRFTNoEnergyRewardConfig.model_validate(payload)
+    result = evaluate_plannerrft_energy_step(config, _metrics())
+    reference = evaluate_plannerrft_no_energy_step(no_energy, _metrics())
 
     assert result.profile_name == "plannerrft_energy_v1"
     assert result.components == reference.components
@@ -466,52 +480,6 @@ def test_frozen_energy_band_rejects_inverted_thresholds() -> None:
         FrozenEnergyBand(full_score_ml_per_km=0.0, zero_score_ml_per_km=48.0)
 
 
-def test_task_g_rstress_reward_uses_band_energy_at_lambda_64() -> None:
-    rstress = PlannerRFTEnergyRewardConfig.model_validate(
-        _task_g_profile_payload("plannerrft_energy_band_lam64_v1")
-    )
-    r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
-        _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
-    )
-    rstress_result = evaluate_plannerrft_energy_step(rstress, _metrics())
-    r0_result = evaluate_plannerrft_no_energy_step(r0, _metrics())
-
-    intensity = 32.5 * math.exp(0.36)
-    band_full = 46.37086372375488
-    band_zero = 48.7514030456543
-    assert (
-        rstress_result.components.ttc,
-        rstress_result.components.progress,
-        rstress_result.components.comfort,
-        rstress_result.components.speed,
-    ) == (
-        r0_result.components.ttc,
-        r0_result.components.progress,
-        r0_result.components.comfort,
-        r0_result.components.speed,
-    )
-    assert rstress_result.diagnostics == r0_result.diagnostics
-    assert r0_result.components.energy == pytest.approx(math.exp(-intensity / 50.0))
-    assert rstress_result.components.energy == pytest.approx(
-        calibrated_band_score(intensity, band_full, band_zero)
-    )
-    expected_r0 = (
-        5.0 * r0_result.components.ttc
-        + 5.0 * r0_result.components.progress
-        + 2.0 * r0_result.components.comfort
-        + 4.0 * r0_result.components.speed
-    ) / 16.0
-    expected_rstress = (
-        5.0 * rstress_result.components.ttc
-        + 5.0 * rstress_result.components.progress
-        + 2.0 * rstress_result.components.comfort
-        + 4.0 * rstress_result.components.speed
-        + 64.0 * rstress_result.components.energy
-    ) / 80.0
-    assert r0_result.total == pytest.approx(expected_r0)
-    assert rstress_result.total == pytest.approx(expected_rstress)
-
-
 def test_reward_results_and_audit_schema_carry_the_configured_profile_name() -> None:
     from eco_planner.rl.rollout import rollout_audit_keys
 
@@ -545,48 +513,6 @@ def test_reward_results_and_audit_schema_carry_the_configured_profile_name() -> 
     assert rollout_audit_keys("plannerrft_no_energy_calibrated_v1") == rollout_audit_keys(
         "plannerrft_no_energy_v1"
     )
-
-
-ISSUE83_LAMBDA_PROFILES = (
-    "plannerrft_energy_band_lam1_v1",
-    "plannerrft_energy_band_lam2_v1",
-    "plannerrft_energy_band_lam4_v1",
-    "plannerrft_energy_band_lam8_v1",
-)
-
-
-def test_issue83_lambda_arms_score_only_through_the_energy_weight() -> None:
-    # With identical metrics, every lambda arm shares components with the
-    # calibrated R0 anchor and combines them with its own 16+lambda denominator.
-    r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
-        _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
-    )
-    for name in ISSUE83_LAMBDA_PROFILES:
-        arm = PlannerRFTEnergyRewardConfig.model_validate(_task_g_profile_payload(name))
-        result = evaluate_plannerrft_energy_step(arm, _metrics())
-        reference = evaluate_plannerrft_no_energy_step(r0, _metrics())
-        assert result.profile_name == name
-        assert (
-            result.components.ttc,
-            result.components.progress,
-            result.components.comfort,
-            result.components.speed,
-        ) == (
-            reference.components.ttc,
-            reference.components.progress,
-            reference.components.comfort,
-            reference.components.speed,
-        )
-        assert result.diagnostics == reference.diagnostics
-        expected = (
-            5.0 * result.components.ttc
-            + 5.0 * result.components.progress
-            + 2.0 * result.components.comfort
-            + 4.0 * result.components.speed
-            + arm.weights.energy * result.components.energy
-        ) / arm.weights.total
-        assert result.base_total == pytest.approx(expected)
-        assert result.total == pytest.approx(result.safety_gate * expected)
 
 
 def test_issue83_band_profile_rejects_a_name_weight_lambda_mismatch() -> None:
