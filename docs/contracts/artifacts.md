@@ -113,18 +113,11 @@ Critic attribution 的 offline reporting 可核对 advantage，不重算梯度�
 | Guidance sweep | matrix summary 与对应 evaluation summaries |
 | Training grid/diagnose/eval | 持久化测量 summary 与各 run 事实 |
 | Critic attribution | diagnostics NPZ、sample index、summary、diagnostic config、runtime metadata |
-| Cadence / counterfactual attribution | study manifest、逐臂 training runs、held-out、逐 update 测量与归因 summary、report/analysis |
-| Control re-freeze | 同上，另含各候选 Gate、estimator 一致性、failed_candidates、selected_config 与 matched ratios |
 
-Cadence/counterfactual 的离线 GAE 重建 MUST 与源记录的 raw advantage/value target 核对。
 Learning-rate history 从 resolved cosine schedule 与实际 optimizer steps 重建（包括零 step 的
 KL early-stop update），并与逐 update `final_learning_rate` 交叉核验；不一致必须报错。
 Learning-rate exposure 是实际 optimizer steps 使用的 learning rate 累计，不能以 update 数代替。
 启用 gradient diagnostics 时保留六组 per-group norm 序列；未启用则为空，不补造测量。
-
-Control re-freeze 允许候选训练失败或非有限测量后继续筛选，必须保留
-`failure{exception_type,message,traceback}`、failed candidates 和原始证据；reference 失败则中止。
-这是预声明候选筛选流程的专用失败规则，不扩展为普通训练的坏样本跳过或静默重试。
 
 Help、offline analyze、summary/trace/report reader MUST 不加载 Torch、MetaDrive/Panda3D 或渲染器。
 仅生成图片时加载绘图库并使用 headless backend。分析与报告归各实验主题，离线入口不依赖 run 初始化；
@@ -139,16 +132,19 @@ Tracking 是研究 artifact 的索引和可视化，不接管 schema 或科研�
 曲线 step MUST 是从零开始的绝对 update_index，恢复后不重置。
 有限标量之外的缺失可选指标不发送、不补零；native/proxy 名称和单位分开。
 
-全新训练创建独立 Run。Checkpoint 可保存 `run_id/tracking_uri`，恢复沿用该身份；关闭 tracking 仍保留继承身份并记录 metadata。Run 不存在或 URI 不匹配直接失败，不另建替代 Run。
-同一 Run 固定 model、sampler、guidance、policy、reward、PPO（含 scheduler horizon）、runtime、scenarios、env、map query radius 和其余 training 参数；
-允许 invocation 改变 job name、resources、tracking、目标 update 数及 resume 路径。这些写入规则不承诺跨执行配置的精确续训。
+每次训练调用创建独立 Run，包括从 checkpoint 恢复。Checkpoint 保存当前调用的
+`run_id/tracking_uri`；恢复时该身份只作为新 Run 的来源标记，不读取或修改旧 Run。
+新 Run 记录 `resume.checkpoint_path`，若 checkpoint 含 tracking 身份，再记录
+`resume.source_run_id` 与 `resume.source_tracking_uri`。旧 Run 不存在或位于其他 store
+不影响本次 tracking；精确训练恢复的条件仍归 [training contract](training.md#精确续训范围)。
+关闭 tracking 时保留 checkpoint 继承的身份作为来源信息，不建立数据库或 Run。
 
-参数以 config.* 保存，每 invocation 独立保存执行参数与 artifacts。
-旧 checkpoint 缺原始 resolved config 时只能以 continuation_config.* 标明恢复起已知配置，并注明历史未记录；
-原始配置存在则先校验一致再关联，不能用当前配置冒充历史 provenance。
-续写先检查 metric history，只补 checkpoint summaries 中缺失的 metric/step；已有点超过 checkpoint 或同一步值冲突则拒绝。
+参数以 `config.*` 保存本次完整 resolved config；artifacts 放在本次 Run 根目录。
+只发布本次实际执行的 update，step 使用绝对 update_index；不回填 checkpoint 中的历史
+summaries，不补写旧 Run 的缺失 metrics，也不追溯或推断旧 resolved config。
 
-Invocation artifacts 包括 config、metadata、initial/final policy、按显式间隔选取的 update policy 及最新 training-state checkpoint；正式 rollout NPZ 保留原输出目录。
+Run artifacts 包括本次 config、metadata、initial/final policy、按显式间隔选取的 update policy
+及最新 training-state checkpoint；正式 rollout NPZ 保留原输出目录。
 正常训练和上传均成功才 FINISHED，异常 FAILED，用户中断 KILLED；终结日志失败不得遮蔽原训练异常。
 
 ## 来源与代码导航

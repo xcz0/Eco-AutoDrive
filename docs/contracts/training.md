@@ -96,10 +96,6 @@ GAE/PPO 只要求含 scalar reward 的 training trajectory，不依赖 profile�
 
 Collector 使用同一 execution facts 求每个实际子步 reward，再按 training protocol 归约。
 同一个 `reward_total` MUST 写入 PPO `next.reward` 与 audit，PPO 不消费 worker 零 reward 占位。
-显式诊断开关 `ppo.diagnostic_reward_divisor` 仅在构建 GAE 输入时缩放 reward，默认 `1.0`
-表示禁用；MUST 保留原始 audit、component sums 与 `TrainingUpdateSummary.total_reward`。
-该 counterfactual 的解释边界归 [diagnostic studies](../research/protocols/diagnostic-studies.md#cadence-与-ppo-control-归因)，
-不能把缩放值回写为正式 reward 定义。
 离线 reweight/rescore 逐子步复用同一 reward 数学与归约，不从 transition 的 min gate 和 component sum
 反推 scalar reward，也不维护第二套公式。
 
@@ -150,8 +146,8 @@ diffusion/action generator uint8 states。MUST 校验状态数量、类型及内
 不提供旧 sampler state 迁移。
 
 Policy-only export 只表示可加载策略参数，不能用它宣称精确续训。
-同 tracking Run 允许改变 resources 等 invocation 参数是索引写入规则，
-不扩大本节的精确恢复范围，见 [tracking 持久化](artifacts.md#tracking-身份与续写)。
+恢复训练创建独立 tracking Run 并记录来源；Run 划分不扩大本节的精确恢复范围，
+见 [tracking 持久化](artifacts.md#tracking-身份与续写)。
 
 ## 来源、冲突与代码导航
 

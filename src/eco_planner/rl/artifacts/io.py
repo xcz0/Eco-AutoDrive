@@ -85,22 +85,13 @@ def write_training_runtime_metadata(
     path: Path,
     runtime: FabricRolloutRuntime,
     resources: ResourceProfileConfig,
-    *,
-    execution_steps: int | None = None,
 ) -> None:
-    """Record common reproducibility metadata plus the RL runtime selections.
-
-    ``execution_steps`` is the execution-prefix length actually used (canonical
-    unless a diagnostic override is set); it is recorded explicitly so a
-    non-canonical diagnostic run is not misread as canonical.
-    """
+    """Record common reproducibility metadata plus the canonical RL runtime selections."""
 
     repository_root = Path(to_absolute_path("."))
     metadata = {
         **collect_repository_metadata(repository_root),
-        "execution_steps": CLOSED_LOOP_EXECUTION_STEPS
-        if execution_steps is None
-        else execution_steps,
+        "execution_steps": CLOSED_LOOP_EXECUTION_STEPS,
         "inference_runtime": asdict(runtime.report),
         "checkpoint": asdict(runtime.checkpoint_report),
         "sampler": asdict(runtime.sampler_report),

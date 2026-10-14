@@ -37,7 +37,7 @@ def test_adapter_preserves_units_denominators_and_optional_metrics(summary):
     assert "gradient/actor_head_policy" not in metrics
 
 
-def test_real_mlflow_runs_metrics_artifacts_and_same_run_resume(tmp_path, summary):
+def test_real_mlflow_logs_current_invocation_and_links_resume_source(tmp_path, summary):
     config = _config(tmp_path)
     output = _output(tmp_path, config, "first")
     with torch.random.fork_rng():
@@ -46,7 +46,7 @@ def test_real_mlflow_runs_metrics_artifacts_and_same_run_resume(tmp_path, summar
     rng_before = torch.random.get_rng_state().clone()
     with TrainingTracking(config, output) as tracking:
         tracking.start_new()
-        tracking.attach(Fabric(accelerator="cpu"), [], None)
+        tracking.attach(Fabric(accelerator="cpu"), None)
         tracking.update(summary)
         identity = tracking.identity
         client = MlflowClient(identity.tracking_uri)
@@ -57,7 +57,7 @@ def test_real_mlflow_runs_metrics_artifacts_and_same_run_resume(tmp_path, summar
         assert torch.equal(value, policy_before[key])
     assert client.get_run(identity.run_id).info.status == "FINISHED"
     assert client.get_run(identity.run_id).data.params["config.runtime.seed"] == "0"
-    artifacts = client.list_artifacts(identity.run_id, tracking.invocation)
+    artifacts = client.list_artifacts(identity.run_id)
     assert {Path(item.path).name for item in artifacts} >= {
         "resolved_config.yaml",
         "policy-update-000.pt",
@@ -74,69 +74,48 @@ def test_real_mlflow_runs_metrics_artifacts_and_same_run_resume(tmp_path, summar
         }
     )
     with TrainingTracking(resumed, _output(tmp_path, resumed, "resumed")) as tracking:
-        tracking.attach(Fabric(accelerator="cpu"), [summary], identity)
+        tracking.start_new()
+        tracking.attach(Fabric(accelerator="cpu"), identity)
         tracking.update(summary.model_copy(update={"update_index": 1}))
-        assert tracking.identity == identity
-    assert [m.step for m in client.get_metric_history(identity.run_id, "reward/total_mean")] == [
-        0,
-        1,
-    ]
-    other = _config(tmp_path, seed=1)
-    with TrainingTracking(other, _output(tmp_path, other, "seed1")) as tracking:
+        resumed_identity = tracking.identity
+        assert resumed_identity.run_id != identity.run_id
+    original = client.get_run(identity.run_id)
+    current = client.get_run(resumed_identity.run_id)
+    assert original.info.status == current.info.status == "FINISHED"
+    assert [m.step for m in client.get_metric_history(identity.run_id, "reward/total_mean")] == [0]
+    assert [
+        m.step for m in client.get_metric_history(resumed_identity.run_id, "reward/total_mean")
+    ] == [1]
+    assert original.data.params["config.training.update_count"] == str(config.training.update_count)
+    assert current.data.params["config.training.update_count"] == "5"
+    assert current.data.tags["resume.source_run_id"] == identity.run_id
+    assert current.data.tags["resume.source_tracking_uri"] == identity.tracking_uri
+    assert current.data.tags["resume.checkpoint_path"] == resumed.training.resume_checkpoint_path
+
+
+@pytest.mark.parametrize(
+    "source_identity",
+    [None, TrackingIdentity(run_id="archived-run", tracking_uri="https://example.org")],
+)
+def test_resume_creates_run_without_reading_source_history(tmp_path, summary, source_identity):
+    checkpoint = tmp_path / "source/training-state.ckpt"
+    config = _config(tmp_path, resume=str(checkpoint))
+    with TrainingTracking(config, _output(tmp_path, config, "resumed")) as tracking:
         tracking.start_new()
-        tracking.attach(Fabric(accelerator="cpu"), [], None)
-        assert tracking.identity.run_id != identity.run_id
-
-
-def test_resume_repairs_missing_metrics_but_rejects_conflicts_and_stale_checkpoint(
-    tmp_path, summary
-):
-    config = _config(tmp_path)
-    first = _output(tmp_path, config, "first")
-    with TrainingTracking(config, first) as tracking:
-        tracking.start_new()
-        fabric = Fabric(accelerator="cpu")
-        tracking.attach(fabric, [], None)
-        fabric.log_dict({"reward/total_mean": summary.total_reward / summary.sample_count}, step=0)
-        identity = tracking.identity
-    resumed = _config(tmp_path, resume=str(first / "training-state.ckpt"))
-    with TrainingTracking(resumed, _output(tmp_path, resumed, "repair")) as tracking:
-        tracking.attach(Fabric(accelerator="cpu"), [summary], identity)
-    client = MlflowClient(identity.tracking_uri)
-    assert len(client.get_metric_history(identity.run_id, "reward/total_mean")) == 1
-    assert len(client.get_metric_history(identity.run_id, "ppo/mean_total_loss")) == 1
-    for name, history, match in (
-        ("stale", [], "ahead"),
-        ("conflict", [summary.model_copy(update={"total_reward": -200.0})], "conflicts"),
-    ):
-        with pytest.raises(ValueError, match=match):
-            with TrainingTracking(resumed, _output(tmp_path, resumed, name)) as tracking:
-                tracking.attach(Fabric(accelerator="cpu"), history, identity)
-        assert client.get_run(identity.run_id).info.status == "FINISHED"
-    changed = _config(tmp_path, seed=1, resume=str(first / "training-state.ckpt"))
-    with pytest.raises(ValueError, match="immutable"):
-        with TrainingTracking(changed, _output(tmp_path, changed, "changed")) as tracking:
-            tracking.attach(Fabric(accelerator="cpu"), [summary], identity)
-
-
-@pytest.mark.parametrize("original_config", [True, False])
-def test_legacy_checkpoint_history_provenance(tmp_path, summary, original_config):
-    source = tmp_path / "old"
-    source.mkdir()
-    config = _config(tmp_path, resume=str(source / "training-state.ckpt"))
-    if original_config:
-        payload = config.model_dump(mode="json", exclude={"tracking"})
-        OmegaConf.save(OmegaConf.create(payload), source / "resolved_config.yaml")
-    with TrainingTracking(config, _output(tmp_path, config, "new")) as tracking:
-        tracking.attach(Fabric(accelerator="cpu"), [summary], None)
+        tracking.attach(Fabric(accelerator="cpu"), source_identity)
         client = MlflowClient(tracking.identity.tracking_uri)
         run = client.get_run(tracking.identity.run_id)
-        prefix = "config." if original_config else "continuation_config."
-        assert run.data.params[f"{prefix}runtime.seed"] == "0"
-        assert run.data.tags["history.parameter_provenance"] == (
-            "original_resolved_config" if original_config else "historical_parameters_unrecorded"
-        )
-        assert len(client.get_metric_history(run.info.run_id, "reward/total_mean")) == 1
+        assert run.data.metrics == {}
+        assert run.data.params["config.training.resume_checkpoint_path"] == str(checkpoint)
+        assert run.data.tags["resume.checkpoint_path"] == str(checkpoint)
+        if source_identity is not None:
+            assert run.info.run_id != source_identity.run_id
+            assert run.data.tags["resume.source_run_id"] == source_identity.run_id
+            assert run.data.tags["resume.source_tracking_uri"] == source_identity.tracking_uri
+        else:
+            assert "resume.source_run_id" not in run.data.tags
+        tracking.update(summary.model_copy(update={"update_index": 1}))
+    assert [m.step for m in client.get_metric_history(run.info.run_id, "reward/total_mean")] == [1]
 
 
 @pytest.mark.parametrize(
@@ -160,7 +139,7 @@ def test_disabled_tracking_does_not_create_store(tmp_path, summary):
     identity = TrackingIdentity(run_id="saved-run", tracking_uri="https://example.org")
     with TrainingTracking(config, _output(tmp_path, config, "disabled")) as tracking:
         tracking.start_new()
-        tracking.attach(Fabric(accelerator="cpu"), [summary], identity)
+        tracking.attach(Fabric(accelerator="cpu"), identity)
         tracking.update(summary)
         assert tracking.identity == identity
     assert not (tmp_path / "mlflow.db").exists()

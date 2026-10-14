@@ -246,7 +246,6 @@ class VectorRolloutCollector:
         physical_slot_count: int | None = None,
         torch_threads_per_worker: int | None = None,
         reward_profile: RewardProfileConfig,
-        execution_steps: int | None = None,
     ) -> None:
         if not specs:
             raise ValueError("vector rollout requires at least one scenario")
@@ -270,7 +269,6 @@ class VectorRolloutCollector:
             history_warmup_steps=history_warmup_steps,
             scenarios=self._scenarios,
             torch_threads_per_worker=torch_threads_per_worker,
-            execution_steps=execution_steps,
         )
         self._close_finalizer = finalize(self, self._envs.close)
 

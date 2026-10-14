@@ -96,10 +96,7 @@ def test_real_training_observer_and_mlflow_artifacts(tmp_path, monkeypatch):
     assert run.info.status == "FINISHED"
     assert run.data.metrics["behavior/sample_count"] == 2
     assert run.data.tags["git.commit"] == metadata["git_head"]
-    invocation = client.list_artifacts(run.info.run_id, "invocations")[0].path
-    assert {
-        item.path.rsplit("/", 1)[-1] for item in client.list_artifacts(run.info.run_id, invocation)
-    } >= {
+    assert {item.path.rsplit("/", 1)[-1] for item in client.list_artifacts(run.info.run_id)} >= {
         "summary.json",
         "runtime_metadata.json",
         "policy-initial.pt",

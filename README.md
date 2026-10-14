@@ -87,7 +87,7 @@ just mlflow ui --backend-store-uri sqlite:///outputs/mlflow/mlflow.db --host 127
 
 打开 `http://127.0.0.1:5000`，选择 `eco-autodrive-ppo` experiment，通过 `config.runtime.seed`、`reward_profile` 及 comparison 入口写入的 `arm` / `protocol` 筛选 Run，并在 Compare 中对比 `ppo/*`、`reward/*`、`behavior/*` 和 `energy/*` 曲线。其他实验可使用 `+tracking.tags.study=...` 添加标识；`tracking.run_name=...` 指定显示名，`tracking.checkpoint_interval=5` 将 update checkpoint 上传间隔改为 5。
 
-`tracking.enabled=false` 显式关闭跟踪。连接远程服务时同时设置 `tracking.tracking_uri=https://... tracking.artifact_location=null`，让服务拥有 artifact 存储。从 `training.resume_checkpoint_path=...` 恢复会继续原 Run，目标 `training.update_count` 仍是累计 update 数；同一 Run 的实验参数必须保持一致。续写规则见 [tracking 身份与持久化](docs/contracts/artifacts.md#tracking-身份与续写)，精确恢复保证见 [training contract](docs/contracts/training.md#精确续训范围)，指标口径见 [training protocol](docs/research/protocols/training.md)。
+`tracking.enabled=false` 显式关闭跟踪。连接远程服务时同时设置 `tracking.tracking_uri=https://... tracking.artifact_location=null`，让服务拥有 artifact 存储。每次训练调用创建独立 Run；从 `training.resume_checkpoint_path=...` 恢复时记录 checkpoint 和前一个 Run 的来源，只发布本次更新，step 保留绝对 update_index。目标 `training.update_count` 仍是累计 update 数。记录规则见 [tracking 身份与持久化](docs/contracts/artifacts.md#tracking-身份与续写)，精确恢复保证见 [training contract](docs/contracts/training.md#精确续训范围)，指标口径见 [training protocol](docs/research/protocols/training.md)。
 
 可复用性能诊断与固定能耗矩阵：
 

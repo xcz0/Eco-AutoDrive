@@ -3,22 +3,20 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 from types import TracebackType
 from typing import Any
-from uuid import uuid4
 
 from lightning.fabric import Fabric
 from lightning.pytorch.loggers import MLFlowLogger
-from omegaconf import DictConfig, OmegaConf
 
 from eco_planner._repository import REPOSITORY_ROOT
 
 from .artifacts import PolicyProbeSummary, TrainingUpdateSummary
 from .artifacts.metadata import TrackingIdentity as TrackingIdentity
 from .artifacts.metadata import TrainingRuntimeMetadata
-from .config import TrainingJobConfig, parse_training_config
+from .config import TrainingJobConfig
 
 
 def update_metrics(summary: TrainingUpdateSummary) -> dict[str, float]:
@@ -130,13 +128,6 @@ def _flatten(value: Any, prefix: str = "") -> dict[str, str]:
     return {prefix: str(value) if isinstance(value, str) else json.dumps(value)}
 
 
-def _scientific_params(config: TrainingJobConfig) -> dict[str, str]:
-    payload = config.model_dump(mode="json", exclude={"tracking", "resources", "name"})
-    payload["training"].pop("update_count")
-    payload["training"].pop("resume_checkpoint_path")
-    return _flatten(payload)
-
-
 def _tracking_uri(uri: str) -> str:
     if uri.startswith("sqlite:///"):
         path = Path(uri.removeprefix("sqlite:///"))
@@ -153,15 +144,13 @@ class TrainingTracking:
         self.identity: TrackingIdentity | None = None
         self.logger: MLFlowLogger | None = None
         self.fabric: Fabric | None = None
-        self.invocation = f"invocations/{uuid4().hex}"
-        self._owns_run = False
 
     def __enter__(self) -> TrainingTracking:
         return self
 
     def start_new(self) -> None:
-        if self.config.tracking.enabled and self.config.training.resume_checkpoint_path is None:
-            self._open(None)
+        if self.config.tracking.enabled and self.logger is None:
+            self._open()
 
     def __exit__(
         self,
@@ -169,7 +158,7 @@ class TrainingTracking:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        if self.logger is None or not self._owns_run:
+        if self.logger is None:
             return
         status = "FINISHED" if exc_type is None else "FAILED"
         if exc_type is not None and issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
@@ -184,11 +173,9 @@ class TrainingTracking:
 
             logging.getLogger(__name__).exception("Could not finalize the failed MLflow run")
 
-    def _open(self, identity: TrackingIdentity | None) -> None:
+    def _open(self) -> None:
         config = self.config.tracking
         uri = _tracking_uri(config.tracking_uri)
-        if identity is not None and identity.tracking_uri != uri:
-            raise ValueError("resume MLflow tracking store differs from checkpoint")
         location = config.artifact_location
         if location is not None and "://" not in location:
             location = (REPOSITORY_ROOT / location).resolve().as_uri()
@@ -198,86 +185,33 @@ class TrainingTracking:
             artifact_location=location,
             run_name=config.run_name or f"{self.config.name}-seed-{self.config.runtime.seed}",
             tags={**config.tags, "reward_profile": self.config.reward.name},
-            run_id=identity.run_id if identity is not None else None,
             synchronous=True,
         )
         run_id = self.logger.run_id
         if run_id is None:
             raise RuntimeError("MLflow did not create a run")
         self.identity = TrackingIdentity(run_id=run_id, tracking_uri=uri)
-        if identity is None:
-            self._owns_run = True
-            self.artifact("resolved_config.yaml")
+        self._params(_flatten(self.config.model_dump(mode="json"), "config"))
+        self.artifact("resolved_config.yaml")
 
-    def attach(
-        self,
-        fabric: Fabric,
-        history: Sequence[TrainingUpdateSummary],
-        identity: TrackingIdentity | None,
-    ) -> None:
+    def attach(self, fabric: Fabric, source_identity: TrackingIdentity | None) -> None:
+        """Attach this invocation's run; a checkpoint identity is only a source reference."""
+
         self.fabric = fabric
         if not self.config.tracking.enabled:
-            self.identity = identity
+            self.identity = source_identity
             return
-        existing = identity is not None
-        if self.logger is None:
-            self._open(identity)
+        self.start_new()
         assert self.logger is not None and self.identity is not None
         client = self.logger.experiment
         run_id = self.identity.run_id
-        params = _scientific_params(self.config)
-        if existing:
-            stored = client.get_run(run_id).data.params
-            prefix = (
-                "config."
-                if any(k.startswith("config.") for k in stored)
-                else "continuation_config."
-            )
-            previous = {
-                k.removeprefix(prefix): v for k, v in stored.items() if k.startswith(prefix)
-            }
-            if previous != params:
-                raise ValueError("resume changes immutable MLflow experiment parameters")
-        else:
-            prefix = "config."
-            path = self.config.training.resume_checkpoint_path
-            if path is not None:
-                original = (REPOSITORY_ROOT / path).resolve().parent / "resolved_config.yaml"
-                if original.is_file():
-                    raw = OmegaConf.load(original)
-                    if not isinstance(raw, DictConfig):
-                        raise TypeError("original resolved config must be a mapping")
-                    raw["tracking"] = self.config.tracking.model_dump()
-                    historical = _scientific_params(parse_training_config(raw))
-                    if historical != params:
-                        raise ValueError("resume changes original experiment parameters")
-                    client.log_artifact(run_id, str(original), "history")
-                    provenance = "original_resolved_config"
-                else:
-                    prefix = "continuation_config."
-                    provenance = "historical_parameters_unrecorded"
-                client.set_tag(run_id, "history.parameter_provenance", provenance)
-            self._params({f"{prefix}{key}": value for key, value in params.items()})
-        # Check the entire history before changing an existing run or writing any repairs.
-        missing = (
-            self._missing_history(history) if existing else [update_metrics(s) for s in history]
-        )
-        client.update_run(run_id, status="RUNNING")
-        self._owns_run = True
+        checkpoint = self.config.training.resume_checkpoint_path
+        if checkpoint is not None:
+            client.set_tag(run_id, "resume.checkpoint_path", checkpoint)
+        if source_identity is not None:
+            client.set_tag(run_id, "resume.source_run_id", source_identity.run_id)
+            client.set_tag(run_id, "resume.source_tracking_uri", source_identity.tracking_uri)
         fabric.loggers.append(self.logger)
-        for summary, metrics in zip(history, missing, strict=True):
-            if metrics:
-                fabric.log_dict(metrics, step=summary.update_index)
-        invocation_params = {
-            "training": {
-                "update_count": self.config.training.update_count,
-                "resume_checkpoint_path": self.config.training.resume_checkpoint_path,
-            },
-            "resources": self.config.resources.model_dump() if self.config.resources else None,
-            "tracking": self.config.tracking.model_dump(exclude={"tracking_uri"}),
-        }
-        self._params(_flatten(invocation_params, self.invocation.replace("/", ".")))
-        self.artifact("resolved_config.yaml")
 
     def _params(self, params: Mapping[str, str]) -> None:
         from mlflow.entities import Param
@@ -289,32 +223,11 @@ class TrainingTracking:
                 self.identity.run_id, params=values[start : start + 100], synchronous=True
             )
 
-    def _missing_history(
-        self,
-        history: Sequence[TrainingUpdateSummary],
-    ) -> list[dict[str, float]]:
-        assert self.logger is not None and self.identity is not None
-        client = self.logger.experiment
-        run_id = self.identity.run_id
-        expected = {s.update_index: update_metrics(s) for s in history}
-        missing = {step: dict(metrics) for step, metrics in expected.items()}
-        for key in client.get_run(run_id).data.metrics:
-            if key.startswith("policy/probe_"):
-                continue
-            for metric in client.get_metric_history(run_id, key):
-                if metric.step not in expected:
-                    raise ValueError("MLflow run is ahead of the resume checkpoint")
-                if key not in expected[metric.step] or expected[metric.step][key] != metric.value:
-                    raise ValueError("MLflow metric conflicts with checkpoint history")
-                missing[metric.step].pop(key, None)
-        return [missing[s.update_index] for s in history]
-
     def artifact(self, name: str) -> None:
         if self.logger is not None and self.identity is not None:
             self.logger.experiment.log_artifact(
                 self.identity.run_id,
                 str(self.output_dir / name),
-                self.invocation,
             )
 
     def runtime_metadata(self) -> None:

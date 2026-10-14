@@ -486,17 +486,14 @@ assert TrainingRunSummary.__name__ == 'TrainingRunSummary'
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
-@pytest.mark.parametrize(
-    "topic", ["cadence-attribution", "counterfactual-attribution", "control-refreeze"]
-)
 @pytest.mark.parametrize("figures", [False, True])
-def test_new_training_analyze_cli_stays_offline(tmp_path, topic, figures):
+def test_training_analyze_cli_stays_offline(tmp_path, figures):
     source, output = tmp_path / "source", tmp_path / "report"
     source.mkdir()
     write_json(
         source / "summary.json",
         {
-            "kind": "training-" + topic,
+            "kind": "training-diagnostics",
             "arms": [{"label": "fixture", "metrics": {"post_update_kl": [1e-3, 2e-3]}}],
         },
     )
@@ -519,7 +516,6 @@ assert dispatch(args)['status'] == 'completed'
         "-c",
         script,
         "training",
-        topic,
         "analyze",
         "--source-dir",
         str(source),
