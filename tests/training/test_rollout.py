@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
+from typing import get_args
 
 import numpy as np
 import pytest
 import torch
+from pydantic import TypeAdapter
 
+from eco_planner._repository import CONFIG_ROOT
+from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.envs import TrajectoryExecutionRecord, TrajectoryExecutionResult
 from eco_planner.envs.domain import (
     EnergyMetrics,
@@ -19,12 +23,19 @@ from eco_planner.reward import (
     PlannerRFTRewardResult,
     RewardComponents,
     RewardDiagnostics,
+    RewardProfileConfig,
+    RewardProfileName,
     RewardResult,
+    create_reward_evaluator,
 )
 from eco_planner.rl.artifacts import (
     ENERGY_ROLLOUT_ARTIFACT_FIELDS,
+    TrainingUpdateSummary,
+    build_update_summary,
+    read_rollout_episode,
     write_rollout_episode,
 )
+from eco_planner.rl.optimization.ppo import PPOUpdateReport
 from eco_planner.rl.rollout import (
     ExecutionTransitionAudit,
     RolloutEpisodeBuilder,
@@ -371,29 +382,57 @@ def test_rollout_constructs_next_values_and_tail_without_mutating_decisions(
     assert (episode.audit == audit_snapshot).all()
 
 
-@pytest.mark.parametrize(
-    "profile",
-    [
-        "plannerrft_energy_v1",
-        "plannerrft_energy_band_lam1_v1",
-        "plannerrft_energy_band_lam2_v1",
-        "plannerrft_energy_band_lam4_v1",
-        "plannerrft_energy_band_lam8_v1",
-        "plannerrft_energy_band_lam64_v1",
-        "plannerrft_no_energy_v1",
-        "plannerrft_no_energy_calibrated_v1",
-    ],
-)
-def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path, profile) -> None:
+@pytest.mark.parametrize("profile_name", get_args(RewardProfileName))
+def test_reward_profile_name_reaches_rollout_artifact_and_summary(
+    tmp_path: Path, summary: TrainingUpdateSummary, profile_name: RewardProfileName
+) -> None:
+    config = TypeAdapter(RewardProfileConfig).validate_python(
+        load_resolved_yaml_mapping(CONFIG_ROOT / f"components/reward/{profile_name}.yaml")
+    )
+    evaluator = create_reward_evaluator(config)
+    result = evaluator(_substep_metrics(0))
+    assert result.profile_name == profile_name
+
+    training, audit, _, _ = _transition()
+    lifecycle = _EpisodeLifecycle(previous_route_completion=0.0)
+    tail = lifecycle.append(
+        RolloutDecision(HostTrajectories(np.zeros((1, 80, 4))), lambda: audit, training),
+        _execution_result((_substep_metrics(0),)),
+        map_seed=0,
+        noise_seed=1,
+        policy_action_seed=2,
+        reward_evaluator=evaluator,
+        terminated=False,
+        truncated=False,
+        collection_limit=True,
+    )
+    episode = lifecycle.finish(tail, torch.tensor([5.0]))
+    assert episode.reward_profile == profile_name
+
+    artifact = tmp_path / "episode.npz"
+    write_rollout_episode(artifact, episode)
+    with np.load(artifact, allow_pickle=False) as arrays:
+        assert str(arrays["reward_profile"]) == profile_name
+        assert set(arrays.files) == set(ENERGY_ROLLOUT_ARTIFACT_FIELDS)
+    restored = read_rollout_episode(artifact)
+    assert restored.reward_profile == profile_name
+
+    report = PPOUpdateReport(
+        **{field.name: getattr(summary, field.name) for field in fields(PPOUpdateReport)}
+    )
+    update = build_update_summary(
+        0, (restored,), replace(report, sample_count=restored.transition_count)
+    )
+    assert update.reward_profile == profile_name
+    assert (
+        TrainingUpdateSummary.model_validate_json(update.model_dump_json()).reward_profile
+        == profile_name
+    )
+
+
+def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path) -> None:
     builder = RolloutEpisodeBuilder()
     training, audit, execution, provenance = _transition()
-    execution = replace(
-        execution,
-        reward_result=replace(execution.reward_result, profile_name=profile),
-        substep_results=tuple(
-            replace(result, profile_name=profile) for result in execution.substep_results
-        ),
-    )
     builder.append(
         build_training_transition(
             training,
@@ -412,7 +451,6 @@ def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path
 
     with np.load(artifact, allow_pickle=False) as arrays:
         assert set(arrays.files) == set(ENERGY_ROLLOUT_ARTIFACT_FIELDS)
-        assert str(arrays["reward_profile"]) == profile
         assert set(arrays.files) == set(
             """
             scene_tokens scene_padding_mask navigation_tokens navigation_padding_mask

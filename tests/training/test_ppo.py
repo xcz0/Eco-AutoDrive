@@ -435,43 +435,6 @@ def test_ppo_update_changes_policy_and_reports_finite_training_summary() -> None
     assert summary.reward_profile == "plannerrft_energy_v1"
 
 
-@pytest.mark.parametrize(
-    "profile_name",
-    [
-        "plannerrft_energy_v1",
-        "plannerrft_energy_band_lam1_v1",
-        "plannerrft_energy_band_lam2_v1",
-        "plannerrft_energy_band_lam4_v1",
-        "plannerrft_energy_band_lam8_v1",
-        "plannerrft_energy_band_lam64_v1",
-        "plannerrft_no_energy_v1",
-        "plannerrft_no_energy_calibrated_v1",
-    ],
-)
-def test_update_summary_persists_every_reward_profile_name(profile_name) -> None:
-    episodes = (
-        _episode(
-            reward=0.25,
-            terminated=True,
-            truncated=False,
-            bootstrap=0.0,
-            profile_name=profile_name,
-        ),
-        _episode(
-            reward=2.0,
-            terminated=True,
-            truncated=False,
-            bootstrap=0.0,
-            profile_name=profile_name,
-        ),
-    )
-
-    summary = build_update_summary(0, episodes, _update_report(episodes))
-
-    assert isinstance(summary, TrainingUpdateSummary)
-    assert summary.reward_profile == profile_name
-
-
 def test_ppo_pairs_each_action_with_its_behavior_log_probability() -> None:
     with torch.random.fork_rng():
         torch.manual_seed(0)

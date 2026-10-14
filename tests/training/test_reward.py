@@ -480,41 +480,6 @@ def test_frozen_energy_band_rejects_inverted_thresholds() -> None:
         FrozenEnergyBand(full_score_ml_per_km=0.0, zero_score_ml_per_km=48.0)
 
 
-def test_reward_results_and_audit_schema_carry_the_configured_profile_name() -> None:
-    from eco_planner.rl.rollout import rollout_audit_keys
-
-    r0 = PlannerRFTNoEnergyRewardConfig.model_validate(
-        _task_g_profile_payload("plannerrft_no_energy_calibrated_v1")
-    )
-    rstress = PlannerRFTEnergyRewardConfig.model_validate(
-        _task_g_profile_payload("plannerrft_energy_band_lam64_v1")
-    )
-
-    assert (
-        evaluate_plannerrft_no_energy_step(r0, _metrics()).profile_name
-        == "plannerrft_no_energy_calibrated_v1"
-    )
-    assert (
-        evaluate_plannerrft_energy_step(rstress, _metrics()).profile_name
-        == "plannerrft_energy_band_lam64_v1"
-    )
-    assert (
-        evaluate_plannerrft_no_energy_step(_no_energy_config(), _metrics()).profile_name
-        == "plannerrft_no_energy_v1"
-    )
-    assert (
-        evaluate_plannerrft_energy_step(_config(), _metrics()).profile_name
-        == "plannerrft_energy_v1"
-    )
-    # Every profile shares one rollout audit schema, including the Task G arms.
-    assert rollout_audit_keys("plannerrft_energy_band_lam64_v1") == rollout_audit_keys(
-        "plannerrft_energy_v1"
-    )
-    assert rollout_audit_keys("plannerrft_no_energy_calibrated_v1") == rollout_audit_keys(
-        "plannerrft_no_energy_v1"
-    )
-
-
 def test_issue83_band_profile_rejects_a_name_weight_lambda_mismatch() -> None:
     payload = _task_g_profile_payload("plannerrft_energy_band_lam8_v1")
     payload["weights"]["energy"] = 4.0
