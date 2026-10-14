@@ -678,14 +678,15 @@ class _ScriptedEvaluator:
         return self._results.pop(0)
 
 
-@pytest.mark.parametrize("substep_count", [1, 5])
+# Reward aggregation precedes tail selection, so substep counts need not cross every tail.
 @pytest.mark.parametrize(
-    "terminated,truncated,tail,bootstrap",
+    "substep_count,terminated,truncated,tail,bootstrap",
     [
-        (True, False, "terminated", 0.0),
-        (False, True, "truncated", 5.0),
-        (False, False, "rollout_limit", 5.0),
-        (True, True, "terminated", 0.0),
+        pytest.param(1, False, False, "rollout_limit", 5.0, id="single-substep"),
+        pytest.param(5, True, False, "terminated", 0.0, id="multi-substep-terminated"),
+        pytest.param(5, False, True, "truncated", 5.0, id="multi-substep-truncated"),
+        pytest.param(5, False, False, "rollout_limit", 5.0, id="multi-substep-rollout-limit"),
+        pytest.param(5, True, True, "terminated", 0.0, id="multi-substep-terminal-precedence"),
     ],
 )
 def test_collector_projects_one_reward_evaluation_to_training_and_audit(

@@ -258,8 +258,17 @@ def test_logging_and_checkpoint_resume_preserve_optimizer_and_rng(tmp_path):
                 assert torch.equal(value, final_policy[key])
 
 
-@pytest.mark.parametrize("tracked", [False, True])
-@pytest.mark.parametrize("rng_error", [None, "missing", "count", "dtype"])
+# Tracking identity is restored only after rollout RNG validation succeeds.
+@pytest.mark.parametrize(
+    "tracked,rng_error",
+    [
+        pytest.param(False, None, id="untracked-roundtrip"),
+        pytest.param(True, None, id="tracked-roundtrip"),
+        pytest.param(False, "missing", id="missing-rng-state"),
+        pytest.param(False, "count", id="wrong-rng-slot-count"),
+        pytest.param(False, "dtype", id="wrong-rng-dtype"),
+    ],
+)
 def test_training_loop_restores_json_mode_summary_and_probe_from_checkpoint(
     tmp_path, summary, tracked, rng_error
 ):

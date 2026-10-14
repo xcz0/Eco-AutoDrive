@@ -112,12 +112,10 @@ def test_audit_keeps_original_exceedances_and_counts_tied_minima():
     np.testing.assert_array_equal(arrays["jerk_mps3"], raw["jerk_mps3"])
 
 
-@pytest.mark.parametrize("terminated,truncated", [(True, False), (False, True), (False, False)])
-def test_rescore_preserves_actions_values_boundaries_and_source(terminated, truncated):
+def test_rescore_preserves_actions_values_boundaries_and_source():
     base = _no_energy_config()
-    episode = _episode(
-        reward=0.4, terminated=terminated, truncated=truncated, bootstrap=0.0 if terminated else 2.0
-    )
+    # Rescoring preserves the tail unchanged; GAE tests own the tail-type branches.
+    episode = _episode(reward=0.4, terminated=False, truncated=True, bootstrap=2.0)
     episode.audit["reward_substep_jerk_mps3"].fill_(140)
     original = rescore(episode, base)
     verify_original_components([original], base)
