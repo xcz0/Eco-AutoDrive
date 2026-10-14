@@ -39,7 +39,7 @@ class TorchRLMetaDriveEnv(EnvBase):
         self._map_name = map_name
         self._seed = seed
         self._last_slot_result: EnvSlotReset | EnvSlotStep | None = None
-        self.observation_spec = _observation_spec()
+        self.observation_spec = planner_observation_spec()
         self.action_spec = Unbounded(
             shape=torch.Size((PLANNER_HORIZON, 4)),
             dtype=torch.float32,
@@ -120,7 +120,9 @@ class TorchRLMetaDriveEnv(EnvBase):
         self._slot.close()
 
 
-def _observation_spec() -> Composite:
+def planner_observation_spec() -> Composite:
+    """Return the shared CPU observation spec for worker and parent RL adapters."""
+
     fields: dict[str, Any] = {}
     for name, (shape, dtype) in PLANNER_OBSERVATION_FIELDS.items():
         if dtype == np.dtype(np.bool_):

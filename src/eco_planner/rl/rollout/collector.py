@@ -10,6 +10,7 @@ from weakref import finalize
 
 import torch
 from tensordict import TensorDictBase
+from torchrl.collectors import Collector
 
 from eco_planner.configuration import ScenarioConfig
 from eco_planner.contracts import CLOSED_LOOP_EXECUTION_STEPS
@@ -34,9 +35,9 @@ from eco_planner.reward import (
 from .assembly import (
     RolloutEpisodeBuilder,
     build_training_transition,
-    build_training_transitions,
 )
 from .contracts import (
+    TRAINING_KEYS,
     ExecutionTransitionAudit,
     RolloutEpisode,
     RolloutProvenance,
@@ -51,6 +52,7 @@ from .profiling import (
     single_planner_timing,
 )
 from .runtime import FabricRolloutRuntime
+from .torchrl import PlannerCollectionPolicy, TorchRLCollectionEnv
 
 
 @dataclass
@@ -221,7 +223,9 @@ class _SlotCollectionState:
     policy_action_seed: int
     lifecycle: _EpisodeLifecycle
     collected: int = 0
-    episodes: list[RolloutEpisode] = field(default_factory=list)
+    pending: list[tuple[RolloutEpisodeBuilder, TailKind, torch.Tensor]] = field(
+        default_factory=list
+    )
 
     def reset(self, result: WorkerResetResult) -> None:
         self.lifecycle.reset(result.route_completion)
@@ -316,7 +320,7 @@ class VectorRolloutCollector:
         collected: list[tuple[RolloutEpisode, ...]] = []
         for start in range(0, len(self._specs), self._physical_slot_count):
             stop = min(start + self._physical_slot_count, len(self._specs))
-            states, observation = self._initialize_group(
+            states = self._initialize_group(
                 self._specs[start:stop],
                 self._scenarios[start:stop],
                 diffusion_generators[start:stop],
@@ -324,17 +328,12 @@ class VectorRolloutCollector:
                 noise_seeds[start:stop],
                 policy_action_seeds[start:stop],
             )
-            if training_storage is not None:
-                for slot, state in enumerate(states, start=start):
-                    state.lifecycle.builder = RolloutEpisodeBuilder(
-                        training_storage=training_storage,
-                        training_start=slot * transitions_per_slot,
-                    )
             collected.extend(
                 self._collect_group(
                     states,
-                    observation,
                     transitions_per_slot=transitions_per_slot,
+                    training_storage=training_storage,
+                    training_start=start * transitions_per_slot,
                     policy_sampling=policy_sampling,
                     timings=timings,
                 )
@@ -349,14 +348,7 @@ class VectorRolloutCollector:
         policy_generators: tuple[torch.Generator, ...],
         noise_seeds: tuple[int, ...],
         policy_action_seeds: tuple[int, ...],
-    ) -> tuple[list[_SlotCollectionState], TensorDictBase]:
-        slots = tuple(range(len(specs)))
-        resets = self._envs.reset(
-            scenarios,
-            slots=None if len(specs) == self._physical_slot_count else slots,
-        )
-        reset_results = operation_results(resets, WorkerResetResult)
-        observation = cast(TensorDictBase, resets["observation"])
+    ) -> list[_SlotCollectionState]:
         states = [
             _SlotCollectionState(
                 spec=spec,
@@ -365,7 +357,7 @@ class VectorRolloutCollector:
                 policy_generator=policy_generator,
                 noise_seed=noise_seed,
                 policy_action_seed=policy_action_seed,
-                lifecycle=_EpisodeLifecycle(reset.route_completion),
+                lifecycle=_EpisodeLifecycle(0.0),
             )
             for (
                 spec,
@@ -374,7 +366,6 @@ class VectorRolloutCollector:
                 policy_generator,
                 noise_seed,
                 policy_action_seed,
-                reset,
             ) in zip(
                 specs,
                 scenarios,
@@ -382,50 +373,51 @@ class VectorRolloutCollector:
                 policy_generators,
                 noise_seeds,
                 policy_action_seeds,
-                reset_results,
                 strict=True,
             )
         ]
-        return states, observation
+        return states
 
     def _collect_group(
         self,
         states: list[_SlotCollectionState],
-        observation: TensorDictBase,
         *,
         transitions_per_slot: int,
         policy_sampling: Literal["sample", "mean"],
         timings: list[VectorRolloutRoundTiming] | None,
+        training_storage: TensorDictBase | None,
+        training_start: int,
     ) -> tuple[tuple[RolloutEpisode, ...], ...]:
-        active_slots = tuple(range(len(states)))
-        full_capacity = len(states) == self._physical_slot_count
-        while states[0].collected < transitions_per_slot:
-            if any(state.collected != states[0].collected for state in states):
-                raise RuntimeError("vector rollout consumed unequal transition counts")
-            profile = timings is not None
-            collate_s = 0.0
-            planner_timings: list[RolloutPlannerTiming] = []
-            planner_started = perf_counter() if profile else 0.0
-            diffusion_generators = tuple(state.diffusion_generator for state in states)
+        profile = timings is not None
+        decision: BatchRolloutDecision
+        planner_timings: list[RolloutPlannerTiming]
+        planner_s = 0.0
+        environment_started = 0.0
+
+        def plan(carrier: TensorDictBase) -> TensorDictBase:
+            nonlocal decision, planner_timings, planner_s, environment_started
+            planner_timings = []
+            started = perf_counter() if profile else 0.0
+            diffusion = tuple(state.diffusion_generator for state in states)
+            observation = cast(TensorDictBase, carrier["observation"])
             if policy_sampling == "sample":
                 decision = self._runtime.decide_batch(
                     observation,
-                    diffusion_generators,
+                    diffusion,
                     tuple(state.policy_generator for state in states),
                     timings=planner_timings if profile else None,
                 )
             else:
                 decision = self._runtime.decide_batch_mean(
-                    observation,
-                    diffusion_generators,
-                    timings=planner_timings if profile else None,
+                    observation, diffusion, timings=planner_timings if profile else None
                 )
-            planner_s = perf_counter() - planner_started if profile else 0.0
+            planner_s = perf_counter() - started if profile else 0.0
             environment_started = perf_counter() if profile else 0.0
-            steps = self._envs.step(
-                decision.ego_trajectories,
-                slots=None if full_capacity else active_slots,
+            return carrier.update(decision.training_decision).set(
+                "action", torch.from_numpy(decision.ego_trajectories)
             )
+
+        def record_step(steps: TensorDictBase) -> torch.Tensor:
             step_results = operation_results(steps, WorkerStepResult)
             environment_s = perf_counter() - environment_started if profile else 0.0
             audit_started = perf_counter() if profile else 0.0
@@ -438,7 +430,7 @@ class VectorRolloutCollector:
                     timings,
                     step_results,
                     capacity=self._physical_slot_count,
-                    collate_s=collate_s,
+                    collate_s=0.0,
                     planner_s=planner_s,
                     planner_timing=single_planner_timing(planner_timings, "decision"),
                     environment_s=environment_s,
@@ -447,8 +439,7 @@ class VectorRolloutCollector:
                         0.0 if audit_transfer is None else audit_transfer.accelerator_s
                     ),
                 )
-
-            tails = _append_round_transitions(
+            executions, tails = _record_round_audits(
                 states,
                 decision,
                 step_results,
@@ -457,20 +448,18 @@ class VectorRolloutCollector:
                 transitions_per_slot=transitions_per_slot,
                 reward_evaluator=self._reward_evaluator,
             )
-
             bootstrap_slots = [slot for slot, kind in tails if kind != "terminated"]
             bootstrap_values: dict[int, torch.Tensor] = {}
             if bootstrap_slots:
-                bootstrap_collate_started = perf_counter() if profile else 0.0
-                bootstrap_observation = cast(
-                    TensorDictBase,
-                    cast(TensorDictBase, steps["observation"])[bootstrap_slots],
+                started = perf_counter() if profile else 0.0
+                observation = cast(
+                    TensorDictBase, cast(TensorDictBase, steps["observation"])[bootstrap_slots]
                 )
-                bootstrap_collate_s = perf_counter() - bootstrap_collate_started if profile else 0.0
+                collate_s = perf_counter() - started if profile else 0.0
                 bootstrap_timings: list[RolloutPlannerTiming] = []
-                bootstrap_started = perf_counter() if timings is not None else 0.0
+                started = perf_counter() if profile else 0.0
                 values = self._runtime.bootstrap_value_batch(
-                    bootstrap_observation,
+                    observation,
                     tuple(states[slot].diffusion_generator for slot in bootstrap_slots),
                     timings=bootstrap_timings if profile else None,
                 )
@@ -479,43 +468,101 @@ class VectorRolloutCollector:
                         timings,
                         active_slots=len(bootstrap_slots),
                         capacity=self._physical_slot_count,
-                        collate_s=bootstrap_collate_s,
-                        planner_s=perf_counter() - bootstrap_started,
+                        collate_s=collate_s,
+                        planner_s=perf_counter() - started,
                         planner_timing=single_planner_timing(bootstrap_timings, "bootstrap"),
                     )
-                for index, slot in enumerate(bootstrap_slots):
-                    bootstrap_values[slot] = values[index : index + 1]
-
-            reset_slots: list[int] = []
+                bootstrap_values = {
+                    slot: values[index : index + 1] for index, slot in enumerate(bootstrap_slots)
+                }
             for slot, kind in tails:
                 state = states[slot]
-                state.episodes.append(
-                    state.lifecycle.finish(
+                state.pending.append(
+                    (
+                        state.lifecycle.builder,
                         kind,
                         torch.zeros(1) if kind == "terminated" else bootstrap_values[slot],
                     )
                 )
-                if state.collected < transitions_per_slot:
-                    reset_slots.append(slot)
-            if reset_slots:
-                reset_batch = self._envs.reset(
-                    tuple(states[slot].scenario for slot in reset_slots),
-                    slots=reset_slots,
+                state.lifecycle.builder = state.lifecycle.builder.next_episode()
+            return torch.tensor(
+                [execution.reward_result.total for execution in executions],
+                dtype=torch.float32,
+                device=self._runtime.device,
+            ).reshape(len(states), 1)
+
+        def record_reset(slots: tuple[int, ...], resets: TensorDictBase) -> None:
+            results = operation_results(resets, WorkerResetResult)
+            for slot, reset in zip(slots, results, strict=True):
+                states[slot].reset(reset)
+
+        def training_batch(batch: TensorDictBase) -> TensorDictBase:
+            # TorchRL stacks [slot,time]; flattening preserves logical scenario order.
+            return (
+                batch.select(
+                    *TRAINING_KEYS[:-1],
+                    *(("next", key) for key in ("reward", "done", "terminated", "truncated")),
                 )
-                reset_results = operation_results(reset_batch, WorkerResetResult)
-                for slot, reset_result in zip(reset_slots, reset_results, strict=True):
-                    states[slot].reset(reset_result)
-                observation = cast(TensorDictBase, steps["observation"]).clone()
-                observation[reset_slots] = cast(TensorDictBase, reset_batch["observation"])
-            else:
-                observation = cast(TensorDictBase, steps["observation"])
+                .to(self._runtime.device)
+                .reshape(-1)
+            )
 
-        if any(not state.lifecycle.empty for state in states):
-            raise RuntimeError("vector rollout ended with an unfinished episode")
-        return tuple(tuple(state.episodes) for state in states)
+        env = TorchRLCollectionEnv(
+            self._envs,
+            tuple(state.scenario for state in states),
+            transitions_per_slot=transitions_per_slot,
+            reward_device=self._runtime.device,
+            on_step=record_step,
+            on_reset=record_reset,
+        )
+        collector = Collector(
+            env,
+            PlannerCollectionPolicy(plan),
+            frames_per_batch=len(states) * transitions_per_slot,
+            total_frames=len(states) * transitions_per_slot,
+            init_random_frames=0,
+            trust_policy=True,
+            use_buffers=False,
+            track_traj_ids=False,
+            auto_register_policy_transforms=False,
+            compact_obs=True,
+            postproc=training_batch,
+        )
+        try:
+            batch = next(iter(collector))
+        finally:
+            collector.shutdown()
+        if any(
+            state.collected != transitions_per_slot or not state.lifecycle.empty for state in states
+        ):
+            raise RuntimeError("vector rollout ended without its complete episode quota")
+        value = batch["state_value"]
+        batch["next", "state_value"] = torch.empty_like(
+            value, dtype=torch.promote_types(value.dtype, torch.float32)
+        )
+        if training_storage is not None:
+            if not list(training_storage.keys()):
+                training_storage.update(batch.new_empty(training_storage.batch_size))
+            section = slice(training_start, training_start + batch.batch_size[0])
+            training_storage.update_at_(batch, section)
+            batch = cast(TensorDictBase, training_storage[section])
+        groups = []
+        for slot, state in enumerate(states):
+            offset = slot * transitions_per_slot
+            episodes = []
+            for builder, kind, bootstrap in state.pending:
+                stop = offset + builder.transition_count
+                episodes.append(
+                    builder.finish(
+                        kind, bootstrap, training=cast(TensorDictBase, batch[offset:stop])
+                    )
+                )
+                offset = stop
+            groups.append(tuple(episodes))
+        return tuple(groups)
 
 
-def _append_round_transitions(
+def _record_round_audits(
     states: list[_SlotCollectionState],
     decision: BatchRolloutDecision,
     steps: tuple[WorkerStepResult, ...],
@@ -524,7 +571,7 @@ def _append_round_transitions(
     truncated: list[bool],
     transitions_per_slot: int,
     reward_evaluator: RewardEvaluator,
-) -> list[tuple[int, TailKind]]:
+) -> tuple[tuple[ExecutionTransitionAudit, ...], list[tuple[int, TailKind]]]:
     rows = tuple(zip(states, steps, terminated, truncated, strict=True))
     executions = tuple(
         _execution_transition_audit(
@@ -536,15 +583,8 @@ def _append_round_transitions(
         )
         for state, step, terminal, truncation in rows
     )
-    training = build_training_transitions(
-        decision.training_decision,
-        tuple(execution.reward_result for execution in executions),
-        terminated=terminated,
-        truncated=truncated,
-    )
-    RolloutEpisodeBuilder.append_batch(
+    RolloutEpisodeBuilder.append_audit_batch(
         tuple(state.lifecycle.builder for state in states),
-        training,
         decision.audit_result(),
         executions,
         tuple(
@@ -568,7 +608,7 @@ def _append_round_transitions(
         state.collected += 1
         if tail is not None:
             tails.append((slot, tail))
-    return tails
+    return executions, tails
 
 
 def collect_vector_rollout_episodes(

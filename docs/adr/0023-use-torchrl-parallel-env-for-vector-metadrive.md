@@ -15,9 +15,12 @@ episode/bootstrap 与 artifact 仍由各自编排拥有。
 传回领域 sidecar，未新建项目 IPC。该 workaround 是当时实现背景，库版本、调用细节与
 sidecar 装配不作为永久规范；失败传播和共享 buffer 隔离仍由 execution contract 保证。
 
-没有改用通用 TorchRL Collector，是因为逐步 audit、每 scenario 精确配额、逐 slot 随机流、
+当时没有改用通用 TorchRL Collector，是因为逐步 audit、每 scenario 精确配额、逐 slot 随机流、
 延迟传输和独立 bootstrap 测量不适合其固定 frame lifecycle。保留项目 collector
 不等于重新实现进程、GAE 或 PPO；这是复用机制与保留科研语义之间的边界。
+
+后续同步采集循环与训练批次装配的选择由
+[ADR 0041](0041-use-synchronous-torchrl-collection.md) 取代；上述进程生命周期决定继续保留。
 
 规范归属：[Execution contract](../contracts/execution.md)、[Training contract](../contracts/training.md)。
 

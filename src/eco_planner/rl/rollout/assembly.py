@@ -22,7 +22,6 @@ from .contracts import (
     RolloutEpisode,
     RolloutProvenance,
     TailKind,
-    _tensor,
     _tensordict,
 )
 
@@ -30,14 +29,10 @@ from .contracts import (
 class RolloutEpisodeBuilder:
     """Build matching PPO and audit trajectories for serial or vector collection."""
 
-    def __init__(
-        self, *, training_storage: TensorDictBase | None = None, training_start: int = 0
-    ) -> None:
+    def __init__(self) -> None:
         self._training: list[TensorDictBase] = []
         self._audit: list[TensorDictBase] = []
         self._reward_profile: RewardProfileName | None = None
-        self._training_storage = training_storage
-        self._training_start = training_start
 
     @property
     def transition_count(self) -> int:
@@ -54,83 +49,47 @@ class RolloutEpisodeBuilder:
         execution: ExecutionTransitionAudit,
         provenance: RolloutProvenance,
     ) -> None:
-        self.append_batch((self,), training_transition, decision_audit, (execution,), (provenance,))
+        self._training.append(training_transition)
+        self.append_audit_batch((self,), decision_audit, (execution,), (provenance,))
 
     @staticmethod
-    def append_batch(
+    def append_audit_batch(
         builders: Sequence[RolloutEpisodeBuilder],
-        training: TensorDictBase,
         decision_audit: TensorDictBase,
         executions: Sequence[ExecutionTransitionAudit],
         provenances: Sequence[RolloutProvenance],
     ) -> None:
-        """Write one vector round once, retaining episode-local CPU audit ownership."""
+        """Record domain audit while TorchRL assembles the training trajectory."""
 
-        count = len(builders)
-        if not count or training.batch_size != (count,) or decision_audit.batch_size != (count,):
-            raise ValueError("rollout round must contain one transition per episode builder")
-        rows = tuple(zip(builders, executions, provenances, strict=True))
-        storage = builders[0]._training_storage
-        if any(builder._training_storage is not storage for builder in builders):
-            raise ValueError("rollout round builders must share the same training storage")
-        for builder, execution, _ in rows:
+        if decision_audit.batch_size != (len(builders),):
+            raise ValueError("rollout audit must contain one decision per episode builder")
+        for index, (builder, execution, provenance) in enumerate(
+            zip(builders, executions, provenances, strict=True)
+        ):
             profile = execution.reward_result.profile_name
             if builder._reward_profile is None:
                 builder._reward_profile = profile
             elif profile != builder._reward_profile:
                 raise ValueError("one rollout episode cannot mix reward profiles")
-        if storage is None:
-            for index, builder in enumerate(builders):
-                builder._training.append(cast(TensorDictBase, training[index : index + 1]))
-        else:
-            if "state_value" not in storage.keys():
-                storage.update(training.new_empty(storage.batch_size))
-                value_dtype = torch.promote_types(storage["state_value"].dtype, torch.float32)
-                storage["next", "state_value"] = torch.empty_like(
-                    storage["state_value"], dtype=value_dtype
-                )
-                storage["next", "done"] = torch.empty_like(storage["next", "terminated"])
-            indices = [builder._training_start + builder.transition_count for builder in builders]
-            if any(index < 0 or index >= storage.batch_size[0] for index in indices):
-                raise ValueError("rollout transition exceeds its update training storage")
-            # Indexed writes must not broadcast, cast, or move incompatible decisions.
-            source_keys = set(training.keys(include_nested=True, leaves_only=True))
-            target_keys = set(storage.keys(include_nested=True, leaves_only=True)) - {
-                ("next", "state_value"),
-                ("next", "done"),
-            }
-            if source_keys != target_keys:
-                raise ValueError("rollout training transition fields differ from update storage")
-            for key, value in training.items(include_nested=True, leaves_only=True):
-                target = _tensor(storage, key)
-                if (
-                    value.shape != (count, *target.shape[1:])
-                    or value.dtype != target.dtype
-                    or value.device != target.device
-                ):
-                    raise ValueError(f"rollout training field {key!r} differs from update storage")
-            index = torch.tensor(indices, dtype=torch.long, device=storage["state_value"].device)
-            storage.update_at_(training, index)
-        for index, (builder, execution, provenance) in enumerate(rows):
             builder._audit.append(
                 build_rollout_audit(
                     cast(TensorDictBase, decision_audit[index : index + 1]), execution, provenance
                 )
             )
 
-    def finish(self, tail_kind: TailKind, tail_bootstrap_value: torch.Tensor) -> RolloutEpisode:
+    def finish(
+        self,
+        tail_kind: TailKind,
+        tail_bootstrap_value: torch.Tensor,
+        *,
+        training: TensorDictBase | None = None,
+    ) -> RolloutEpisode:
         if self.empty:
             raise ValueError("rollout episode must contain at least one transition")
-        training = (
-            cat(self._training)
-            if self._training_storage is None
-            else cast(
-                TensorDictBase,
-                self._training_storage[
-                    self._training_start : self._training_start + self.transition_count
-                ],
-            )
-        )
+        if training is None:
+            training = cat(self._training)
+        if training.batch_size != (self.transition_count,):
+            raise ValueError("assembled training must match the episode audit length")
         audit = cat(self._audit)
         device = training["state_value"].device
         bootstrap = tail_bootstrap_value.detach().to(device)
@@ -154,12 +113,9 @@ class RolloutEpisodeBuilder:
         )
 
     def next_episode(self) -> RolloutEpisodeBuilder:
-        """Start the next episode after this episode's disjoint storage slice."""
+        """Create domain assembly state for the next episode."""
 
-        return RolloutEpisodeBuilder(
-            training_storage=self._training_storage,
-            training_start=self._training_start + self.transition_count,
-        )
+        return RolloutEpisodeBuilder()
 
 
 def build_training_decision(

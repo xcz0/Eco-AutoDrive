@@ -6,7 +6,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from tensordict import TensorDict
 
 from eco_planner.envs import TrajectoryExecutionRecord, TrajectoryExecutionResult
 from eco_planner.envs.domain import (
@@ -40,112 +39,10 @@ from tests.training.helpers import _decision_audit
 
 
 @pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
-def test_update_storage_preserves_interleaved_scenarios_and_disjoint_episode_views(
-    monkeypatch, device
-) -> None:
-    from eco_planner.rl.rollout import assembly
-
-    concatenate = assembly.cat
-
-    def audit_cat(items):
-        assert "next" not in items[0].keys(), "compact training must not concatenate episodes"
-        return concatenate(items)
-
-    monkeypatch.setattr(assembly, "cat", audit_cat)
-    storage = TensorDict({}, batch_size=[8])
-    builders = [
-        RolloutEpisodeBuilder(training_storage=storage, training_start=slot * 4)
-        for slot in range(2)
-    ]
-    schedules = [
-        {1: ("terminated", 0.0), 2: ("truncated", 5.0), 3: ("rollout_limit", 7.0)},
-        {0: ("terminated", 0.0), 3: ("rollout_limit", 9.0)},
-    ]
-    episodes = [[], []]
-    snapshots = []
-    for index in range(4):
-        for slot in range(2):
-            training, audit, execution, provenance = _transition()
-            value = float(slot * 4 + index + 1)
-            training["state_value"].fill_(value)
-            audit["state_value"].fill_(value)
-            training = training.to(device)
-            tail, bootstrap = schedules[slot].get(index, (None, None))
-            execution = replace(
-                execution,
-                terminated=tail == "terminated",
-                truncated=tail == "truncated",
-            )
-            builders[slot].append(
-                build_training_transition(
-                    training,
-                    execution.reward_result,
-                    terminated=execution.terminated,
-                    truncated=execution.truncated,
-                ),
-                audit,
-                execution,
-                replace(
-                    provenance, map_seed=slot, planning_cycle_index=builders[slot].transition_count
-                ),
-            )
-            # The sole collection write owns a snapshot, independent of the decision.
-            training["state_value"].fill_(-100.0)
-            if tail is not None:
-                episode = builders[slot].finish(tail, torch.tensor([bootstrap]))
-                episodes[slot].append(episode)
-                snapshots.append((episode.training, episode.training.clone()))
-                builders[slot] = builders[slot].next_episode()
-
-    assert storage["state_value"].flatten().tolist() == list(range(1, 9))
-    assert storage["next", "state_value"].flatten().tolist() == [2, 0, 5, 7, 0, 7, 8, 9]
-    assert storage["next", "done"].flatten().tolist() == [
-        False,
-        True,
-        True,
-        True,
-        True,
-        False,
-        False,
-        True,
-    ]
-    offset = 0
-    for slot, group in enumerate(episodes):
-        for episode in group:
-            assert episode.audit["map_seed"].flatten().tolist() == [slot] * episode.transition_count
-            for key, field in episode.training.items(include_nested=True, leaves_only=True):
-                assert field.data_ptr() == storage[key][offset:].data_ptr()
-                assert (
-                    field.untyped_storage().data_ptr() == storage[key].untyped_storage().data_ptr()
-                )
-            offset += episode.transition_count
-    for training, snapshot in snapshots:
-        assert (training == snapshot).all()
-
-
-def test_update_storage_rejects_broadcasting_or_casting_decisions() -> None:
-    storage = TensorDict({}, batch_size=[2])
-    builder = RolloutEpisodeBuilder(training_storage=storage)
-    training, audit, execution, provenance = _transition()
-    transition = build_training_transition(
-        training, execution.reward_result, terminated=False, truncated=False
-    )
-    builder.append(transition, audit, execution, provenance)
-    for invalid in (
-        transition.clone().set("scene_tokens", torch.zeros(1, 1, 4)),
-        transition.clone().set("state_value", torch.zeros(1, 1, dtype=torch.float64)),
-    ):
-        with pytest.raises(ValueError, match="differs from update storage"):
-            builder.append(invalid, audit, execution, provenance)
-    for key in ("guidance_action", ("next", "reward")):
-        with pytest.raises(ValueError, match="fields differ from update storage"):
-            builder.append(transition.exclude(key), audit, execution, provenance)
-
-
-@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float64])
 def test_update_storage_preserves_next_value_dtype_promotion(device, dtype):
-    compact = RolloutEpisodeBuilder(training_storage=TensorDict({}, batch_size=[2]))
+    compact = RolloutEpisodeBuilder()
+    transitions = []
     separate = RolloutEpisodeBuilder()
     values = torch.tensor([[1.125], [2.375]], device=device, dtype=dtype)
     bootstrap = torch.tensor([5.001], dtype=torch.float32, device=device)
@@ -156,10 +53,17 @@ def test_update_storage_preserves_next_value_dtype_promotion(device, dtype):
         transition = build_training_transition(
             training, execution.reward_result, terminated=False, truncated=False
         )
-        compact.append(transition, audit, execution, provenance)
+        transitions.append(transition)
+        compact.append_audit_batch((compact,), audit, (execution,), (provenance,))
         separate.append(transition, audit, execution, provenance)
 
-    compact_episode = compact.finish("rollout_limit", bootstrap)
+    from tensordict import cat
+
+    collected = cat(transitions)
+    collected["next", "state_value"] = torch.empty_like(
+        collected["state_value"], dtype=torch.promote_types(dtype, torch.float32)
+    )
+    compact_episode = compact.finish("rollout_limit", bootstrap, training=collected)
     separate_episode = separate.finish("rollout_limit", bootstrap)
 
     expected = torch.cat((values[1:], bootstrap.reshape(1, 1)))
@@ -167,81 +71,6 @@ def test_update_storage_preserves_next_value_dtype_promotion(device, dtype):
     assert actual.dtype == expected.dtype
     assert torch.equal(actual, expected)
     assert (compact_episode.training == separate_episode.training).all()
-
-
-@pytest.mark.parametrize("physical_slots", [1, 2, 3])
-def test_collector_assigns_compact_storage_in_logical_order_across_worker_groups(
-    monkeypatch, physical_slots
-) -> None:
-    from types import SimpleNamespace
-
-    from eco_planner.rl.rollout import VectorRolloutCollector
-
-    # Exercise collect's real grouping with deterministic episode producers.
-    collector = object.__new__(VectorRolloutCollector)
-    collector._specs = (0, 1, 2)
-    collector._scenarios = (0, 1, 2)
-    collector._physical_slot_count = physical_slots
-
-    def initialize(specs, scenarios, diffusion, policy, noise_seeds, policy_seeds):
-        return [
-            SimpleNamespace(index=index, lifecycle=_EpisodeLifecycle(0.0)) for index in specs
-        ], None
-
-    def collect_group(states, observation, *, transitions_per_slot, **kwargs):
-        groups = []
-        for state in states:
-            episodes = []
-            for index in range(transitions_per_slot):
-                training, audit, execution, provenance = _transition()
-                value = float(state.index * transitions_per_slot + index)
-                training["state_value"].fill_(value)
-                audit["state_value"].fill_(value)
-                terminated = index == 0
-                execution = replace(execution, terminated=terminated)
-                state.lifecycle.builder.append(
-                    build_training_transition(
-                        training, execution.reward_result, terminated=terminated, truncated=False
-                    ),
-                    audit,
-                    execution,
-                    replace(provenance, map_seed=state.index),
-                )
-                if terminated or index == transitions_per_slot - 1:
-                    episodes.append(
-                        state.lifecycle.finish(
-                            "terminated" if terminated else "rollout_limit",
-                            torch.tensor([0.0 if terminated else 9.0]),
-                        )
-                    )
-            groups.append(tuple(episodes))
-        return tuple(groups)
-
-    monkeypatch.setattr(collector, "_initialize_group", initialize)
-    monkeypatch.setattr(collector, "_collect_group", collect_group)
-    kwargs = dict(
-        transitions_per_slot=3,
-        diffusion_generators=tuple(torch.Generator() for _ in range(3)),
-        policy_generators=tuple(torch.Generator() for _ in range(3)),
-        noise_seeds=(0, 1, 2),
-        policy_action_seeds=(3, 4, 5),
-    )
-    storage = TensorDict({}, batch_size=[9])
-    groups = collector.collect(**kwargs, training_storage=storage)
-
-    assert storage["state_value"].flatten().tolist() == list(range(9))
-    assert [[episode.transition_count for episode in group] for group in groups] == [[1, 2]] * 3
-    for index, group in enumerate(groups):
-        assert (
-            group[0].training["state_value"].data_ptr()
-            == storage["state_value"][index * 3 :].data_ptr()
-        )
-        assert all(episode.audit["map_seed"].unique().item() == index for episode in group)
-    snapshot = storage.clone()
-    collector.collect(**kwargs, training_storage=TensorDict({}, batch_size=[9]))
-    assert (storage == snapshot).all()
-    with pytest.raises(ValueError, match="empty, independently owned"):
-        collector.collect(**kwargs, training_storage=storage)
 
 
 @pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
@@ -853,134 +682,6 @@ def test_collector_projects_one_reward_evaluation_to_training_and_audit(
     for key in ("terminated", "truncated"):
         assert torch.equal(episode.training["next", key], episode.audit[key])
     assert episode.audit["reward_substep_count"].item() == substep_count
-
-
-@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
-@pytest.mark.parametrize("shared_storage", [False, True])
-@pytest.mark.parametrize("slot_count", [1, 4])
-def test_vector_round_matches_serial_episodes_with_mixed_boundaries(
-    monkeypatch, device, shared_storage, slot_count
-) -> None:
-    from types import SimpleNamespace
-
-    from tensordict import cat
-
-    from eco_planner.envs.parallel import VectorEnvTiming, WorkerStepResult
-    from eco_planner.rl.rollout.collector import _append_round_transitions
-
-    storage = TensorDict({}, batch_size=[slot_count * 2]) if shared_storage else None
-    states = [
-        SimpleNamespace(
-            spec=SimpleNamespace(seed=slot),
-            noise_seed=10 + slot,
-            policy_action_seed=20 + slot,
-            lifecycle=_EpisodeLifecycle(
-                0.0, RolloutEpisodeBuilder(training_storage=storage, training_start=slot * 2)
-            ),
-            collected=0,
-        )
-        for slot in range(slot_count)
-    ]
-    references = [_EpisodeLifecycle(0.0) for _ in states]
-    completed = []
-    writes = []
-    original_write = TensorDict.update_at_
-
-    def write_round(self, values, index, **kwargs):
-        if self is storage:
-            writes.append(index.tolist())
-        return original_write(self, values, index, **kwargs)
-
-    monkeypatch.setattr(TensorDict, "update_at_", write_round)
-    for round_index in range(2):
-        fields = [_transition() for _ in states]
-        for slot, (training, audit, _, _) in enumerate(fields):
-            training["state_value"].fill_(slot * 2 + round_index + 1)
-            audit["state_value"].copy_(training["state_value"])
-        training = cat([item[0] for item in fields]).to(device)
-        audit = cat([item[1] for item in fields])
-        decision = SimpleNamespace(
-            training_decision=training, audit_result=lambda audit=audit: audit
-        )
-        # First round exercises simultaneous flags, pure truncation and terminal;
-        # the fourth scenario spans both rounds and ends at the collector limit.
-        terminated = [True, False, True, False] if round_index == 0 else [False] * 4
-        truncated = [True, True, False, False] if round_index == 0 else [False] * 4
-        terminated = terminated[:slot_count]
-        truncated = truncated[:slot_count]
-        steps = tuple(
-            WorkerStepResult(
-                _execution_result(
-                    tuple(_substep_metrics(i) for i in range(slot + 1)),
-                    route_completion=0.2 * (round_index + 1),
-                ),
-                None,
-                VectorEnvTiming(0.0, 0.0),
-            )
-            for slot in range(slot_count)
-        )
-        results = tuple(
-            _reward_result(0.1 * (slot + round_index + i + 1))
-            for slot in range(slot_count)
-            for i in range(slot + 1)
-        )
-        evaluator = _ScriptedEvaluator(results)
-        tails = _append_round_transitions(
-            states,
-            decision,
-            steps,
-            terminated=terminated,
-            truncated=truncated,
-            transitions_per_slot=2,
-            reward_evaluator=evaluator,
-        )
-        assert not evaluator._results
-        assert tails == (
-            [(0, "terminated"), (1, "truncated"), (2, "terminated")][:slot_count]
-            if round_index == 0
-            else [(slot, "rollout_limit") for slot in range(slot_count)]
-        )
-        reference_evaluator = _ScriptedEvaluator(results)
-        for slot, state in enumerate(states):
-            kind = references[slot].append(
-                RolloutDecision(
-                    HostTrajectories(np.zeros((1, 80, 4))),
-                    lambda slot=slot, audit=audit: audit[slot : slot + 1],
-                    training[slot : slot + 1].clone(),
-                ),
-                steps[slot].step,
-                map_seed=slot,
-                noise_seed=10 + slot,
-                policy_action_seed=20 + slot,
-                reward_evaluator=reference_evaluator,
-                terminated=terminated[slot],
-                truncated=truncated[slot],
-                collection_limit=round_index == 1,
-            )
-            assert state.collected == round_index + 1
-            if kind is not None:
-                bootstrap = torch.tensor([0.0 if kind == "terminated" else 5.125])
-                actual = state.lifecycle.finish(kind, bootstrap)
-                expected = references[slot].finish(kind, bootstrap)
-                for key, value in expected.training.items(include_nested=True, leaves_only=True):
-                    assert torch.equal(actual.training[key], value), key
-                assert (actual.audit == expected.audit).all()
-                completed.append((actual.training, actual.training.clone()))
-                if round_index == 0:
-                    state.lifecycle.reset(0.0)
-                    references[slot].reset(0.0)
-        assert not reference_evaluator._results
-        if shared_storage:
-            training["state_value"].fill_(-100)
-        for actual, snapshot in completed:
-            assert (actual == snapshot).all()
-    assert writes == (
-        [list(range(0, slot_count * 2, 2)), list(range(1, slot_count * 2, 2))]
-        if shared_storage
-        else []
-    )
-    if storage is not None:
-        assert storage["state_value"].flatten().tolist() == list(range(1, slot_count * 2 + 1))
 
 
 def test_transition_audit_aggregates_multiple_substeps() -> None:
