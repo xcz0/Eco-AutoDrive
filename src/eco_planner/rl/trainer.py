@@ -33,11 +33,9 @@ from .optimization import (
     save_training_checkpoint,
 )
 from .probing import capture_probe_contexts, probe_policy
-from .rollout import (
-    RolloutEpisode,
-    VectorRolloutCollector,
-    create_fabric_rollout_runtime,
-)
+from .rollout.collector import VectorRolloutCollector
+from .rollout.contracts import RolloutEpisode
+from .rollout.runtime import create_fabric_rollout_runtime
 from .rollout.seeds import derive_rollout_seeds
 from .tracking import TrainingTracking
 from .training_state import resume_training_state

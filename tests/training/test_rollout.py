@@ -43,15 +43,15 @@ from tests.training.helpers import _decision_audit
 def test_update_storage_preserves_interleaved_scenarios_and_disjoint_episode_views(
     monkeypatch, device
 ) -> None:
-    from eco_planner.rl.rollout import contracts
+    from eco_planner.rl.rollout import assembly
 
-    concatenate = contracts.cat
+    concatenate = assembly.cat
 
     def audit_cat(items):
         assert "next" not in items[0].keys(), "compact training must not concatenate episodes"
         return concatenate(items)
 
-    monkeypatch.setattr(contracts, "cat", audit_cat)
+    monkeypatch.setattr(assembly, "cat", audit_cat)
     storage = TensorDict({}, batch_size=[8])
     builders = [
         RolloutEpisodeBuilder(training_storage=storage, training_start=slot * 4)
@@ -398,11 +398,11 @@ def test_training_transition_needs_only_scalar_reward_on_collection_device(devic
 
 
 def test_episode_finish_does_not_read_reward_or_flags_from_audit(monkeypatch) -> None:
-    from eco_planner.rl.rollout import contracts
+    from eco_planner.rl.rollout import assembly
 
     decision, decision_audit, execution, provenance = _transition()
-    audit = contracts.build_rollout_audit(decision_audit, execution, provenance)
-    monkeypatch.setattr(contracts, "build_rollout_audit", lambda *args: audit)
+    audit = assembly.build_rollout_audit(decision_audit, execution, provenance)
+    monkeypatch.setattr(assembly, "build_rollout_audit", lambda *args: audit)
     builder = RolloutEpisodeBuilder()
     builder.append(
         build_training_transition(

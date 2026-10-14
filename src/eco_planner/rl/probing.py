@@ -13,7 +13,8 @@ from eco_planner.planning.policy import (
 )
 
 from .artifacts.schema import PolicyProbeSummary
-from .rollout import FabricRolloutRuntime, RolloutEpisode
+from .rollout.contracts import RolloutEpisode
+from .rollout.runtime import FabricRolloutRuntime
 
 
 def capture_probe_contexts(

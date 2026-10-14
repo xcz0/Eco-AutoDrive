@@ -36,7 +36,7 @@ from eco_planner.runtime.profiling import (
 )
 from eco_planner.runtime.random import sample_batched_standard_normal
 
-from .contracts import build_training_decision
+from .assembly import build_training_decision
 from .decision import BatchRolloutDecision, RolloutDecision
 from .profiling import RolloutPlannerTiming
 

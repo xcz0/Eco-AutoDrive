@@ -15,7 +15,7 @@ from eco_planner.planning.policy import ExplorationPolicyContext, policy_context
 from .artifacts.schema import PolicyProbeSummary, TrainingUpdateSummary
 from .config import TrainingJobConfig
 from .optimization import PPOUpdater, load_training_checkpoint
-from .rollout import FabricRolloutRuntime
+from .rollout.runtime import FabricRolloutRuntime
 from .tracking import TrackingIdentity
 
 

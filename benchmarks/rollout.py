@@ -17,14 +17,13 @@ from omegaconf import DictConfig
 from eco_planner.configuration import ScenarioConfig
 from eco_planner.rl.config import TrainingJobConfig, parse_training_config
 from eco_planner.rl.optimization import PPOConfig, PPOUpdater
-from eco_planner.rl.rollout import (
-    FabricRolloutRuntime,
-    RolloutEpisode,
+from eco_planner.rl.rollout.collector import (
     VectorRolloutCollector,
-    VectorRolloutRoundTiming,
     collect_rollout_episode,
-    create_fabric_rollout_runtime,
 )
+from eco_planner.rl.rollout.contracts import RolloutEpisode
+from eco_planner.rl.rollout.profiling import VectorRolloutRoundTiming
+from eco_planner.rl.rollout.runtime import FabricRolloutRuntime, create_fabric_rollout_runtime
 from eco_planner.runtime.resources import require_resource_profile
 
 from .config import (
