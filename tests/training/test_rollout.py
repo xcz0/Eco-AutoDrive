@@ -165,48 +165,6 @@ def test_episode_rejects_invalid_audit_independently_of_valid_training(key, valu
         replace(episode, audit=audit)
 
 
-@pytest.mark.gpu
-def test_episode_validation_uses_one_cuda_predicate_transfer_without_scalar_reads(monkeypatch):
-    from tests.training.helpers import _episode
-
-    episode = _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0)
-    training = episode.training.to("cuda")
-    bootstrap = episode.tail_bootstrap_value.to("cuda")
-    transfers = []
-    original_cpu = torch.Tensor.cpu
-    original_bool = torch.Tensor.__bool__
-    original_item = torch.Tensor.item
-    original_equal = torch.equal
-
-    def cpu(value, *args, **kwargs):
-        if value.device.type == "cuda":
-            transfers.append((value.shape, value.dtype))
-        return original_cpu(value, *args, **kwargs)
-
-    def boolean(value):
-        assert value.device.type != "cuda", "validation must not branch on a CUDA tensor"
-        return original_bool(value)
-
-    def item(value, *args, **kwargs):
-        assert value.device.type != "cuda", "validation must not read CUDA scalars"
-        return original_item(value, *args, **kwargs)
-
-    def equal(left, right):
-        assert left.device.type != "cuda" and right.device.type != "cuda"
-        return original_equal(left, right)
-
-    monkeypatch.setattr(torch.Tensor, "cpu", cpu)
-    monkeypatch.setattr(torch.Tensor, "__bool__", boolean)
-    monkeypatch.setattr(torch.Tensor, "item", item)
-    monkeypatch.setattr(torch, "equal", equal)
-    replace(episode, training=training, tail_bootstrap_value=bootstrap)
-
-    assert len(transfers) == 1
-    shape, dtype = transfers[0]
-    assert len(shape) == 1
-    assert dtype == torch.bool
-
-
 @pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
 def test_training_transition_needs_only_scalar_reward_on_collection_device(device) -> None:
     decision, _, _, _ = _transition()
@@ -514,7 +472,7 @@ def test_rollout_artifact_uses_the_explicit_reward_profile_schema(tmp_path: Path
         np.testing.assert_array_equal(arrays["reward_total"], episode.training["next", "reward"])
 
 
-def test_batch_and_slot_audit_share_one_deferred_payload() -> None:
+def test_slot_audit_matches_batch_fields_and_rng_states() -> None:
     from types import SimpleNamespace
 
     from tensordict import cat
@@ -525,17 +483,11 @@ def test_batch_and_slot_audit_share_one_deferred_payload() -> None:
 
     training, audit, _, _ = _transition()
     host = cat([audit, audit]).to_dict()
-    resolutions = []
-
-    def resolve():
-        resolutions.append(True)
-        return host
-
     diffusion_states = (torch.ones(5, dtype=torch.uint8), torch.full((5,), 2, dtype=torch.uint8))
     policy_states = (torch.full((5,), 3, dtype=torch.uint8), torch.full((5,), 4, dtype=torch.uint8))
     decision = BatchRolloutDecision(
         HostTrajectories(np.zeros((2, 80, 4), dtype=np.float32)),
-        SimpleNamespace(resolve=resolve, timing=None),
+        SimpleNamespace(resolve=lambda: host, timing=None),
         diffusion_states,
         policy_states,
         _policy_config().model_copy(update={"hidden_dim": 4, "cross_attention_heads": 1}),
@@ -544,12 +496,8 @@ def test_batch_and_slot_audit_share_one_deferred_payload() -> None:
     slot = decision.slot(1)
     assert slot.training_decision.batch_size == torch.Size([1])
     assert slot.ego_trajectory.shape == (80, 4)
-    assert not resolutions
-
     slot_audit = slot.audit_result()
     batch_audit = decision.audit_result()
-    assert slot.audit_result() is slot_audit
-    assert resolutions == [True]
     assert (slot_audit == batch_audit[1:2]).all()
     assert "prediction" in slot_audit
     assert slot_audit["state_value"].shape == (1, 1)

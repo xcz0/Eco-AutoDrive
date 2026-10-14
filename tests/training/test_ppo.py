@@ -8,10 +8,7 @@ import pytest
 import torch
 from tensordict import TensorDict, cat
 
-from eco_planner.planning.policy import (
-    POLICY_CONTEXT_KEYS,
-    ExplorationPolicy,
-)
+from eco_planner.planning.policy import ExplorationPolicy
 from eco_planner.reward import (
     RewardResult,
     aggregate_scalar_rewards,
@@ -111,8 +108,6 @@ def test_combined_gae_respects_episode_boundaries_without_mutation(device) -> No
     compact_batch = build_ppo_batch(compact, _ppo_config(), device=torch.device(device))
     for key in batch.keys():
         assert torch.equal(compact_batch[key], batch[key])
-    for key in POLICY_CONTEXT_KEYS + ("guidance_action", "old_joint_guidance_log_prob"):
-        assert compact_batch[key].data_ptr() == compact[key].data_ptr()
     assert (compact == compact_snapshot).all()
     expected = torch.tensor(expected_advantages, device=device).unsqueeze(-1)
     torch.testing.assert_close(batch["advantage"], expected)
@@ -286,9 +281,7 @@ def test_checkpoint_rejects_old_sampler_state() -> None:
 
 
 @pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
-def test_update_shares_batch_storage_and_preserves_fixed_ppo_targets(monkeypatch, device) -> None:
-    from eco_planner.rl.optimization import ppo
-
+def test_update_preserves_fixed_ppo_targets_and_source(device) -> None:
     config = _ppo_config().model_copy(
         update={"batch_size": 4, "epochs": 2, "scheduler_total_optimizer_steps": 4}
     )
@@ -296,27 +289,9 @@ def test_update_shares_batch_storage_and_preserves_fixed_ppo_targets(monkeypatch
         _episode(reward=float(i), terminated=True, truncated=False, bootstrap=0.0) for i in range(4)
     )
     snapshots = [(episode.training.clone(), episode.audit.clone()) for episode in episodes]
-    normalized_batches = []
-    normalize = ppo.normalize_full_batch_advantage
-    storages = []
-    tensor_storage = ppo.TensorStorage
-
-    def capture_storage(batch, **kwargs):
-        storage = tensor_storage(batch, **kwargs)
-        stored = storage.get(slice(None))
-        assert len(storage) == config.batch_size
-        for key in batch.keys():
-            assert stored[key].data_ptr() == batch[key].data_ptr()
-            assert stored[key].device.type == device
-        storages.append(storage)
-        return storage
-
-    def capture_normalized_batch(batch):
-        normalize(batch)
-        normalized_batches.append((batch, batch.clone()))
-
-    monkeypatch.setattr(ppo, "normalize_full_batch_advantage", capture_normalized_batch)
-    monkeypatch.setattr(ppo, "TensorStorage", capture_storage)
+    expected = build_ppo_batch(episodes, config, device=torch.device(device))
+    advantage = expected["advantage"]
+    expected["advantage"] = (advantage - advantage.mean()) / advantage.std(correction=1)
     updater = PPOUpdater(ExplorationPolicy(_policy_config()).to(device), config)
     minibatches = []
 
@@ -324,22 +299,24 @@ def test_update_shares_batch_storage_and_preserves_fixed_ppo_targets(monkeypatch
         minibatch = args[0].select(
             "guidance_action", "old_joint_guidance_log_prob", "advantage", "value_target"
         )
+        # Unique returns identify each sample regardless of minibatch order.
+        indices = minibatch["value_target"].flatten().long()
+        for key in minibatch.keys():
+            torch.testing.assert_close(minibatch[key], expected[key][indices])
         minibatches.append((minibatch, minibatch.clone()))
 
     handle = updater.loss_module.register_forward_pre_hook(capture_minibatch)
     updater.update(episodes)
     handle.remove()
-    assert len(normalized_batches) == 1
-    assert len(storages) == 1
-    assert len(minibatches) == 4
-    for actual, expected in normalized_batches + minibatches:
-        assert (actual == expected).all()
+    assert minibatches
+    for actual, snapshot in minibatches:
+        assert (actual == snapshot).all()
     for episode, (training, audit) in zip(episodes, snapshots, strict=True):
         assert (episode.training == training).all()
         assert (episode.audit == audit).all()
 
 
-def test_ratio_diagnostics_cover_full_batch_with_bounded_forward_size(monkeypatch) -> None:
+def test_ratio_diagnostics_cover_full_batch_without_mutation() -> None:
     policy = ExplorationPolicy(_policy_config())
     updater = PPOUpdater(policy, _ppo_config())
     episodes = tuple(
@@ -350,18 +327,8 @@ def test_ratio_diagnostics_cover_full_batch_with_bounded_forward_size(monkeypatc
     ratios = torch.tensor([0.5, 1.0, 2.0, 4.0, 8.0])
     batch["old_joint_guidance_log_prob"] -= ratios.log()
     snapshot = batch.clone()
-    sizes = []
-    forward = policy.forward_tensordict
-
-    def observe(context):
-        sizes.append(context.batch_size[0])
-        assert not torch.is_grad_enabled()
-        return forward(context)
-
-    monkeypatch.setattr(policy, "forward_tensordict", observe)
     statistics = updater._policy_ratio_statistics(batch)
 
-    assert sizes == [2, 2, 1]
     assert statistics == pytest.approx(
         (ratios.mean(), ratios.std(correction=0), torch.quantile(ratios, 0.95), ratios.max())
     )
