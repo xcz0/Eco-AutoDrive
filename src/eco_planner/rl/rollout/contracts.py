@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, cast
 
@@ -242,43 +243,69 @@ class RolloutEpisodeBuilder:
         execution: ExecutionTransitionAudit,
         provenance: RolloutProvenance,
     ) -> None:
-        profile = execution.reward_result.profile_name
-        if self._reward_profile is None:
-            self._reward_profile = profile
-        elif profile != self._reward_profile:
-            raise ValueError("one rollout episode cannot mix reward profiles")
-        if self._training_storage is None:
-            self._training.append(training_transition)
+        self.append_batch((self,), training_transition, decision_audit, (execution,), (provenance,))
+
+    @staticmethod
+    def append_batch(
+        builders: Sequence[RolloutEpisodeBuilder],
+        training: TensorDictBase,
+        decision_audit: TensorDictBase,
+        executions: Sequence[ExecutionTransitionAudit],
+        provenances: Sequence[RolloutProvenance],
+    ) -> None:
+        """Write one vector round once, retaining episode-local CPU audit ownership."""
+
+        count = len(builders)
+        if not count or training.batch_size != (count,) or decision_audit.batch_size != (count,):
+            raise ValueError("rollout round must contain one transition per episode builder")
+        rows = tuple(zip(builders, executions, provenances, strict=True))
+        storage = builders[0]._training_storage
+        if any(builder._training_storage is not storage for builder in builders):
+            raise ValueError("rollout round builders must share the same training storage")
+        for builder, execution, _ in rows:
+            profile = execution.reward_result.profile_name
+            if builder._reward_profile is None:
+                builder._reward_profile = profile
+            elif profile != builder._reward_profile:
+                raise ValueError("one rollout episode cannot mix reward profiles")
+        if storage is None:
+            for index, builder in enumerate(builders):
+                builder._training.append(cast(TensorDictBase, training[index : index + 1]))
         else:
-            storage = self._training_storage
             if "state_value" not in storage.keys():
-                storage.update(training_transition.new_empty(storage.batch_size))
+                storage.update(training.new_empty(storage.batch_size))
                 value_dtype = torch.promote_types(storage["state_value"].dtype, torch.float32)
                 storage["next", "state_value"] = torch.empty_like(
                     storage["state_value"], dtype=value_dtype
                 )
                 storage["next", "done"] = torch.empty_like(storage["next", "terminated"])
-            index = self._training_start + self.transition_count
-            if index >= storage.batch_size[0]:
+            indices = [builder._training_start + builder.transition_count for builder in builders]
+            if any(index < 0 or index >= storage.batch_size[0] for index in indices):
                 raise ValueError("rollout transition exceeds its update training storage")
             # Indexed writes must not broadcast, cast, or move incompatible decisions.
-            source_keys = set(training_transition.keys(include_nested=True, leaves_only=True))
+            source_keys = set(training.keys(include_nested=True, leaves_only=True))
             target_keys = set(storage.keys(include_nested=True, leaves_only=True)) - {
                 ("next", "state_value"),
                 ("next", "done"),
             }
             if source_keys != target_keys:
                 raise ValueError("rollout training transition fields differ from update storage")
-            for key, value in training_transition.items(include_nested=True, leaves_only=True):
+            for key, value in training.items(include_nested=True, leaves_only=True):
                 target = _tensor(storage, key)
                 if (
-                    value.shape != (1, *target.shape[1:])
+                    value.shape != (count, *target.shape[1:])
                     or value.dtype != target.dtype
                     or value.device != target.device
                 ):
                     raise ValueError(f"rollout training field {key!r} differs from update storage")
-            storage.update_at_(training_transition, slice(index, index + 1))
-        self._audit.append(build_rollout_audit(decision_audit, execution, provenance))
+            index = torch.tensor(indices, dtype=torch.long, device=storage["state_value"].device)
+            storage.update_at_(training, index)
+        for index, (builder, execution, provenance) in enumerate(rows):
+            builder._audit.append(
+                build_rollout_audit(
+                    cast(TensorDictBase, decision_audit[index : index + 1]), execution, provenance
+                )
+            )
 
     def finish(self, tail_kind: TailKind, tail_bootstrap_value: torch.Tensor) -> RolloutEpisode:
         if self.empty:
@@ -355,14 +382,35 @@ def build_training_transition(
 ) -> TensorDictBase:
     """Project a scalar reward and environment flags directly onto the collection device."""
 
+    return build_training_transitions(
+        decision, (reward_result,), terminated=(terminated,), truncated=(truncated,)
+    )
+
+
+def build_training_transitions(
+    decision: TensorDictBase,
+    reward_results: Sequence[RewardResult],
+    *,
+    terminated: Sequence[bool],
+    truncated: Sequence[bool],
+) -> TensorDictBase:
+    """Project a complete vector round's rewards and flags onto the collection device."""
+
+    count = len(reward_results)
+    if decision.batch_size != (count,) or len(terminated) != count or len(truncated) != count:
+        raise ValueError("training round rewards and flags must match the decision batch")
     device = decision["state_value"].device
     next_transition = TensorDict(
         {
-            "reward": torch.tensor([[reward_result.total]], dtype=torch.float32, device=device),
-            "terminated": torch.tensor([[terminated]], dtype=torch.bool, device=device),
-            "truncated": torch.tensor([[truncated]], dtype=torch.bool, device=device),
+            "reward": torch.tensor(
+                [result.total for result in reward_results], dtype=torch.float32, device=device
+            ).reshape(count, 1),
+            "terminated": torch.tensor(terminated, dtype=torch.bool, device=device).reshape(
+                count, 1
+            ),
+            "truncated": torch.tensor(truncated, dtype=torch.bool, device=device).reshape(count, 1),
         },
-        batch_size=[1],
+        batch_size=[count],
         device=device,
     )
     return decision.clone(recurse=False).set("next", next_transition)

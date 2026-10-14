@@ -855,6 +855,134 @@ def test_collector_projects_one_reward_evaluation_to_training_and_audit(
     assert episode.audit["reward_substep_count"].item() == substep_count
 
 
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
+@pytest.mark.parametrize("shared_storage", [False, True])
+@pytest.mark.parametrize("slot_count", [1, 4])
+def test_vector_round_matches_serial_episodes_with_mixed_boundaries(
+    monkeypatch, device, shared_storage, slot_count
+) -> None:
+    from types import SimpleNamespace
+
+    from tensordict import cat
+
+    from eco_planner.envs.parallel import VectorEnvTiming, WorkerStepResult
+    from eco_planner.rl.rollout.collector import _append_round_transitions
+
+    storage = TensorDict({}, batch_size=[slot_count * 2]) if shared_storage else None
+    states = [
+        SimpleNamespace(
+            spec=SimpleNamespace(seed=slot),
+            noise_seed=10 + slot,
+            policy_action_seed=20 + slot,
+            lifecycle=_EpisodeLifecycle(
+                0.0, RolloutEpisodeBuilder(training_storage=storage, training_start=slot * 2)
+            ),
+            collected=0,
+        )
+        for slot in range(slot_count)
+    ]
+    references = [_EpisodeLifecycle(0.0) for _ in states]
+    completed = []
+    writes = []
+    original_write = TensorDict.update_at_
+
+    def write_round(self, values, index, **kwargs):
+        if self is storage:
+            writes.append(index.tolist())
+        return original_write(self, values, index, **kwargs)
+
+    monkeypatch.setattr(TensorDict, "update_at_", write_round)
+    for round_index in range(2):
+        fields = [_transition() for _ in states]
+        for slot, (training, audit, _, _) in enumerate(fields):
+            training["state_value"].fill_(slot * 2 + round_index + 1)
+            audit["state_value"].copy_(training["state_value"])
+        training = cat([item[0] for item in fields]).to(device)
+        audit = cat([item[1] for item in fields])
+        decision = SimpleNamespace(
+            training_decision=training, audit_result=lambda audit=audit: audit
+        )
+        # First round exercises simultaneous flags, pure truncation and terminal;
+        # the fourth scenario spans both rounds and ends at the collector limit.
+        terminated = [True, False, True, False] if round_index == 0 else [False] * 4
+        truncated = [True, True, False, False] if round_index == 0 else [False] * 4
+        terminated = terminated[:slot_count]
+        truncated = truncated[:slot_count]
+        steps = tuple(
+            WorkerStepResult(
+                _execution_result(
+                    tuple(_substep_metrics(i) for i in range(slot + 1)),
+                    route_completion=0.2 * (round_index + 1),
+                ),
+                None,
+                VectorEnvTiming(0.0, 0.0),
+            )
+            for slot in range(slot_count)
+        )
+        results = tuple(
+            _reward_result(0.1 * (slot + round_index + i + 1))
+            for slot in range(slot_count)
+            for i in range(slot + 1)
+        )
+        evaluator = _ScriptedEvaluator(results)
+        tails = _append_round_transitions(
+            states,
+            decision,
+            steps,
+            terminated=terminated,
+            truncated=truncated,
+            transitions_per_slot=2,
+            reward_evaluator=evaluator,
+        )
+        assert not evaluator._results
+        assert tails == (
+            [(0, "terminated"), (1, "truncated"), (2, "terminated")][:slot_count]
+            if round_index == 0
+            else [(slot, "rollout_limit") for slot in range(slot_count)]
+        )
+        reference_evaluator = _ScriptedEvaluator(results)
+        for slot, state in enumerate(states):
+            kind = references[slot].append(
+                RolloutDecision(
+                    HostTrajectories(np.zeros((1, 80, 4))),
+                    lambda slot=slot, audit=audit: audit[slot : slot + 1],
+                    training[slot : slot + 1].clone(),
+                ),
+                steps[slot].step,
+                map_seed=slot,
+                noise_seed=10 + slot,
+                policy_action_seed=20 + slot,
+                reward_evaluator=reference_evaluator,
+                terminated=terminated[slot],
+                truncated=truncated[slot],
+                collection_limit=round_index == 1,
+            )
+            assert state.collected == round_index + 1
+            if kind is not None:
+                bootstrap = torch.tensor([0.0 if kind == "terminated" else 5.125])
+                actual = state.lifecycle.finish(kind, bootstrap)
+                expected = references[slot].finish(kind, bootstrap)
+                for key, value in expected.training.items(include_nested=True, leaves_only=True):
+                    assert torch.equal(actual.training[key], value), key
+                assert (actual.audit == expected.audit).all()
+                completed.append((actual.training, actual.training.clone()))
+                if round_index == 0:
+                    state.lifecycle.reset(0.0)
+                    references[slot].reset(0.0)
+        assert not reference_evaluator._results
+        if shared_storage:
+            training["state_value"].fill_(-100)
+        for actual, snapshot in completed:
+            assert (actual == snapshot).all()
+    assert writes == (
+        [list(range(0, slot_count * 2, 2)), list(range(1, slot_count * 2, 2))]
+        if shared_storage
+        else []
+    )
+    if storage is not None:
+        assert storage["state_value"].flatten().tolist() == list(range(1, slot_count * 2 + 1))
+
+
 def test_transition_audit_aggregates_multiple_substeps() -> None:
     metrics = (
         _substep_metrics(0),

@@ -38,8 +38,9 @@ from .contracts import (
     RolloutProvenance,
     TailKind,
     build_training_transition,
+    build_training_transitions,
 )
-from .decision import RolloutDecision
+from .decision import BatchRolloutDecision, RolloutDecision
 from .profiling import RolloutPlannerTiming
 from .runtime import FabricRolloutRuntime
 
@@ -108,6 +109,20 @@ class _EpisodeLifecycle:
                 planning_cycle_index=self.builder.transition_count,
             ),
         )
+        return self.advance(
+            step, terminated=terminated, truncated=truncated, collection_limit=collection_limit
+        )
+
+    def advance(
+        self,
+        step: TrajectoryExecutionResult,
+        *,
+        terminated: bool,
+        truncated: bool,
+        collection_limit: bool,
+    ) -> TailKind | None:
+        """Advance domain state after the transition and its audit have been recorded."""
+
         self.previous_route_completion = step.execution.route_completion
         if terminated:
             return "terminated"
@@ -443,19 +458,15 @@ class VectorRolloutCollector:
                     ),
                 )
 
-            tails: list[tuple[int, TailKind]] = []
-            for slot, (state, step_result) in enumerate(zip(states, step_results, strict=True)):
-                tail = _append_slot_transition(
-                    state,
-                    decision.slot(slot),
-                    step_result,
-                    terminated=bool(steps["terminated"][slot].item()),
-                    truncated=bool(steps["truncated"][slot].item()),
-                    transitions_per_slot=transitions_per_slot,
-                    reward_evaluator=self._reward_evaluator,
-                )
-                if tail is not None:
-                    tails.append((slot, tail))
+            tails = _append_round_transitions(
+                states,
+                decision,
+                step_results,
+                terminated=steps["terminated"].reshape(-1).tolist(),
+                truncated=steps["truncated"].reshape(-1).tolist(),
+                transitions_per_slot=transitions_per_slot,
+                reward_evaluator=self._reward_evaluator,
+            )
 
             bootstrap_slots = [slot for slot, kind in tails if kind != "terminated"]
             bootstrap_values: dict[int, torch.Tensor] = {}
@@ -514,30 +525,60 @@ class VectorRolloutCollector:
         return tuple(tuple(state.episodes) for state in states)
 
 
-def _append_slot_transition(
-    state: _SlotCollectionState,
-    decision: RolloutDecision,
-    step: WorkerStepResult,
+def _append_round_transitions(
+    states: list[_SlotCollectionState],
+    decision: BatchRolloutDecision,
+    steps: tuple[WorkerStepResult, ...],
     *,
-    terminated: bool,
-    truncated: bool,
+    terminated: list[bool],
+    truncated: list[bool],
     transitions_per_slot: int,
     reward_evaluator: RewardEvaluator,
-) -> TailKind | None:
-    env_step = step.step
-    tail = state.lifecycle.append(
-        decision,
-        env_step,
-        map_seed=state.spec.seed,
-        noise_seed=state.noise_seed,
-        policy_action_seed=state.policy_action_seed,
-        reward_evaluator=reward_evaluator,
+) -> list[tuple[int, TailKind]]:
+    rows = tuple(zip(states, steps, terminated, truncated, strict=True))
+    executions = tuple(
+        _execution_transition_audit(
+            step.step,
+            state.lifecycle.previous_route_completion,
+            reward_evaluator=reward_evaluator,
+            terminated=terminal,
+            truncated=truncation,
+        )
+        for state, step, terminal, truncation in rows
+    )
+    training = build_training_transitions(
+        decision.training_decision,
+        tuple(execution.reward_result for execution in executions),
         terminated=terminated,
         truncated=truncated,
-        collection_limit=state.collected + 1 == transitions_per_slot,
     )
-    state.collected += 1
-    return tail
+    RolloutEpisodeBuilder.append_batch(
+        tuple(state.lifecycle.builder for state in states),
+        training,
+        decision.audit_result(),
+        executions,
+        tuple(
+            RolloutProvenance(
+                map_seed=state.spec.seed,
+                noise_seed=state.noise_seed,
+                policy_action_seed=state.policy_action_seed,
+                planning_cycle_index=state.lifecycle.builder.transition_count,
+            )
+            for state in states
+        ),
+    )
+    tails = []
+    for slot, (state, step, terminal, truncation) in enumerate(rows):
+        tail = state.lifecycle.advance(
+            step.step,
+            terminated=terminal,
+            truncated=truncation,
+            collection_limit=state.collected + 1 == transitions_per_slot,
+        )
+        state.collected += 1
+        if tail is not None:
+            tails.append((slot, tail))
+    return tails
 
 
 def _append_decision_timing(
