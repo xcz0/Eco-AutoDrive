@@ -1,4 +1,4 @@
-"""Compare the synchronous Collector with explicit domain-owned episode semantics."""
+"""Check synchronous collection against hand-specified trajectories and RNG draws."""
 
 from dataclasses import replace
 from types import SimpleNamespace
@@ -14,13 +14,10 @@ from eco_planner.envs.parallel import (
     VectorEnvTiming,
     WorkerResetResult,
     WorkerStepResult,
-    operation_results,
 )
 from eco_planner.envs.parallel.torchrl import planner_observation_spec
-from eco_planner.rl.rollout.collector import VectorRolloutCollector, _EpisodeLifecycle
-from eco_planner.rl.rollout.decision import RolloutDecision
+from eco_planner.rl.rollout.collector import VectorRolloutCollector
 from eco_planner.rl.rollout.profiling import RolloutPlannerTiming
-from eco_planner.runtime.contracts import HostTrajectories
 from eco_planner.runtime.profiling import PhaseTiming
 from tests.training.rollout_helpers import (
     _execution_result,
@@ -178,74 +175,102 @@ class _Runtime:
             )
 
 
-def _reference(collector, diffusion, policy, *, sampling, quota):
-    """Independent explicit loop: bootstrap the final state before partial reset."""
-    groups = []
-    for start in range(0, len(collector._specs), collector._physical_slot_count):
-        specs = collector._specs[start : start + collector._physical_slot_count]
-        scenarios = collector._scenarios[start : start + len(specs)]
-        slots = tuple(range(len(specs)))
-        resets = collector._envs.reset(scenarios, slots=slots)
-        observation = resets["observation"]
-        lifecycles = [_EpisodeLifecycle(0.0) for _ in specs]
-        episodes = [[] for _ in specs]
-        noises = diffusion[start : start + len(specs)]
-        actions = policy[start : start + len(specs)]
-        for round_index in range(quota):
-            decision = collector._runtime.decide_batch(
-                observation, noises, actions if sampling == "sample" else None
-            )
-            steps = collector._envs.step(decision.ego_trajectories, slots=slots)
-            tails = []
-            for slot, step in enumerate(operation_results(steps, WorkerStepResult)):
-                kind = lifecycles[slot].append(
-                    RolloutDecision(
-                        HostTrajectories(decision.ego_trajectories[slot : slot + 1]),
-                        lambda slot=slot, decision=decision: decision.audit_result()[
-                            slot : slot + 1
-                        ],
-                        decision.training_decision[slot : slot + 1],
-                    ),
-                    step.step,
-                    map_seed=specs[slot].seed,
-                    noise_seed=10 + start + slot,
-                    policy_action_seed=20 + start + slot,
-                    reward_evaluator=collector._reward_evaluator,
-                    terminated=bool(steps["terminated"][slot]),
-                    truncated=bool(steps["truncated"][slot]),
-                    collection_limit=round_index + 1 == quota,
-                )
-                if kind is not None:
-                    tails.append((slot, kind))
-            bootstrap_slots = [slot for slot, kind in tails if kind != "terminated"]
-            values = (
-                collector._runtime.bootstrap_value_batch(
-                    steps["observation"][bootstrap_slots],
-                    tuple(noises[slot] for slot in bootstrap_slots),
-                )
-                if bootstrap_slots
-                else []
-            )
-            bootstraps = {
-                slot: values[index : index + 1] for index, slot in enumerate(bootstrap_slots)
-            }
-            for slot, kind in tails:
-                episodes[slot].append(
-                    lifecycles[slot].finish(
-                        kind, torch.zeros(1) if kind == "terminated" else bootstraps[slot]
-                    )
-                )
-            reset_slots = [slot for slot, _ in tails] if round_index + 1 < quota else []
-            observation = steps["observation"].clone()
-            if reset_slots:
-                resets = collector._envs.reset(
-                    tuple(scenarios[slot] for slot in reset_slots), slots=reset_slots
-                )
-                observation[reset_slots] = resets["observation"]
-                for slot in reset_slots:
-                    lifecycles[slot].reset(0.0)
-        groups.extend(tuple(group) for group in episodes)
-    return tuple(groups)
+# Each episode specifies: tail, observation markers, decision draw indices,
+# optional (final-state marker, bootstrap draw index), and final environment flags.
+# Bootstrap draws share the diffusion stream with decisions. In s1, draw 2 belongs
+# to the truncated final state (12), before reset returns the marker to 10.
+_EXPECTED_EPISODES = (
+    (
+        ("terminated", (0,), (0,), None, True, True),
+        ("terminated", (0,), (1,), None, True, True),
+        ("terminated", (0,), (2,), None, True, True),
+    ),
+    (
+        ("truncated", (10, 11), (0, 1), (12, 2), False, True),
+        ("rollout_limit", (10,), (3,), (11, 4), False, False),
+    ),
+    (
+        ("terminated", (20, 21), (0, 1), None, True, False),
+        ("rollout_limit", (20,), (2,), (21, 3), False, False),
+    ),
+    (("rollout_limit", (30, 31, 32), (0, 1, 2), (33, 3), False, False),),
+)
+
+# Capacity 3 exercises partial resets and a final wave with one active slot.
+_EXPECTED_EVENTS = [
+    ("reset", (0, 1, 2), (0, 1, 2)),
+    ("plan", (0, 10, 20)),
+    ("step", (0, 1, 2), (0, 10, 20)),
+    ("reset", (0,), (0,)),
+    ("plan", (0, 11, 21)),
+    ("step", (0, 1, 2), (0, 11, 21)),
+    ("bootstrap", (12,)),
+    ("reset", (0, 1, 2), (0, 1, 2)),
+    ("plan", (0, 10, 20)),
+    ("step", (0, 1, 2), (0, 10, 20)),
+    ("bootstrap", (11, 21)),
+    ("reset", (0,), (3,)),
+    ("plan", (30,)),
+    ("step", (0,), (30,)),
+    ("plan", (31,)),
+    ("step", (0,), (31,)),
+    ("plan", (32,)),
+    ("step", (0,), (32,)),
+    ("bootstrap", (33,)),
+]
+
+
+def _assert_expected_group(group, scenario, noise, actions):
+    expected = _EXPECTED_EPISODES[scenario]
+    assert len(group) == len(expected)
+    action_offset = 0
+    for episode, (tail, markers, draw_indices, bootstrap, terminal, truncated) in zip(
+        group, expected, strict=True
+    ):
+        length = len(markers)
+        values = torch.tensor(markers, device=noise.device) + noise[list(draw_indices)]
+        tail_value = (
+            torch.zeros(1, device=noise.device)
+            if bootstrap is None
+            else (bootstrap[0] + noise[bootstrap[1]]).reshape(1)
+        )
+        assert episode.tail_kind == tail
+        assert episode.transition_count == length
+        torch.testing.assert_close(episode.tail_bootstrap_value, tail_value)
+        training, audit = episode.training, episode.audit
+        torch.testing.assert_close(training["state_value"].flatten(), values)
+        torch.testing.assert_close(
+            training["next", "state_value"].flatten(), torch.cat((values[1:], tail_value))
+        )
+        for key, last in (("done", True), ("terminated", terminal), ("truncated", truncated)):
+            assert training["next", key].flatten().tolist() == [False] * (length - 1) + [last]
+        expected_actions = actions[action_offset : action_offset + length]
+        torch.testing.assert_close(training["guidance_action"], expected_actions)
+        torch.testing.assert_close(audit["guidance_action"], expected_actions.cpu())
+        torch.testing.assert_close(audit["base_action"], (expected_actions.cpu() + 1) / 2)
+        expected_noise = noise[list(draw_indices)].cpu().reshape(length, 1, 1, 1)
+        torch.testing.assert_close(
+            audit["initial_noise"], expected_noise.expand_as(audit["initial_noise"])
+        )
+        torch.testing.assert_close(audit["state_value"].flatten(), values.cpu())
+        # Each substep has reward .25 + .01 * speed, with speeds 2, 3, 4, 5.
+        expected_reward = torch.full((length, 1), (0.27, 0.55, 0.84, 1.14)[scenario])
+        torch.testing.assert_close(training["next", "reward"].cpu(), expected_reward)
+        torch.testing.assert_close(audit["reward_total"], expected_reward)
+        for key, value in (
+            ("map_seed", scenario),
+            ("noise_seed", 10 + scenario),
+            ("policy_action_seed", 20 + scenario),
+            ("reward_substep_count", scenario + 1),
+        ):
+            assert audit[key].flatten().tolist() == [value] * length
+        assert audit["planning_cycle_index"].flatten().tolist() == list(range(length))
+        for key, last in (("terminated", terminal), ("truncated", truncated)):
+            assert audit[key].flatten().tolist() == [False] * (length - 1) + [last]
+        torch.testing.assert_close(audit["route_completion_delta"], torch.full((length, 1), 0.1))
+        assert all(value.device == noise.device for value in training.values(True, True))
+        action_offset += length
+    assert action_offset == 3
 
 
 def _collector(capacity, device):
@@ -263,25 +288,46 @@ def _collector(capacity, device):
     return collector
 
 
-@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
-@pytest.mark.parametrize("capacity", [1, 3, 4])
-@pytest.mark.parametrize("sampling", ["sample", "mean"])
-@pytest.mark.parametrize("shared_storage", [False, True])
-def test_synchronous_collection_matches_domain_reference(
+@pytest.mark.parametrize(
+    "device,capacity,sampling,shared_storage",
+    [
+        ("cpu", capacity, sampling, shared)
+        for capacity in (1, 3, 4)
+        for sampling in ("sample", "mean")
+        for shared in (False, True)
+    ]
+    + [
+        pytest.param("cuda", 3, "sample", True, marks=pytest.mark.gpu),
+        pytest.param("cuda", 3, "mean", False, marks=pytest.mark.gpu),
+    ],
+)
+def test_synchronous_collection_matches_explicit_trajectories(
     device, capacity, sampling, shared_storage
 ):
-    actual_collector, reference_collector = (_collector(capacity, device) for _ in range(2))
-    generators = [
+    collector = _collector(capacity, device)
+    diffusion, policy, expected_diffusion, expected_policy = [
         tuple(torch.Generator(device=device).manual_seed(seed + slot) for slot in range(4))
         for seed in (10, 20, 10, 20)
     ]
-    diffusion, policy, reference_diffusion, reference_policy = generators
     global_before = torch.random.get_rng_state().clone()
     cuda_before = torch.cuda.get_rng_state_all() if device == "cuda" else []
     snapshots = []
     for _update in range(2):
+        # These draw counts and positions come from the explicit episode table,
+        # not from collector events, runtime outputs, or lifecycle assembly.
+        noises = [
+            torch.stack([torch.rand((), generator=g, device=device) for _ in range(count)])
+            for g, count in zip(expected_diffusion, (3, 5, 4, 4), strict=True)
+        ]
+        actions = [
+            torch.stack([torch.rand(2, generator=g, device=device) * 1.5 - 0.75 for _ in range(3)])
+            if sampling == "sample"
+            else torch.zeros(3, 2, device=device)
+            for g in expected_policy
+        ]
+        event_offset = len(collector._envs.events)
         storage = TensorDict({}, batch_size=[12]) if shared_storage else None
-        actual = actual_collector.collect(
+        actual = collector.collect(
             transitions_per_slot=3,
             diffusion_generators=diffusion,
             policy_generators=policy,
@@ -290,29 +336,21 @@ def test_synchronous_collection_matches_domain_reference(
             policy_sampling=sampling,
             training_storage=storage,
         )
-        expected = _reference(
-            reference_collector, reference_diffusion, reference_policy, sampling=sampling, quota=3
-        )
-        assert actual_collector._envs.events == reference_collector._envs.events
-        for group, reference_group in zip(actual, expected, strict=True):
-            assert sum(episode.transition_count for episode in group) == 3
-            for episode, reference in zip(group, reference_group, strict=True):
-                assert episode.tail_kind == reference.tail_kind
-                assert torch.equal(episode.tail_bootstrap_value, reference.tail_bootstrap_value)
-                assert (episode.training == reference.training).all()
-                assert (episode.audit == reference.audit).all()
-                assert all(
-                    value.device.type == device for value in episode.training.values(True, True)
-                )
-                snapshots.append((episode.training, episode.training.clone()))
+        assert len(actual) == 4
+        for scenario, group in enumerate(actual):
+            _assert_expected_group(group, scenario, noises[scenario], actions[scenario])
+            for episode in group:
+                snapshots.extend((data, data.clone()) for data in (episode.training, episode.audit))
+        if capacity == 3:
+            assert collector._envs.events[event_offset:] == _EXPECTED_EVENTS
         if storage is not None:
-            expected_training = cat([episode.training for group in expected for episode in group])
-            assert (storage == expected_training.to(device)).all()
-        for actual_generator, reference_generator in zip(
-            (*diffusion, *policy), (*reference_diffusion, *reference_policy), strict=True
+            ordered = cat([episode.training for group in actual for episode in group])
+            assert (storage == ordered).all()
+        for actual_generator, expected_generator in zip(
+            (*diffusion, *policy), (*expected_diffusion, *expected_policy), strict=True
         ):
-            assert torch.equal(actual_generator.get_state(), reference_generator.get_state())
-        assert all((training == snapshot).all() for training, snapshot in snapshots)
+            assert torch.equal(actual_generator.get_state(), expected_generator.get_state())
+        assert all((data == snapshot).all() for data, snapshot in snapshots)
     assert torch.equal(torch.random.get_rng_state(), global_before)
     assert all(
         torch.equal(actual, before)
