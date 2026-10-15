@@ -1,0 +1,65 @@
+docs/experiments/records/e-061-issue113-task-1-proxy-structural-proof-and-speed-attribution.md
+  s_58d9dd64eefe14::t_fda9bf64b38393 141
+  s_58d9dd64eefe14::t_5ef000fe0753e2 84,86-120,122-131
+  s_58d9dd64eefe14::t_b77abe18aad54f 121
+  s_58d9dd64eefe14::t_82c8b571ef2ea9 1-2,4-76,83,85,132-134,136-138
+  s_58d9dd64eefe14::t_e0787a278edded 3
+  s_58d9dd64eefe14::t_68e3073a4b44a1 77-82
+  s_58d9dd64eefe14::t_63cf0ddc8e983a 135,139-140
+src/eco_planner/experiments/energy_proxy/report.py
+  s_58d9dd64eefe14::t_b8a24b985b1fd0 1-38,41-62,64-100,102-103,105-140,149-194,196-206,208-210,212-237
+  s_58d9dd64eefe14::t_96b1fec8d33ba1 39-40,63,141-148,207
+  s_58d9dd64eefe14::t_a179fdbff95c23 101,104
+  s_58d9dd64eefe14::t_83f7522a3a8fc9 195
+  s_58d9dd64eefe14::t_67fa7b014d709b 211
+configs/experiments/energy-proxy/analysis.yaml
+  s_58d9dd64eefe14::t_c1d09b25dea7cf 1-44
+scripts/experiments.py
+  s_58d9dd64eefe14::t_05c15f88c28936 103-105
+  s_58d9dd64eefe14::t_a54f95a6466d1f 132-135
+  s_58d9dd64eefe14::t_afc302ee3b26cf 112
+tests/analysis/test_energy_proxy_analysis.py
+  s_58d9dd64eefe14::t_2bf282de80a4f5 55
+  s_58d9dd64eefe14::t_96b1fec8d33ba1 174
+  s_58d9dd64eefe14::t_260642c0e705ee 39-41
+  s_58d9dd64eefe14::t_6d8433135f9adf 1-38,42-54,56-173,175-275
+src/eco_planner/experiments/energy_proxy/analysis.py
+  s_58d9dd64eefe14::t_97223818a17c7d 328-338
+  s_58d9dd64eefe14::t_7a729f63642ffe 383-386
+  s_58d9dd64eefe14::t_d80325f3142d5e 379,381-382
+  s_58d9dd64eefe14::t_2a2c80543b2407 847
+  s_58d9dd64eefe14::t_3c5d6afe11bab7 145,148-150,162
+  s_58d9dd64eefe14::t_d76b747f9317f9 1113,1117-1120,1125,1127-1128,1130,1132-1135,1139-1142,1147-1155
+  s_58d9dd64eefe14::t_83b9b2223e250f 325-327
+  s_58d9dd64eefe14::t_7c82f5493546dc 1-17,19,21,23-35,37-94,98-119,121-144,146-147,151-161,163-199,201-210,212-233,235-270,272-274,276-324,339-354,360-378,380,387,389-391,400,528,586-612,618-633,644,657-668,670-677,681-811,813-846,848-857,859-869,872,878-949,951-992,994-1003,1005-1040,1042-1065,1069-1112,1114-1116,1121-1124,1126,1129,1131,1136-1138,1156-1224
+  s_58d9dd64eefe14::t_e5ffa8e39feb8e 95-97
+  s_58d9dd64eefe14::t_66055c6fe30f03 211
+  s_58d9dd64eefe14::t_dc7a7d96a91c73 355-359
+  s_58d9dd64eefe14::t_5bb72d4c37b6ec 271
+  s_58d9dd64eefe14::t_15742216d8f776 613-617,634-643,645-656
+  s_58d9dd64eefe14::t_c7e44081fc5306 18,20,36
+  s_58d9dd64eefe14::t_e1e350c640f7f6 392-399,401-456,458-469,473-494,499-527,529-585
+  s_58d9dd64eefe14::t_89273f265eb581 22
+  s_58d9dd64eefe14::t_a47ca368739429 498
+  s_58d9dd64eefe14::t_c51bea46bae631 870,873-875,877
+  s_58d9dd64eefe14::t_dc405869f0b301 812
+  s_58d9dd64eefe14::t_96b1fec8d33ba1 120,200,234,275,388,669,678-680,858,871,876,950,993,1004,1041,1066-1068
+  s_58d9dd64eefe14::t_2a807680e222fa 457,470-472,1143-1146
+  s_58d9dd64eefe14::t_036582f8ad2e38 495-497
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "ab6bbc2d32ee2de4d1e5dc84e79f58852d8a5c5d",
+  "prompts": {},
+  "sessions": {
+    "s_58d9dd64eefe14": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ec1735407ffeaBngGw4bRBzpf5",
+        "model": "unknown"
+      },
+      "human_author": "xiaochengzhe <x30085685@china.huawei.com>"
+    }
+  }
+}
