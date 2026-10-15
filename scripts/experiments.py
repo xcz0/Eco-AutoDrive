@@ -100,13 +100,16 @@ COMMANDS = {
         "training.critic_attribution.analysis", "analyze", None, source=True
     ),
     ("training", "analyze"): Command("training.analysis", "analyze", None, source=True),
+    ("energy", "proxy", "run"): Command(
+        "energy_proxy.analysis", "run", "energy-proxy/analysis.yaml", source=True
+    ),
 }
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run current research comparisons and diagnostics")
     domains = parser.add_subparsers(dest="domain", required=True)
-    for domain in ("compare", "reward", "credit", "guidance", "training"):
+    for domain in ("compare", "reward", "credit", "guidance", "training", "energy"):
         sub = domains.add_parser(domain).add_subparsers(required=True)
         if domain == "guidance":
             nested = {
@@ -125,6 +128,10 @@ def build_parser() -> argparse.ArgumentParser:
                 "critic-attribution": sub.add_parser("critic-attribution").add_subparsers(
                     required=True
                 ),
+            }
+        elif domain == "energy":
+            nested = {
+                "proxy": sub.add_parser("proxy").add_subparsers(required=True),
             }
         else:
             nested = {}

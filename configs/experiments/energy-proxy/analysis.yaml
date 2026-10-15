@@ -1,0 +1,44 @@
+# Issue #113 Task 1 (E-061): fuel-proxy structural proof and E-060 final
+# A2-A1 speed attribution.
+#
+# This file is the machine-readable pre-registration of the diagnostic study.
+# It is frozen before the formal analysis runs: the statistical window, the
+# exact decomposition identity, the parity tolerances, the synthetic
+# counterfactual profiles and the missing-data semantics below must not change
+# between freezing and reporting. The matched E-060 evidence itself is only
+# read; no simulator, model or training run is involved.
+version: 1
+study_name: issue113_task1_energy_proxy_speed_attribution
+# Manifest run scope: these checkpoint labels enter both the trace-level
+# parity audit and the paired attribution. All remaining manifest runs keep
+# their checkpoint-pin and matched-condition validation through
+# load_comparison, but are not trace-parity-audited here.
+checkpoint_labels:
+- final
+# Paired contrasts over the labels above (difference = comparison - reference).
+# Primary is the E-060 Gate F adjudication contrast; context is reported for
+# reference only and carries no gate.
+contrast_primary: [a1, a2]
+contrast_context: [a0, a1]
+# The frozen-planner baseline enters the parity audit even though it has no
+# training seed; for the context contrast it is paired against each a1 seed.
+parity_include_baseline: true
+# Per-training-seed scenario bootstrap over matched scenario deltas; values
+# follow the canonical comparison series (E-055..E-060). Training seeds are
+# never resampled and no cross-seed population interval is produced.
+bootstrap:
+  confidence_level: 0.95
+  n_resamples: 10000
+  bootstrap_seed: 0
+parity:
+  # Step-level independent formula check tolerance, identical to the guidance
+  # analyses' diagnostic checks. Any mismatch fails the parity gate and pauses
+  # physical interpretation; nothing is skipped or repaired silently.
+  rtol: 1.0e-10
+  atol: 1.0e-12
+counterfactuals:
+  timestep_s: 0.1
+  step_count: 100
+  base_speed_mps: 10.0
+  fluctuation_amplitude_mps: 3.0
+  stationary_step_count: 50
