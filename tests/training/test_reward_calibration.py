@@ -28,8 +28,9 @@ from eco_planner.rl.reward import (
     verify_original_components,
 )
 from eco_planner.rl.rollout.fixed_batch import load_batch
-from tests.training.helpers import _episode
-from tests.training.reward_helpers import _five_substep_parity_case, _no_energy_config
+
+from .helpers import _episode
+from .reward_helpers import _five_substep_parity_case, _no_energy_config
 
 
 def _study():

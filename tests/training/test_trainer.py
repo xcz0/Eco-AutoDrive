@@ -19,7 +19,8 @@ from eco_planner.rl.artifacts import PolicyProbeSummary
 from eco_planner.rl.probing import capture_probe_contexts, probe_policy
 from eco_planner.rl.tracking import TrackingIdentity
 from eco_planner.rl.training_state import TrainingLoopState
-from tests.training.helpers import _config, _context, _episode, _policy_config
+
+from .helpers import _config, _context, _episode, _policy_config
 
 
 @pytest.mark.parametrize("start_update", [0, 1, 2])

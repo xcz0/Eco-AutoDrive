@@ -18,7 +18,8 @@ from eco_planner.rl.optimization.ppo import build_ppo_batch
 from eco_planner.rl.rollout import (
     build_training_decision,
 )
-from tests.training.helpers import (
+
+from .helpers import (
     _behavior_policy_episode,
     _context,
     _episode,

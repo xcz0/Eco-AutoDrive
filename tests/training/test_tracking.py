@@ -12,7 +12,8 @@ from omegaconf import OmegaConf
 
 import eco_planner.rl.tracking as tracking_module
 from eco_planner.rl.tracking import TrackingIdentity, TrainingTracking, update_metrics
-from tests.training.helpers import _config
+
+from .helpers import _config
 
 
 def _output(tmp_path, config, name):

@@ -23,7 +23,8 @@ from eco_planner.reward import (
     evaluate_plannerrft_no_energy_step,
 )
 from eco_planner.reward.components import calibrated_band_score
-from tests.training.reward_helpers import (
+
+from .reward_helpers import (
     _config,
     _frame,
     _metrics,

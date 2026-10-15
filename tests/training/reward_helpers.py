@@ -29,7 +29,8 @@ from eco_planner.rl.rollout import (
     build_training_decision,
     build_training_transition,
 )
-from tests.training.helpers import _context, _decision_audit
+
+from .helpers import _context, _decision_audit
 
 
 def _config() -> PlannerRFTEnergyRewardConfig:

@@ -115,18 +115,17 @@ def _decision_audit(context: ExplorationPolicyContext | None = None) -> TensorDi
     )
 
 
-def _execution_audit(
-    reward: float,
+def _reward_result(
+    total: float,
     *,
-    terminated: bool,
-    truncated: bool,
+    safety_gate: float = 1.0,
     profile_name: RewardProfileName = "plannerrft_energy_v1",
-) -> ExecutionTransitionAudit:
-    result = PlannerRFTRewardResult(
+) -> PlannerRFTRewardResult:
+    return PlannerRFTRewardResult(
         profile_name=profile_name,
-        total=reward,
-        base_total=reward,
-        safety_gate=1.0,
+        total=total,
+        base_total=total,
+        safety_gate=safety_gate,
         components=RewardComponents(1.0, 0.5, 1.0, 1.0, 0.5),
         diagnostics=RewardDiagnostics(
             collision_score=1.0,
@@ -150,6 +149,16 @@ def _execution_audit(
             energy_distance_valid=True,
         ),
     )
+
+
+def _execution_audit(
+    reward: float,
+    *,
+    terminated: bool,
+    truncated: bool,
+    profile_name: RewardProfileName = "plannerrft_energy_v1",
+) -> ExecutionTransitionAudit:
+    result = _reward_result(reward, profile_name=profile_name)
     return ExecutionTransitionAudit(
         reward_result=result,
         substep_results=(result,),

@@ -19,9 +19,10 @@ from eco_planner.envs.parallel.torchrl import planner_observation_spec
 from eco_planner.rl.rollout.collector import VectorRolloutCollector
 from eco_planner.rl.rollout.profiling import RolloutPlannerTiming
 from eco_planner.runtime.profiling import PhaseTiming
-from tests.training.rollout_helpers import (
+
+from .helpers import _reward_result
+from .rollout_helpers import (
     _execution_result,
-    _reward_result,
     _substep_metrics,
     _transition,
 )

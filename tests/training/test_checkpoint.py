@@ -15,7 +15,8 @@ from eco_planner.rl.optimization import (
 )
 from eco_planner.rl.tracking import TrackingIdentity
 from eco_planner.rl.training_state import TrainingLoopState, resume_training_state
-from tests.training.helpers import (
+
+from .helpers import (
     _behavior_policy_episode,
     _config,
     _context,
