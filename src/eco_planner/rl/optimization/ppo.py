@@ -258,7 +258,7 @@ class PPOUpdater:
             batch_size=self.config.minibatch_size,
             generator=self._minibatch_generator,
         )
-        metrics = PPOMetrics(len(_PPO_UPDATE_METRIC_NAMES), self.device)
+        metrics = PPOMetrics(_PPO_UPDATE_METRIC_NAMES, self.device)
         gradient_totals = torch.zeros(6, device=self.device, dtype=torch.float64)
         evaluated_minibatches = 0
         optimizer_steps = 0
@@ -271,17 +271,11 @@ class PPOUpdater:
                     losses["loss_objective"] + losses["loss_critic"] + losses["loss_entropy"]
                 )
                 _require_finite_scalar(total_loss, "total PPO loss")
-                metric_tensors = (
-                    losses["loss_objective"],
-                    losses["loss_critic"],
-                    losses["loss_entropy"],
-                    total_loss,
-                    losses["kl_approx"],
-                    losses["clip_fraction"],
-                    losses["entropy"],
-                    losses["explained_variance"],
-                )
-                for name, value in zip(_PPO_UPDATE_METRIC_NAMES, metric_tensors, strict=True):
+                metric_tensors = {
+                    name: total_loss if name == "total_loss" else losses[name]
+                    for name in _PPO_UPDATE_METRIC_NAMES
+                }
+                for name, value in metric_tensors.items():
                     _require_finite_scalar(value, name)
                 metrics.update(metric_tensors)
                 evaluated_minibatches += 1
@@ -311,10 +305,7 @@ class PPOUpdater:
                 metrics.gradient(gradient_norm)
             if early_stop_trigger is not None:
                 break
-        host_metrics = metrics.compute().cpu()
-        if not torch.isfinite(host_metrics).all():
-            raise FloatingPointError("PPO update diagnostics must be finite")
-        metric_values = tuple(float(value) for value in host_metrics)
+        metric_values = metrics.compute()
         ratio_mean, ratio_std, ratio_p95, ratio_max = self._policy_ratio_statistics(batch)
         gradient_diagnostics = None
         if self.config.gradient_diagnostics:
@@ -328,15 +319,15 @@ class PPOUpdater:
             sample_count=sample_count,
             evaluated_minibatch_count=evaluated_minibatches,
             optimizer_step_count=optimizer_steps,
-            mean_policy_loss=metric_values[0],
-            mean_value_loss=metric_values[1],
-            mean_entropy_loss=metric_values[2],
-            mean_total_loss=metric_values[3],
-            mean_approximate_kl=metric_values[4],
-            mean_clip_fraction=metric_values[5],
-            mean_entropy=metric_values[6],
-            mean_explained_variance=metric_values[7],
-            maximum_pre_clip_gradient_norm=metric_values[8],
+            mean_policy_loss=metric_values["loss_objective"],
+            mean_value_loss=metric_values["loss_critic"],
+            mean_entropy_loss=metric_values["loss_entropy"],
+            mean_total_loss=metric_values["total_loss"],
+            mean_approximate_kl=metric_values["kl_approx"],
+            mean_clip_fraction=metric_values["clip_fraction"],
+            mean_entropy=metric_values["entropy"],
+            mean_explained_variance=metric_values["explained_variance"],
+            maximum_pre_clip_gradient_norm=metric_values["maximum_pre_clip_gradient_norm"],
             final_learning_rate=float(self.optimizer.param_groups[0]["lr"]),
             raw_advantage_mean=raw_advantage_mean,
             raw_advantage_std=raw_advantage_std,

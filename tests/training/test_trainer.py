@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock
+from weakref import ref
 
 import pytest
 import torch
@@ -59,6 +60,7 @@ def test_training_order_fixed_probes_and_completed_resume(
         initial_policy_hash="a" * 64 if start_update else None,
     )
     events = []
+    update_refs = []
     runtime = SimpleNamespace(
         policy=trainer_policy(),
         fabric=object(),
@@ -69,12 +71,17 @@ def test_training_order_fixed_probes_and_completed_resume(
     monkeypatch.setattr(trainer, "create_fabric_rollout_runtime", lambda *a, **k: runtime)
     monkeypatch.setattr(trainer, "resume_training_state", lambda *a: state)
     monkeypatch.setattr(trainer, "write_training_runtime_metadata", lambda *a, **k: None)
-    monkeypatch.setattr(trainer, "write_rollout_episode", lambda *a: None)
     monkeypatch.setattr(
         trainer,
-        "build_update_summary",
-        lambda i, *a: summary.model_copy(update={"update_index": i}),
+        "write_rollout_episode",
+        lambda path, episode: events.append(f"episode:{path.name}"),
     )
+
+    def build_summary(index, episodes, report):
+        events.append("summary")
+        return summary.model_copy(update={"update_index": index})
+
+    monkeypatch.setattr(trainer, "build_update_summary", build_summary)
 
     def update(storage):
         assert storage.batch_size == (2,)
@@ -95,6 +102,7 @@ def test_training_order_fixed_probes_and_completed_resume(
             pass
 
         def collect(self, **kwargs):
+            assert all(item() is None for item in update_refs)
             events.append("collect")
             episodes = [
                 _episode(reward=1.0, terminated=True, truncated=False, bootstrap=0.0)
@@ -102,41 +110,98 @@ def test_training_order_fixed_probes_and_completed_resume(
             ]
             storage = kwargs["training_storage"]
             storage.update(cat([episode.training for episode in episodes]))
-            return tuple(
+            storage["reference_trajectory"][0].fill_(10 * (events.count("collect") - 1) + 1)
+            storage["reference_trajectory"][1].fill_(10 * (events.count("collect") - 1) + 2)
+            slots = tuple(
                 (replace(episode, training=storage[index : index + 1]),)
                 for index, episode in enumerate(episodes)
             )
+            update_refs.extend([ref(storage), ref(storage["reference_trajectory"])])
+            for slot in slots:
+                for episode in slot:
+                    update_refs.extend([ref(episode), ref(episode.training)])
+            return slots
 
     monkeypatch.setattr(trainer, "VectorRolloutCollector", Collector)
-    probe_call = Mock(return_value=probe)
+
+    def compute_probe(*args):
+        events.append("probe")
+        return probe
+
+    probe_call = Mock(side_effect=compute_probe)
     monkeypatch.setattr(trainer, "probe_policy", probe_call)
     exports = []
-    monkeypatch.setattr(
-        trainer, "save_exploration_policy_checkpoint", lambda path, *a: exports.append(path.name)
-    )
+
+    def export(path, *args):
+        exports.append(path.name)
+        events.append(f"export:{path.name}")
+
+    monkeypatch.setattr(trainer, "save_exploration_policy_checkpoint", export)
     payloads = []
 
     def save_checkpoint(path, fabric, policy, updater, payload):
         assert payload["completed_updates"] == start_update + events.count("ppo")
+        events.append("checkpoint")
         payloads.append(payload)
 
     monkeypatch.setattr(trainer, "save_training_checkpoint", save_checkpoint)
     identity = TrackingIdentity(run_id="test", tracking_uri="https://example.org")
     tracking = Mock(identity=identity)
+    tracking.probe.side_effect = lambda label, *a: events.append(f"tracking:probe:{label}")
+    tracking.update.side_effect = lambda *a: events.append("tracking:update")
+    tracking.artifact.side_effect = lambda name: events.append(f"artifact:{name}")
     observed_updates = []
+
+    def observe(update_summary):
+        events.append("observer")
+        observed_updates.append(update_summary)
+
     original_precision = torch.get_float32_matmul_precision()
     original_deterministic = torch.are_deterministic_algorithms_enabled()
     try:
-        result = trainer._train(config, tmp_path, tracking, observed_updates.append)
+        result = trainer._train(config, tmp_path, tracking, observe)
     finally:
         torch.set_float32_matmul_precision(original_precision)
         torch.use_deterministic_algorithms(original_deterministic)
     tracking.attach.assert_called_once_with(runtime.fabric, None)
-    assert events == ["collect", "ppo"] * (2 - start_update)
+    expected_events = (
+        ["export:policy-initial.pt", "artifact:policy-initial.pt"] if start_update == 0 else []
+    )
+    for index in range(start_update, 2):
+        expected_events.extend(
+            ["collect", "episode:slot-0-episode-0.npz", "episode:slot-1-episode-0.npz"]
+        )
+        if index == 0:
+            expected_events.extend(["probe", "tracking:probe:before"])
+        expected_events.extend(
+            [
+                "ppo",
+                "summary",
+                f"export:policy-update-{index:03d}.pt",
+                "checkpoint",
+                "tracking:update",
+                "observer",
+            ]
+        )
+    expected_events.extend(["probe", "export:policy-final.pt"])
+    if start_update == 2:
+        expected_events.append("checkpoint")
+    expected_events.extend(
+        [
+            "tracking:probe:after",
+            "artifact:summary.json",
+            "artifact:policy-final.pt",
+            "artifact:training-state.ckpt",
+        ]
+    )
+    assert events == expected_events
+    assert all(item() is None for item in update_refs)
     assert observed_updates == list(result.updates[start_update:])
     assert [call.args[0] for call in tracking.update.call_args_list] == observed_updates
     assert probe_call.call_count == (2 if start_update == 0 else 1)
     expected_contexts = contexts if contexts is not None else state.probe_contexts
+    for index, context in enumerate(expected_contexts):
+        assert torch.all(context.reference_trajectory == index + 1)
     for call in probe_call.call_args_list:
         for actual, expected in zip(call.args[1], expected_contexts, strict=True):
             assert (policy_context_tensordict(actual) == policy_context_tensordict(expected)).all()

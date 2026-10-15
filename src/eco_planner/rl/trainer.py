@@ -35,10 +35,10 @@ from .optimization import (
 from .probing import capture_probe_contexts, probe_policy
 from .rollout.collector import VectorRolloutCollector
 from .rollout.contracts import RolloutEpisode
-from .rollout.runtime import create_fabric_rollout_runtime
+from .rollout.runtime import FabricRolloutRuntime, create_fabric_rollout_runtime
 from .rollout.seeds import derive_rollout_seeds
 from .tracking import TrainingTracking
-from .training_state import resume_training_state
+from .training_state import TrainingLoopState, resume_training_state
 
 TrainingUpdateObserver = Callable[[TrainingUpdateSummary], None]
 
@@ -118,41 +118,20 @@ def _train(
         reward_profile=config.reward,
     ) as rollout_collector:
         for update_index in range(start_update, config.training.update_count):
-            training_storage = TensorDict({}, batch_size=[config.ppo.batch_size])
-            update_episodes: list[RolloutEpisode] = []
-            slot_episodes = rollout_collector.collect(
-                transitions_per_slot=config.training.transitions_per_environment,
+            update_summary = _run_update(
+                config,
+                output_dir,
+                update_index=update_index,
+                runtime=runtime,
+                updater=updater,
+                rollout_collector=rollout_collector,
+                state=state,
+                tracking=tracking,
                 diffusion_generators=diffusion_generators,
                 policy_generators=policy_generators,
                 noise_seeds=noise_seeds,
-                policy_action_seeds=policy_seeds,
-                training_storage=training_storage,
+                policy_seeds=policy_seeds,
             )
-            for slot, episodes in enumerate(slot_episodes):
-                for episode_index, episode in enumerate(episodes):
-                    write_rollout_episode(
-                        output_dir
-                        / "updates"
-                        / f"update-{update_index:03d}"
-                        / f"slot-{slot}-episode-{episode_index}.npz",
-                        episode,
-                    )
-                    update_episodes.append(episode)
-                    state.total_transitions += episode.transition_count
-            if state.probe_contexts is None:
-                state.probe_contexts = capture_probe_contexts(slot_episodes, scenario_count)
-                state.probe_before = probe_policy(
-                    runtime,
-                    state.probe_contexts,
-                    config.training.boundary_sample_count,
-                    config.training.boundary_distance,
-                    config.training.diagnostic_seed,
-                )
-                tracking.probe("before", state.probe_before, update_index)
-            report = updater.update(training_storage)
-            update_summary = build_update_summary(update_index, tuple(update_episodes), report)
-            # Release all update views before allocating the next collection.
-            del training_storage, update_episodes, slot_episodes, episodes, episode
             state.update_summaries.append(update_summary)
             state.completed_updates = update_index + 1
             state.capture_rollout_rng(diffusion_generators, policy_generators)
@@ -219,3 +198,55 @@ def _train(
     tracking.artifact("policy-final.pt")
     tracking.artifact("training-state.ckpt")
     return summary
+
+
+def _run_update(
+    config: TrainingJobConfig,
+    output_dir: Path,
+    *,
+    update_index: int,
+    runtime: FabricRolloutRuntime,
+    updater: PPOUpdater,
+    rollout_collector: VectorRolloutCollector,
+    state: TrainingLoopState,
+    tracking: TrainingTracking,
+    diffusion_generators: tuple[torch.Generator, ...],
+    policy_generators: tuple[torch.Generator, ...],
+    noise_seeds: tuple[int, ...],
+    policy_seeds: tuple[int, ...],
+) -> TrainingUpdateSummary:
+    """Own one update's storage and episode views until its summary is built."""
+
+    training_storage = TensorDict({}, batch_size=[config.ppo.batch_size])
+    update_episodes: list[RolloutEpisode] = []
+    slot_episodes = rollout_collector.collect(
+        transitions_per_slot=config.training.transitions_per_environment,
+        diffusion_generators=diffusion_generators,
+        policy_generators=policy_generators,
+        noise_seeds=noise_seeds,
+        policy_action_seeds=policy_seeds,
+        training_storage=training_storage,
+    )
+    for slot, episodes in enumerate(slot_episodes):
+        for episode_index, episode in enumerate(episodes):
+            write_rollout_episode(
+                output_dir
+                / "updates"
+                / f"update-{update_index:03d}"
+                / f"slot-{slot}-episode-{episode_index}.npz",
+                episode,
+            )
+            update_episodes.append(episode)
+            state.total_transitions += episode.transition_count
+    if state.probe_contexts is None:
+        state.probe_contexts = capture_probe_contexts(slot_episodes, len(config.scenarios))
+        state.probe_before = probe_policy(
+            runtime,
+            state.probe_contexts,
+            config.training.boundary_sample_count,
+            config.training.boundary_distance,
+            config.training.diagnostic_seed,
+        )
+        tracking.probe("before", state.probe_before, update_index)
+    report = updater.update(training_storage)
+    return build_update_summary(update_index, tuple(update_episodes), report)
