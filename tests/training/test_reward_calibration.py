@@ -14,8 +14,6 @@ from eco_planner.reward import (
     aggregate_transition_reward,
     calibrate,
     create_reward_evaluator,
-    evaluate_plannerrft_energy_step,
-    evaluate_plannerrft_no_energy_step,
     scored_arrays,
 )
 from eco_planner.reward.components.comfort import component_score
@@ -184,51 +182,6 @@ def _band_profile() -> PlannerRFTNoEnergyRewardConfig:
     return PlannerRFTNoEnergyRewardConfig.model_validate(payload)
 
 
-def test_five_substep_fixed_batch_online_offline_parity(tmp_path):
-    base = _no_energy_config()
-    episode, metrics, results = _five_substep_parity_case(base)
-    path = tmp_path / "updates/update-000/slot-0-episode-0.npz"
-    write_rollout_episode(path, episode)
-    loaded = read_rollout_episode(path)
-
-    # The online transition scalar is sum(gate_i * base_i), never min(gate) * sum(base).
-    assert loaded.audit["reward_total"].item() == pytest.approx(
-        sum(result.total for result in results)
-    )
-    assert loaded.audit["reward_safety_gate"].item() == pytest.approx(
-        min(result.safety_gate for result in results)
-    )
-    assert loaded.audit["reward_safety_gate"].item() == 0.0
-    assert sum(result.base_total for result in results) > 0.0
-
-    # Offline verification reproduces the online per-substep objective exactly.
-    verify_original_components([loaded], base)
-
-    # Offline reweighting matches the online objective under the same new weights.
-    profile = reward_profile(base, 16.0)
-    reweighted = reweight(loaded, profile)
-    online_reweighted = [evaluate_plannerrft_energy_step(profile, metric) for metric in metrics]
-    assert reweighted.training["next", "reward"].item() == pytest.approx(
-        sum(result.total for result in online_reweighted)
-    )
-    for name in COMPONENTS:
-        assert reweighted.audit[f"reward_component_{name}"].item() == pytest.approx(
-            sum(getattr(result.components, name) for result in online_reweighted)
-        )
-
-    # Offline calibrated-band rescoring matches the online per-substep rescore.
-    band = _band_profile()
-    rescorced = rescore(loaded, band)
-    online_rescorced = aggregate_transition_reward(
-        [evaluate_plannerrft_no_energy_step(band, metric) for metric in metrics]
-    )
-    for name in COMPONENTS:
-        assert rescorced.audit[f"reward_component_{name}"].item() == pytest.approx(
-            getattr(online_rescorced.components, name)
-        )
-    assert rescorced.training["next", "reward"].item() == pytest.approx(online_rescorced.total)
-
-
 @pytest.mark.parametrize(
     "profile,count",
     [
@@ -238,12 +191,32 @@ def test_five_substep_fixed_batch_online_offline_parity(tmp_path):
     ],
 )
 def test_reward_branches_preserve_prefix_objective_audit_and_storage(tmp_path, profile, count):
-    episode, _, results = _five_substep_parity_case(
+    episode, metrics, results = _five_substep_parity_case(
         profile, lambda config, metric: create_reward_evaluator(config)(metric), count
     )
     path = tmp_path / "episode.npz"
     write_rollout_episode(path, episode)
     loaded = read_rollout_episode(path)
+    verify_original_components([loaded], profile)
+    if count == 5:
+        assert loaded.audit["reward_safety_gate"].item() == 0.0
+        assert loaded.audit["reward_total"].item() > 0.0
+
+    # Changed weights and changed component scoring each reproduce an online objective.
+    for changed, offline in (
+        (reward_profile(profile, 16.0), reweight),
+        (_band_profile(), rescore),
+    ):
+        result = offline(loaded, changed)
+        online = aggregate_transition_reward(
+            [create_reward_evaluator(changed)(metric) for metric in metrics]
+        )
+        assert result.training["next", "reward"].item() == pytest.approx(online.total)
+        for name in COMPONENTS:
+            assert result.audit[f"reward_component_{name}"].item() == pytest.approx(
+                getattr(online.components, name)
+            )
+
     rebuilt = reweight(loaded, profile)
     assert rebuilt.reward_profile == profile.name
     assert rebuilt.training["next", "reward"].item() == pytest.approx(

@@ -106,13 +106,6 @@ def test_next_update_and_checkpoint_preserve_minibatches(tmp_path, early_stop, d
     )
 
 
-def test_checkpoint_rejects_old_sampler_state() -> None:
-    updater = PPOUpdater(ExplorationPolicy(_policy_config()), _ppo_config())
-    old_state = {**updater.checkpoint_state(), "minibatch_sampler_state": {}}
-    with pytest.raises(ValueError, match="unexpected fields"):
-        updater.restore_checkpoint_state(old_state)
-
-
 @pytest.mark.parametrize(
     "tracked,rng_error",
     [

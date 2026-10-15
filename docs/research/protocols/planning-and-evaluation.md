@@ -36,8 +36,8 @@ scene/route encoding、initial noise 和 DDIM transition draws。
 切向由有限、非退化的 reference heading 归一化，左法向为 `[-sin(h),cos(h)]`。
 速度用当前物理点及未来点按预测采样间隔后向差分；重复位置是零速，不触发 fallback。
 
-固定 action 顺序为 `(lateral,longitudinal)`，值域与软件编码见
-[固定干预动作](../../contracts/data-and-model.md#固定干预动作)。正 lateral 表示左移，正 longitudinal
+Guidance action 顺序为 `(lateral,longitudinal)`；随机策略的值域与概率记账见
+[training contract](../../contracts/training.md#动作与概率记账)。正 lateral 表示左移，正 longitudinal
 表示沿 reference heading 加速。横向目标为 `2.5 m × lateral`，纵向目标速度变化为
 `0.25 × longitudinal × reference_along_track_speed`。
 

@@ -32,12 +32,6 @@ from tests.training.reward_helpers import (
 )
 
 
-def _energy_config_with_weight(energy_weight: float) -> PlannerRFTEnergyRewardConfig:
-    payload = _config().model_dump(mode="python")
-    payload["weights"]["energy"] = energy_weight
-    return PlannerRFTEnergyRewardConfig.model_validate(payload)
-
-
 @pytest.mark.smoke
 def test_plannerrft_energy_reward_matches_the_worked_no_traffic_example() -> None:
     result = evaluate_plannerrft_energy_step(_config(), _metrics())
@@ -52,9 +46,10 @@ def test_plannerrft_energy_reward_matches_the_worked_no_traffic_example() -> Non
     assert result.total == pytest.approx((5.0 + 5.0 + 2.0 + 4.0 + result.components.energy) / 17.0)
 
 
-def test_energy_score_does_not_reward_a_stationary_transition() -> None:
+@pytest.mark.parametrize("energy_mode", ["exponential", "calibrated_band"])
+def test_energy_score_does_not_reward_a_stationary_transition(energy_mode) -> None:
     result = evaluate_plannerrft_energy_step(
-        _config(),
+        _config() if energy_mode == "exponential" else _band_config(),
         _metrics(
             position_xy_m=(0.0, 0.0),
             velocity_xy_mps=(0.0, 0.0),
@@ -98,21 +93,6 @@ def test_plannerrft_band_energy_reward_scores_intensity_in_the_band() -> None:
     assert result.diagnostics.executed_fuel_proxy_ml_per_km == pytest.approx(intensity)
     assert result.components.energy == pytest.approx(calibrated_band_score(intensity, 44.0, 50.0))
     assert 0.0 < result.components.energy < 1.0
-
-
-def test_band_energy_score_does_not_reward_a_stationary_transition() -> None:
-    result = evaluate_plannerrft_energy_step(
-        _band_config(),
-        _metrics(
-            position_xy_m=(0.0, 0.0),
-            velocity_xy_mps=(0.0, 0.0),
-            route_progress_delta_m=0.0,
-            traffic_frame=_frame(),
-        ),
-    )
-
-    assert not result.diagnostics.energy_distance_valid
-    assert result.components.energy == 0.0
 
 
 def test_energy_band_config_validation() -> None:
@@ -279,6 +259,7 @@ def test_no_energy_reward_total_is_zeroed_by_terminal_gates() -> None:
 @pytest.mark.parametrize(
     "base,energy_weight",
     [
+        pytest.param(_config(), 1.0e-9, id="exponential-near-zero-weight"),
         pytest.param(_config(), 0.5, id="exponential-small-weight"),
         pytest.param(_config(), 16.0, id="exponential-large-weight"),
         pytest.param(_band_config(), 64.0, id="band-large-weight"),
@@ -309,13 +290,6 @@ def test_energy_weight_lambda_changes_only_the_energy_term_and_denominator(
     ) / (16.0 + energy_weight)
     assert result.base_total == pytest.approx(expected)
     assert result.total == pytest.approx(result.safety_gate * expected)
-
-
-def test_energy_reward_converges_to_the_no_energy_profile_as_lambda_approaches_zero() -> None:
-    result = evaluate_plannerrft_energy_step(_energy_config_with_weight(1.0e-9), _metrics())
-    reference = evaluate_plannerrft_no_energy_step(_no_energy_config(), _metrics())
-
-    assert result.total == pytest.approx(reference.total, abs=1.0e-9)
 
 
 def test_no_energy_and_energy_profiles_differ_only_in_the_energy_objective_term() -> None:
@@ -507,6 +481,7 @@ def test_transition_aggregation_uses_explicit_sum_mean_any_all_min_rules() -> No
 
     assert aggregated.profile_name == "plannerrft_energy_v1"
     assert aggregated.total == pytest.approx(3.0)
+    assert aggregated.total != pytest.approx(aggregated.base_total * aggregated.safety_gate)
     assert aggregated.base_total == pytest.approx(4.0)
     assert aggregated.safety_gate == pytest.approx(0.5)
     assert aggregated.components == RewardComponents(
@@ -539,20 +514,6 @@ def test_transition_aggregation_uses_explicit_sum_mean_any_all_min_rules() -> No
     assert aggregated.diagnostics.collision_score == pytest.approx(0.5)
     assert aggregated.diagnostics.drivable_score == pytest.approx(0.25)
     assert aggregated.diagnostics.wrong_direction_score == pytest.approx(0.75)
-
-
-def test_transition_total_is_not_base_total_times_safety_gate_for_multiple_substeps() -> None:
-    results = [
-        _result(total=1.0, base_total=1.0, safety_gate=1.0),
-        _result(total=0.0, base_total=1.0, safety_gate=0.0),
-    ]
-
-    aggregated = aggregate_transition_reward(results)
-
-    assert aggregated.total == pytest.approx(1.0)
-    assert aggregated.base_total == pytest.approx(2.0)
-    assert aggregated.safety_gate == pytest.approx(0.0)
-    assert aggregated.total != pytest.approx(aggregated.base_total * aggregated.safety_gate)
 
 
 def test_transition_aggregation_rejects_empty_and_mixed_profile_inputs() -> None:

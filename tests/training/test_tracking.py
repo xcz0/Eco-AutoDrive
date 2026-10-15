@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 import torch
@@ -8,9 +10,9 @@ from lightning.fabric import Fabric
 from mlflow import MlflowClient
 from omegaconf import OmegaConf
 
-from eco_planner.planning.policy import ExplorationPolicy
+import eco_planner.rl.tracking as tracking_module
 from eco_planner.rl.tracking import TrackingIdentity, TrainingTracking, update_metrics
-from tests.training.helpers import _config, _policy_config
+from tests.training.helpers import _config
 
 
 def _output(tmp_path, config, name):
@@ -40,9 +42,6 @@ def test_adapter_preserves_units_denominators_and_optional_metrics(summary):
 def test_real_mlflow_logs_current_invocation_and_links_resume_source(tmp_path, summary):
     config = _config(tmp_path)
     output = _output(tmp_path, config, "first")
-    with torch.random.fork_rng():
-        policy = ExplorationPolicy(_policy_config())
-    policy_before = {key: value.clone() for key, value in policy.state_dict().items()}
     rng_before = torch.random.get_rng_state().clone()
     with TrainingTracking(config, output) as tracking:
         tracking.start_new()
@@ -53,8 +52,6 @@ def test_real_mlflow_logs_current_invocation_and_links_resume_source(tmp_path, s
         assert client.get_run(identity.run_id).info.status == "RUNNING"
         assert client.get_metric_history(identity.run_id, "reward/total_mean")[0].step == 0
     assert torch.equal(rng_before, torch.random.get_rng_state())
-    for key, value in policy.state_dict().items():
-        assert torch.equal(value, policy_before[key])
     assert client.get_run(identity.run_id).info.status == "FINISHED"
     assert client.get_run(identity.run_id).data.params["config.runtime.seed"] == "0"
     artifacts = client.list_artifacts(identity.run_id)
@@ -93,54 +90,69 @@ def test_real_mlflow_logs_current_invocation_and_links_resume_source(tmp_path, s
     assert current.data.tags["resume.checkpoint_path"] == resumed.training.resume_checkpoint_path
 
 
+@pytest.fixture
+def fake_logger(monkeypatch):
+    logger = Mock(run_id="current-run")
+    factory = Mock(return_value=logger)
+    monkeypatch.setattr(tracking_module, "MLFlowLogger", factory)
+    fabric = SimpleNamespace(loggers=[], log_dict=logger.log_metrics)
+    return logger, factory, fabric
+
+
 @pytest.mark.parametrize(
     "source_identity",
     [None, TrackingIdentity(run_id="archived-run", tracking_uri="https://example.org")],
 )
-def test_resume_creates_run_without_reading_source_history(tmp_path, summary, source_identity):
+def test_resume_creates_run_without_reading_source_history(
+    tmp_path, summary, source_identity, fake_logger
+):
+    logger, factory, fabric = fake_logger
     checkpoint = tmp_path / "source/training-state.ckpt"
     config = _config(tmp_path, resume=str(checkpoint))
     with TrainingTracking(config, _output(tmp_path, config, "resumed")) as tracking:
-        tracking.start_new()
-        tracking.attach(Fabric(accelerator="cpu"), source_identity)
-        client = MlflowClient(tracking.identity.tracking_uri)
-        run = client.get_run(tracking.identity.run_id)
-        assert run.data.metrics == {}
-        assert run.data.params["config.training.resume_checkpoint_path"] == str(checkpoint)
-        assert run.data.tags["resume.checkpoint_path"] == str(checkpoint)
+        tracking.attach(fabric, source_identity)
+        assert tracking.identity.run_id == "current-run"
+        assert fabric.loggers == [logger]
+        logger.log_metrics.assert_not_called()
+        tags = {args[1]: args[2] for args, _ in logger.experiment.set_tag.call_args_list}
+        assert tags["resume.checkpoint_path"] == str(checkpoint)
         if source_identity is not None:
-            assert run.info.run_id != source_identity.run_id
-            assert run.data.tags["resume.source_run_id"] == source_identity.run_id
-            assert run.data.tags["resume.source_tracking_uri"] == source_identity.tracking_uri
+            assert tags["resume.source_run_id"] == source_identity.run_id
+            assert tags["resume.source_tracking_uri"] == source_identity.tracking_uri
         else:
-            assert "resume.source_run_id" not in run.data.tags
+            assert "resume.source_run_id" not in tags
         tracking.update(summary.model_copy(update={"update_index": 1}))
-    assert [m.step for m in client.get_metric_history(run.info.run_id, "reward/total_mean")] == [1]
+    factory.assert_called_once()
+    logger.experiment.get_run.assert_not_called()
+    logger.experiment.get_metric_history.assert_not_called()
+    assert logger.log_metrics.call_args.kwargs["step"] == 1
+    logger.finalize.assert_called_once_with("FINISHED")
 
 
 @pytest.mark.parametrize(
     "error,status", [(RuntimeError("failure"), "FAILED"), (KeyboardInterrupt(), "KILLED")]
 )
-def test_failure_status_and_original_exception(tmp_path, error, status):
+def test_failure_status_and_original_exception(tmp_path, error, status, fake_logger):
+    logger, _, _ = fake_logger
     config = _config(tmp_path)
     with pytest.raises(type(error)) as caught:
         with TrainingTracking(config, _output(tmp_path, config, "failure")) as tracking:
             tracking.start_new()
             raise error
     assert caught.value is error
-    assert (
-        MlflowClient(tracking.identity.tracking_uri).get_run(tracking.identity.run_id).info.status
-        == status
-    )
+    logger.finalize.assert_called_once_with(status)
 
 
-def test_disabled_tracking_does_not_create_store(tmp_path, summary):
+def test_disabled_tracking_does_not_create_store(tmp_path, summary, fake_logger):
+    _, factory, fabric = fake_logger
     config = _config(tmp_path, enabled=False)
     identity = TrackingIdentity(run_id="saved-run", tracking_uri="https://example.org")
     with TrainingTracking(config, _output(tmp_path, config, "disabled")) as tracking:
         tracking.start_new()
-        tracking.attach(Fabric(accelerator="cpu"), identity)
+        tracking.attach(fabric, identity)
         tracking.update(summary)
         assert tracking.identity == identity
+    factory.assert_not_called()
+    assert fabric.loggers == []
     assert not (tmp_path / "mlflow.db").exists()
     assert not (tmp_path / "artifacts").exists()

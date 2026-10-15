@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import torch
-from tensordict import TensorDictBase
+from tensordict import TensorDict, TensorDictBase
 
 from eco_planner.jobs import compose_job_config
 from eco_planner.planning.policy import (
@@ -71,6 +73,27 @@ def _context() -> ExplorationPolicyContext:
         navigation_padding_mask=torch.zeros((1, 1), dtype=torch.bool),
         reference_trajectory=torch.zeros((1, 80, 4)),
     )
+
+
+def _training_episode(*, reward: float, terminated: bool, truncated: bool, bootstrap: float):
+    """Optimizer input without reward diagnostics, simulator audit, or persistence."""
+    training = build_training_decision(
+        _context(),
+        torch.tensor([[-0.5, 0.5]]),
+        torch.tensor([0.5]),
+        torch.tensor([1.0]),
+    )
+    training["next"] = TensorDict(
+        {
+            "reward": torch.tensor([[reward]]),
+            "state_value": torch.tensor([[bootstrap]]),
+            "done": torch.ones(1, 1, dtype=torch.bool),
+            "terminated": torch.tensor([[terminated]]),
+            "truncated": torch.tensor([[truncated]]),
+        },
+        batch_size=[1],
+    )
+    return SimpleNamespace(training=training)
 
 
 def _decision_audit(context: ExplorationPolicyContext | None = None) -> TensorDictBase:

@@ -17,7 +17,7 @@ from scripts import experiments as cli
 @pytest.mark.parametrize(
     "key,no_figures",
     [(key, key[-1] != "collect") for key in cli.COMMANDS]
-    + [(("guidance", "authority", "run"), False), (("training", "analyze"), False)],
+    + [(("guidance", "sweep", "run"), False), (("training", "analyze"), False)],
 )
 def test_current_operations_parse_and_route(monkeypatch, key, no_figures):
     spec = cli.COMMANDS[key]

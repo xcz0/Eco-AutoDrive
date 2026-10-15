@@ -113,7 +113,7 @@ just validation reward run --output-dir outputs/reward_sanity/manual-run
 | compare | train、eval、analyze |
 | reward | collect、run、analyze |
 | credit | run、analyze |
-| guidance authority / sweep | run、analyze |
+| guidance sweep | run、analyze |
 | training | grid、diagnose、eval、analyze |
 
 研究设计见 [planning/evaluation](docs/research/protocols/planning-and-evaluation.md)、[training](docs/research/protocols/training.md) 与 [diagnostic studies](docs/research/protocols/diagnostic-studies.md)；输入与产物保证见 [artifacts contract](docs/contracts/artifacts.md)。常用入口示例：
@@ -129,7 +129,6 @@ just exp compare eval --arm a0 --output-dir outputs/a0
 just exp compare train --arm a1 --training-seed 0 --output-dir outputs/a1
 just exp compare eval --arm a1 --checkpoint final --checkpoint-path outputs/a1/policy-final.pt --output-dir outputs/a1-evaluation
 just exp compare train --config configs/experiments/comparison/calibrated.yaml --arm rstress --training-seed 0 --output-dir outputs/stress
-just exp guidance authority run --output-dir outputs/authority
 just exp guidance sweep run --output-dir outputs/energy-matrix
 just exp training grid --output-dir outputs/optimizer-grid
 ```

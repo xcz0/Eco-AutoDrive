@@ -150,7 +150,6 @@ class DiffusionEvaluationAgent:
         transition_generators: Sequence[torch.Generator | None],
         *,
         profile: bool = False,
-        guidance_action: torch.Tensor | None = None,
     ) -> InferenceDecision:
         """Adapt explicit-noise diagnostic and benchmark calls to evaluation host fields."""
 
@@ -160,7 +159,6 @@ class DiffusionEvaluationAgent:
             standard_normal_noise,
             transition_generators,
             profile=profile,
-            guidance_action=guidance_action,
         )
         return prepare_diffusion_inference_decision(result, self._host_transfer)
 

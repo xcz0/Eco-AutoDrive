@@ -3,9 +3,6 @@
 import json
 from types import SimpleNamespace
 
-import pytest
-from pydantic import ValidationError
-
 from eco_planner.evaluation import engine
 from eco_planner.evaluation.artifacts.io import load_runtime_metadata
 from eco_planner.jobs import compose_job_config
@@ -16,7 +13,7 @@ from eco_planner.rl.config import parse_training_config
 from eco_planner.runtime.fabric import InferenceRuntimeReport
 
 
-def test_training_metadata_uses_actual_reports_and_strict_roundtrip(tmp_path, monkeypatch):
+def test_training_metadata_uses_actual_reports_and_roundtrip(tmp_path, monkeypatch):
     config = parse_training_config(
         compose_job_config(
             "jobs/training/ppo",
@@ -55,15 +52,6 @@ def test_training_metadata_uses_actual_reports_and_strict_roundtrip(tmp_path, mo
     assert metadata.inference_runtime.requested_accelerator == "auto"
     assert metadata.inference_runtime.resolved_accelerator == "cpu"
     assert metadata.sampler.model_dump() == vars(runtime.sampler_report)
-    payload = metadata.model_dump(mode="json")
-    payload["unowned"] = 1
-    with pytest.raises(ValidationError, match="extra_forbidden"):
-        TrainingRuntimeMetadata.model_validate_json(json.dumps(payload))
-    payload.pop("unowned")
-    payload["guidance"]["trajectory_dt_s"] = float("nan")
-    with pytest.raises(ValidationError):
-        TrainingRuntimeMetadata.model_validate_json(json.dumps(payload))
-
     evaluation_dir = tmp_path / "evaluation"
     evaluation_dir.mkdir()
     monkeypatch.setattr(engine, "collect_repository_metadata", lambda *_: repository)

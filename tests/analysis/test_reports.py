@@ -454,7 +454,6 @@ import eco_planner.experiments.comparison.analysis
 import benchmarks.execution_analysis
 import eco_planner.experiments.fixed_batch
 import eco_planner.experiments.comparison.inputs
-import eco_planner.experiments.guidance.authority.report
 from eco_planner.rl.artifacts import TrainingRunSummary
 roots = (
     'torch',

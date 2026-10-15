@@ -87,11 +87,8 @@ Lane 长宽接受 Python/NumPy 真实数值标量，拒绝 bool、数组、非�
 No-traffic 输入 MUST 同时满足 `traffic_density=0`、`random_traffic=false`、`accident_prob=0`，
 并在 reset 和后续捕获状态确认无动态／静态交通。若存在真实对象则失败，不将其抹成 padding。
 
-## 固定干预动作
+## Guidance 数值边界
 
-固定 guidance action 为有限 `float32 [B,2]`，顺序 `(lateral,longitudinal)`，同 sample device，
-逐值处于闭区间 `[-1,1]`；非法值不得 clip。这是固定人工干预接口，不经过 Beta/log-prob，
-不能用它放宽 training contract 中严格开区间的随机策略动作。
 Reference 非有限或 heading norm 不超过配置 epsilon 时 MUST 失败；重复点零速保持可审计。
 DDIM transition state 保持初始 state dtype，denoiser 的混合精度输出在 sampler 边界显式转回。
 

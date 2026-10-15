@@ -40,45 +40,6 @@ COMMANDS = {
         "credit.runner", "run", "credit/objectives.yaml", source=True, cuda=True
     ),
     ("credit", "analyze"): Command("credit.analysis", "analyze", None, source=True),
-    ("guidance", "authority", "run"): Command(
-        "guidance.authority.runner", "run", "guidance/authority.yaml", environment=True, cuda=True
-    ),
-    ("guidance", "authority", "analyze"): Command(
-        "guidance.authority.analysis", "analyze", None, source=True
-    ),
-    ("guidance", "horizon", "run"): Command(
-        "guidance.horizon.runner", "run", "guidance/horizon.yaml", environment=True, cuda=True
-    ),
-    ("guidance", "horizon", "analyze"): Command(
-        "guidance.horizon.analysis", "analyze", None, source=True
-    ),
-    ("guidance", "deferral", "run"): Command(
-        "guidance.deferral.runner", "run", "guidance/deferral.yaml", environment=True, cuda=True
-    ),
-    ("guidance", "deferral", "analyze"): Command(
-        "guidance.deferral.analysis", "analyze", None, source=True
-    ),
-    ("guidance", "decomposition", "run"): Command(
-        "guidance.decomposition.runner",
-        "run",
-        "guidance/decomposition.yaml",
-        environment=True,
-        cuda=True,
-    ),
-    ("guidance", "decomposition", "analyze"): Command(
-        "guidance.decomposition.analysis", "analyze", None, source=True
-    ),
-    ("guidance", "execution-bridge", "run"): Command(
-        "guidance.execution_bridge.runner",
-        "run",
-        "guidance/execution-bridge.yaml",
-        source=True,
-        environment=True,
-        cuda=True,
-    ),
-    ("guidance", "execution-bridge", "analyze"): Command(
-        "guidance.execution_bridge.analysis", "analyze", None, source=True
-    ),
     ("guidance", "sweep", "run"): Command(
         "guidance.sweep", "run_study", "guidance/energy-sweep/matrix.yaml", environment=True
     ),
@@ -110,15 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
         sub = domains.add_parser(domain).add_subparsers(required=True)
         if domain == "guidance":
             nested = {
-                name: sub.add_parser(name).add_subparsers(required=True)
-                for name in (
-                    "authority",
-                    "decomposition",
-                    "deferral",
-                    "execution-bridge",
-                    "horizon",
-                    "sweep",
-                )
+                name: sub.add_parser(name).add_subparsers(required=True) for name in ("sweep",)
             }
         elif domain == "training":
             nested = {

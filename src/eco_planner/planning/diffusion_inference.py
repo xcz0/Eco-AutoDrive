@@ -1,4 +1,4 @@
-"""Planning-owned base, fixed-guidance, and explicit manual-action execution."""
+"""Planning-owned base and fixed-guidance execution."""
 
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ from .diffusion import (
     GuidanceConfig,
     NoGuidanceConfig,
     OfficialDiffusionPlannerConfig,
-    OrthogonalPolicyGuidanceConfig,
     PlannerInferenceResult,
     SamplerConfig,
     SamplerReport,
@@ -90,13 +89,10 @@ class DiffusionRuntime:
         transition_generators: Sequence[torch.Generator | None],
         *,
         profile: bool = False,
-        guidance_action: torch.Tensor | None = None,
     ) -> DiffusionDecisionResult:
         """Run a batch with independently owned per-slot diffusion RNG streams."""
 
         batch = _observation_batch_size(observation)
-        if guidance_action is not None:
-            validate_manual_guidance(guidance_action, batch, self.device, self.guidance_config)
         config = self.planner_config
         expected_shape = (batch, 1 + config.predicted_neighbor_num, config.future_len, 4)
         if tuple(standard_normal_noise.shape) != expected_shape:
@@ -128,17 +124,9 @@ class DiffusionRuntime:
                 )
         else:
             with torch.enable_grad():
-                if guidance_action is None:
-                    result = self._planner(
-                        device_observation, standard_normal_noise, transition_generators
-                    )
-                else:
-                    result = self._planner(
-                        device_observation,
-                        standard_normal_noise,
-                        transition_generators,
-                        guidance_action=guidance_action,
-                    )
+                result = self._planner(
+                    device_observation, standard_normal_noise, transition_generators
+                )
         synchronize_if_cuda(self.device, profile)
         execution_s = perf_counter() - execution_started if profile else 0.0
         prediction = result.prediction.detach()
@@ -158,20 +146,6 @@ class DiffusionRuntime:
         )
         timing = DiffusionInferenceTiming(host_to_device_s, execution_s) if profile else None
         return DiffusionDecisionResult(standard_normal_noise, result, timing)
-
-
-def validate_manual_guidance(
-    action: torch.Tensor, batch: int, device: torch.device, config: GuidanceConfig
-) -> None:
-    """Validate direct planner actions, including closed-interval intervention endpoints."""
-    if not isinstance(config, OrthogonalPolicyGuidanceConfig):
-        raise ValueError("manual actions require orthogonal_policy guidance")
-    if tuple(action.shape) != (batch, 2):
-        raise ValueError("manual guidance must have shape [B, 2]")
-    if action.device != device or action.dtype != torch.float32:
-        raise TypeError("manual guidance must be float32 on the runtime device")
-    if not torch.isfinite(action).all() or torch.any(action.abs() > 1):
-        raise ValueError("manual guidance must be finite and in [-1, 1]")
 
 
 def create_diffusion_runtime(

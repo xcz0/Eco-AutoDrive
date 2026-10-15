@@ -35,7 +35,7 @@ Compile 是显式配置选择，不改变 sampler、guidance、随机流、plann
 
 Base action `u` MUST 严格位于 `(0,1)^2`，保存供 replay；guidance `g=2u−1` MUST 严格位于
 `(-1,1)^2`，顺序为 lateral、longitudinal。边界值、非有限参数和错误 shape/dtype/device 立即失败，
-不得 clamp。固定人工干预的闭区间接口仅见 [data/model](data-and-model.md#固定干预动作)。
+不得 clamp。
 
 Probe 可读取 boundary draws 以测量 boundary mass；这不放宽 rollout/PPO 的动作与 log-prob
 校验，也不允许把无效训练样本 clamp 或跳过。数值稳定不代表 distribution/behavioral stability。

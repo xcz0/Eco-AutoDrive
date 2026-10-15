@@ -15,7 +15,7 @@ from tests.characterization.harness import build_diffusion_case
 
 @pytest.mark.parametrize("case", ["base_ddim", "fixed"])
 def test_throughput_consumes_planning_runtime_and_profiled_host_adapter(case):
-    runtime, observation, _, _ = build_diffusion_case(case)
+    runtime, observation, _ = build_diffusion_case(case)
     results = benchmark_planner_batch_scaling(
         runtime,
         observation[0],
@@ -38,7 +38,7 @@ def test_throughput_consumes_planning_runtime_and_profiled_host_adapter(case):
 @pytest.mark.parametrize("case", ["base_stochastic", "fixed"])
 @pytest.mark.parametrize("profile", [False, True])
 def test_direct_planning_benchmark_preserves_evaluation_payload_and_rng(case, profile):
-    runtime, observation, generators, _ = build_diffusion_case(case)
+    runtime, observation, generators = build_diffusion_case(case)
     states = [generator.get_state() for generator in generators]
     expected = DiffusionEvaluationAgent(runtime).infer_batch(
         observation, runtime.sample_noise(generators), generators, profile=profile
@@ -62,7 +62,7 @@ def test_direct_planning_benchmark_preserves_evaluation_payload_and_rng(case, pr
 
 
 def test_throughput_wall_includes_noise_and_execution_copy_but_excludes_audit(monkeypatch):
-    runtime, observation, _, _ = build_diffusion_case("base_ddim")
+    runtime, observation, _ = build_diffusion_case("base_ddim")
     clock = [0.0]
     profiles = []
     audits = []

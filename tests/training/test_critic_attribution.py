@@ -7,7 +7,6 @@ import json
 import numpy as np
 import pytest
 import torch
-from omegaconf import OmegaConf
 
 from eco_planner._repository import CONFIG_ROOT
 from eco_planner.artifacts import write_json
@@ -17,20 +16,14 @@ from eco_planner.experiments.training.critic_attribution.diagnostics import (
     MaterialityThresholds,
     evaluate_materiality,
 )
-from eco_planner.jobs import compose_job_config
 from eco_planner.planning.policy import (
-    ExplorationPolicy,
     policy_state_hash,
-    save_exploration_policy_checkpoint,
 )
 from eco_planner.rl import (
     build_ppo_batch,
-    parse_training_config,
-    read_rollout_episode,
-    write_rollout_episode,
 )
-from eco_planner.rl.rollout.fixed_batch import write_batch
-from tests.training.helpers import _behavior_policy_episode, _policy_config, _ppo_config
+from tests.training.artifact_helpers import diagnostic_inputs, persist_diagnostic_batch
+from tests.training.helpers import _behavior_policy_episode
 from tests.training.reward_helpers import _no_energy_config
 
 _STUDY = CONFIG_ROOT / "experiments/training/critic-attribution.yaml"
@@ -62,34 +55,10 @@ def study() -> CriticAttributionConfig:
 
 @pytest.fixture
 def synthetic_source(tmp_path):
-    raw = compose_job_config(
-        "jobs/training/ppo",
-        [
-            "components/resources=rtx3050_laptop",
-            "runtime.seed=0",
-            "runtime.accelerator=cpu",
-            "training.replay_id=0",
-            "training.transitions_per_environment=2",
-            "training.update_count=1",
-        ],
+    config, policy = diagnostic_inputs(
+        _no_energy_config().model_copy(update={"name": "plannerrft_no_energy_calibrated_v1"}),
+        minibatch_size=4,
     )
-    raw.policy = _policy_config().model_dump()
-    raw.ppo = (
-        _ppo_config()
-        .model_copy(
-            update={"batch_size": 4, "minibatch_size": 4, "scheduler_total_optimizer_steps": 2}
-        )
-        .model_dump()
-    )
-    raw.reward = (
-        _no_energy_config()
-        .model_copy(update={"name": "plannerrft_no_energy_calibrated_v1"})
-        .model_dump()
-    )
-    config = parse_training_config(raw)
-    with torch.random.fork_rng():
-        torch.manual_seed(0)
-        policy = ExplorationPolicy(config.policy)
     actions = [(-0.5, 0.2), (0.3, -0.7), (-0.1, -0.4), (0.6, 0.8)]
     rewards = [0.2, 0.5, 0.8, 1.1]
     slots = [[], []]
@@ -97,12 +66,8 @@ def synthetic_source(tmp_path):
         episode = _behavior_policy_episode(policy, torch.tensor([action]), reward=reward)
         slots[index // 2].append(episode)
     run_dir = tmp_path / "study" / "run"
-    run_dir.mkdir(parents=True)
-    episodes, _samples = write_batch(run_dir, slots, config.scenarios)
-    OmegaConf.save(raw, run_dir / "resolved_config.yaml", resolve=True)
-    save_exploration_policy_checkpoint(run_dir / "policy-initial.pt", policy)
+    episodes, _samples = persist_diagnostic_batch(run_dir, config, policy, slots)
     batch = build_ppo_batch(episodes, config.ppo)
-    write_json(run_dir / "runtime_metadata.json", {"fixture": "synthetic CPU"})
     write_json(
         run_dir / "summary.json",
         {
@@ -186,23 +151,6 @@ def test_materiality_verdicts():
     undefined = evaluate_materiality({"comparison": [_record(0.0, None, None, None)]}, thresholds)
     assert undefined["verdict"] == "critic_not_material_to_actor_direction"
     assert len(undefined["comparisons"]["comparison"]["excluded_undefined"]) == 3
-
-
-def test_read_rollout_episode_roundtrip(tmp_path):
-    with torch.random.fork_rng():
-        torch.manual_seed(1)
-        policy = ExplorationPolicy(_policy_config())
-    episode = _behavior_policy_episode(policy, torch.tensor([[0.1, -0.2]]), reward=0.4)
-    path = tmp_path / "episode.npz"
-    write_rollout_episode(path, episode)
-    restored = read_rollout_episode(path)
-    assert restored.reward_profile == episode.reward_profile
-    assert restored.tail_kind == episode.tail_kind
-    torch.testing.assert_close(restored.tail_bootstrap_value, episode.tail_bootstrap_value)
-    for key in episode.training.keys(include_nested=True, leaves_only=True):
-        torch.testing.assert_close(restored.training[key], episode.training[key], rtol=0, atol=0)
-    for key in episode.audit.keys():
-        torch.testing.assert_close(restored.audit[key], episode.audit[key], rtol=0, atol=0)
 
 
 def test_runner_and_offline_recompute(synthetic_source, tmp_path):
