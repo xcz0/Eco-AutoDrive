@@ -26,13 +26,11 @@ from eco_planner.planning.policy import (
     load_exploration_policy_checkpoint,
     policy_state_hash,
 )
-from eco_planner.rl import (
-    PPOUpdater,
-    parse_training_config,
-    read_rollout_episode,
-)
+from eco_planner.rl.artifacts.io import read_rollout_episode
+from eco_planner.rl.config import parse_training_config
 from eco_planner.rl.optimization.credit import credit_batch
 from eco_planner.rl.optimization.gradients import GRADIENT_GROUPS, diagnostic_variants
+from eco_planner.rl.optimization.ppo import PPOUpdater
 from eco_planner.runtime.metadata import collect_repository_metadata
 from eco_planner.statistics import advantage_comparison, gradient_comparison
 

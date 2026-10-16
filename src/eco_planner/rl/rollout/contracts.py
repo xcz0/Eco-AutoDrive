@@ -20,13 +20,6 @@ from eco_planner.reward.result import RewardProfileName as RewardProfileName
 
 TailKind = Literal["terminated", "truncated", "rollout_limit"]
 _CONTEXT_KEYS = POLICY_CONTEXT_KEYS
-PPO_BATCH_KEYS = (
-    *POLICY_CONTEXT_KEYS,
-    "guidance_action",
-    "old_joint_guidance_log_prob",
-    "advantage",
-    "value_target",
-)
 TRAINING_KEYS = (
     *POLICY_CONTEXT_KEYS,
     "guidance_action",
@@ -209,6 +202,14 @@ class RolloutEpisode:
     @property
     def transition_count(self) -> int:
         return self.training.batch_size[0]
+
+
+@dataclass(frozen=True)
+class RolloutBatch:
+    """One collection's storage and ordered episode views into that storage."""
+
+    training: TensorDictBase
+    episodes_by_slot: tuple[tuple[RolloutEpisode, ...], ...]
 
 
 def _validate_training_trajectory(trajectory: TensorDictBase) -> None:

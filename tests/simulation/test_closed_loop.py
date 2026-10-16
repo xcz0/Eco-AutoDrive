@@ -28,8 +28,10 @@ from eco_planner.reward import (
     evaluate_plannerrft_energy_step,
 )
 from eco_planner.rl.config import parse_rollout_config
-from eco_planner.rl.optimization import PPOConfig, PPOUpdater
-from eco_planner.rl.rollout import collect_rollout_episode, create_fabric_rollout_runtime
+from eco_planner.rl.optimization.config import PPOConfig
+from eco_planner.rl.optimization.ppo import PPOUpdater
+from eco_planner.rl.rollout.collector import collect_rollout_episode
+from eco_planner.rl.rollout.runtime import create_fabric_rollout_runtime
 
 
 @pytest.fixture(scope="module")
@@ -499,7 +501,7 @@ def test_real_checkpoint_metadrive_rollout_updates_policy_without_changing_plann
         name: parameter.detach().clone() for name, parameter in runtime.policy.state_dict().items()
     }
 
-    update = PPOUpdater(runtime.policy, _ppo_config()).update((episode,))
+    update = PPOUpdater(runtime.policy, _ppo_config()).update(episode.training)
 
     assert runtime.checkpoint_report.ema_tensor_count > 0
     assert runtime.checkpoint_report.parameter_count > 0

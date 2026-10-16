@@ -22,13 +22,12 @@ from eco_planner.reward import (
     aggregate_transition_reward,
     evaluate_plannerrft_no_energy_step,
 )
-from eco_planner.rl.rollout import (
-    ExecutionTransitionAudit,
+from eco_planner.rl.rollout.assembly import (
     RolloutEpisodeBuilder,
-    RolloutProvenance,
     build_training_decision,
     build_training_transition,
 )
+from eco_planner.rl.rollout.contracts import ExecutionTransitionAudit, RolloutProvenance
 
 from .helpers import _context, _decision_audit
 

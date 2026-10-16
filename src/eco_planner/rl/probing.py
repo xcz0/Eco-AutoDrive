@@ -11,8 +11,8 @@ from eco_planner.planning.policy import (
     ExplorationPolicyContext,
     policy_context_tensordict,
 )
+from eco_planner.rl.artifacts.summaries import PolicyProbeSummary
 
-from .artifacts.schema import PolicyProbeSummary
 from .rollout.contracts import RolloutEpisode
 from .rollout.runtime import FabricRolloutRuntime
 

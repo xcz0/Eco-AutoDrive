@@ -38,7 +38,7 @@ from eco_planner.reward import (
     scored_arrays,
 )
 from eco_planner.reward.components import EnergyRewardConfig
-from eco_planner.rl import RolloutEpisode
+from eco_planner.rl.rollout.contracts import RolloutEpisode
 
 COMPONENTS = ("ttc", "progress", "comfort", "speed", "energy")
 

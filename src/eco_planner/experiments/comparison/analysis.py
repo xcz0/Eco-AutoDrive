@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 
 from eco_planner.evaluation.artifacts import JobSummary
-from eco_planner.rl.artifacts import TrainingRunSummary
+from eco_planner.rl.artifacts.summaries import TrainingRunSummary
 from eco_planner.statistics import (
     DistributionStatistics,
     ScenarioBootstrapConfig,

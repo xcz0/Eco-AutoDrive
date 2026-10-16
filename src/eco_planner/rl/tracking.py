@@ -12,8 +12,8 @@ from lightning.fabric import Fabric
 from lightning.pytorch.loggers import MLFlowLogger
 
 from eco_planner._repository import REPOSITORY_ROOT
+from eco_planner.rl.artifacts.summaries import PolicyProbeSummary, TrainingUpdateSummary
 
-from .artifacts import PolicyProbeSummary, TrainingUpdateSummary
 from .artifacts.metadata import TrackingIdentity as TrackingIdentity
 from .artifacts.metadata import TrainingRuntimeMetadata
 from .config import TrainingJobConfig

@@ -18,6 +18,7 @@ from eco_planner.envs.parallel import (
 from eco_planner.envs.parallel.torchrl import planner_observation_spec
 from eco_planner.rl.rollout.collector import VectorRolloutCollector
 from eco_planner.rl.rollout.profiling import RolloutPlannerTiming
+from eco_planner.rl.rollout.seeds import RolloutRandomStreams
 from eco_planner.runtime.profiling import PhaseTiming
 
 from .helpers import _reward_result
@@ -289,20 +290,25 @@ def _collector(capacity, device):
     return collector
 
 
+def _streams(diffusion, policy):
+    return tuple(
+        RolloutRandomStreams(d.initial_seed(), p.initial_seed(), d, p)
+        for d, p in zip(diffusion, policy, strict=True)
+    )
+
+
 @pytest.mark.parametrize(
-    "device,capacity,sampling,shared_storage",
+    "device,capacity,sampling",
     [
-        ("cpu", 3, "sample", True),
-        ("cpu", 1, "sample", False),
-        ("cpu", 4, "mean", True),
-        ("cpu", 3, "mean", False),
-        pytest.param("cuda", 3, "sample", True, marks=pytest.mark.gpu),
-        pytest.param("cuda", 3, "mean", False, marks=pytest.mark.gpu),
+        ("cpu", 3, "sample"),
+        ("cpu", 1, "sample"),
+        ("cpu", 4, "mean"),
+        ("cpu", 3, "mean"),
+        pytest.param("cuda", 3, "sample", marks=pytest.mark.gpu),
+        pytest.param("cuda", 3, "mean", marks=pytest.mark.gpu),
     ],
 )
-def test_synchronous_collection_matches_explicit_trajectories(
-    device, capacity, sampling, shared_storage
-):
+def test_synchronous_collection_matches_explicit_trajectories(device, capacity, sampling):
     collector = _collector(capacity, device)
     diffusion, policy, expected_diffusion, expected_policy = [
         tuple(torch.Generator(device=device).manual_seed(seed + slot) for slot in range(4))
@@ -325,26 +331,29 @@ def test_synchronous_collection_matches_explicit_trajectories(
             for g in expected_policy
         ]
         event_offset = len(collector._envs.events)
-        storage = TensorDict({}, batch_size=[12]) if shared_storage else None
         actual = collector.collect(
             transitions_per_slot=3,
-            diffusion_generators=diffusion,
-            policy_generators=policy,
-            noise_seeds=(10, 11, 12, 13),
-            policy_action_seeds=(20, 21, 22, 23),
+            streams=_streams(diffusion, policy),
             policy_sampling=sampling,
-            training_storage=storage,
         )
-        assert len(actual) == 4
-        for scenario, group in enumerate(actual):
+        storage = actual.training
+        snapshots.append((storage, storage.clone()))
+        assert len(actual.episodes_by_slot) == 4
+        for scenario, group in enumerate(actual.episodes_by_slot):
             _assert_expected_group(group, scenario, noises[scenario], actions[scenario])
             for episode in group:
                 snapshots.extend((data, data.clone()) for data in (episode.training, episode.audit))
         if capacity == 3:
             assert collector._envs.events[event_offset:] == _EXPECTED_EVENTS
-        if storage is not None:
-            ordered = cat([episode.training for group in actual for episode in group])
-            assert (storage == ordered).all()
+        ordered = cat([episode.training for group in actual.episodes_by_slot for episode in group])
+        assert (storage == ordered).all()
+        offset = 0
+        for group in actual.episodes_by_slot:
+            for episode in group:
+                for key in storage.keys(include_nested=True, leaves_only=True):
+                    assert episode.training[key].data_ptr() == storage[key][offset:].data_ptr()
+                offset += episode.transition_count
+        assert offset == storage.batch_size[0]
         for actual_generator, expected_generator in zip(
             (*diffusion, *policy), (*expected_diffusion, *expected_policy), strict=True
         ):
@@ -369,17 +378,14 @@ def test_profiling_preserves_collection_and_explicit_rng():
         outputs.append(
             collector.collect(
                 transitions_per_slot=3,
-                diffusion_generators=diffusion,
-                policy_generators=policy,
-                noise_seeds=(10, 11, 12, 13),
-                policy_action_seeds=(20, 21, 22, 23),
+                streams=_streams(diffusion, policy),
                 timings=profile,
             )
         )
         collectors.append(collector)
         generators.append((*diffusion, *policy))
     assert collectors[0]._envs.events == collectors[1]._envs.events
-    for groups in zip(*outputs, strict=True):
+    for groups in zip(*(output.episodes_by_slot for output in outputs), strict=True):
         for first, second in zip(*groups, strict=True):
             assert (first.training == second.training).all()
             assert (first.audit == second.audit).all()
@@ -387,7 +393,10 @@ def test_profiling_preserves_collection_and_explicit_rng():
     assert {timing.phase for timing in timings} == {"decision", "bootstrap"}
 
 
-def test_failed_collection_propagates_without_publishing_partial_training(monkeypatch):
+@pytest.mark.parametrize("failure_round", [2, 4])
+def test_failed_collection_propagates_without_publishing_partial_training(
+    monkeypatch, failure_round
+):
     collector = _collector(3, "cpu")
     original = collector._envs.step
     error = RuntimeError("original worker failure")
@@ -396,22 +405,19 @@ def test_failed_collection_propagates_without_publishing_partial_training(monkey
     def step(*args, **kwargs):
         nonlocal count
         count += 1
-        if count == 2:
+        if count == failure_round:
             raise error
         return original(*args, **kwargs)
 
     monkeypatch.setattr(collector._envs, "step", step)
-    storage = TensorDict({}, batch_size=[12])
+    result = None
     with pytest.raises(RuntimeError) as failure:
-        collector.collect(
+        result = collector.collect(
             transitions_per_slot=3,
-            diffusion_generators=tuple(
-                torch.Generator().manual_seed(10 + slot) for slot in range(4)
+            streams=_streams(
+                tuple(torch.Generator().manual_seed(10 + slot) for slot in range(4)),
+                tuple(torch.Generator().manual_seed(20 + slot) for slot in range(4)),
             ),
-            policy_generators=tuple(torch.Generator().manual_seed(20 + slot) for slot in range(4)),
-            noise_seeds=(10, 11, 12, 13),
-            policy_action_seeds=(20, 21, 22, 23),
-            training_storage=storage,
         )
     assert failure.value is error
-    assert not list(storage.keys())
+    assert result is None

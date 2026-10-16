@@ -12,7 +12,7 @@ from eco_planner.planning.policy import (
     load_exploration_policy_checkpoint,
     policy_state_hash,
 )
-from eco_planner.rl.optimization import PPOUpdater
+from eco_planner.rl.optimization.ppo import PPOUpdater
 from eco_planner.rl.rollout.fixed_batch import FixedBatch
 from eco_planner.runtime.metadata import collect_repository_metadata
 

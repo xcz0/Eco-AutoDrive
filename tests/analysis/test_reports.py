@@ -454,7 +454,7 @@ import eco_planner.experiments.comparison.analysis
 import benchmarks.execution_analysis
 import eco_planner.experiments.fixed_batch
 import eco_planner.experiments.comparison.inputs
-from eco_planner.rl.artifacts import TrainingRunSummary
+from eco_planner.rl.artifacts.summaries import TrainingRunSummary
 roots = (
     'torch',
     'metadrive',
@@ -479,7 +479,7 @@ class BlockExecutionImports:
             raise AssertionError('offline initialization imported ' + fullname)
 sys.meta_path.insert(0, BlockExecutionImports())
 importlib.import_module({module!r})
-from eco_planner.rl.artifacts import TrainingRunSummary
+from eco_planner.rl.artifacts.summaries import TrainingRunSummary
 assert TrainingRunSummary.__name__ == 'TrainingRunSummary'
 """
     subprocess.run([sys.executable, "-c", script], check=True)

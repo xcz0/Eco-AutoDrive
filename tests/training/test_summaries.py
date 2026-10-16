@@ -6,7 +6,8 @@ from dataclasses import replace
 import pytest
 import torch
 
-from eco_planner.rl.artifacts import TrainingUpdateSummary, build_update_summary
+from eco_planner.rl.artifacts.metrics import build_update_summary
+from eco_planner.rl.artifacts.summaries import TrainingUpdateSummary
 
 from .diagnostic_helpers import build_ppo_update_report
 from .helpers import _episode

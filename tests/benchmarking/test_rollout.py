@@ -6,7 +6,7 @@ import torch
 from benchmarks.config import RolloutBenchmarkConfig, ScalingBenchmarkConfig
 from benchmarks.rollout import _effective_ppo_config, _rollout_result
 from benchmarks.throughput import benchmark_vector_environment_scaling
-from eco_planner.rl.optimization import PPOConfig
+from eco_planner.rl.optimization.config import PPOConfig
 from eco_planner.rl.rollout.profiling import RolloutPlannerTiming, VectorRolloutRoundTiming
 from eco_planner.runtime.profiling import (
     PhaseTiming,

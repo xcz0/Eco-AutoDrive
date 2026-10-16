@@ -13,11 +13,8 @@ from eco_planner.envs.domain import (
     TransitionMetrics,
 )
 from eco_planner.planning.policy import ExplorationPolicyContext
-from eco_planner.rl.rollout import (
-    ExecutionTransitionAudit,
-    RolloutProvenance,
-    build_training_decision,
-)
+from eco_planner.rl.rollout.assembly import build_training_decision
+from eco_planner.rl.rollout.contracts import ExecutionTransitionAudit, RolloutProvenance
 
 from .helpers import _decision_audit, _reward_result
 

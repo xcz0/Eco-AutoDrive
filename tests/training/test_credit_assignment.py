@@ -24,13 +24,12 @@ from eco_planner.reward import (
     evaluate_plannerrft_energy_step,
     evaluate_plannerrft_no_energy_step,
 )
-from eco_planner.rl.optimization import compute_episode_gae
+from eco_planner.rl.optimization.batch import compute_gae, normalize_full_batch_advantage
 from eco_planner.rl.optimization.credit import (
     credit_batch,
     discounted_return_batch,
     zero_critic_values,
 )
-from eco_planner.rl.optimization.ppo import normalize_full_batch_advantage
 from eco_planner.rl.reward import (
     COMPONENTS,
     energy_only_reward,
@@ -38,12 +37,12 @@ from eco_planner.rl.reward import (
     reward_profile,
     reweight,
 )
-from eco_planner.rl.rollout import (
+from eco_planner.rl.rollout.assembly import (
     RolloutEpisodeBuilder,
-    RolloutProvenance,
     build_training_decision,
     build_training_transition,
 )
+from eco_planner.rl.rollout.contracts import RolloutProvenance
 from eco_planner.statistics import advantage_comparison, cosine
 
 from .helpers import (
@@ -88,7 +87,7 @@ def test_reweight_preserves_bootstrap_and_episode_gae(terminated, truncated):
         bootstrap=0.0 if terminated else 2.0,
     )
     matched = reweight(episode, _no_energy_config())
-    trajectory = compute_episode_gae(matched, _ppo_config())
+    trajectory = compute_gae(matched.training, _ppo_config())
     expected = matched.training["next", "reward"] - matched.training["state_value"]
     if not terminated:
         expected = expected + 0.99 * matched.training["next", "state_value"]
@@ -431,7 +430,7 @@ def test_reward_only_gae_matches_gamma_lambda_return_without_bootstrap():
     config = _ppo_config()
     rewards = [0.25, -0.5, 1.0]
     episode = _multi_step_episode(rewards, [0.7, -0.2, 0.3], 0.4)
-    reward_only = compute_episode_gae(zero_critic_values(episode), config)
+    reward_only = compute_gae(zero_critic_values(episode).training, config)
     gamma_lambda = config.gamma * config.gae_lambda
     expected = [0.0] * len(rewards)
     running = 0.0
@@ -442,7 +441,7 @@ def test_reward_only_gae_matches_gamma_lambda_return_without_bootstrap():
     np.testing.assert_allclose(
         reward_only["value_target"].reshape(-1), expected, rtol=1e-5, atol=1e-7
     )
-    standard = compute_episode_gae(episode, config)
+    standard = compute_gae(episode.training, config)
     values = [1.0] * len(rewards)
     next_values = [0.7, -0.2, 0.4]
     delta = [rewards[t] + config.gamma * next_values[t] - values[t] for t in range(len(rewards))]

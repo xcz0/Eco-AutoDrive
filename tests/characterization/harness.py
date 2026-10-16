@@ -34,8 +34,8 @@ from eco_planner.planning.diffusion import (
     sampler_report,
 )
 from eco_planner.planning.policy import ExplorationPolicy, ExplorationPolicyConfig
-from eco_planner.rl.rollout import FabricRolloutRuntime
 from eco_planner.rl.rollout.decision import BatchRolloutDecision
+from eco_planner.rl.rollout.runtime import FabricRolloutRuntime
 from eco_planner.runtime.fabric import InferenceRuntimeReport
 
 DIFFUSION_SEED = 101

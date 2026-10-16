@@ -7,7 +7,7 @@ import torch
 from tensordict import TensorDictBase, cat
 from torchmetrics import MaxMetric, MeanMetric, SumMetric
 
-from eco_planner.rl.artifacts.schema import TrainingUpdateSummary
+from eco_planner.rl.artifacts.summaries import TrainingUpdateSummary
 from eco_planner.rl.optimization.ppo import PPOUpdateReport
 from eco_planner.rl.rollout.contracts import RolloutEpisode
 

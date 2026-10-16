@@ -6,10 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
-import torch
-from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
-from tensordict import TensorDict
 
 from eco_planner.artifacts import write_json
 from eco_planner.planning.policy import (
@@ -17,26 +14,28 @@ from eco_planner.planning.policy import (
     policy_state_hash,
     save_exploration_policy_checkpoint,
 )
-from eco_planner.runtime.resources import ResourceProfileConfig
-
-from .artifacts import (
+from eco_planner.rl.artifacts.io import write_rollout_episode, write_training_runtime_metadata
+from eco_planner.rl.artifacts.metrics import build_update_summary
+from eco_planner.rl.artifacts.summaries import (
     PolicyProbeSummary,
     TrainingRunSummary,
     TrainingUpdateSummary,
-    build_update_summary,
-    write_rollout_episode,
-    write_training_runtime_metadata,
 )
+from eco_planner.rl.optimization.checkpoint import save_training_checkpoint
+from eco_planner.rl.optimization.ppo import PPOUpdater
+from eco_planner.runtime.resources import require_resource_profile
+
 from .config import TrainingJobConfig
-from .optimization import (
-    PPOUpdater,
-    save_training_checkpoint,
-)
 from .probing import capture_probe_contexts, probe_policy
 from .rollout.collector import VectorRolloutCollector
 from .rollout.contracts import RolloutEpisode
-from .rollout.runtime import FabricRolloutRuntime, create_fabric_rollout_runtime
-from .rollout.seeds import derive_rollout_seeds
+from .rollout.runtime import FabricRolloutRuntime
+from .rollout.seeds import RolloutRandomStreams, create_rollout_streams, derive_rollout_seeds
+from .setup import (
+    configure_training_execution,
+    create_training_collector,
+    create_training_runtime,
+)
 from .tracking import TrainingTracking
 from .training_state import TrainingLoopState, resume_training_state
 
@@ -69,22 +68,10 @@ def _train(
     tracking: TrainingTracking,
     update_observer: TrainingUpdateObserver | None,
 ) -> TrainingRunSummary:
-    if config.training.deterministic:
-        torch.use_deterministic_algorithms(True)
-    torch.set_float32_matmul_precision("high")
-    resources = cast(ResourceProfileConfig, config.resources)
-    scenario_count = len(config.scenarios)
-    noise_seeds, policy_seeds = derive_rollout_seeds(config.runtime.seed, scenario_count)
-    runtime = create_fabric_rollout_runtime(
-        config.runtime,
-        config.sampler,
-        config.guidance,
-        config.policy,
-        Path(to_absolute_path(config.model.args_path)),
-        Path(to_absolute_path(config.model.checkpoint_path)),
-        policy_seeds[0],
-        planner_compile_mode=config.training.planner_compile_mode,
-    )
+    configure_training_execution(config)
+    resources = require_resource_profile(config.resources)
+    noise_seeds, policy_seeds = derive_rollout_seeds(config.runtime.seed, len(config.scenarios))
+    runtime = create_training_runtime(config, policy_seeds[0])
     updater = PPOUpdater(runtime.policy, config.ppo)
     state = resume_training_state(config, runtime, updater)
     start_update = state.completed_updates
@@ -96,27 +83,16 @@ def _train(
         resources,
     )
     tracking.runtime_metadata()
-    diffusion_generators = tuple(runtime.new_noise_generator(seed) for seed in noise_seeds)
-    policy_generators = tuple(runtime.new_policy_generator(seed) for seed in policy_seeds)
+    streams = create_rollout_streams(runtime, noise_seeds, policy_seeds)
     if config.training.resume_checkpoint_path is not None:
-        state.restore_rollout_rng(diffusion_generators, policy_generators)
+        state.restore_rollout_rng(streams)
     planner_hash_before = runtime.frozen_planner_hash()
     state.initial_policy_hash = state.initial_policy_hash or policy_state_hash(runtime.policy)
     if start_update == 0:
         save_exploration_policy_checkpoint(output_dir / "policy-initial.pt", runtime.policy)
         tracking.artifact("policy-initial.pt")
 
-    with VectorRolloutCollector(
-        config.scenarios,
-        runtime,
-        config.env,
-        mode=config.training.mode,
-        map_query_radius_m=config.map_query_radius_m,
-        history_warmup_steps=config.training.history_warmup_steps,
-        physical_slot_count=resources.rollout_worker_count,
-        torch_threads_per_worker=resources.torch_threads_per_worker,
-        reward_profile=config.reward,
-    ) as rollout_collector:
+    with create_training_collector(config, runtime) as rollout_collector:
         for update_index in range(start_update, config.training.update_count):
             update_summary = _run_update(
                 config,
@@ -127,14 +103,11 @@ def _train(
                 rollout_collector=rollout_collector,
                 state=state,
                 tracking=tracking,
-                diffusion_generators=diffusion_generators,
-                policy_generators=policy_generators,
-                noise_seeds=noise_seeds,
-                policy_seeds=policy_seeds,
+                streams=streams,
             )
             state.update_summaries.append(update_summary)
             state.completed_updates = update_index + 1
-            state.capture_rollout_rng(diffusion_generators, policy_generators)
+            state.capture_rollout_rng(streams)
             save_exploration_policy_checkpoint(
                 output_dir / f"policy-update-{update_index:03d}.pt", runtime.policy
             )
@@ -210,24 +183,16 @@ def _run_update(
     rollout_collector: VectorRolloutCollector,
     state: TrainingLoopState,
     tracking: TrainingTracking,
-    diffusion_generators: tuple[torch.Generator, ...],
-    policy_generators: tuple[torch.Generator, ...],
-    noise_seeds: tuple[int, ...],
-    policy_seeds: tuple[int, ...],
+    streams: tuple[RolloutRandomStreams, ...],
 ) -> TrainingUpdateSummary:
     """Own one update's storage and episode views until its summary is built."""
 
-    training_storage = TensorDict({}, batch_size=[config.ppo.batch_size])
     update_episodes: list[RolloutEpisode] = []
-    slot_episodes = rollout_collector.collect(
+    batch = rollout_collector.collect(
         transitions_per_slot=config.training.transitions_per_environment,
-        diffusion_generators=diffusion_generators,
-        policy_generators=policy_generators,
-        noise_seeds=noise_seeds,
-        policy_action_seeds=policy_seeds,
-        training_storage=training_storage,
+        streams=streams,
     )
-    for slot, episodes in enumerate(slot_episodes):
+    for slot, episodes in enumerate(batch.episodes_by_slot):
         for episode_index, episode in enumerate(episodes):
             write_rollout_episode(
                 output_dir
@@ -239,7 +204,7 @@ def _run_update(
             update_episodes.append(episode)
             state.total_transitions += episode.transition_count
     if state.probe_contexts is None:
-        state.probe_contexts = capture_probe_contexts(slot_episodes, len(config.scenarios))
+        state.probe_contexts = capture_probe_contexts(batch.episodes_by_slot, len(config.scenarios))
         state.probe_before = probe_policy(
             runtime,
             state.probe_contexts,
@@ -248,5 +213,5 @@ def _run_update(
             config.training.diagnostic_seed,
         )
         tracking.probe("before", state.probe_before, update_index)
-    report = updater.update(training_storage)
+    report = updater.update(batch.training)
     return build_update_summary(update_index, tuple(update_episodes), report)

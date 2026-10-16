@@ -21,7 +21,7 @@ from eco_planner.experiments.training.analysis import publish
 from eco_planner.experiments.training.measurements import extract_arm_metrics
 from eco_planner.experiments.training.statistics import beta_probe_statistics
 from eco_planner.jobs import run_evaluation_job
-from eco_planner.rl.artifacts import TrainingRunSummary
+from eco_planner.rl.artifacts.summaries import TrainingRunSummary
 from eco_planner.rl.optimization.update_diagnostics import post_update_kl_series
 
 

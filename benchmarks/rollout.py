@@ -13,10 +13,12 @@ import torch
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig
+from tensordict import cat
 
 from eco_planner.configuration import ScenarioConfig
 from eco_planner.rl.config import TrainingJobConfig, parse_training_config
-from eco_planner.rl.optimization import PPOConfig, PPOUpdater
+from eco_planner.rl.optimization.config import PPOConfig
+from eco_planner.rl.optimization.ppo import PPOUpdater
 from eco_planner.rl.rollout.collector import (
     VectorRolloutCollector,
     collect_rollout_episode,
@@ -24,6 +26,7 @@ from eco_planner.rl.rollout.collector import (
 from eco_planner.rl.rollout.contracts import RolloutEpisode
 from eco_planner.rl.rollout.profiling import VectorRolloutRoundTiming
 from eco_planner.rl.rollout.runtime import FabricRolloutRuntime, create_fabric_rollout_runtime
+from eco_planner.rl.rollout.seeds import RolloutRandomStreams
 from eco_planner.runtime.resources import require_resource_profile
 
 from .config import (
@@ -120,6 +123,12 @@ def _measure_batch_size(
         )
         diffusion_generators = tuple(runtime.new_noise_generator(seed) for seed in noise_seeds)
         policy_generators = tuple(runtime.new_policy_generator(seed) for seed in policy_seeds)
+        streams = tuple(
+            RolloutRandomStreams(n, p, d, a)
+            for n, p, d, a in zip(
+                noise_seeds, policy_seeds, diffusion_generators, policy_generators, strict=True
+            )
+        )
         vector_collector: VectorRolloutCollector | None = None
         for update_index in range(update_count):
             timings: list[VectorRolloutRoundTiming] = []
@@ -138,14 +147,12 @@ def _measure_batch_size(
                         reward_profile=config.reward,
                     )
                     worker_pool_startup_samples.append(perf_counter() - startup_started)
-                slots = vector_collector.collect(
+                batch = vector_collector.collect(
                     transitions_per_slot=benchmark.transitions_per_slot,
-                    diffusion_generators=diffusion_generators,
-                    policy_generators=policy_generators,
-                    noise_seeds=noise_seeds,
-                    policy_action_seeds=policy_seeds,
+                    streams=streams,
                     timings=timings,
                 )
+                training = batch.training
             elif collector_mode == "serial":
                 slots = _collect_serial_slots(
                     specs,
@@ -161,7 +168,9 @@ def _measure_batch_size(
                 raise ValueError(f"unknown rollout collector mode {collector_mode!r}")
             collection_s = perf_counter() - started
             update_started = perf_counter()
-            updater.update(tuple(episode for slot in slots for episode in slot))
+            if collector_mode == "serial":
+                training = cat([episode.training for slot in slots for episode in slot])
+            updater.update(training)
             update_s = perf_counter() - update_started
             if update_index == 0:
                 cold_collection_samples.append(collection_s)

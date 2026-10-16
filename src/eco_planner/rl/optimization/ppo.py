@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol
 
 import torch
-from tensordict import TensorDictBase, cat
+from tensordict import TensorDictBase
 from tensordict.nn import (
     ProbabilisticTensorDictModule,
     ProbabilisticTensorDictSequential,
@@ -19,21 +18,15 @@ from torch.nn.utils import clip_grad_norm_
 from torchrl.data import TensorDictReplayBuffer, TensorStorage
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.objectives import ClipPPOLoss
-from torchrl.objectives.value import GAE
 
 from eco_planner.planning.policy import (
     POLICY_CONTEXT_KEYS,
     AffineBeta,
     ExplorationPolicy,
 )
+from eco_planner.rl.optimization.batch import build_ppo_batch, normalize_full_batch_advantage
 from eco_planner.rl.optimization.config import PPOConfig
 from eco_planner.rl.optimization.metrics import PPOMetrics
-from eco_planner.rl.rollout.contracts import (
-    PPO_BATCH_KEYS as PPO_BATCH_KEYS,
-)
-from eco_planner.rl.rollout.contracts import (
-    TRAINING_KEYS,
-)
 
 _PPO_UPDATE_METRIC_NAMES = (
     "loss_objective",
@@ -90,36 +83,6 @@ class PPOUpdateReport:
     policy_ratio_p95: float
     policy_ratio_max: float
     gradient_diagnostics: PPOGradientDiagnostics | None
-
-
-class TrainingEpisode(Protocol):
-    """The optimizer requires only the scalar-reward training trajectory."""
-
-    @property
-    def training(self) -> TensorDictBase: ...
-
-
-def compute_episode_gae(episode: TrainingEpisode, config: PPOConfig) -> TensorDictBase:
-    """Run TorchRL GAE and append its detached outputs to the PPO trajectory."""
-
-    return _compute_gae(episode.training.select(*TRAINING_KEYS).clone(), config)
-
-
-def _compute_gae(trajectory: TensorDictBase, config: PPOConfig) -> TensorDictBase:
-    estimator = GAE(
-        gamma=config.gamma,
-        lmbda=config.gae_lambda,
-        value_network=None,
-        average_gae=False,
-        differentiable=False,
-        vectorized=True,
-        skip_existing=False,
-        time_dim=0,
-        auto_reset_env=False,
-        device=trajectory["state_value"].device,
-    )
-    estimator(trajectory)
-    return trajectory
 
 
 class PPOUpdater:
@@ -226,11 +189,11 @@ class PPOUpdater:
         self._kl_early_stop_count = early_stops
         self._minibatch_generator.set_state(generator_state)
 
-    def update(self, episodes: Sequence[TrainingEpisode] | TensorDictBase) -> PPOUpdateReport:
+    def update(self, training: TensorDictBase) -> PPOUpdateReport:
         """Perform all configured PPO epochs over one immutable rollout batch."""
 
         self.policy.eval()
-        batch = build_ppo_batch(episodes, self.config, device=self.device)
+        batch = build_ppo_batch(training, self.config, device=self.device)
         sample_count = batch.batch_size[0]
         if sample_count != self.config.batch_size:
             raise ValueError(
@@ -393,44 +356,6 @@ def _build_torchrl_policy_adapters(
     actor = ProbabilisticTensorDictSequential([output_module, distribution_module])
     critic = TensorDictModule(nn.Identity(), in_keys=["state_value"], out_keys=["state_value"])
     return actor, critic
-
-
-def build_ppo_batch(
-    episodes: Sequence[TrainingEpisode] | TensorDictBase,
-    config: PPOConfig,
-    *,
-    device: torch.device | None = None,
-) -> TensorDictBase:
-    if isinstance(episodes, TensorDictBase):
-        if len(episodes.batch_size) != 1:
-            raise TypeError("PPO training batch must be a one-dimensional TensorDict")
-        if episodes.batch_size[0] == 0:
-            raise ValueError("PPO update requires at least one rollout transition")
-        trajectory = episodes.select(*TRAINING_KEYS)
-    else:
-        episode_tuple = tuple(episodes)
-        if not episode_tuple:
-            raise ValueError("PPO update requires at least one rollout episode")
-        trajectory = cat([episode.training.select(*TRAINING_KEYS) for episode in episode_tuple])
-    if device is not None:
-        trajectory = trajectory.to(device)
-    return _compute_gae(trajectory, config).select(*PPO_BATCH_KEYS)
-
-
-def normalize_full_batch_advantage(batch: TensorDictBase) -> None:
-    advantage = batch["advantage"]
-    if advantage.numel() < 2:
-        raise ValueError("advantage normalization requires at least two samples")
-    mean = advantage.mean()
-    standard_deviation = advantage.std(correction=1)
-    if not torch.isfinite(mean) or not torch.isfinite(standard_deviation):
-        raise ValueError("advantage normalization statistics must be finite")
-    if standard_deviation.item() == 0.0:
-        raise ValueError("advantage normalization rejects zero variance")
-    normalized = (advantage - mean) / standard_deviation
-    if not torch.isfinite(normalized).all():
-        raise ValueError("normalized advantage must be finite")
-    batch["advantage"] = normalized
 
 
 def _tensor_statistics(value: torch.Tensor, *, correction: int) -> tuple[float, float]:

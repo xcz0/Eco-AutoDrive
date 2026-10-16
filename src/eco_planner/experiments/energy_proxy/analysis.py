@@ -33,7 +33,7 @@ from eco_planner.evaluation.artifacts import (
     load_episode_summary,
     load_trace_artifact,
 )
-from eco_planner.rl.artifacts import TrainingRunSummary
+from eco_planner.rl.artifacts.summaries import TrainingRunSummary
 from eco_planner.statistics import ScenarioBootstrapConfig, scenario_effect
 
 PROXY_SCALE_ML_PER_KM = 32.5

@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 import torch
+from tensordict import cat
 
 from eco_planner.artifacts import write_json
 from eco_planner.planning.policy import (
@@ -78,7 +79,7 @@ def test_batch_rejects_out_of_order_episode(fixed_source):
 def test_credit_preserves_ppo_gradients_and_objective_identities(fixed_source, monkeypatch):
     from eco_planner.experiments.credit.config import CreditStudyConfig
     from eco_planner.experiments.credit.runner import measure
-    from eco_planner.rl.optimization import build_ppo_batch, normalize_full_batch_advantage
+    from eco_planner.rl.optimization.batch import build_ppo_batch, normalize_full_batch_advantage
     from eco_planner.rl.optimization.gradients import actor_gradients
 
     source, episodes, _ = fixed_source
@@ -137,7 +138,8 @@ def test_credit_preserves_ppo_gradients_and_objective_identities(fixed_source, m
                 atol=1e-7,
             )
     reference = build_ppo_batch(
-        [reweight(e, batch.config.reward) for e in episodes], updater.config
+        cat([item.training for item in [reweight(e, batch.config.reward) for e in episodes]]),
+        updater.config,
     )
     normalize_full_batch_advantage(reference)
     updater.loss_module(reference)["loss_objective"].backward()

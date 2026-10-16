@@ -2,6 +2,7 @@
 
 import pytest
 import torch
+from tensordict import cat
 
 from eco_planner.planning.policy import ExplorationPolicy
 from eco_planner.rl.optimization import ppo
@@ -81,7 +82,7 @@ def test_ppo_report_preserves_each_metric_identity(monkeypatch, reverse_names):
         for reward in (1.0, 2.0)
     )
     with updater.loss_module.register_forward_hook(distinct_metrics):
-        report = updater.update(episodes)
+        report = updater.update(cat([item.training for item in episodes]))
     assert report.mean_policy_loss == 1.0
     assert report.mean_value_loss == 2.0
     assert report.mean_entropy_loss == 4.0

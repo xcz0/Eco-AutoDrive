@@ -16,8 +16,9 @@ from eco_planner.planning.policy import (
 )
 from eco_planner.planning.policy.distribution import AffineBeta
 from eco_planner.rl import trainer
-from eco_planner.rl.artifacts import PolicyProbeSummary
+from eco_planner.rl.artifacts.summaries import PolicyProbeSummary
 from eco_planner.rl.probing import capture_probe_contexts, probe_policy
+from eco_planner.rl.rollout.contracts import RolloutBatch
 from eco_planner.rl.tracking import TrackingIdentity
 from eco_planner.rl.training_state import TrainingLoopState
 
@@ -68,7 +69,7 @@ def test_training_order_fixed_probes_and_completed_resume(
         new_policy_generator=lambda seed: torch.Generator().manual_seed(seed),
         frozen_planner_hash=lambda: "f" * 64,
     )
-    monkeypatch.setattr(trainer, "create_fabric_rollout_runtime", lambda *a, **k: runtime)
+    monkeypatch.setattr(trainer, "create_training_runtime", lambda *a, **k: runtime)
     monkeypatch.setattr(trainer, "resume_training_state", lambda *a: state)
     monkeypatch.setattr(trainer, "write_training_runtime_metadata", lambda *a, **k: None)
     monkeypatch.setattr(
@@ -108,8 +109,7 @@ def test_training_order_fixed_probes_and_completed_resume(
                 _episode(reward=1.0, terminated=True, truncated=False, bootstrap=0.0)
                 for _ in range(2)
             ]
-            storage = kwargs["training_storage"]
-            storage.update(cat([episode.training for episode in episodes]))
+            storage = cat([episode.training for episode in episodes])
             storage["reference_trajectory"][0].fill_(10 * (events.count("collect") - 1) + 1)
             storage["reference_trajectory"][1].fill_(10 * (events.count("collect") - 1) + 2)
             slots = tuple(
@@ -120,9 +120,9 @@ def test_training_order_fixed_probes_and_completed_resume(
             for slot in slots:
                 for episode in slot:
                     update_refs.extend([ref(episode), ref(episode.training)])
-            return slots
+            return RolloutBatch(storage, slots)
 
-    monkeypatch.setattr(trainer, "VectorRolloutCollector", Collector)
+    monkeypatch.setattr(trainer, "create_training_collector", lambda *args: Collector())
 
     def compute_probe(*args):
         events.append("probe")

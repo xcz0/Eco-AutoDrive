@@ -7,6 +7,7 @@ import json
 import numpy as np
 import pytest
 import torch
+from tensordict import cat
 
 from eco_planner._repository import CONFIG_ROOT
 from eco_planner.artifacts import write_json
@@ -19,9 +20,7 @@ from eco_planner.experiments.training.critic_attribution.diagnostics import (
 from eco_planner.planning.policy import (
     policy_state_hash,
 )
-from eco_planner.rl import (
-    build_ppo_batch,
-)
+from eco_planner.rl.optimization.batch import build_ppo_batch
 
 from .diagnostic_helpers import diagnostic_inputs, persist_diagnostic_batch
 from .helpers import _behavior_policy_episode
@@ -68,7 +67,7 @@ def synthetic_source(tmp_path):
         slots[index // 2].append(episode)
     run_dir = tmp_path / "study" / "run"
     episodes, _samples = persist_diagnostic_batch(run_dir, config, policy, slots)
-    batch = build_ppo_batch(episodes, config.ppo)
+    batch = build_ppo_batch(cat([item.training for item in episodes]), config.ppo)
     write_json(
         run_dir / "summary.json",
         {

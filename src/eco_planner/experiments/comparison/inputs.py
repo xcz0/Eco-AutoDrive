@@ -11,7 +11,7 @@ from eco_planner.evaluation.artifacts import load_job_summary
 from eco_planner.experiments.comparison.analysis import PolicyComparison, PolicyComparisonRun
 from eco_planner.experiments.protocol.config import ComparisonProtocol, load_protocol
 from eco_planner.experiments.protocol.validation import validate_evaluation
-from eco_planner.rl.artifacts import TrainingRunSummary
+from eco_planner.rl.artifacts.summaries import TrainingRunSummary
 
 
 class ComparisonRun(BaseModel):

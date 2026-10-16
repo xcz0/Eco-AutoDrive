@@ -17,14 +17,13 @@ from eco_planner.planning.policy import (
 from eco_planner.reward import PlannerRFTRewardResult, RewardComponents, RewardDiagnostics
 from eco_planner.reward.result import RewardProfileName
 from eco_planner.rl.config import parse_training_config
-from eco_planner.rl.optimization import PPOConfig
-from eco_planner.rl.rollout import (
-    ExecutionTransitionAudit,
+from eco_planner.rl.optimization.config import PPOConfig
+from eco_planner.rl.rollout.assembly import (
     RolloutEpisodeBuilder,
-    RolloutProvenance,
     build_training_decision,
     build_training_transition,
 )
+from eco_planner.rl.rollout.contracts import ExecutionTransitionAudit, RolloutProvenance
 
 
 def _policy_config() -> ExplorationPolicyConfig:

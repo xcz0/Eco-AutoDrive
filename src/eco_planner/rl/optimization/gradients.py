@@ -7,7 +7,7 @@ import torch
 from tensordict import TensorDictBase
 
 from eco_planner.planning.policy import ExplorationPolicy
-from eco_planner.rl import PPOUpdater
+from eco_planner.rl.optimization.ppo import PPOUpdater
 
 GRADIENT_GROUPS = ("actor_head", "shared_trunk", "actor", "lateral", "longitudinal")
 ADVANTAGE_FORMS = ("raw", "center", "z")
@@ -71,7 +71,7 @@ def diagnostic_variants(
     forms: tuple[str, ...],
 ) -> tuple[dict[str, np.ndarray], dict, dict, list[dict]]:
     """Measure selected full-batch actor objectives without changing policy parameters."""
-    from eco_planner.rl.optimization import normalize_full_batch_advantage
+    from eco_planner.rl.optimization.batch import normalize_full_batch_advantage
 
     if batch.batch_size[0] != updater.config.batch_size:
         raise ValueError("diagnostic requires the complete configured PPO batch")

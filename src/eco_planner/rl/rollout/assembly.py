@@ -112,11 +112,6 @@ class RolloutEpisodeBuilder:
             training, audit, tail_kind, bootstrap, cast(RewardProfileName, self._reward_profile)
         )
 
-    def next_episode(self) -> RolloutEpisodeBuilder:
-        """Create domain assembly state for the next episode."""
-
-        return RolloutEpisodeBuilder()
-
 
 def build_training_decision(
     policy_context: ExplorationPolicyContext,

@@ -6,8 +6,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-import torch
-from hydra.utils import to_absolute_path
 from omegaconf import DictConfig
 
 from eco_planner.artifacts import write_json
@@ -19,10 +17,13 @@ from eco_planner.planning.policy import (
 from eco_planner.rl.artifacts.io import write_training_runtime_metadata
 from eco_planner.rl.config import TrainingJobConfig
 
-from .collector import VectorRolloutCollector
+from ..setup import (
+    configure_training_execution,
+    create_training_collector,
+    create_training_runtime,
+)
 from .fixed_batch import write_batch
-from .runtime import create_fabric_rollout_runtime
-from .seeds import derive_rollout_seeds
+from .seeds import create_rollout_streams, derive_rollout_seeds
 
 
 def collect(resolved: DictConfig, config: TrainingJobConfig, output_dir: Path) -> dict[str, Any]:
@@ -32,45 +33,21 @@ def collect(resolved: DictConfig, config: TrainingJobConfig, output_dir: Path) -
         raise ValueError("update-0 diagnostic cannot resume a trained policy")
     output_dir.mkdir(parents=True, exist_ok=False)
     write_job_configuration(resolved, output_dir)
-    if config.training.deterministic:
-        torch.use_deterministic_algorithms(True)
-    torch.set_float32_matmul_precision("high")
+    configure_training_execution(config)
     start = time.perf_counter()
     noise_seeds, policy_seeds = derive_rollout_seeds(config.runtime.seed, len(config.scenarios))
-    runtime = create_fabric_rollout_runtime(
-        config.runtime,
-        config.sampler,
-        config.guidance,
-        config.policy,
-        Path(to_absolute_path(config.model.args_path)),
-        Path(to_absolute_path(config.model.checkpoint_path)),
-        policy_seeds[0],
-        planner_compile_mode=config.training.planner_compile_mode,
-    )
+    runtime = create_training_runtime(config, policy_seeds[0])
     write_training_runtime_metadata(output_dir / "runtime_metadata.json", runtime, config.resources)
     initial_hash = policy_state_hash(runtime.policy)
     planner_hash = runtime.frozen_planner_hash()
     save_exploration_policy_checkpoint(output_dir / "policy-initial.pt", runtime.policy)
     print("Collecting one update-0 batch (no optimizer steps).", flush=True)
-    with VectorRolloutCollector(
-        config.scenarios,
-        runtime,
-        config.env,
-        mode=config.training.mode,
-        map_query_radius_m=config.map_query_radius_m,
-        history_warmup_steps=config.training.history_warmup_steps,
-        physical_slot_count=config.resources.rollout_worker_count,
-        torch_threads_per_worker=config.resources.torch_threads_per_worker,
-        reward_profile=config.reward,
-    ) as collector:
-        slots = collector.collect(
+    with create_training_collector(config, runtime) as collector:
+        batch = collector.collect(
             transitions_per_slot=config.training.transitions_per_environment,
-            diffusion_generators=tuple(runtime.new_noise_generator(s) for s in noise_seeds),
-            policy_generators=tuple(runtime.new_policy_generator(s) for s in policy_seeds),
-            noise_seeds=noise_seeds,
-            policy_action_seeds=policy_seeds,
+            streams=create_rollout_streams(runtime, noise_seeds, policy_seeds),
         )
-    episodes, sample_index = write_batch(output_dir, slots, config.scenarios)
+    episodes, sample_index = write_batch(output_dir, batch.episodes_by_slot, config.scenarios)
     if policy_state_hash(runtime.policy) != initial_hash:
         raise RuntimeError("initial policy changed")
     if runtime.frozen_planner_hash() != planner_hash:

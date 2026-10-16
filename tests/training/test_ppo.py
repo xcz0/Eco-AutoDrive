@@ -12,12 +12,10 @@ from eco_planner.reward import (
     RewardResult,
     aggregate_scalar_rewards,
 )
-from eco_planner.rl.artifacts import build_update_summary
-from eco_planner.rl.optimization import PPOUpdater, compute_episode_gae
-from eco_planner.rl.optimization.ppo import build_ppo_batch
-from eco_planner.rl.rollout import (
-    build_training_decision,
-)
+from eco_planner.rl.artifacts.metrics import build_update_summary
+from eco_planner.rl.optimization.batch import build_ppo_batch, compute_gae
+from eco_planner.rl.optimization.ppo import PPOUpdater
+from eco_planner.rl.rollout.assembly import build_training_decision
 
 from .helpers import (
     _behavior_policy_episode,
@@ -32,11 +30,15 @@ from .helpers import (
 @pytest.mark.parametrize("truncated", [False, True])
 def test_gae_uses_terminal_and_nonterminal_tail_bootstrap_semantics(truncated) -> None:
     config = _ppo_config()
-    terminal = compute_episode_gae(
-        _training_episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0), config
+    terminal = compute_gae(
+        _training_episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0).training,
+        config,
     )
-    bootstrapped = compute_episode_gae(
-        _training_episode(reward=0.25, terminated=False, truncated=truncated, bootstrap=2.0), config
+    bootstrapped = compute_gae(
+        _training_episode(
+            reward=0.25, terminated=False, truncated=truncated, bootstrap=2.0
+        ).training,
+        config,
     )
 
     torch.testing.assert_close(terminal["advantage"], torch.tensor([[-0.75]]))
@@ -52,7 +54,7 @@ def test_gae_treats_simultaneous_termination_and_truncation_as_terminal() -> Non
     assert bool(episode.training["next", "truncated"][-1].item())
     torch.testing.assert_close(episode.training["next", "state_value"], torch.zeros(1, 1))
 
-    trajectory = compute_episode_gae(episode, _ppo_config())
+    trajectory = compute_gae(episode.training, _ppo_config())
     torch.testing.assert_close(trajectory["advantage"], torch.tensor([[-0.75]]))
     torch.testing.assert_close(trajectory["value_target"], torch.tensor([[0.25]]))
 
@@ -85,12 +87,9 @@ def test_combined_gae_respects_episode_boundaries_without_mutation(device) -> No
             episode_advantages.insert(0, advantage)
         expected_advantages.extend(episode_advantages)
     snapshots = [e.training.clone() for e in episodes]
-    batch = build_ppo_batch(episodes, _ppo_config(), device=torch.device(device))
     compact = cat([episode.training for episode in episodes]).to(device)
     compact_snapshot = compact.clone()
-    compact_batch = build_ppo_batch(compact, _ppo_config(), device=torch.device(device))
-    for key in batch.keys():
-        assert torch.equal(compact_batch[key], batch[key])
+    batch = build_ppo_batch(compact, _ppo_config(), device=torch.device(device))
     assert (compact == compact_snapshot).all()
     expected = torch.tensor(expected_advantages, device=device).unsqueeze(-1)
     torch.testing.assert_close(batch["advantage"], expected)
@@ -98,45 +97,6 @@ def test_combined_gae_respects_episode_boundaries_without_mutation(device) -> No
     assert all(value.device.type == device for value in batch.values())
     for episode, training in zip(episodes, snapshots, strict=True):
         assert (episode.training == training).all()
-
-
-def test_compact_update_matches_episode_update_and_preserves_raw_storage() -> None:
-    device = "cpu"
-    config = _ppo_config().model_copy(
-        update={
-            "batch_size": 4,
-            "epochs": 2,
-            "scheduler_total_optimizer_steps": 4,
-            "target_kl": None,
-        }
-    )
-    policy = ExplorationPolicy(_policy_config()).to(device)
-    replica = ExplorationPolicy(_policy_config()).to(device)
-    replica.load_state_dict(policy.state_dict())
-    updaters = (PPOUpdater(policy, config), PPOUpdater(replica, config))
-    episodes = tuple(
-        _training_episode(reward=float(i + 1), terminated=True, truncated=False, bootstrap=0.0)
-        for i in range(4)
-    )
-    compact = cat([episode.training for episode in episodes]).to(device)
-    snapshot = compact.clone()
-
-    expected = updaters[0].update(episodes)
-    actual = updaters[1].update(compact)
-
-    assert actual == expected
-    assert (compact == snapshot).all()
-    for name, parameter in policy.state_dict().items():
-        assert torch.equal(parameter, replica.state_dict()[name])
-    assert (
-        updaters[0].optimizer.state_dict()["param_groups"]
-        == updaters[1].optimizer.state_dict()["param_groups"]
-    )
-    assert updaters[0].scheduler.state_dict() == updaters[1].scheduler.state_dict()
-    assert torch.equal(
-        updaters[0].checkpoint_state()["minibatch_generator_state"],
-        updaters[1].checkpoint_state()["minibatch_generator_state"],
-    )
 
 
 @pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
@@ -169,7 +129,7 @@ def test_minibatches_cover_each_update_and_use_independent_reproducible_rng(devi
         cuda_rng = torch.cuda.get_rng_state().clone() if device == "cuda" else None
         generator_before = updater.checkpoint_state()["minibatch_generator_state"].clone()
         for batch in episodes:
-            updater.update(batch)
+            updater.update(cat([item.training for item in batch]))
         hook.remove()
         assert torch.equal(torch.random.get_rng_state(), cpu_rng)
         if cuda_rng is not None:
@@ -195,7 +155,9 @@ def test_update_preserves_fixed_ppo_targets_and_source(device) -> None:
         for i in range(4)
     )
     snapshots = [episode.training.clone() for episode in episodes]
-    expected = build_ppo_batch(episodes, config, device=torch.device(device))
+    expected = build_ppo_batch(
+        cat([item.training for item in episodes]), config, device=torch.device(device)
+    )
     advantage = expected["advantage"]
     expected["advantage"] = (advantage - advantage.mean()) / advantage.std(correction=1)
     updater = PPOUpdater(ExplorationPolicy(_policy_config()).to(device), config)
@@ -212,7 +174,7 @@ def test_update_preserves_fixed_ppo_targets_and_source(device) -> None:
         minibatches.append((minibatch, minibatch.clone()))
 
     handle = updater.loss_module.register_forward_pre_hook(capture_minibatch)
-    updater.update(episodes)
+    updater.update(cat([item.training for item in episodes]))
     handle.remove()
     assert minibatches
     for actual, snapshot in minibatches:
@@ -228,7 +190,7 @@ def test_ratio_diagnostics_cover_full_batch_without_mutation() -> None:
         _behavior_policy_episode(policy, torch.tensor([[i / 10, -i / 10]]), float(i))
         for i in range(5)
     )
-    batch = build_ppo_batch(episodes, _ppo_config())
+    batch = build_ppo_batch(cat([item.training for item in episodes]), _ppo_config())
     ratios = torch.tensor([0.5, 1.0, 2.0, 4.0, 8.0])
     batch["old_joint_guidance_log_prob"] -= ratios.log()
     snapshot = batch.clone()
@@ -250,7 +212,7 @@ def test_ppo_update_changes_policy_and_reports_finite_training_summary() -> None
         _episode(reward=0.25, terminated=True, truncated=False, bootstrap=0.0),
         _episode(reward=2.0, terminated=True, truncated=False, bootstrap=0.0),
     )
-    report = PPOUpdater(policy, _ppo_config()).update(episodes)
+    report = PPOUpdater(policy, _ppo_config()).update(cat([item.training for item in episodes]))
     summary = build_update_summary(0, episodes, report)
 
     assert any(
@@ -287,7 +249,7 @@ def test_ppo_pairs_each_action_with_its_behavior_log_probability() -> None:
         _behavior_policy_episode(policy, torch.tensor([[0.98, -0.98]]), reward=2.0),
     )
 
-    report = PPOUpdater(policy, _ppo_config()).update(episodes)
+    report = PPOUpdater(policy, _ppo_config()).update(cat([item.training for item in episodes]))
 
     assert report.mean_clip_fraction == 0.0
     assert report.mean_approximate_kl == pytest.approx(0.0, abs=1e-7)
@@ -314,7 +276,7 @@ def test_target_kl_stops_before_triggering_minibatch_optimizer_step() -> None:
     )
     updater = PPOUpdater(ExplorationPolicy(_policy_config()), config)
 
-    report = updater.update(episodes)
+    report = updater.update(cat([item.training for item in episodes]))
 
     assert report.kl_early_stopped
     assert report.kl_early_stop_trigger is not None
@@ -332,7 +294,9 @@ def test_optional_gradient_diagnostics_report_finite_parameter_group_norms() -> 
         _training_episode(reward=2.0, terminated=True, truncated=False, bootstrap=0.0),
     )
 
-    report = PPOUpdater(ExplorationPolicy(_policy_config()), config).update(episodes)
+    report = PPOUpdater(ExplorationPolicy(_policy_config()), config).update(
+        cat([item.training for item in episodes])
+    )
 
     assert report.gradient_diagnostics is not None
     values = report.gradient_diagnostics.__dict__.values()
@@ -360,7 +324,7 @@ def test_scheduler_horizon_covers_every_epoch_and_minibatch_across_updates() -> 
     )
     updater = PPOUpdater(ExplorationPolicy(_policy_config()), config)
 
-    reports = [updater.update(episodes) for _ in range(2)]
+    reports = [updater.update(cat([item.training for item in episodes])) for _ in range(2)]
 
     assert [report.optimizer_step_count for report in reports] == [4, 4]
     assert updater.completed_optimizer_steps == 8
@@ -395,9 +359,9 @@ def test_ppo_accepts_non_gated_scalar_results_without_plannerrft_audit() -> None
         not hasattr(result, "safety_gate") and not hasattr(result, "components")
         for result in rewards
     )
-    gae = compute_episode_gae(episode, _ppo_config())
+    gae = compute_gae(episode.training, _ppo_config())
     torch.testing.assert_close(gae["value_target"], training["next", "reward"])
     before = {name: value.clone() for name, value in policy.state_dict().items()}
-    report = PPOUpdater(policy, _ppo_config()).update([episode])
+    report = PPOUpdater(policy, _ppo_config()).update(episode.training)
     assert report.optimizer_step_count == 1
     assert any(not torch.equal(before[name], value) for name, value in policy.state_dict().items())

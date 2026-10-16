@@ -17,7 +17,11 @@ from eco_planner.evaluation import (
     TrafficObservationSummary,
     WarmupSummary,
 )
-from eco_planner.rl.artifacts import PolicyProbeSummary, TrainingRunSummary, TrainingUpdateSummary
+from eco_planner.rl.artifacts.summaries import (
+    PolicyProbeSummary,
+    TrainingRunSummary,
+    TrainingUpdateSummary,
+)
 
 
 def _episode(*, seed: int, distance_m: float, energy_ml: float) -> CompletedEpisodeSummary:

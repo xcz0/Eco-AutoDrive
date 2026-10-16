@@ -176,5 +176,5 @@ collector-side ownership 的迁移依据见 execution contract 的来源说明�
 | --- | --- | --- |
 | Beta 策略 | [policy](../../../src/eco_planner/planning/policy/)、[policy config](../../../configs/components/policy.yaml) | [policy inputs](../../../tests/planning/test_policy_inputs.py) |
 | Reward 与校准 | [reward](../../../src/eco_planner/reward/)、[离线 reward 适配](../../../src/eco_planner/rl/reward.py) | [reward](../../../tests/training/test_reward.py)、[calibration](../../../tests/training/test_reward_calibration.py) |
-| GAE/PPO 与 credit | [optimization](../../../src/eco_planner/rl/optimization/) | [PPO](../../../tests/training/test_ppo.py)、[credit](../../../tests/training/test_credit_assignment.py) |
+| GAE/PPO 与 credit | [batch/GAE](../../../src/eco_planner/rl/optimization/batch.py)、[PPO](../../../src/eco_planner/rl/optimization/ppo.py)、[credit](../../../src/eco_planner/rl/optimization/credit.py) | [PPO](../../../tests/training/test_ppo.py)、[credit](../../../tests/training/test_credit_assignment.py) |
 | 固定批次与 rollout | [rollout](../../../src/eco_planner/rl/rollout/)、[training jobs](../../../configs/jobs/training/) | [fixed batch](../../../tests/training/test_fixed_batch.py)、[rollout](../../../tests/training/test_rollout.py) |

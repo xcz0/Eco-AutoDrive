@@ -5,14 +5,16 @@ from types import SimpleNamespace
 import pytest
 import torch
 from lightning.fabric import Fabric
+from tensordict import cat
 
 from eco_planner.planning.policy import ExplorationPolicy
-from eco_planner.rl.artifacts import PolicyProbeSummary
-from eco_planner.rl.optimization import (
-    PPOUpdater,
+from eco_planner.rl.artifacts.summaries import PolicyProbeSummary
+from eco_planner.rl.optimization.checkpoint import (
     load_training_checkpoint,
     save_training_checkpoint,
 )
+from eco_planner.rl.optimization.ppo import PPOUpdater
+from eco_planner.rl.rollout.seeds import RolloutRandomStreams
 from eco_planner.rl.tracking import TrackingIdentity
 from eco_planner.rl.training_state import TrainingLoopState, resume_training_state
 
@@ -42,7 +44,7 @@ def test_next_update_and_checkpoint_preserve_minibatches(tmp_path, early_stop, d
     episodes = tuple(
         _episode(reward=float(i), terminated=True, truncated=False, bootstrap=0.0) for i in range(4)
     )
-    first = updater.update(episodes)
+    first = updater.update(cat([item.training for item in episodes]))
     if early_stop:
         assert first.kl_early_stopped
         assert first.cumulative_kl_early_stop_count == 1
@@ -65,7 +67,7 @@ def test_next_update_and_checkpoint_preserve_minibatches(tmp_path, early_stop, d
     hook = updater.loss_module.register_forward_pre_hook(
         lambda module, args: seen.extend(args[0]["guidance_action"][:, 0].tolist())
     )
-    expected = updater.update(next_episodes)
+    expected = updater.update(cat([item.training for item in next_episodes]))
     final_rng = torch.random.get_rng_state().clone()
     hook.remove()
     for offset in (0, 4):
@@ -86,7 +88,7 @@ def test_next_update_and_checkpoint_preserve_minibatches(tmp_path, early_stop, d
     hook = restored.loss_module.register_forward_pre_hook(
         lambda module, args: replayed.extend(args[0]["guidance_action"][:, 0].tolist())
     )
-    assert restored.update(next_episodes) == expected
+    assert restored.update(cat([item.training for item in next_episodes])) == expected
     assert torch.equal(torch.random.get_rng_state(), final_rng)
     hook.remove()
     assert seen == replayed
@@ -171,20 +173,39 @@ def test_training_loop_restores_json_mode_summary_and_probe_from_checkpoint(
     )
 
 
+@pytest.mark.parametrize("mismatch", ["diffusion", "policy"])
+def test_rollout_streams_reject_seed_provenance_mismatch(mismatch):
+    with pytest.raises(ValueError, match="provenance"):
+        RolloutRandomStreams(
+            noise_seed=10,
+            policy_action_seed=20,
+            diffusion=torch.Generator().manual_seed(11 if mismatch == "diffusion" else 10),
+            policy=torch.Generator().manual_seed(21 if mismatch == "policy" else 20),
+        )
+
+
 def test_rollout_rng_restore_preserves_streams_and_rejects_reordered_slots():
     diffusion = tuple(torch.Generator().manual_seed(i) for i in (10, 11))
     policy = tuple(torch.Generator().manual_seed(i) for i in (20, 21))
     for generator in (*diffusion, *policy):
         torch.rand(7, generator=generator)
     state = TrainingLoopState()
-    state.capture_rollout_rng(diffusion, policy)
+    streams = tuple(
+        RolloutRandomStreams(d.initial_seed(), p.initial_seed(), d, p)
+        for d, p in zip(diffusion, policy, strict=True)
+    )
+    state.capture_rollout_rng(streams)
     expected = [torch.rand(5, generator=g) for g in (*diffusion, *policy)]
     restored_diffusion = tuple(torch.Generator().manual_seed(i) for i in (10, 11))
     restored_policy = tuple(torch.Generator().manual_seed(i) for i in (20, 21))
     global_rng = torch.random.get_rng_state().clone()
-    state.restore_rollout_rng(restored_diffusion, restored_policy)
+    restored = tuple(
+        RolloutRandomStreams(d.initial_seed(), p.initial_seed(), d, p)
+        for d, p in zip(restored_diffusion, restored_policy, strict=True)
+    )
+    state.restore_rollout_rng(restored)
     for generator, values in zip((*restored_diffusion, *restored_policy), expected, strict=True):
         assert torch.equal(torch.rand(5, generator=generator), values)
     assert torch.equal(global_rng, torch.random.get_rng_state())
     with pytest.raises(ValueError, match="logical slot"):
-        state.restore_rollout_rng(restored_diffusion[::-1], restored_policy)
+        state.restore_rollout_rng(restored[::-1])

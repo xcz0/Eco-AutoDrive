@@ -7,12 +7,9 @@ import torch
 from tensordict import TensorDictBase, cat
 from torchrl.objectives.value.functional import td_lambda_return_estimate
 
-from eco_planner.rl import (
-    PPO_BATCH_KEYS,
-    PPOConfig,
-    RolloutEpisode,
-    build_ppo_batch,
-)
+from eco_planner.rl.optimization.batch import PPO_BATCH_KEYS, build_ppo_batch
+from eco_planner.rl.optimization.config import PPOConfig
+from eco_planner.rl.rollout.contracts import RolloutEpisode
 
 
 def zero_critic_values(episode: RolloutEpisode) -> RolloutEpisode:
@@ -46,9 +43,11 @@ def credit_batch(
 ) -> TensorDictBase:
     """Build the full PPO batch for one temporal-credit form; episode boundaries shared."""
     if form == "standard_gae":
-        return build_ppo_batch(episodes, config)
+        return build_ppo_batch(cat([episode.training for episode in episodes]), config)
     if form == "reward_only_gae":
-        return build_ppo_batch([zero_critic_values(episode) for episode in episodes], config)
+        return build_ppo_batch(
+            cat([zero_critic_values(episode).training for episode in episodes]), config
+        )
     if form == "discounted_return":
         return discounted_return_batch(episodes, config.gamma)
     raise ValueError(f"unknown temporal-credit form: {form}")

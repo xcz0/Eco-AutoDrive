@@ -15,7 +15,7 @@ from eco_planner.experiments.comparison.analysis import (
     scalar_reward,
 )
 from eco_planner.experiments.comparison.report import plot, write_report
-from eco_planner.rl.artifacts import PolicyProbeSummary, TrainingRunSummary
+from eco_planner.rl.artifacts.summaries import PolicyProbeSummary, TrainingRunSummary
 from eco_planner.statistics import (
     ScenarioBootstrapConfig,
     advantage_comparison,

@@ -16,10 +16,10 @@ from eco_planner.configuration import load_resolved_yaml_mapping
 from eco_planner.experiments.credit.analysis import publish
 from eco_planner.reward import apply_frozen_energy_band, calibrate
 from eco_planner.reward.config import PlannerRFTNoEnergyRewardConfig
-from eco_planner.rl.optimization import PPOUpdater
 from eco_planner.rl.optimization.credit import credit_batch
 from eco_planner.rl.optimization.diagnostic_runtime import restore_runtime, write_runtime_metadata
 from eco_planner.rl.optimization.gradients import GRADIENT_GROUPS, diagnostic_variants
+from eco_planner.rl.optimization.ppo import PPOUpdater
 from eco_planner.rl.reward import (
     COMPONENTS,
     apply_energy_band,

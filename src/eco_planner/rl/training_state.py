@@ -11,11 +11,13 @@ import torch
 from hydra.utils import to_absolute_path
 
 from eco_planner.planning.policy import ExplorationPolicyContext, policy_context_tensordict
+from eco_planner.rl.artifacts.summaries import PolicyProbeSummary, TrainingUpdateSummary
+from eco_planner.rl.optimization.checkpoint import load_training_checkpoint
+from eco_planner.rl.optimization.ppo import PPOUpdater
 
-from .artifacts.schema import PolicyProbeSummary, TrainingUpdateSummary
 from .config import TrainingJobConfig
-from .optimization import PPOUpdater, load_training_checkpoint
 from .rollout.runtime import FabricRolloutRuntime
+from .rollout.seeds import RolloutRandomStreams
 from .tracking import TrackingIdentity
 
 
@@ -33,20 +35,18 @@ class TrainingLoopState:
 
     def capture_rollout_rng(
         self,
-        diffusion_generators: tuple[torch.Generator, ...],
-        policy_generators: tuple[torch.Generator, ...],
+        streams: tuple[RolloutRandomStreams, ...],
     ) -> None:
-        self.diffusion_rng_states = tuple(g.get_state().clone() for g in diffusion_generators)
-        self.policy_rng_states = tuple(g.get_state().clone() for g in policy_generators)
+        self.diffusion_rng_states = tuple(s.diffusion.get_state().clone() for s in streams)
+        self.policy_rng_states = tuple(s.policy.get_state().clone() for s in streams)
 
     def restore_rollout_rng(
         self,
-        diffusion_generators: tuple[torch.Generator, ...],
-        policy_generators: tuple[torch.Generator, ...],
+        streams: tuple[RolloutRandomStreams, ...],
     ) -> None:
         for generators, states in (
-            (diffusion_generators, self.diffusion_rng_states),
-            (policy_generators, self.policy_rng_states),
+            (tuple(s.diffusion for s in streams), self.diffusion_rng_states),
+            (tuple(s.policy for s in streams), self.policy_rng_states),
         ):
             for generator, state in zip(generators, states, strict=True):
                 expected_seed = generator.initial_seed()

@@ -13,7 +13,7 @@ from omegaconf import DictConfig, OmegaConf, open_dict
 from eco_planner._repository import CONFIG_ROOT
 from eco_planner.configuration import resolve_config_mapping, with_machine_resource_override
 from eco_planner.evaluation import JobSummary, parse_evaluation_config
-from eco_planner.rl.artifacts import TrainingRunSummary
+from eco_planner.rl.artifacts.summaries import TrainingRunSummary
 from eco_planner.rl.config import parse_training_config
 from eco_planner.runtime.resources import require_resource_profile
 

@@ -17,7 +17,7 @@ from eco_planner.reward import (
     scored_arrays,
 )
 from eco_planner.reward.components.comfort import component_score
-from eco_planner.rl.artifacts import read_rollout_episode, write_rollout_episode
+from eco_planner.rl.artifacts.io import read_rollout_episode, write_rollout_episode
 from eco_planner.rl.reward import (
     COMPONENTS,
     energy_only_reward,
