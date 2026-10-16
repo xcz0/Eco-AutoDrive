@@ -103,6 +103,9 @@ COMMANDS = {
     ("energy", "proxy", "run"): Command(
         "energy_proxy.analysis", "run", "energy-proxy/analysis.yaml", source=True
     ),
+    ("energy", "fastsim", "run"): Command(
+        "energy_proxy.fastsim_review", "run", "energy-proxy/fastsim-review.yaml", source=True
+    ),
 }
 
 
@@ -132,6 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
         elif domain == "energy":
             nested = {
                 "proxy": sub.add_parser("proxy").add_subparsers(required=True),
+                "fastsim": sub.add_parser("fastsim").add_subparsers(required=True),
             }
         else:
             nested = {}
