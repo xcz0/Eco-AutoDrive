@@ -1,0 +1,133 @@
+# Issue #113 Task 2 (E-062): offline physics-model review on the fixed E-060
+# execution traces.
+#
+# This file is the machine-readable pre-registration of the diagnostic study.
+# It is frozen before the formal analysis runs: the cycle-reconstruction
+# mapping (distance-preserving window means, warm-engine vehicle copy, ramp
+# prefix and windowed fuel accounting), the statistical window, the synthetic
+# diagnostic profiles and the fail-closed semantics below must not change
+# between freezing and reporting. The matched E-060 evidence itself is only
+# read; no simulator, model or training run is involved.
+#
+# Frozen feasibility facts (2026-10-15 read-only pre-checks over the same
+# source): raw 0.1 s execution traces are physically unfollowable (kinematic
+# waypoint quantization up to ~47 m/s^2, FASTSim cold-start power limit
+# 21.75 kW), so the replayed cycle is the distance-preserving window-mean
+# speed series of the same executed trace. At the primary 1.0 s window
+# 111/112 final episodes are followable with the warm-engine copy; the
+# secondary 0.5 s window (88/112) is descriptive only and never enters
+# Gate P2.
+#
+# Post-freeze deviation note (2026-10-16, see record E-062): the frozen
+# pre-check scripts were not preserved and the census facts above could not
+# be reproduced exactly by the frozen pipeline. The first formal run kept
+# each trailing partial window at its true sub-window duration (e.g. 0.1 s),
+# which reimported the raw trace's kinematic quantization as end-of-trace
+# acceleration spikes: only 89/112 primary episodes stayed followable, with
+# exclusions concentrated in arm a2 (15 of 23). Following user adjudication
+# the trailing partial group is merged into the last full window (merged
+# window keeps summed distance and summed real duration; distance
+# preservation and true mean speeds are unchanged; no window shorter than
+# the analysis window is emitted). No frozen parameter above changed. The
+# superseded first run is preserved under
+# outputs/studies/energy-proxy/e-062-issue113-task-2-fastsim-fixed-trace-review-superseded-run1-tail-partial.
+version: 1
+study_name: issue113_task2_fastsim_fixed_trace_review
+# Manifest run scope: these checkpoint labels enter the per-episode physics
+# measurement. All remaining manifest runs keep their checkpoint-pin and
+# matched-condition validation through the source loader.
+checkpoint_labels:
+- final
+# Paired contrasts over the labels above (difference = comparison - reference).
+# Primary is the E-060 Gate F adjudication contrast; context is reported for
+# reference only and carries no gate.
+contrast_primary: [a1, a2]
+contrast_context: [a0, a1]
+# The frozen-planner baseline enters the measurement scope even though it has
+# no training seed; for the context contrast it is paired against each a1 seed.
+include_baseline: true
+# Per-training-seed scenario bootstrap over matched scenario deltas; values
+# follow the canonical comparison series (E-055..E-061). Training seeds are
+# never resampled and no cross-seed population interval is produced.
+bootstrap:
+  confidence_level: 0.95
+  n_resamples: 10000
+  bootstrap_seed: 0
+fastsim:
+  # Conventional vehicle pinned by the domain provider tests; fastsim itself
+  # is pinned to 3.1.0 by uv.lock.
+  vehicle_resource: 2012_Ford_Fusion.yaml
+  # Flat road, ambient 295.15 K and initial elevation 121.92 m follow the
+  # locked domain-provider regression configuration.
+  grade: 0.0
+  ambient_temperature_k: 295.15
+  initial_elevation_m: 121.92
+  # Warm-engine assumption: the replayed traces are mid-trip segments of an
+  # already-cruising vehicle (initial speed ~10.6 m/s), so the cold-start
+  # power ramp (fc.pwr_out_max_init_watts 21.75 kW with pwr_ramp_lag 6 s,
+  # which never unlocks under the traces' modest demand) is replaced by the
+  # full fc.pwr_out_max_watts on a study-local vehicle copy. The domain
+  # provider itself is not modified.
+  warm_engine: true
+  # Distance-preserving window-mean cycle reconstruction of the executed
+  # trace. Primary analysis window (standard drive-cycle resolution).
+  primary_window_s: 1.0
+  # Secondary window (canonical planner cadence), reported descriptively
+  # with fail-closed denominators; never enters Gate P2.
+  secondary_window_s: 0.5
+  # Initialization prefix: the FASTSim vehicle starts from rest, so a
+  # physical ramp to the first window speed followed by a short hold brings
+  # the vehicle to the trace's initial state. Prefix fuel is excluded from
+  # every reported window through per-step cumulative accounting.
+  ramp_accel_mps2: 0.9
+  ramp_timestep_s: 0.5
+  hold_window_count: 4
+physics_proxy:
+  # Minimal auditable longitudinal-dynamics power proxy. Parameters are the
+  # 2012_Ford_Fusion.yaml resource values (mass, drag, frontal area, rolling
+  # resistance, wheel inertia/radius/count, transmission efficiency 0.875,
+  # peak fc efficiency 0.36, auxiliary power 700 W, idle fuel power 0 W);
+  # air density is the standard-atmosphere value at the pinned ambient
+  # temperature. Locked by test against the live resource.
+  vehicle_mass_kg: 1644.2724500334996
+  wheel_inertia_kg_m2: 0.82
+  wheel_count: 4
+  wheel_radius_m: 0.326
+  drag_coefficient: 0.393
+  frontal_area_m2: 2.12
+  rolling_resistance_coefficient: 0.007
+  driveline_efficiency: 0.875
+  engine_peak_efficiency: 0.36
+  air_density_kg_m3: 1.2041
+  auxiliary_power_w: 700.0
+  idle_fuel_power_w: 0.0
+  gravity_mps2: 9.80665
+diagnostics:
+  # Synthetic provider-response profiles, all from rest with feasible
+  # accelerations so they replay through the unmodified domain provider
+  # (stock cold-start vehicle). Reported in a separate section from the
+  # real held-out results.
+  timestep_s: 0.1
+  cruise_speed_mps: 10.0
+  launch_accel_mps2: 0.7
+  cruise_hold_steps: 600
+  # Same mean speed and same marginal speed distribution, different
+  # acceleration magnitude (rate of kinetic-energy cycling).
+  fluctuation_amplitude_mps: 0.5
+  fluctuation_period_fast_s: 4.0
+  fluctuation_period_slow_s: 8.0
+  fluctuation_duration_s: 64.0
+  # Stop-and-go with an idle dwell; the derived no-dwell variant (dwell
+  # steps removed, speed continuity preserved at 0 m/s) isolates idle
+  # visibility per provider.
+  stop_and_go_cruise_steps: 150
+  stop_and_go_brake_accel_mps2: -1.0
+  stop_and_go_dwell_steps: 100
+  stop_and_go_second_cruise_steps: 150
+  # Same launch, cruise and braking endpoints, different braking intensity.
+  brake_approach_speed_mps: 12.0
+  brake_cruise_steps: 100
+  hard_brake_accel_mps2: -2.0
+  gentle_brake_accel_mps2: -0.5
+  brake_target_speed_mps: 4.0
+  brake_after_cruise_steps: 100

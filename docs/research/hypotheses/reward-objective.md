@@ -69,6 +69,13 @@ E-060 已在受限 matched 条件下观察到跨三个 training seeds 的 proxy 
 Native energy 与执行 trace proxy 的已观测差异见 [Findings](../findings.md#能耗读数能否代表实际执行)。
 候选归一化方案不改变该证据的仿真与 proxy 解释边界。
 
+[E-061/E-062](../findings.md#fuel-proxy-的结构与物理方向支持) 已证明当前 execution
+fuel proxy 是纯速度型信号，其 E-060 方向未获离线物理模型支持。由此新增未决问题：
+是否存在可在线使用的物理敏感 energy signal——对加减速、制动、怠速有响应，可在
+0.5 s transition 内以可接受成本计算。采用此类信号即构成**新实验族**：λ 选择、gate
+与 E-060 数值均不继承。该研究与既有证据的关系及准入要求见
+[Issue #113 Task 3 决策记录](../issue113-task-3-energy-metric-decision.md)（候选 B）。
+
 ### 3. Trade-off weight
 
 对于标量 reward，需要研究 energy 权重增加时其他指标如何变化，而不是只寻找 training return 最大的配置。
