@@ -32,6 +32,32 @@ reward、training、evaluation 不得另算同名 speed/stopped/wrong-direction/
 研究定义见 planning/evaluation 指标表。
 Domain metrics 不携带 reward policy，training 按其 Protocol 求 score，evaluation 只记录客观事实。
 
+## 独立 trajectory tracker（Task A，尚未接入运行路径）
+
+[Issue #117](https://github.com/xcz0/Eco-AutoDrive/issues/117) Task A 的独立控制器只消费
+`WorldTrajectory` reference、实际 world-frame center／heading／velocity、显式车辆几何和控制参数，
+输出 normalized steering／throttle_brake；MUST NOT 写入 simulator vehicle state。
+当前运行路径仍采用上节执行保证；50 Hz backend 接入与旧 replay 删除属于 Task B/H，
+本节不表示物理闭环替换已经完成，也不升级现有 reward／energy 语义。
+
+Reference time 是自最近一次 replan 起的非负秒数，`compute` 的 `dt_s` 是正的控制更新间隔。
+位置按 `0.1 s` sample 线性插值，heading 沿最短角插值；速度 reference 是差分 velocity 的模，
+80 项对应 `0.1…8.0 s`，首个 `0…0.1 s` 保持第一项，之后线性插值。
+Horizon 之后 MUST 保持 terminal position／heading／speed，不补造零速。
+
+Pure Pursuit MUST 使用实际后轴和 reference 后轴路径，按实际 longitudinal speed 计算显式
+look-ahead，从当前参考时间沿路径前向寻找首个达到该距离的点并在线段内插值。
+起点已达该距离时使用起点，剩余路径不足时使用终点；重复点不得导致越界或除零。
+Steering 角度归一化 MUST 将车辆 `max_steering_deg` 转为 radians；车辆参数要求
+`enable_reverse=False`。Longitudinal PID/PI 使用实际速度在实际 heading 上的投影，
+MUST 有 bounded integral 和 saturation anti-windup；D 项使用 measurement derivative，首次为零。
+目标速度为零时禁止正 throttle。Replan 仅替换 reference；积分与历史测量仅在 episode reset 硬清空。
+
+Reference 的固定 shape／float64 dtype／有限性在设置时校验并复制；实际状态、时间、配置及计算
+结果非法时 MUST 失败，不修复 planner trajectory。Controller 配置 MUST 显式、strict、可序列化；
+[工程默认配置](../../configs/components/controller/pure_pursuit_pid.yaml) 未接入 job defaults，
+不构成正式实验校准或 controller gains 的科研验证。
+
 ## Slot、交通与进程生命周期
 
 Reset MUST 原子完成场景 reset、history warmup 与首 observation；step 原子完成实际 prefix、traffic history 更新和下一 observation。Serial/vector 共享这些边界。

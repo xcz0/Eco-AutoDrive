@@ -1,0 +1,17 @@
+# @package controller
+# Engineering defaults for the standalone Task A controller; not active in jobs.
+# Freeze and persist these parameters before formal physics-based experiments.
+
+type: pure_pursuit_pid
+version: 1
+lookahead:
+  base_m: 3.0
+  speed_gain_s: 0.5
+  min_m: 2.0
+  max_m: 15.0
+longitudinal:
+  kp: 0.5
+  ki: 0.1
+  kd: 0.0
+  integral_limit: 10.0
+  output_limit: 1.0
