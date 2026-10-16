@@ -26,7 +26,41 @@ baseline、zero 与正负 longitudinal guidance 对照中，zero 与 baseline �
 记录保存运行时 dirty provenance，保留其原分类与限制，不追认为符合现行 clean-commit 要求的正式结果。
 
 **限制与未决问题。** 这是特定 phase boundary 下的测量结论，不证明真实车辆能耗、动力学可跟踪性、
-FASTSim 一致性或跨 seed 节能。Proxy 结论能否在更高保真能耗模型下保持，仍需独立验证。
+FASTSim 一致性或跨 seed 节能。Proxy 结论在更高保真模型下的保持问题已由
+[E-061/E-062](#fuel-proxy-的结构与物理方向支持) 在本项目证据域内回答：未保持。
+
+## Fuel proxy 的结构与物理方向支持
+
+**结论。** Execution fuel proxy 是纯速度型估计量：直接输入只有子步结束速度与位移，
+加减速时序、怠速、制动与坡度结构性不可见。E-060 A2−A1 的 proxy 强度改善
+98.96%–100.09% 由距离加权速度水平（降速）载带，形状项 ≤1.04% 且符号不稳定。
+对完全相同执行轨迹的离线物理复核显示，该节能方向未获任一物理模型跨 seed 支持：
+seed 0 FASTSim 与 physics proxy 均与 proxy 反向（CI 不含 0），A2 的降速在含怠速／
+辅助载荷的物理口径下转为每公里能耗上升；proxy 还把 A0→A1 的物理口径差距低估
+5–8 倍。据此采纳 dual-metric：proxy 保留为 reward 一致性／训练诊断量，物理能效
+声明必须由离线物理复核承载（[ADR 0042](../adr/0042-adopt-dual-energy-metrics-and-restrict-proxy-claims.md)）。
+
+**条件与证据。**
+
+- [E-061：proxy 结构证明与速度归因](../experiments/records/e-061-issue113-task-1-proxy-structural-proof-and-speed-attribution.md)：
+  112/112 final episodes 的 trace→公式→summary parity 浮点级一致；分解恒等式
+  `Δln I = 0.036·Δμ_d + Δln shape` 下 level 项解释 98.96%–100.09%；合成反事实确认
+  reorder 不变、静止尾巴不可见、全静止 intensity 为 undefined；加速度/jerk 与 shape 项的
+  Spearman 0.77–0.89 只是通过距离加权速度分布的间接关联。运行身份与统计口径见该记录。
+- [E-062：FASTSim 固定轨迹复核](../experiments/records/e-062-issue113-task-2-fastsim-fixed-trace-review.md)：
+  与 E-061 相同的 E-060 final matched evidence；主分辨率 1.0 s 下 112/112 可跟随
+  （warm-engine `2012_Ford_Fusion` 副本、平路 295.15 K、距离保持窗口均值重构、
+  ramp 前缀燃料剔除）；三 provider 单位永不混合，只做 provider 内配对 Δln 比较。
+  合成不变量：proxy 对动能循环率与 idle dwell 敏感性精确 0，对制动强度近盲；
+  fastsim/physics 对三者均响应。
+
+**限制与未决问题。** 分歧构成对 proxy 方向声明的反证，不构成对 A2 真实物理能耗的
+正面结论：FASTSim 车辆配置本身是模型选择，其判定对窗口分辨率敏感（seed 0 符号在
+0.5 s 描述分辨率下翻转）且呈 S/SC family 结构；physics proxy 为 study-local 极简实现
+（无再生制动、恒定路径效率）。结论范围限于 E-060 final matched evidence
+（held-out seeds 16–23、v ≈ 10 m/s、kinematic waypoint boundary）与所冻结的 FASTSim
+配置。keep/dual/replace 三方案对照、历史证据继承表与后续 Issue 边界见
+[Issue #113 Task 3 决策记录](issue113-task-3-energy-metric-decision.md)。
 
 ## PPO 稳定候选能支持到哪里
 
@@ -241,6 +275,10 @@ S/SC 与 leave-one-scenario-out 方向保持，但 S 效应幅度约为 SC 的 2
 
 **限制。** CI 条件于固定 policy 和可用场景，不是跨 training seed 的总体区间。
 Proxy 不是真实动力系统能耗，energy_distance 与 distance 是同一估计器，不能当独立证据。
+[E-061](../experiments/records/e-061-issue113-task-1-proxy-structural-proof-and-speed-attribution.md)
+把该改善 ≥99% 归因于距离加权速度水平；[E-062](../experiments/records/e-062-issue113-task-2-fastsim-fixed-trace-review.md)
+显示该方向未获离线物理模型支持。Gate F 因此保持为 proxy 口径历史裁定，不作为物理节能
+证据引用（[ADR 0042](../adr/0042-adopt-dual-energy-metrics-and-restrict-proxy-claims.md)）。
 A1 的 learned 分量须区分 initial guidance 偏移与 initial→final 变化。
 结论仅适用本 λ1、reward family、cadence 与无交通矩阵，不外推其他 λ、traffic 或真实车辆。
 是否存在不依赖降速的收益仍属 [reward/objective 研究问题](hypotheses/reward-objective.md)。

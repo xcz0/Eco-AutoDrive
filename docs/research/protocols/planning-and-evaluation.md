@@ -102,6 +102,19 @@ FASTSim `fastsim_fuel_energy` MUST 在完整实际执行轨迹结束后离线求
 `2012_Ford_Fusion.yaml`；输出 J/Wh，不推导 fuel mL，不进入在线 reward 或默认 evaluation artifact。
 不得把它与 proxy 相加／替换；没有原生坡度不得推断高程。
 
+[ADR 0042] Proxy 与离线物理复核构成 dual-metric。Proxy 仍是 reward 一致性与训练诊断量，
+正式比较中继续配对报告，但 MUST 按代理口径解释：其强度由距离加权速度水平决定
+（[E-061](../../experiments/records/e-061-issue113-task-1-proxy-structural-proof-and-speed-attribution.md)
+证明 E-060 改善 ≥99% 由降速载带），不得单独表述为物理节能。支持物理能效声明的正式比较
+MUST 另附同一完整执行轨迹的离线物理复核（FASTSim 及／或可审计的纵向动力学 proxy），
+provider、车辆／环境配置、窗口映射与分辨率显式 pin，且只在各 provider 自身单位内做配对
+比较，不与 proxy 相加、换算或互标定。Proxy 与离线物理复核方向冲突时 MUST 报告分歧并
+保留双方数值，此时不得作出物理能效声明；冲突也不构成对任一模型正确性或真实能耗方向的
+证明（[E-062](../../experiments/records/e-062-issue113-task-2-fastsim-fixed-trace-review.md)
+同时登记 FASTSim 的分辨率敏感性与 family 结构，任何以 FASTSim 为 gate 的后续设计必须先
+pin 并 stress 这些条件）。离线复核进入默认 evaluation artifact 属实现改动，由后续 Issue
+定义；未实现前，物理能效声明需要如 E-062 的显式离线复核研究支撑。
+
 ## Matched comparison 与随机条件
 
 训练与 held-out 场景池 MUST 不相交。Arm、reward profile、方向性 contrasts、训练 seed 与
@@ -137,6 +150,8 @@ A1−A0 单独报告 learned behavioral effect；A2−A1 是 energy term 的主�
   completed 回合。未知结果不计作安全，缺项及失败原因单列。
 - 每个 contrast 使用双方 completed 的 matched 交集，差值为 `comparison − reference`。
   每 training seed effect 是场景配对的总 proxy mL 差的均值；负值结合安全、距离与提前终止解释。
+  该 proxy 差是 reward 一致性／代理口径量；物理能效表述必须满足[指标及累计窗口](#指标及累计窗口)
+  的离线物理复核要求。
 - 每 training seed 单独报告点估计、scenario bootstrap CI 和缺项。使用显式 confidence level、
   resample 数、bootstrap seed、percentile 方法和独立 RNG；不重采样 training seeds。
 - 无 pair 时 estimate/CI 不可用；单 pair 保留 estimate，CI 不可用；常量双样本允许零宽 CI。
@@ -163,7 +178,8 @@ metric estimator、窗口或终止含义，均是 protocol change，不能作为
 [0013](../../adr/0013-add-reference-centered-orthogonal-guidance.md)、
 [0032](../../adr/0032-separate-online-proxy-and-offline-fastsim-energy.md)、
 [0037](../../adr/0037-simplify-experiments-and-report-seed-effects.md)、
-[0039](../../adr/0039-unify-closed-loop-cadence.md)。迁移细节来自
+[0039](../../adr/0039-unify-closed-loop-cadence.md)、
+[0042](../../adr/0042-adopt-dual-energy-metrics-and-restrict-proxy-claims.md)。迁移细节来自
 [旧 planner](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/planner.md)、[system contract](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/system-contract.md)、
 [旧 experiments](https://github.com/xcz0/Eco-AutoDrive/blob/eaafe5bf911390ef3263bea808aadc40215068a6/docs/agents/contracts/experiments.md)。ADR 保留 rationale 与历史决定，不重复维护本篇规范。
 
