@@ -10,7 +10,7 @@ from tests.characterization.harness import build_diffusion_case
 
 
 def test_execution_is_ready_before_deferred_audit_and_keeps_decision_identity(monkeypatch):
-    runtime, observation, generators, _ = build_diffusion_case("base_ddim")
+    runtime, observation, generators = build_diffusion_case("base_ddim")
     events = []
 
     class TrackingTransfer(HostTransfer):
@@ -51,7 +51,7 @@ def test_execution_is_ready_before_deferred_audit_and_keeps_decision_identity(mo
 
 
 def test_raw_artifact_fields_are_validated_by_evaluation_not_planning():
-    runtime, observation, generators, _ = build_diffusion_case("base_ddim")
+    runtime, observation, generators = build_diffusion_case("base_ddim")
     observation.del_("route_lanes_speed_limit")
     noise = runtime.sample_noise(generators)
     runtime.decide_batch(observation, noise, generators)
@@ -61,7 +61,7 @@ def test_raw_artifact_fields_are_validated_by_evaluation_not_planning():
 
 @pytest.mark.parametrize("case", ["base_ddim", "fixed"])
 def test_agent_regular_decision_matches_explicit_noise_path(case):
-    runtime, observation, generators, _ = build_diffusion_case(case)
+    runtime, observation, generators = build_diffusion_case(case)
     agent = DiffusionEvaluationAgent(runtime)
     states = [generator.get_state() for generator in generators]
     explicit = agent.infer_batch(observation, runtime.sample_noise(generators), generators)

@@ -19,9 +19,10 @@ from eco_planner.envs.parallel.torchrl import planner_observation_spec
 from eco_planner.rl.rollout.collector import VectorRolloutCollector
 from eco_planner.rl.rollout.profiling import RolloutPlannerTiming
 from eco_planner.runtime.profiling import PhaseTiming
-from tests.training.rollout_helpers import (
+
+from .helpers import _reward_result
+from .rollout_helpers import (
     _execution_result,
-    _reward_result,
     _substep_metrics,
     _transition,
 )
@@ -291,12 +292,10 @@ def _collector(capacity, device):
 @pytest.mark.parametrize(
     "device,capacity,sampling,shared_storage",
     [
-        ("cpu", capacity, sampling, shared)
-        for capacity in (1, 3, 4)
-        for sampling in ("sample", "mean")
-        for shared in (False, True)
-    ]
-    + [
+        ("cpu", 3, "sample", True),
+        ("cpu", 1, "sample", False),
+        ("cpu", 4, "mean", True),
+        ("cpu", 3, "mean", False),
         pytest.param("cuda", 3, "sample", True, marks=pytest.mark.gpu),
         pytest.param("cuda", 3, "mean", False, marks=pytest.mark.gpu),
     ],

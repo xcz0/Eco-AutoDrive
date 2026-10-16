@@ -48,7 +48,7 @@ Reference-centered guidance 因此不自动提供道路几何约束、专家监�
 
 Base action 是策略分布中的基础随机变量；guidance action 是映射后作用于规划的横向、纵向控制量。
 两者属于不同概率空间，亦不等于 DDIM transition 或候选选择事件。
-固定人工干预与随机策略动作的有效域不同；精确定义见
+随机策略动作的有效域与概率记账见
 [动作概率契约](../contracts/training.md#动作与概率记账)。
 
 Orthogonal guidance 指相对 reference 切向与左法向定义的更新。

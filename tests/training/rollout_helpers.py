@@ -13,13 +13,13 @@ from eco_planner.envs.domain import (
     TransitionMetrics,
 )
 from eco_planner.planning.policy import ExplorationPolicyContext
-from eco_planner.reward import PlannerRFTRewardResult, RewardComponents, RewardDiagnostics
 from eco_planner.rl.rollout import (
     ExecutionTransitionAudit,
     RolloutProvenance,
     build_training_decision,
 )
-from tests.training.helpers import _decision_audit
+
+from .helpers import _decision_audit, _reward_result
 
 
 def _context() -> ExplorationPolicyContext:
@@ -64,37 +64,6 @@ def _transition():
     )
     provenance = RolloutProvenance(0, 1, 2, 0)
     return training_decision, decision_audit, execution_audit, provenance
-
-
-def _reward_result(total: float, *, safety_gate: float = 1.0) -> PlannerRFTRewardResult:
-    return PlannerRFTRewardResult(
-        profile_name="plannerrft_energy_v1",
-        total=total,
-        base_total=total,
-        safety_gate=safety_gate,
-        components=RewardComponents(1.0, 0.5, 1.0, 1.0, 0.5),
-        diagnostics=RewardDiagnostics(
-            collision_score=1.0,
-            drivable_score=1.0,
-            wrong_direction_score=1.0,
-            has_ttc_candidate=False,
-            min_ttc_s=10.0,
-            route_progress_delta_m=1.0,
-            speed_mps=2.0,
-            speed_limit_mps=10.0,
-            overspeed_mps=0.0,
-            longitudinal_acceleration_mps2=0.0,
-            lateral_acceleration_mps2=0.0,
-            jerk_mps3=0.0,
-            yaw_rate_radps=0.0,
-            step_distance_m=1.0,
-            native_step_energy_ml=0.0,
-            native_episode_energy_ml=0.0,
-            executed_fuel_proxy_step_energy_ml=0.05,
-            executed_fuel_proxy_ml_per_km=50.0,
-            energy_distance_valid=True,
-        ),
-    )
 
 
 def _substep_metrics(

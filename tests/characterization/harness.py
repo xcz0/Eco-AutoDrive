@@ -395,13 +395,11 @@ def build_diffusion_case(case):
             sampler_config(),
             initial_noise_scale=1.0,
             parity_label="plannerrft_paper_text",
-            ddim_stochasticity=0.5 if case in ("base_stochastic", "fixed", "manual") else 0.0,
+            ddim_stochasticity=0.5 if case in ("base_stochastic", "fixed") else 0.0,
         )
     )
     if case.startswith("base"):
         guidance = NoGuidanceConfig()
-    elif case == "manual":
-        guidance = planner.guidance_config
     else:
         fields = asdict(planner.guidance_config)
         fields["name"] = "orthogonal_reference"
@@ -425,5 +423,4 @@ def build_diffusion_case(case):
     observation["route_lanes_speed_limit"] = torch.full((2, 25, 1), 13.0)
     observation["route_lanes_has_speed_limit"] = torch.ones((2, 25, 1), dtype=torch.bool)
     generators = tuple(torch.Generator().manual_seed(seed) for seed in (101, 303))
-    action = torch.tensor([[-1.0, 1.0], [1.0, -1.0]]) if case == "manual" else None
-    return runtime, observation, generators, action
+    return runtime, observation, generators

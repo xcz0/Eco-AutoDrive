@@ -59,76 +59,13 @@ optimizer/scheduler steps 均为零。梯度按 actor head、shared trunk、late
 Pearson/Spearman 使用含 ties 的既定统计定义，常量或不足样本为 undefined。
 报告保留 cosine、`1−cosine`、norm ratio 原值和 undefined，不裁剪以美化结果。
 
-## 人工 guidance 的共同控制条件
+## 已退役的 guidance 诊断
 
-Matched group MUST 固定 scenario、reset seed、slot、batch shape 与 diffusion noise seed。
-各 arm 独立 reset，核对首 observation、simulator state 和逐周期 initial noise；DDIM stochasticity=0。
-固定 action 是 `(lateral,longitudinal)`，允许 ±1，直接干预 guidance，不经过 Beta 概率空间。
-
-Terminal 后不得继续 step 或补造执行子步；为了匹配可保持 inference batch/noise draw 次数，
-但终止后的 planner audit 不能进入执行指标。异常保存当前 arm 已有部分证据并传播。
-安全、完整性、执行窗口与 planner-response 的差异 MUST 单列；gate 不通过不等于软件执行失败。
-Proxy intensity 使用实际窗口 fuel/distance，零距离 undefined；零噪声不能使零效应通过。
-
-### Control authority
-
-该设计显式以 `execution_steps=1` 进行 0.1 s 诊断，首步 immediate 与默认 20 子步／2 s 窗口
-分开解释，env horizon 大于窗口。普通 evaluation 不继承该 override。
-测量实际运动、终止、reference/guided prediction、guidance diagnostics 与 noise。
-对场景内 arm repeat 均值计算 Spearman、±1 endpoint 差及重复噪声；阈值和同方向场景数由配置给出。
-常量相关性 undefined，安全／完整性失败与时间窗口方向冲突分别报告。
-
-### Execution horizon
-
-固定同一物理窗口（既有设计 2 s），仅改变每次重规划前执行的 waypoint 数 k。
-MUST 要求 k 整除 total_window_steps 且小于 prediction horizon；replan 数为 total_window_steps/k。
-首次完整预测在 0.1/0.2/0.5/1/2/4/8 s 记录前向位移并跨 k 核对匹配。
-
-按 k 分组统计 speed、endpoint speed、distance、progress、energy intensity、tracking error 的
-逐场景 Spearman、endpoint 差与噪声；planner response 为 first-plan matched 位移差。
-预声明判据区分 receding-horizon mismatch 强证据、符号未变、混合／不确定与 safety/proxy failure。
-此干预不选择或重定义正式 cadence。
-
-### Replanning deferral
-
-固定 `execution_steps=1`、默认 2 s 窗口与 5 个配置 longitudinal arms，每周期重新规划；
-只加载冻结 planner，记录每周期全部未来 waypoints。
-以 `Δ=D(g=+1)−D(g=−1)` 先对 noise repeats 取中位，再逐 cycle 记录首点、完整预测时域效应、
-首个正 response 的 zero-crossing waypoint，以及跨 cycle 稳定性。
-
-多数 cycle 首点 ≤0、full-horizon >0、正 response 在执行 prefix 外且 crossing 稳定，是场景级
-repeated-deferral 判据；场景多数满足则判 repeated_deferral。首点多数为正为 deferral_absent，
-否则 mixed/inconclusive；安全、完整性或 proxy 失败覆盖为 safety_or_proxy_failure。
-它定位预测效应是否反复落在未执行部分，不证明某个训练 reward 有效。
-
-### Longitudinal / lateral decomposition
-
-按 training seed 配置 `r0/lon/lat/joint` 四个常量动作。Lon 仅改纵向，lat 仅改横向，
-`joint = r0 + (lon−r0) + (lat−r0)`，值域遵守固定动作契约。
-既有设计的常量来自 E-041 frozen final-policy Beta mean；只加载 planner，诊断 prefix 为 1，
-episode 可变长。组内 arm 顺序固定，以 scenario/seed/noise 配对。
-
-相对 r0 的 effect 记为 `E_arm`，interaction 为 `E_joint−E_lon−E_lat`。
-方向按多数场景门槛，归因按预声明 dominance_share 与 expected_joint_direction 区分
-longitudinal-dominated、lateral-dominated、nonlinear-interaction、not-reproduced-state-dependent。
-Seed 不一致时 overall 为 mixed-across-seeds。常量干预不是完整 state-dependent policy 的替代证据。
-
-### Frozen-policy execution bridge
-
-冻结 learned policy checkpoints，以 deterministic mean action 替代常量；保持 matched reset、
-固定 batch 与逐周期 noise，核对 policy hash 未变，不训练、不修改 planner/reward/PPO。
-既有设计取 E-040 r0/rstress、training seeds {0,1}，明确分两部分：
-
-- Part A：按 prefix k（既有 1/2/5，须整除 evaluated horizon）闭环比较 `Rstress−R0`，
-  first-plan response 跨 prefix 必须匹配。保留执行／安全／长度／误差与逐周期 action。
-  两个 seed 均出现 k=1 negative、k=5 positive 才符合 crossover；其他结果按原配置记 amplify
-  或 no-material。k=5 是历史 held-out 的方向复现对照，不宣称不同 collector 的逐值复现。
-- Part B：在同一 held-out context，用两个 policy 对同 observation、planner、noise 各求一次
-  response，只替换 guidance。记录 0.1/0.2/0.5/1/2/8 s 的 forward/lateral effect、Δg 和
-  zero-crossing。多数 context Δg_lon>0、0.1 s 中位≤0、0.2/0.5 s 中位>0 是该设计的判据；
-  若 0.1 s 已为正则为 local-response-differs，不能将 ±1 全幅 sweep 等同 learned operating point。
-
-最终 verdict 按持久化设计的四个预声明结论选择；本篇不重裁任何历史 gate。
+Authority、execution horizon、replanning deferral、longitudinal/lateral decomposition 与
+frozen-policy execution bridge 已退役，其专用实现、配置、CLI 和报告重算入口不再维护。
+历史方法与实现见[退役前版本](https://github.com/xcz0/Eco-AutoDrive/tree/7a3ca7366e9f699552ce73e2f4c305a862dbb754)；
+对应实验记录与原始证据继续保留，历史结论的适用条件仍以具体 record 为准。
+本次退役不改变正式训练、评测 cadence 或保留的 energy sweep。
 
 ## Training grid、测量与 critic attribution
 
@@ -199,8 +136,5 @@ Transfer 验收归 [Issue #83](https://github.com/xcz0/Eco-AutoDrive/issues/83)�
 | 任务 | 实现／配置定位 | 相关测试（未运行） |
 | --- | --- | --- |
 | 固定批次／credit | [fixed batch](../../../src/eco_planner/rl/rollout/fixed_batch.py)、[credit](../../../src/eco_planner/experiments/credit/)、[configs](../../../configs/experiments/credit/) | [fixed batch](../../../tests/training/test_fixed_batch.py)、[credit](../../../tests/training/test_credit_assignment.py) |
-| Authority / horizon | [intervention](../../../src/eco_planner/evaluation/intervention.py)、[guidance configs](../../../configs/experiments/guidance/) | [authority](../../../tests/training/test_guidance_control_authority.py)、[horizon](../../../tests/training/test_guidance_horizon.py) |
-| Deferral / decomposition | [guidance studies](../../../src/eco_planner/experiments/guidance/) | [deferral](../../../tests/training/test_guidance_deferral.py)、[decomposition](../../../tests/training/test_guidance_decomposition.py) |
-| Frozen-policy bridge | [policy intervention](../../../src/eco_planner/evaluation/policy_intervention.py) | [bridge](../../../tests/training/test_guidance_execution_bridge.py) |
 | Offline attribution / reporting | [credit math](../../../src/eco_planner/rl/optimization/credit.py)、[experiments](../../../src/eco_planner/experiments/) | [credit](../../../tests/training/test_credit_assignment.py)、[reports](../../../tests/analysis/test_reports.py) |
 | Benchmark | [benchmarks](../../../benchmarks/)、[configs](../../../configs/components/benchmark/) | [rollout benchmark](../../../tests/benchmarking/test_rollout.py) |

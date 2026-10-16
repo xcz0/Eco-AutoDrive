@@ -1,4 +1,4 @@
-"""Base/fixed/manual decision semantics over the real sampler and guidance code."""
+"""Base/fixed decision semantics over the real sampler and guidance code."""
 
 import pytest
 import torch
@@ -6,11 +6,11 @@ import torch
 from eco_planner.evaluation.inference import DiffusionEvaluationAgent
 from tests.characterization.harness import build_diffusion_case
 
-CASES = ("base_dpm", "base_ddim", "base_stochastic", "fixed_zero", "fixed", "manual")
+CASES = ("base_dpm", "base_ddim", "base_stochastic", "fixed_zero", "fixed")
 
 
 def run_diffusion_case(case, *, profile=False):
-    runtime, observation, generators, action = build_diffusion_case(case)
+    runtime, observation, generators = build_diffusion_case(case)
     snapshot = {"rng_before": torch.stack([g.get_state() for g in generators])}
     global_before = torch.get_rng_state().clone()
     noise = runtime.sample_noise(generators)
@@ -20,7 +20,6 @@ def run_diffusion_case(case, *, profile=False):
         noise,
         generators,
         profile=profile,
-        guidance_action=action,
     )
     snapshot.update(dict(decision.audit_result()))
     snapshot["execution"] = torch.from_numpy(decision.ego_trajectories)
@@ -44,7 +43,7 @@ def test_profiling_preserves_decision_and_rng(case):
     torch.testing.assert_close(actual, expected, rtol=0.0, atol=0.0)
 
 
-@pytest.mark.parametrize("case", ["fixed_zero", "fixed", "manual"])
+@pytest.mark.parametrize("case", ["fixed_zero", "fixed"])
 def test_guidance_shares_base_reference_and_transition_draws(case):
     base = run_diffusion_case("base_ddim" if case == "fixed_zero" else "base_stochastic")
     guided = run_diffusion_case(case)
@@ -55,13 +54,11 @@ def test_guidance_shares_base_reference_and_transition_draws(case):
     if case != "fixed_zero":
         assert not torch.equal(guided["prediction"], guided["reference_prediction"])
         assert torch.any(guided["applied_gradient_l2"] > 0)
-    if case == "manual":
-        assert torch.equal(guided["guidance_action"], torch.tensor([[-1.0, 1.0], [1.0, -1.0]]))
 
 
 @pytest.mark.parametrize("case", CASES)
 def test_mode_grad_context_and_pass_count(case, monkeypatch):
-    runtime, observation, generators, action = build_diffusion_case(case)
+    runtime, observation, generators = build_diffusion_case(case)
     planner = runtime._planner
     calls = []
     denoise = planner.model.denoise
@@ -71,9 +68,7 @@ def test_mode_grad_context_and_pass_count(case, monkeypatch):
         return denoise(*args, **kwargs)
 
     monkeypatch.setattr(planner.model, "denoise", record)
-    result = runtime.decide_batch(
-        observation, runtime.sample_noise(generators), generators, guidance_action=action
-    )
+    result = runtime.decide_batch(observation, runtime.sample_noise(generators), generators)
     if case.startswith("base"):
         assert all(inference and not grad for grad, inference in calls)
         assert len(calls) == (11 if case == "base_dpm" else 5)
@@ -88,7 +83,7 @@ def test_mode_grad_context_and_pass_count(case, monkeypatch):
 
 
 def test_explicit_noise_zero_stochasticity_needs_no_generator():
-    runtime, observation, generators, _ = build_diffusion_case("base_ddim")
+    runtime, observation, generators = build_diffusion_case("base_ddim")
     noise = runtime.sample_noise(generators)
     before = torch.get_rng_state().clone()
     result = runtime.decide_batch(observation, noise, (None, None))
@@ -115,7 +110,7 @@ def test_disabled_profiling_does_not_sync_or_create_events(monkeypatch, cuda_ini
 def test_cpu_observation_matches_observation_already_on_runtime_device(device):
     from lightning.fabric import Fabric
 
-    runtime, observation, _, _ = build_diffusion_case("base_stochastic")
+    runtime, observation, _ = build_diffusion_case("base_stochastic")
     runtime._fabric = Fabric(accelerator=device, devices=1, precision="32-true")
     runtime._planner.to(runtime.device)
     generators = tuple(

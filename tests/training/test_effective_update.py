@@ -30,8 +30,9 @@ from eco_planner.rl.optimization.update_diagnostics import (
     mc_log_ratio_draws,
     post_update_kl_series,
 )
-from tests.training.helpers import _policy_config
-from tests.training.workflow_helpers import _gate, _metrics, _study
+
+from .diagnostic_helpers import _gate, _metrics, _study
+from .helpers import _policy_config
 
 
 def _state_dict() -> dict[str, torch.Tensor]:

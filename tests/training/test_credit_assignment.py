@@ -45,14 +45,15 @@ from eco_planner.rl.rollout import (
     build_training_transition,
 )
 from eco_planner.statistics import advantage_comparison, cosine
-from tests.training.helpers import (
+
+from .helpers import (
     _context,
     _decision_audit,
     _episode,
     _execution_audit,
     _ppo_config,
 )
-from tests.training.reward_helpers import _metrics, _no_energy_config, _reward_profile_payload
+from .reward_helpers import _metrics, _no_energy_config, _reward_profile_payload
 
 
 @pytest.mark.parametrize("weight", [0.0, 1.0, 16.0])

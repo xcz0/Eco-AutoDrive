@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import torch
-from tensordict import TensorDictBase
+from tensordict import TensorDict, TensorDictBase
 
 from eco_planner.jobs import compose_job_config
 from eco_planner.planning.policy import (
@@ -73,6 +75,27 @@ def _context() -> ExplorationPolicyContext:
     )
 
 
+def _training_episode(*, reward: float, terminated: bool, truncated: bool, bootstrap: float):
+    """Optimizer input without reward diagnostics, simulator audit, or persistence."""
+    training = build_training_decision(
+        _context(),
+        torch.tensor([[-0.5, 0.5]]),
+        torch.tensor([0.5]),
+        torch.tensor([1.0]),
+    )
+    training["next"] = TensorDict(
+        {
+            "reward": torch.tensor([[reward]]),
+            "state_value": torch.tensor([[bootstrap]]),
+            "done": torch.ones(1, 1, dtype=torch.bool),
+            "terminated": torch.tensor([[terminated]]),
+            "truncated": torch.tensor([[truncated]]),
+        },
+        batch_size=[1],
+    )
+    return SimpleNamespace(training=training)
+
+
 def _decision_audit(context: ExplorationPolicyContext | None = None) -> TensorDictBase:
     if context is None:
         context = _context()
@@ -92,18 +115,17 @@ def _decision_audit(context: ExplorationPolicyContext | None = None) -> TensorDi
     )
 
 
-def _execution_audit(
-    reward: float,
+def _reward_result(
+    total: float,
     *,
-    terminated: bool,
-    truncated: bool,
+    safety_gate: float = 1.0,
     profile_name: RewardProfileName = "plannerrft_energy_v1",
-) -> ExecutionTransitionAudit:
-    result = PlannerRFTRewardResult(
+) -> PlannerRFTRewardResult:
+    return PlannerRFTRewardResult(
         profile_name=profile_name,
-        total=reward,
-        base_total=reward,
-        safety_gate=1.0,
+        total=total,
+        base_total=total,
+        safety_gate=safety_gate,
         components=RewardComponents(1.0, 0.5, 1.0, 1.0, 0.5),
         diagnostics=RewardDiagnostics(
             collision_score=1.0,
@@ -127,6 +149,16 @@ def _execution_audit(
             energy_distance_valid=True,
         ),
     )
+
+
+def _execution_audit(
+    reward: float,
+    *,
+    terminated: bool,
+    truncated: bool,
+    profile_name: RewardProfileName = "plannerrft_energy_v1",
+) -> ExecutionTransitionAudit:
+    result = _reward_result(reward, profile_name=profile_name)
     return ExecutionTransitionAudit(
         reward_result=result,
         substep_results=(result,),

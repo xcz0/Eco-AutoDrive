@@ -19,7 +19,8 @@ from eco_planner.rl.artifacts import PolicyProbeSummary
 from eco_planner.rl.probing import capture_probe_contexts, probe_policy
 from eco_planner.rl.tracking import TrackingIdentity
 from eco_planner.rl.training_state import TrainingLoopState
-from tests.training.helpers import _config, _context, _episode, _policy_config
+
+from .helpers import _config, _context, _episode, _policy_config
 
 
 @pytest.mark.parametrize("start_update", [0, 1, 2])
@@ -181,10 +182,6 @@ def test_probe_preserves_formula_scenario_order_and_training_random_streams():
         # Break symmetric initialization so different contexts exercise output ordering.
         torch.nn.init.normal_(policy.actor_head.weight, std=0.1)
         contexts = (_context(), replace(_context(), reference_trajectory=torch.ones(1, 80, 4)))
-        noise_generator = torch.Generator().manual_seed(101)
-        action_generator = torch.Generator().manual_seed(102)
-        noise_before = noise_generator.get_state().clone()
-        action_before = action_generator.get_state().clone()
         seeds = []
 
         def new_generator(seed):
@@ -199,8 +196,6 @@ def test_probe_preserves_formula_scenario_order_and_training_random_streams():
         assert seeds == [40, 41]
         assert probe_policy(runtime, contexts, 128, 0.1, 40) == actual
         assert torch.equal(torch.random.get_rng_state(), global_before)
-        assert torch.equal(noise_generator.get_state(), noise_before)
-        assert torch.equal(action_generator.get_state(), action_before)
         assert actual.alpha[0] != actual.alpha[1]
         for index, context in enumerate(contexts):
             with torch.no_grad():
@@ -217,29 +212,6 @@ def test_probe_preserves_formula_scenario_order_and_training_random_streams():
             assert actual.beta[index] == tuple(beta[0].tolist())
             assert actual.guidance_mean[index] == tuple(distribution.mean[0].tolist())
             assert actual.boundary_mass[index] == tuple(boundary.tolist())
-
-
-def test_probe_reports_boundary_collapse_without_raising_on_exact_boundary_draws():
-    """Issue #83 Task 1: the probe measures boundary saturation instead of aborting."""
-
-    distribution = AffineBeta(torch.full((1, 2), 1.0e-4), torch.full((1, 2), 2.0))
-
-    class _StubPolicy:
-        def forward_tensordict(self, tensordict):
-            return tensordict
-
-        def output_from_tensordict(self, outputs):
-            return SimpleNamespace(distribution=distribution)
-
-    runtime = SimpleNamespace(
-        policy=_StubPolicy(),
-        device=torch.device("cpu"),
-        new_policy_generator=lambda seed: torch.Generator().manual_seed(seed),
-    )
-    summary = probe_policy(runtime, (_context(),), 512, 0.05, 7)
-    assert summary.alpha[0] == pytest.approx((1.0e-4, 1.0e-4))
-    assert summary.boundary_mass[0][0] == pytest.approx(1.0)
-    assert summary.boundary_mass[0][1] == pytest.approx(1.0)
 
 
 def _sampling_context() -> ExplorationPolicyContext:

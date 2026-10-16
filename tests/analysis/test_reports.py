@@ -172,7 +172,7 @@ def test_failed_episode_is_visible_and_never_zero_filled(tmp_path):
 
 @pytest.fixture
 def training_summary():
-    from tests.training.summary_helpers import build_training_update_summary
+    from tests.training.diagnostic_helpers import build_training_update_summary
 
     update = build_training_update_summary()
     return _training_summary(0, 0).model_copy(update={"updates": (update,)})
@@ -454,7 +454,6 @@ import eco_planner.experiments.comparison.analysis
 import benchmarks.execution_analysis
 import eco_planner.experiments.fixed_batch
 import eco_planner.experiments.comparison.inputs
-import eco_planner.experiments.guidance.authority.report
 from eco_planner.rl.artifacts import TrainingRunSummary
 roots = (
     'torch',

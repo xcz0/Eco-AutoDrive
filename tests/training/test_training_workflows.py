@@ -12,8 +12,8 @@ from eco_planner.experiments.training import grid, runner
 from tests.analysis.helpers import job
 from tests.analysis.routing import analyze
 from tests.evaluation.helpers import _training_summary
-from tests.training.summary_helpers import build_training_update_summary
-from tests.training.workflow_helpers import _metrics, _study
+
+from .diagnostic_helpers import _metrics, _study, build_training_update_summary
 
 
 @pytest.fixture

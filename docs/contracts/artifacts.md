@@ -108,8 +108,6 @@ Critic attribution 的 offline reporting 可核对 advantage，不重算梯度�
 | Reward | summary、diagnostics NPZ、sample index、audit JSON/NPZ |
 | Credit | summary、diagnostics NPZ、sample index、实际 calibration/reward config 与原 gate |
 | Comparison | 显式 YAML protocol 与 typed training/evaluation summaries |
-| Guidance authority/horizon/deferral/decomposition | episodes、intervention config、scenarios、decisions |
-| Frozen-policy bridge | 同上，并含 same_state |
 | Guidance sweep | matrix summary 与对应 evaluation summaries |
 | Training grid/diagnose/eval | 持久化测量 summary 与各 run 事实 |
 | Critic attribution | diagnostics NPZ、sample index、summary、diagnostic config、runtime metadata |

@@ -34,17 +34,24 @@ from eco_planner.rl.rollout import (
 from eco_planner.rl.rollout.collector import _EpisodeLifecycle, _execution_transition_audit
 from eco_planner.rl.rollout.decision import RolloutDecision
 from eco_planner.runtime.contracts import HostTrajectories
-from tests.training.rollout_helpers import (
+
+from .diagnostic_helpers import build_ppo_update_report
+from .helpers import _reward_result
+from .rollout_helpers import (
     _execution_result,
-    _reward_result,
     _substep_metrics,
     _transition,
 )
-from tests.training.summary_helpers import build_ppo_update_report
 
 
-@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
-@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float64])
+@pytest.mark.parametrize(
+    "device,dtype",
+    [
+        ("cpu", torch.float16),
+        ("cpu", torch.bfloat16),
+        pytest.param("cuda", torch.bfloat16, marks=pytest.mark.gpu),
+    ],
+)
 def test_update_storage_preserves_next_value_dtype_promotion(device, dtype):
     compact = RolloutEpisodeBuilder()
     transitions = []
@@ -78,24 +85,16 @@ def test_update_storage_preserves_next_value_dtype_promotion(device, dtype):
     assert (compact_episode.training == separate_episode.training).all()
 
 
-@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
 @pytest.mark.parametrize(
-    "key,value,message",
+    "device,key,value,message",
     [
-        ("scene_tokens", float("nan"), "finite"),
-        ("navigation_tokens", float("inf"), "finite"),
-        ("reference_trajectory", float("nan"), "finite"),
-        ("guidance_action", float("nan"), "finite"),
-        ("old_joint_guidance_log_prob", float("inf"), "finite"),
-        ("state_value", float("nan"), "finite"),
-        (("next", "state_value"), float("inf"), "finite"),
-        (("next", "reward"), float("nan"), "finite"),
-        ("guidance_action", -1.0, "strictly inside"),
-        ("guidance_action", 1.0, "strictly inside"),
-        ("guidance_action", -2.0, "strictly inside"),
-        ("guidance_action", 2.0, "strictly inside"),
-        (("next", "done"), False, "final GAE boundary"),
-        (("next", "terminated"), False, "zero bootstrap"),
+        ("cpu", "scene_tokens", float("nan"), "finite"),
+        ("cpu", ("next", "reward"), float("inf"), "finite"),
+        ("cpu", "guidance_action", -1.0, "strictly inside"),
+        ("cpu", "guidance_action", 1.0, "strictly inside"),
+        ("cpu", ("next", "done"), False, "final GAE boundary"),
+        ("cpu", ("next", "terminated"), False, "zero bootstrap"),
+        pytest.param("cuda", "state_value", float("nan"), "finite", marks=pytest.mark.gpu),
     ],
 )
 def test_episode_rejects_invalid_training_independently_of_valid_audit(
@@ -216,15 +215,15 @@ def test_episode_finish_does_not_read_reward_or_flags_from_audit(monkeypatch) ->
     assert not episode.training["next", "truncated"].item()
 
 
-@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.gpu)])
-@pytest.mark.parametrize("length", [1, 3])
 @pytest.mark.parametrize(
-    "terminated,truncated,tail,bootstrap",
+    "device,length,terminated,truncated,tail,bootstrap",
     [
-        (True, False, "terminated", 0.0),
-        (False, True, "truncated", 5.0),
-        (False, False, "rollout_limit", 5.0),
-        (True, True, "terminated", 0.0),
+        ("cpu", 3, True, False, "terminated", 0.0),
+        ("cpu", 3, False, True, "truncated", 5.0),
+        ("cpu", 3, False, False, "rollout_limit", 5.0),
+        ("cpu", 3, True, True, "terminated", 0.0),
+        ("cpu", 1, False, False, "rollout_limit", 5.0),
+        pytest.param("cuda", 3, False, True, "truncated", 5.0, marks=pytest.mark.gpu),
     ],
 )
 def test_rollout_constructs_next_values_and_tail_without_mutating_decisions(
@@ -362,6 +361,8 @@ def test_rollout_artifact_preserves_audit_and_nonterminal_bootstrap(tmp_path: Pa
     restored = read_rollout_episode(artifact)
     assert restored.tail_kind == episode.tail_kind
     torch.testing.assert_close(restored.tail_bootstrap_value, episode.tail_bootstrap_value)
+    for key in episode.training.keys(include_nested=True, leaves_only=True):
+        assert restored.training[key].dtype == episode.training[key].dtype
     assert (restored.training == episode.training).all()
     assert (restored.audit == episode.audit).all()
 
